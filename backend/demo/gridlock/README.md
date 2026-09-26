@@ -142,7 +142,7 @@ Output: `data/fault_report.json` (committed), served at `GET /api/gridlock/fault
 
 ```bash
 backend/venv/Scripts/python backend/demo/gridlock/gemini_reader.py                  # read, compare, propose rescues (report only)
-backend/venv/Scripts/python backend/demo/gridlock/gemini_reader.py --apply          # also fold passing rescues into projects.json
+backend/venv/Scripts/python backend/demo/gridlock/gemini_reader.py --apply          # projects.json = the build + every passing rescue
 backend/venv/Scripts/python backend/demo/gridlock/gemini_reader.py --apply --title-only   # only rescues placed from their own title
 ```
 
@@ -152,7 +152,8 @@ fields the parsers extract (structured output through `llm.complete_json`, `GEMI
 thinking at its minimum): the 44 DESC project pages one by one, the 14 pages of Georgia's Table 2 one by one, and the 208 Georgia
 detail pages twelve to a request (each detail page names its own TEAMS #, so answers are joined back per page). The answers are
 cached in `raw/gemini_reader/` (gitignored) by the source file's SHA-256, the pages and the prompt, so a rerun costs nothing.
-The first run made 134 requests (76 reading, 58 rescue); the stage never reads or writes the app's own answer cache.
+The first run made 134 requests (76 reading, 58 rescue); the stage never reads or writes the app's own answer cache. The report
+is rewritten only when its content changes, so a cached rerun leaves the committed file (and its timestamp) byte for byte.
 
 1. **Compare.** Every Gemini value and every parser value goes through the pipeline's own normalizing first (`parse_date`,
    `kv_of`, `endpoints_of` / `endpoint_key` / `locate.core`, the Sperry title canon), then field by field. Georgia Table 2 has three
@@ -161,29 +162,39 @@ The first run made 134 requests (76 reading, 58 rescue); the stage never reads o
    itself recorded about that field (its repairs).
 2. **Rescue proposals.** For each of the 58 set-aside records, Gemini is asked, from that record's page and with the checks'
    reasons, for the places the work connects or sits at, with the exact words it took them from. A name that isn't printed on
-   the page is not tried. A printed one goes through `endpoints_of`, the locate stage (`locate.locate_project`, then the cached
-   Nominatim answers that `locate.fits`; no network here) and `checks.run` over the whole record list (so `id_unique` counts as in
-   the build). A proposal passes only when every blocking check passes.
-3. **`--apply`** (never by default) moves the passing records from `quarantine` to `projects` in `data/projects.json`, each with a
-   note saying so, but only when `build.sperry_report` still reproduces Sperry's example 6 of 6 and no Sperry match or endpoint
-   gets worse. `build.py` rebuilds that file from the filings alone, so an applied rescue lasts until the next build.
+   the page is not tried. A printed one goes through `endpoints_of`, the locate stage exactly as `build.locate_all` runs it for
+   one record (the OSM name passes; the cached Nominatim answers at the highest voltage any filing gives that name, the first
+   that `locate.fits`; then the line its description names; no network here) and `checks.run` over the whole record list (so
+   `id_unique` counts as in the build). A proposal passes only when every blocking check passes. A point placed at a station
+   that only the page's description names (a line end, a connected station), not the title, is capped at low confidence and
+   noted "in this area, not the work site", in the report and in the record `--apply` would publish; low confidence halves a
+   pair's score in the overlap ranking.
+3. **`--apply`** (never by default) sets `data/projects.json` to the build plus the rescues chosen now (an earlier application is
+   replaced, not stacked; `--title-only` keeps only those placed from their own title), each with a note saying so, and
+   recomputes the check summary, coverage and Sperry comparison by re-running `checks.run` over the resulting list. It writes only
+   when (a) `projects.json` is what the filings rebuild to offline and (b) the rescues leave Sperry's worked example as it was:
+   each of their ten projects matched to the same record, each endpoint that was within 1 km of ours still within 1 km. (The six
+   overlap distances come from Sperry's own coordinates and dates, so no rescue can move them; they are reported, not gated
+   on.) `build.py` rebuilds that file from the filings alone, so an applied rescue lasts until the next build; the reader's
+   report says which rescues `projects.json` holds.
 
 First run (the committed `data/gemini_reader.json`, served at `GET /api/gridlock/reader`):
 
 - **3,625 of 3,680 values agree (98.5 %).** Ids, dates, zones, plan years, sponsors, DESC totals, start dates and miles agree
-  100 %. Gemini returned all 208 Table 2 rows and left every redacted cost empty (208 of 208). The two parsers agree with each other
-  on every field, so all 55 disagreements are Gemini against both.
+  100 %. Gemini returned all 208 Table 2 rows and left every redacted cost empty (208 of 208). The parsers never disagree with
+  each other (Table 2 has two, the DESC and detail pages one), so each of the 55 disagreements is Gemini against the parsers.
 - **What the disagreements show.** Gemini copied `23O KV` as `230 KV`, a silent repair where the pipeline keeps the filed text and
   records the repair. On four detail pages it misspelled `RECONDUCTOR` in the title (`RECONSTRUCTION`, `RECONVERTOR`,
   `RECONDUCUTOR`, one with a Cyrillic `Т`). It read DESC p22's `$19,00,181` as printed, where the pipeline repairs it from the
   Total. 25 kind-of-work labels differ (90.1 %), and 20 place lists (92.1 %). In some of those Gemini is right where the
   title parser stops at the first work word (`MORNING HORNET … & THUMBS UP`, `GARRETT ROAD SWITCHING STATION - TRAE LANE`). In
   others it names a place for a customer-only title (`SAVANNAH`, `FAYETTEVILLE`) that the pipeline deliberately never geocodes.
-- **Rescues: 14 of 58 pass every blocking check. 13 of those are placed at a station that only the page's description names**
-  (a line end or a connected station, e.g. a new Scout substation placed at VCS1, one end of the line it folds into). Treat
-  those points as "in this area", not the work site. The report marks each one (`placed_from: page`, with a caution). Only
-  GA-20797 is placed from its own title (at the existing Villa Rica substation). The other 44 stay set aside: 22 because
-  Gemini proposed the same names the pipeline already tried, and 22 because the new names aren't in OSM's power features or in
+- **Rescues: 15 of 58 pass every blocking check. 14 of those are placed at a station that only the page's description names**
+  (a line end or a connected station, e.g. a new Scout substation placed at VCS1, one end of the line it folds into; GA-21013
+  through the line its description names, the build's own last resort). Those points are "in this area", not the work site:
+  the report marks each one (`placed_from: page`, `capped`, a caution) and they would be published at low confidence. Only
+  GA-20797 is placed from its own title (at the existing Villa Rica substation). The other 43 stay set aside: 22 because
+  Gemini proposed the same names the pipeline already tried, and 21 because the new names aren't in OSM's power features or in
   the cached Nominatim answers.
 
 ## Exports in Sperry's table format

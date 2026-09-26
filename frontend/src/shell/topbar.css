@@ -156,8 +156,14 @@ html.review-open .mc {
     min-width: 0;
     max-width: 8rem;
   }
+  /* "How AI is used" stays reachable: on the first row, right of the name (and the state) */
   .appbar__end {
-    display: none;
+    order: 2;
+    height: 48px;
+  }
+  .appbar .appbar__ai {
+    font-size: 0.8rem;
+    white-space: nowrap;
   }
   .mc {
     top: 0;
