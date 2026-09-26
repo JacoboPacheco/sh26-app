@@ -1,0 +1,195 @@
+/* Impact track: the towns feed under the homes counter, and the town labels on the map.
+   Colors are the index.css tokens: red (--overload) is people losing power, --lit is power back. */
+
+/* ------------------------------------------------------------------ towns feed */
+.towns {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.towns__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.towns__count {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.towns__list {
+  position: relative; /* offsetTop for the glide (useFlip) */
+  list-style: none;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.towns__item {
+  border-radius: 6px;
+}
+
+.towns__row {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 0.3rem var(--space-2) 0.45rem;
+  font: inherit;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.towns__row:hover {
+  background: var(--glass-hi);
+}
+
+.towns__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-stretch: 88%;
+}
+
+.towns__homes {
+  flex: none;
+  font-weight: 700;
+  font-stretch: 78%;
+  font-variant-numeric: tabular-nums;
+}
+
+.towns__unit {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+/* each town's share of the worst-hit town, as a thin red rule under the row */
+.towns__bar {
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  bottom: 0.2rem;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--overload);
+  opacity: 0.5;
+  transform-origin: left center;
+  transition: transform 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* a town that just lost power slides in with a short red flash (staggered when several arrive).
+   Short enough to finish inside one cascade step (STEP_MS = 600): the next step drops the class. */
+.towns__item--new {
+  animation: towns-in 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 30ms);
+}
+
+/* a town already listed that lost more this step: its number flashes */
+.towns__item--grew .towns__homes {
+  animation: towns-grew 0.55s ease-out;
+}
+
+@keyframes towns-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-16px);
+    background-color: color-mix(in srgb, var(--overload) 45%, transparent);
+  }
+  35% {
+    opacity: 1;
+    transform: none;
+    background-color: color-mix(in srgb, var(--overload) 32%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes towns-grew {
+  from {
+    color: var(--overload);
+  }
+}
+
+.towns__more {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+/* towns whose lights came back on: marked with a small light, the map's color for a substation with power */
+.towns__back {
+  position: relative;
+  padding-left: 0.9rem;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.towns__back::before {
+  content: '';
+  position: absolute;
+  left: 0.1rem;
+  top: 0.45em;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--lit);
+  box-shadow: 0 0 6px var(--lit);
+}
+
+/* ------------------------------------------------------------------ town labels on the map */
+.impact-label text {
+  font-family: var(--font);
+  paint-order: stroke;
+  stroke: var(--night);
+  stroke-opacity: 0.92;
+  stroke-width: var(--halo, 3px);
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.impact-label__name {
+  fill: var(--ink);
+  font-weight: 700;
+  font-stretch: 75%;
+}
+
+.impact-label__homes {
+  fill: var(--overload);
+  font-weight: 650;
+  font-stretch: 75%;
+}
+
+.impact-label {
+  animation: impact-label-in 0.6s ease-out both;
+}
+
+@keyframes impact-label-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .towns__item--new,
+  .towns__item--grew .towns__homes,
+  .impact-label {
+    animation: none;
+  }
+
+  .towns__bar {
+    transition: none;
+  }
+}
