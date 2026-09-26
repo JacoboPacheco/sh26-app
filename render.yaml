@@ -27,3 +27,18 @@ services:
         generateValue: true
       - key: ALLOWED_ORIGINS
         sync: false
+      # AI and voice (paste the values from backend/.env when Render asks; blank = the labeled fallbacks run)
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      # The free tier gets a fraction of one CPU: no background warm-ups at startup there (each is computed
+      # on first use instead). Measured locally Sat 08:50: peak memory 236 MB through every heavy path.
+      - key: DANGER_WARM
+        value: "0"
+      - key: FORECAST_PREWARM
+        value: "0"
+      - key: PLANTS_WARM
+        value: ""
+      - key: UNLOCK_WARM
+        value: "0"
