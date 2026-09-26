@@ -5,6 +5,7 @@ import { fmt } from '../geo'
 import { MAX_POINTS, SEED_MARK, useOverload } from '../store'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../ui'
 import DangerPanel from '../features/danger/DangerPanel'
+import SiteReport from '../features/site/SitePanel'
 import './campus.css'
 
 // The slider covers the usual campus sizes; the custom box goes past it (the backend takes 1–50,000 MW).
@@ -99,6 +100,7 @@ export default function CampusPanel() {
           </p>
         </div>
       )}
+      <SiteReport />
 
       <HeadroomToggle />
     </div>
