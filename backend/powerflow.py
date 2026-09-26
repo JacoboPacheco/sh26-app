@@ -193,6 +193,11 @@ class Grid:
             gmax = self.pmax[idx]
             Gmax = float(gmax.sum())
             need = L - T
+            if need > Gmax and T < 0:
+                # short of supply: the island stops exporting before it cuts its own customers
+                tie[idx] = np.maximum(tie[idx], 0.0)
+                T = float(tie[idx].sum())
+                need = L - T
             if Gmax <= _EPS:
                 # no generator here: ties are the only supply
                 if need <= 0:
