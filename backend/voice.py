@@ -701,7 +701,7 @@ def _build_files(deck: dict, lang: str) -> dict:
 
 
 @router.post("/api/voice/download")
-@limiter.limit("10/minute")
+@limiter.limit("30/minute")  # the venue shares one IP (CLAUDE.md Gotchas); VOICE_DAILY_CHARS caps the cost
 async def download(request: Request, body: DownloadIn):
     from bulletin import deck_by_key  # noqa: PLC0415 — bulletin imports voice
 

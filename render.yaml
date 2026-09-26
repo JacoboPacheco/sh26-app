@@ -51,3 +51,10 @@ services:
         value: "0"
       - key: NARRATE_WARM
         value: "0"
+      # the Python the app was tested on locally, and one BLAS thread: splu is single-threaded and the free tier has a fraction of a CPU
+      - key: PYTHON_VERSION
+        value: "3.13.14"
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
+      - key: OMP_NUM_THREADS
+        value: "1"

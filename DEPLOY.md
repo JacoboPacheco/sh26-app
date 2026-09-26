@@ -37,6 +37,15 @@ backend\venv\Scripts\python backend\smoke_test.py https://<your-render-url> http
 backend\venv\Scripts\python backend\seed.py https://<your-render-url>
 ```
 
+Then warm the AI caches once (the Render disk is wiped on every deploy and restart, so Gemini's cached answers are gone), and confirm Strengthen's baked Florida study loaded:
+
+```
+backendenv\Scripts\python scripts\prewarm_ai.py https://<your-render-url>
+curl https://<your-render-url>/api/unlock/peek?region=FL^&mw=1000
+```
+
+The peek must say `"state":"done"`. Don't redeploy the backend in the hour before judging.
+
 ## 4. Keep the backend awake (2 minutes, do it right after deploying)
 
 Render's free tier spins down after 15 min idle, and the next request waits 30s or more — that would be a judge's first click. The repo includes a GitHub Action scheduled every 5 minutes (GitHub often delays it, so expect roughly every 10) that pings the backend. Turn it on: GitHub → your repo → Settings → Secrets and variables → Actions → **Variables** → New repository variable → name `RENDER_URL`, value your Render URL. Confirm under the Actions tab that "Keep backend warm" runs green. Still open the site yourself a minute before demoing.

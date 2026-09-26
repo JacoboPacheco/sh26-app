@@ -1,12 +1,13 @@
-fastapi
-uvicorn[standard]
-python-dotenv
-sqlalchemy
-passlib[bcrypt]
+# Pinned to the versions tested locally (Python 3.13.14, Sat 26 Sep 2026) so Render's first build installs the same combination.
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+python-dotenv==1.2.3
+sqlalchemy==2.1.1
+passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
-python-jose[cryptography]
-python-multipart
-slowapi
-psycopg[binary]
-numpy
-scipy
+python-jose[cryptography]==3.5.0
+python-multipart==0.0.32
+slowapi==0.1.10
+psycopg[binary]==3.3.6
+numpy==2.5.3
+scipy==1.18.1
