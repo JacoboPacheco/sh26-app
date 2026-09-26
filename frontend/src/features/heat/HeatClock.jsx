@@ -44,7 +44,8 @@ export default function HeatClock() {
   // Warm the backend's per-level cache (≈0.6 s to build a level the first time) once the grid is
   // up, so the first click on an hour answers at once. Fire and forget; the real requests report errors.
   useEffect(() => {
-    if (!grid) return undefined
+    // Florida only (it is the demo): every other state is lazy, nothing is computed ahead of the cascade
+    if (!grid || (grid.meta?.region || 'FL') !== 'FL') return undefined
     let cancelled = false
     const t = setTimeout(async () => {
       // the heat wave first: it's the demo's click, and the backend builds one level at a time

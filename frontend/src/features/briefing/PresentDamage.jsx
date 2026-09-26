@@ -9,10 +9,12 @@ import { bodyFor } from './stage'
 // time without power first, then who is hit, why it failed, what could be done. It never opens by itself.
 // Sound is whatever this viewer chose (off until they turn it on): the deck runs on captions.
 export default function PresentDamage() {
-  const { result, cascade, caseBody, cascadeBody } = useOverload()
+  const { result, cascade, caseBody, cascadeBody, region } = useOverload()
   const [open, setOpen] = useState(false)
   const body = cascade ? bodyFor(cascade, caseBody, cascadeBody) : caseBody
-  const key = result ? JSON.stringify(body) : ''
+  // Florida (the demo state) warms the briefing ahead of the click; every other state is lazy: nothing is asked
+  // of the server until the button is pressed (user, Sat 06:24: only calculate during the cascade, nothing else).
+  const key = result && region === 'FL' ? JSON.stringify(body) : ''
 
   // Warm the briefing once the case has held still, so the click opens on data that is already in
   // (the template deck only: no AI quota is spent until someone presents).

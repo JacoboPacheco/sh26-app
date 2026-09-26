@@ -42,6 +42,7 @@ from collections import OrderedDict
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from fixit import greedy_fix
@@ -670,6 +671,46 @@ def _clean_ai(raw, det: dict) -> tuple[dict, bool]:
 
 
 # ---------------------------------------------------------------------------------- routes
+class QuickIn(BaseModel):
+    region: str | None = None
+    lost_mw: float = Field(ge=0, le=1_000_000)
+    people: int = Field(ge=0, le=400_000_000)
+    hours_out: float | None = None
+
+
+@router.post("/api/cost/quick")
+@limiter.limit("60/minute")
+def cost_quick(request: Request, body: QuickIn):
+    """The headline (time without power, expected cost at the high end) for a cascade the caller already ran: the lost
+    load and people come from it, nothing is re-run. What the map uses outside Florida, where nothing is computed
+    ahead of the cascade. Same formulas and sources as /api/cost."""
+    region_code(body.region)  # a readable 422 for an unknown state
+    given = body.hours_out is not None
+    hours = _check_hours(body.hours_out) if given else (outage_hours(body.people) if body.lost_mw > 0.5 else 0.0)
+    lost = body.lost_mw if body.lost_mw > 0.5 else 0.0
+    v_low, v_high = voll_per_mwh(hours)
+    mwh = lost * hours
+    low, high = round(mwh * v_low), round(mwh * v_high)
+    head = {
+        "kind": "blackout" if lost else "none",
+        "label": "Cost of the blackout" if lost else "No blackout",
+        "cost_high": high,
+        "cost_low": low,
+        "outage_hours": hours,
+        "outage_label": outage_label(hours),
+        "outage_label_es": outage_label(hours, "es"),
+        "outage_estimated": not given,
+        "outage_basis": OUTAGE_BASIS if not given else f"Outage length chosen: {hours:g} hours.",
+        "people": int(body.people),
+    }
+    assumption = (
+        f"{lost:,.0f} MW of customers dark for {hours:g} hours, at LBNL's value of lost load by customer class weighted by 2024 U.S. sales "
+        f"({RES_SHARE:.1%} homes, the rest businesses); low: every business at the large-business rate, high: one business MWh in ten at the "
+        "small-business rate. 2013 dollars raised to 2024 by CPI-U."
+    )
+    return {"synthetic": True, "estimate": True, "hours_out": hours, "headline": head, "lines": [{"key": "blackout", "low": low, "high": high, "assumption": assumption}]}
+
+
 @router.post("/api/cost")
 @limiter.limit("120/minute")  # cheap and cached; the size slider re-prices on every settle
 async def cost(request: Request, body: CostIn):

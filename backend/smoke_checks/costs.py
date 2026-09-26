@@ -72,6 +72,18 @@ def register(ctx):
         none = ctx.request("POST", "/api/cost", calm)["headline"]
         assert none["outage_hours"] == 0 and none["kind"] in ("none", "upgrades"), none
 
+    def quick_cost_from_a_cascade():
+        c = ctx.request("POST", "/api/grid/cascade", case)
+        q = ctx.request("POST", "/api/cost/quick", {"region": "FL", "lost_mw": c["lost_mw"], "people": c["people"]})
+        full = ctx.request("POST", "/api/cost", case)["headline"]
+        h = q["headline"]
+        assert h["kind"] == "blackout" and h["outage_estimated"] is True, h
+        assert h["outage_hours"] == full["outage_hours"] and h["cost_high"] == full["cost_high"], (h, full)  # the light path prices the same blackout
+        none = ctx.request("POST", "/api/cost/quick", {"region": "TX", "lost_mw": 0, "people": 0})["headline"]
+        assert none["kind"] == "none" and none["outage_hours"] == 0 and none["cost_high"] == 0, none
+        ctx.request("POST", "/api/cost/quick", {"region": "ZZ", "lost_mw": 1, "people": 1}, expect=422)
+        ctx.request("POST", "/api/cost/quick", {"region": "FL", "lost_mw": -5, "people": 1}, expect=422)
+
     def region_and_firm_are_honored():
         tx = ctx.request("POST", "/api/cost", {"region": "TX", "lat": 32.45, "lon": -99.73, "mw": 800})
         assert tx["region"] == "TX" and tx["lines"][2]["price_cents_kwh"] == 6.12, (tx["region"], tx["lines"][2]["price_cents_kwh"])
@@ -114,6 +126,7 @@ def register(ctx):
     ctx.check("cost: a calm case has no blackout or upgrades, only a power bill", calm_case_costs_nothing)
     ctx.check("cost: twice the hours, twice the unserved energy", hours_scale_the_blackout)
     ctx.check("cost: the outage time is estimated from the incident's size and the headline is the high end", outage_time_from_size)
+    ctx.check("cost: the quick path (outside Florida) prices a finished cascade the same, and rejects bad input", quick_cost_from_a_cascade)
     ctx.check("cost: region and firm service are honored", region_and_firm_are_honored)
     ctx.check("cost: upgrades are called 'prevent' only when the re-run cascade leaves nobody dark", prevent_only_when_it_does)
     ctx.check("cost: rejects bad hours, an empty case, a size of 0, an unknown region", rejects_bad_input)

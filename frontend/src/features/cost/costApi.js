@@ -9,3 +9,5 @@ import { api } from '../../api'
 // no hoursOut: the backend estimates the outage length from the incident's size (costs.outage_hours)
 export const getCost = (body, hoursOut) => api('/api/cost', { method: 'POST', body: hoursOut == null ? body : { ...body, hours_out: hoursOut } })
 export const getCostAi = (body, hoursOut) => api('/api/cost/ai', { method: 'POST', body: { ...body, hours_out: hoursOut } })
+// the headline for a cascade the caller already ran ({region, lost_mw, people}): nothing is re-run on the server
+export const getQuickCost = (body) => api('/api/cost/quick', { method: 'POST', body })

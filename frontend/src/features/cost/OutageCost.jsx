@@ -1,24 +1,32 @@
 // FEATURE: the two numbers under the hit counter (owned by the cost track): how long the lights are out
 // and what it costs. The outage length is estimated from the incident's size and the cost is the high end
-// of the range (backend/costs.py → headline). One request, no AI, no controls: the full breakdown stays in
-// CostCard. Reads the case through useOverload(); needs no props.
+// of the range (backend/costs.py → headline). No AI, no controls: the full breakdown stays in CostCard.
+//
+// Florida (the demo state) is eager: the case is priced as soon as it settles, so the numbers wait under the
+// counter before the cascade runs. Every other state is lazy (user, Sat 06:24: only calculate during the
+// cascade, nothing else): nothing is asked of the server until the cascade has played, and then only the
+// arithmetic on that cascade's own lost load and people (POST /api/cost/quick, no engine run).
 import { useEffect, useRef, useState } from 'react'
 import { useOverload } from '../../store'
 import { Loading } from '../../ui'
 import './outage.css'
-import { getCost } from './costApi'
+import { getCost, getQuickCost } from './costApi'
 import { money, moneyRange } from './money'
 
 export default function OutageCost() {
-  const { caseBody, region, grid, site, extraSites, trip, loadFactor } = useOverload()
+  const { caseBody, region, grid, site, extraSites, trip, loadFactor, cascade, step, playing, fx } = useOverload()
   const [det, setDet] = useState(null)
   const [status, setStatus] = useState('idle') // idle | loading | done | error
   const [retry, setRetry] = useState(0)
   const req = useRef(0)
 
+  const lazy = region !== 'FL'
   const ready = region !== 'US' && (grid?.meta?.region || 'FL') === region
   const hasCase = ready && !!(site || extraSites.length || trip.length || loadFactor !== 1.0)
-  const key = hasCase ? JSON.stringify(caseBody) : ''
+  const n = cascade?.steps?.length || 0
+  const played = !!cascade && step >= n && !(fx && playing)
+  // what is asked for: the whole case (eager) or the finished cascade's own numbers (lazy)
+  const key = !hasCase ? '' : lazy ? (played ? JSON.stringify({ region, lost_mw: cascade.lost_mw, people: cascade.people }) : '') : JSON.stringify(caseBody)
 
   useEffect(() => {
     const id = ++req.current
@@ -29,25 +37,31 @@ export default function OutageCost() {
       }, 0)
       return () => clearTimeout(t)
     }
-    const t = setTimeout(() => {
-      setStatus('loading')
-      getCost(JSON.parse(key))
-        .then((d) => {
-          if (id !== req.current) return
-          setDet(d)
-          setStatus('done')
-        })
-        .catch(() => id === req.current && setStatus('error'))
-    }, 250)
+    const t = setTimeout(
+      () => {
+        setStatus('loading')
+        ;(lazy ? getQuickCost(JSON.parse(key)) : getCost(JSON.parse(key)))
+          .then((d) => {
+            if (id !== req.current) return
+            setDet(d)
+            setStatus('done')
+          })
+          .catch(() => id === req.current && setStatus('error'))
+      },
+      lazy ? 0 : 250,
+    )
     return () => clearTimeout(t)
-  }, [key, retry])
+  }, [key, retry, lazy])
 
-  if (!key) return null
+  if (!hasCase) return null
+  if (!key)
+    // lazy and the cascade has not finished: one quiet line, nothing computed
+    return cascade ? null : <p className="loss loss--wait">Run the cascade to see the time without power and the cost.</p>
   if (status === 'error')
     return (
       <p className="loss loss--wait" role="alert">
         The cost estimate didn&apos;t load.{' '}
-        <button type="button" className="loss__retry" onClick={() => setRetry((n) => n + 1)}>
+        <button type="button" className="loss__retry" onClick={() => setRetry((r) => r + 1)}>
           Try again
         </button>
       </p>
@@ -60,7 +74,7 @@ export default function OutageCost() {
   return (
     <section className={`loss${stale ? ' loss--stale' : ''}`} aria-label="Estimated outage time and cost" aria-busy={stale || undefined}>
       {h.kind === 'none' ? (
-        <p className="loss__none">No one loses power and no line needs upgrading in this case.</p>
+        <p className="loss__none">{lazy ? 'No one loses power in this case.' : 'No one loses power and no line needs upgrading in this case.'}</p>
       ) : (
         <>
           <div className="loss__row">

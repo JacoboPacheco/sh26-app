@@ -99,6 +99,19 @@ def register(ctx):
     def test_unknown_id():
         ctx.request("GET", "/api/catalog/no-such-campus-here", expect=404)
 
+    def test_places():
+        # the state picker's list: places and sources only, computed by nothing (never starts the batch of tests)
+        tx = ctx.request("GET", "/api/catalog/places?state=tx")
+        rows = tx["entries"]
+        assert rows and all(r["state"] == "TX" for r in rows), [r["state"] for r in rows][:5]
+        assert all({"id", "name", "lat", "lon", "mw", "status", "sources"} <= set(r) for r in rows), rows[0].keys()
+        assert [r["mw"] or 0 for r in rows] == sorted((r["mw"] or 0 for r in rows), reverse=True), "not largest first"
+        assert not any("test" in r for r in rows), "the places list carries no engine test"
+        allr = ctx.request("GET", "/api/catalog/places")["entries"]
+        assert len(allr) > len(rows) and len({r["id"] for r in allr}) == len(allr), len(allr)
+        assert ctx.request("GET", "/api/catalog/places?state=ZZ")["entries"] == []
+
+    ctx.check("catalog: /api/catalog/places lists a state's data centers with sources, no tests run", test_places)
     ctx.check("catalog: /api/catalog lists campuses with ids, web sources, dedupe links, frame", test_list_shape)
     ctx.check("catalog: the batch tests every campus; totals add up (people = sum of tests, estimate)", test_batch_totals)
     ctx.check("catalog: a campus's detail matches /api/grid/whatif + cascade (flexible and firm)", test_detail_matches_engine)

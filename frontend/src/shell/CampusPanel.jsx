@@ -1,9 +1,9 @@
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { api } from '../api'
 import floridaFive from '../data/florida_five.json'
 import { fmt } from '../geo'
 import { MAX_POINTS, SEED_MARK, useOverload } from '../store'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../ui'
-import { useCatalog } from '../features/catalog/catalogApi'
 import DangerPanel from '../features/danger/DangerPanel'
 import './campus.css'
 
@@ -300,17 +300,29 @@ function CustomSize() {
 // synthetic grid model: not a prediction about the real project or utility. Sources are shown as reported.
 function RealProposals() {
   const { setMw, place, setMode, region, grid } = useOverload()
-  const cat = useCatalog()
   const [pickedId, setPickedId] = useState('')
+  const [places, setPlaces] = useState({}) // state code -> its data centers (GET /api/catalog/places: nothing is computed)
   const stateName = grid?.meta?.region_name || 'this state'
+  // Fetched only when a state other than Florida is opened, and only that state's list: choosing a state
+  // must not start the batch of engine tests behind /api/catalog (that ran a cascade per campus).
+  useEffect(() => {
+    if (region === 'US' || region === 'FL' || places[region]) return undefined
+    let live = true
+    api(`/api/catalog/places?state=${encodeURIComponent(region)}`)
+      .then((d) => live && setPlaces((p) => ({ ...p, [region]: d.entries || [] })))
+      .catch(() => live && setPlaces((p) => ({ ...p, [region]: [] })))
+    return () => {
+      live = false
+    }
+  }, [region, places])
+  const loaded = region === 'FL' || !!places[region]
   const entries = useMemo(() => {
     if (region === 'US') return []
     if (region === 'FL') return floridaFive.entries
-    return (cat.data?.entries || [])
-      .filter((e) => e.state === region && !e.duplicate_of && Number.isFinite(e.lat) && Number.isFinite(e.lon) && e.mw > 0)
+    return (places[region] || [])
+      .filter((e) => Number.isFinite(e.lat) && Number.isFinite(e.lon) && e.mw > 0)
       .map((e) => ({ id: e.id, name: e.name, place: e.city || e.county || stateName, mw: e.mw, status: e.status, lat: e.lat, lon: e.lon, sources: e.sources }))
-      .sort((a, b) => b.mw - a.mw)
-  }, [region, cat.data, stateName])
+  }, [region, places, stateName])
   const picked = entries.find((e) => e.id === pickedId)
   const src = picked?.sources?.[0]
   if (region === 'US') return <p className="real__note">Click a state on the map, or pick one above, to see its real data centers.</p>
@@ -329,14 +341,14 @@ function RealProposals() {
           place(e.lat, e.lon)
         }}
       >
-        <option value="">{entries.length || cat.data ? 'Pick a real data center…' : 'Loading the catalog…'}</option>
+        <option value="">{loaded ? 'Pick a real data center…' : 'Loading…'}</option>
         {entries.map((e) => (
           <option key={e.id} value={e.id}>
             {e.name} — {e.place}, {fmt(e.mw)} MW reported ({e.status})
           </option>
         ))}
       </Field>
-      {cat.data && !entries.length && <p className="real__note">No sourced data centers for {stateName} in the catalog yet.</p>}
+      {loaded && !entries.length && <p className="real__note">No sourced data centers for {stateName} in the catalog yet.</p>}
       {picked && (
         <p className="real__status">
           <span className="real__meta">

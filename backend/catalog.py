@@ -592,6 +592,25 @@ def catalog_status():
     return {"status": b.status, "done": b.done, "total": b.total, "elapsed_s": b.elapsed, "error": b.error}
 
 
+@router.get("/api/catalog/places")
+@limiter.limit("60/minute")
+def catalog_places(request: Request, state: str | None = None):
+    """The data centers as places, nothing computed: name, company, city, state, coordinates, reported MW,
+    status and the first sources. The state picker's dropdown reads this, so choosing a state never starts
+    the batch of engine tests behind /api/catalog. `state` filters to one state code."""
+    cat = catalog()
+    want = (state or "").strip().upper() or None
+    rows = []
+    for e in cat["entries"].values():
+        if e["duplicate_of"] is not None or (want and e["state"] != want):
+            continue
+        row = {k: e.get(k) for k in ("id", "name", "company", "city", "county", "state", "state_name", "lat", "lon", "mw", "mw_basis", "status", "year")}
+        row["sources"] = (e.get("sources") or [])[:2]
+        rows.append(row)
+    rows.sort(key=lambda r: -(r["mw"] or 0))
+    return {"entries": rows, "note": cat["note"], "frame": FRAME}
+
+
 _detail_cache: "OrderedDict[tuple, dict]" = OrderedDict()
 _detail_lock = threading.Lock()
 
