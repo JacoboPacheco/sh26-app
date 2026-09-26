@@ -43,6 +43,7 @@ from pathlib import Path
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from scipy.optimize import linprog  # imported here so the first restoration plan doesn't pay ~0.5 s for it
 
 import grid
 from grid import DEFAULT_REGION, REGIONS, CaseIn, SiteIn, _case_header, check_case, grid_at, region_code, site_headroom
@@ -68,6 +69,8 @@ MAX_PRESET_TRIPS = 2500
 BUDGET_MIN, BUDGET_MAX = 300, 1800
 TOP_AREAS = 8
 STORM_LISTED = 12
+WHY_STEPS = 8  # steps whose 'why' (lines that picked up the flow) is replayed; the writer groups the rest
+WHY_STEPS_BIG = 3
 MAX_FACTS = 160
 CACHE_SIZE = 64
 
@@ -168,7 +171,7 @@ class EngineGap(RuntimeError):
 # ------------------------------------------------------------------------------------ the case
 class BriefingIn(CaseIn):
     preset: str | None = None  # a catastrophes.json id
-    budget_ms: int = 1800  # wall budget for the fix search + recovery; clamped to 300..1800
+    budget_ms: int = 1800  # wall budget for open-ended searches (towns tried for a move beyond the first 12); 300..1800
 
 
 @dataclass
@@ -413,15 +416,18 @@ def _group_areas(c: _Case, g: Grid, sub_mw) -> dict[str, dict]:
 
 
 # ----------------------------------------------------------------------------- report sections
-def _timeline(c: _Case, inc: dict) -> tuple[list[dict], object]:
-    """Replay the cascade's steps (the same deterministic solves) to record, per trip, how loaded
-    the line was and which lines picked up its flow. Returns (rows, the step-0 state)."""
+def _timeline(c: _Case, inc: dict, why_steps: int = WHY_STEPS) -> tuple[list[dict], object]:
+    """Per step: the line that tripped and how loaded it was (from the previous state's hot list,
+    exact), the areas that newly lost power, and — for the first WHY_STEPS trips — which lines picked
+    up its flow, by replaying those steps (the same deterministic solves). Returns (rows, the step-0
+    state)."""
     g = c.g
     active = c.active.copy()
     st = _solve(c, g, active, c.extra, c.rate)
     first = st
     rows = []
     replay_ok = True
+    prev_hot = {int(g.br_ids[i]): float(first.loading_pct[i]) for i in np.flatnonzero(first.active & (first.loading_pct > 80.0))}
     for s in inc["steps"]:
         row = {
             "n": int(s["n"]),
@@ -448,15 +454,12 @@ def _timeline(c: _Case, inc: dict) -> tuple[list[dict], object]:
             for bid in s.get("tripped", []):
                 i = g.br_index[int(bid)]
                 info = _line(g, i)
-                if replay_ok:
-                    info["pct_before"] = round(float(st.loading_pct[i]), 1)
-                    info["flow_mw"] = int(round(abs(float(st.flow[i]))))
-                else:
-                    info["pct_before"] = None
-                    info["flow_mw"] = None
+                pct = prev_hot.get(int(bid))
+                info["pct_before"] = round(pct, 1) if pct is not None else None
+                info["flow_mw"] = int(round(pct / 100.0 * float(c.rate[i]))) if pct is not None else None
                 row["lines"].append(info)
                 new_active[i] = False
-            if replay_ok:
+            if replay_ok and row["n"] <= why_steps:
                 nst = _solve(c, g, new_active, c.extra, c.rate)
                 delta = np.where(nst.active, np.abs(nst.flow) - np.abs(st.flow), -np.inf)
                 top = np.argsort(-delta)[:3]
@@ -467,6 +470,7 @@ def _timeline(c: _Case, inc: dict) -> tuple[list[dict], object]:
                 ]
                 st = nst
             active = new_active
+        prev_hot = {int(h["id"]): float(h["pct"]) for h in s.get("hot", [])}
         areas = _group_areas(c, g, s.get("newly_affected", []))
         row["newly_dark"] = sorted(
             ({"area": a, "people": _people(g, d["mw"], c.code), "mw": round(d["mw"], 1), "sub_ids": d["sub_ids"]} for a, d in areas.items()),
@@ -699,6 +703,10 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
         b = rep["bound"]
         F.append(_fact("bound.people", "People cut off even with unlimited lines and no data center", int(b["people"]), "people", True))
         F.append(_fact("bound.share_pct", "Share of the outage no line upgrade can reach", float(b["share_pct"]), "%", True))
+    nf = rep.get("no_fix")
+    if nf:
+        F.append(_fact("no_fix.people", "People no fix can reach (cut off even with unlimited lines and no data center)", int(nf["people"]), "people", True))
+        F.append(_fact("no_fix.fixes_save_at_most_pct", "The most any fix saves", int(nf["fixes_save_at_most_pct"]), "%", True))
     if rep.get("split"):
         sp_ = rep["split"]
         F.append(_fact("split.physical", "People cut off by physical damage", int(sp_["physical"]), "people", True))
@@ -715,6 +723,17 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
             F.append(_fact(f"recovery.wave.{w['n']}.people_back", f"Wave {w['n']}: people back (cumulative)", int(w["people_back"]), "people", True))
         for h in rec.get("hardening", []):
             F.append(_fact(f"harden.{h['k']}.people_kept_on", f"Hardening {h['k']} lines keeps this many on", int(h["people_kept_on"]), "people", True))
+        if rec.get("still_out_after_all"):
+            F.append(_fact("recovery.still_out_after_all", "People still without power after every line is rebuilt (at this load)", int(rec["still_out_after_all"]), "people", True))
+        bl = rec.get("baseline")
+        if bl:
+            F.append(_fact("recovery.baseline.repairs", "Repairs compared (the plan vs biggest lines first)", int(bl["repairs"]), "lines"))
+            F.append(_fact("recovery.baseline.people_out", "People still out after that many repairs, biggest lines first", int(bl["people_out"]), "people", True))
+            if bl["plan_better_by"] > 0:
+                F.append(_fact("recovery.baseline.plan_better_by", "People the plan's order brings back beyond biggest-first", int(bl["plan_better_by"]), "people", True))
+        rc_ = rec.get("campus_reconnect")
+        if rc_ is not None:
+            F.append(_fact("recovery.campus_reconnect", "Once every line is rebuilt, the data center can reconnect", "yes, the grid holds" if rc_["ok"] else f"no: it sets off a {rc_['steps']}-step cascade on its own"))
     cost = rep.get("cost")
     if cost:
         names = {"blackout_usd": "Cost of the blackout", "upgrade_usd": "Cost of the upgrades that prevent it", "campus_bill_usd_per_year": "The campus's yearly power bill"}
@@ -910,9 +929,8 @@ FAMILY_LABEL = {
 }
 MOVE_POOL = 40  # the roomiest towns (level 1.0) tried for a move
 MOVE_KEEP = 3
+MOVE_MIN = 12  # towns always checked, whatever the budget
 BISECT_STEPS = 8
-# rough wall cost of each family (ms) — a family starts only when this much budget is left
-FAMILY_COST = {"shrink": 60, "move": 200, "flexible": 120, "time_of_day": 60, "upgrade": 150, "onsite": 0, "combo": 150, "remove": 0}
 
 
 @dataclass
@@ -1081,9 +1099,6 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 )
             )
             continue
-        if B.left() < FAMILY_COST[fam] and fam not in ("onsite", "remove"):
-            skip(fam)
-            continue
         try:
             if fam == "shrink":
                 s_hi = 1.0
@@ -1106,9 +1121,6 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 shrink_res = {"ok": True, "mws": mws, "total": new_total, "s": s, "oc": oc, "v": v}
             elif fam == "move":
                 g1 = grid_at(1.0, c.code)
-                if g1._headroom_bus is None and B.left() < 900:
-                    skip(fam)
-                    continue
                 import fixit
 
                 cur_town = area_of(c.header.get("sub_name") or "")
@@ -1116,8 +1128,8 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 for h, i, town in list(fixit._towns_by_headroom(g1))[:MOVE_POOL]:
                     if town == cur_town:
                         continue
-                    if B.left() < 20:
-                        break
+                    if tried >= MOVE_MIN and B.left() < 20:
+                        break  # the first MOVE_MIN towns are always checked; the rest while the budget lasts
                     bus = g.connect_bus(i)
                     buses = [bus] + list(c.buses[1:])
                     extra = _extra_for(g, buses, [s.mw for s in c.sites])
@@ -1300,8 +1312,343 @@ def _firm_note(c: _Case, inc: dict) -> dict | None:
     return {"shed_mw": float(r.get("shed_mw", 0.0)), "steps": int(r["total_steps"]), "people": int(r["people"]), "campus_kept_on": r.get("firm_held")}
 
 
+# ----------------------------------------------------------------------------- recovery (restoration waves)
+WAVE_PCTS = (0.02, 0.05, 0.10, 0.25, 0.50, 1.0)
+WAVE_PCTS_BIG = (0.02, 0.10, 0.50, 1.0)  # more than BIG_DAMAGE damaged lines
+BIG_DAMAGE = 1500
+HARDEN_KS = (10, 25)
+EXPORT_PENALTY = 10.0  # LP cost per MW of tie export curtailed (served load earns 1)
+PRESET_BUDGET_MS = 5000  # a catastrophe preset gets this long (reported in timing_ms); cached after the first run
+
+
+class _UF:
+    """Union-find over buses carrying each component's load, generation limit and tie import."""
+
+    def __init__(self, n: int, load: np.ndarray, gmax: np.ndarray, tie: np.ndarray):
+        self.p = list(range(n))
+        self.L = [float(x) for x in load]
+        self.G = [float(x) for x in gmax]
+        self.T = [float(x) for x in tie]
+        self.members = [[i] for i in range(n)]
+
+    def find(self, a: int) -> int:
+        p = self.p
+        while p[a] != a:
+            p[a] = p[p[a]]
+            a = p[a]
+        return a
+
+    def served(self, r: int) -> float:
+        return min(self.L[r], self.G[r] + max(self.T[r], 0.0))
+
+    def gain(self, a: int, b: int, cap: float) -> float:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return 0.0
+        merged = min(self.L[ra] + self.L[rb], self.G[ra] + self.G[rb] + max(self.T[ra] + self.T[rb], 0.0))
+        return max(min(merged - self.served(ra) - self.served(rb), cap), 0.0)
+
+    def union(self, a: int, b: int) -> int:
+        ra, rb = self.find(a), self.find(b)
+        if ra == rb:
+            return ra
+        if len(self.members[ra]) < len(self.members[rb]):
+            ra, rb = rb, ra
+        self.p[rb] = ra
+        self.L[ra] += self.L[rb]
+        self.G[ra] += self.G[rb]
+        self.T[ra] += self.T[rb]
+        self.members[ra].extend(self.members[rb])
+        self.members[rb] = []
+        return rb  # the side that was merged in
+
+    def unserved(self) -> float:
+        return float(sum(self.L[r] - self.served(r) for r in range(len(self.p)) if self.p[r] == r))
+
+
+def _repair_order(g: Grid, base_active: np.ndarray, damaged: list[int], rate: np.ndarray) -> tuple[list[int], float]:
+    """Capacity-aware connectivity greedy: repeatedly rebuild the damaged line that brings the most
+    load back (merged supply minus the parts, capped by the line's rating). Gains are re-evaluated
+    lazily and refreshed around every merge. No power-flow solves. Returns (order, unserved MW with
+    no repair, by connectivity)."""
+    import heapq
+
+    uf = _UF(g.n, g.pd, g.pmax, g.tie)
+    for k in np.flatnonzero(base_active):
+        uf.union(int(g.f[k]), int(g.t[k]))
+    unserved0 = uf.unserved()
+    by_bus: dict[int, list[int]] = {}
+    for k in damaged:
+        by_bus.setdefault(int(g.f[k]), []).append(k)
+        by_bus.setdefault(int(g.t[k]), []).append(k)
+    tie_key = {k: (-float(g.br_kv[k]), -float(rate[k]), int(g.br_ids[k])) for k in damaged}
+    heap = [(-uf.gain(int(g.f[k]), int(g.t[k]), float(rate[k])), tie_key[k], k) for k in damaged]
+    heapq.heapify(heap)
+    done: set[int] = set()
+    order: list[int] = []
+    while heap:
+        neg, tk, k = heapq.heappop(heap)
+        if k in done:
+            continue
+        cur = uf.gain(int(g.f[k]), int(g.t[k]), float(rate[k]))
+        if cur <= 1e-6:
+            if -neg > 1e-6:
+                heapq.heappush(heap, (0.0, tk, k))
+                continue
+            break  # nothing left adds supply: the rest are capacity-only repairs
+        if heap and cur + 1e-9 < -heap[0][0]:
+            heapq.heappush(heap, (-cur, tk, k))
+            continue
+        done.add(k)
+        order.append(k)
+        gone = uf.union(int(g.f[k]), int(g.t[k]))
+        root = uf.find(gone)
+        # refresh the lines around whichever side was merged in (their gain may have risen)
+        for b in uf.members[root] if len(uf.members[root]) < 400 else [int(g.f[k]), int(g.t[k])]:
+            for j in by_bus.get(b, ()):
+                if j not in done:
+                    heapq.heappush(heap, (-uf.gain(int(g.f[j]), int(g.t[j]), float(rate[j])), tie_key[j], j))
+    rest = sorted((k for k in damaged if k not in done), key=lambda k: tie_key[k])
+    return order + rest, unserved0
+
+
+def _lp_served(g: Grid, active: np.ndarray, rate: np.ndarray) -> np.ndarray | None:
+    """Controlled pickup: the most existing load (MW per bus) these lines can serve when operators
+    re-dispatch generators (0..Pmax) and route power with every line within its rating (a
+    network-flow LP with explicit flow variables; loop flows are not modeled). Tie exports are
+    honored first, as in the engine. scipy's HiGHS, dual simplex then interior point. None when
+    neither solves."""
+    import scipy.sparse as sp
+
+    n = g.n
+    A = np.flatnonzero(active)
+    ma = len(A)
+    Gb = np.flatnonzero(g.pmax > 1e-9)
+    Lb = np.flatnonzero(g.pd > 1e-9)
+    Tb = np.flatnonzero(np.abs(g.tie) > 1e-9)
+    nG, nL, nT = len(Gb), len(Lb), len(Tb)
+    o_g, o_s = ma, ma + nG
+    o_t = o_s + nL
+    nv = o_t + nT
+    fa, ta = g.f[A], g.t[A]
+    # bus balance: gen + tie - served - out + in = 0
+    rows = np.concatenate([fa, ta, Gb, Lb, Tb])
+    cols = np.concatenate([np.arange(ma), np.arange(ma), o_g + np.arange(nG), o_s + np.arange(nL), o_t + np.arange(nT)])
+    vals = np.concatenate([-np.ones(ma), np.ones(ma), np.ones(nG), -np.ones(nL), np.ones(nT)])
+    Aeq = sp.csr_matrix((vals, (rows, cols)), shape=(n, nv))
+    lb = np.concatenate([-rate[A], np.zeros(nG), np.zeros(nL), np.minimum(g.tie[Tb], 0.0)])
+    ub = np.concatenate([rate[A], g.pmax[Gb], g.pd[Lb], np.maximum(g.tie[Tb], 0.0)])
+    cost = np.zeros(nv)
+    cost[o_s:o_t] = -1.0
+    # a tie export is honored before local load, as in the engine's balance (ties are held fixed in
+    # the model); curtailing it costs EXPORT_PENALTY per MW, so it only happens when an island can't
+    # physically make it
+    cost[o_t:] = np.where(g.tie[Tb] < 0, EXPORT_PENALTY, 0.0)
+    for method in ("highs-ds", "highs-ipm"):
+        try:
+            res = linprog(cost, A_eq=Aeq, b_eq=np.zeros(n), bounds=np.column_stack([lb, ub]), method=method)
+        except Exception as e:  # noqa: BLE001
+            log.warning("briefing: LP %s raised %s", method, e)
+            continue
+        if res.status == 0 and res.x is not None:
+            served = np.zeros(n)
+            served[Lb] = np.clip(res.x[o_s:o_t], 0.0, g.pd[Lb])
+            return served
+    return None
+
+
+_full_lp: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+
+
+def _full_key(c: _Case, g: Grid) -> tuple:
+    return (c.code, round(g.load_factor, 2), tuple(sorted(c.upgrades.items())))
+
+
+def _lp_full(c: _Case, g: Grid) -> np.ndarray | None:
+    """The every-line-rebuilt LP: the same for every storm on one (state, level, upgrades), cached."""
+    key = _full_key(c, g)
+    with _cache_lock:
+        hit = _full_lp.get(key)
+    if hit is not None:
+        return hit
+    out = _lp_served(g, np.ones(g.m, dtype=bool), c.rate)
+    if out is not None:
+        with _cache_lock:
+            _full_lp[key] = out
+            while len(_full_lp) > 16:
+                _full_lp.popitem(last=False)
+    return out
+
+
+def _area_lost(g: Grid, lost_bus: np.ndarray) -> dict[str, float]:
+    per = np.zeros(len(g.sub_ids))
+    np.add.at(per, g.bus_sub_idx, lost_bus)
+    out: dict[str, float] = {}
+    for i in np.flatnonzero(per > 0.05):
+        a = area_of(g.sub_name[i])
+        out[a] = out.get(a, 0.0) + float(per[i])
+    return out
+
+
+def _recovery(c: _Case, B: _Budget, inc: dict, event: dict) -> dict | None:
+    """Rebuild order for the lines that are down (storm + cascade), in waves of 2/5/10/25/50/100 %,
+    each wave verified by the controlled-pickup LP; hardening the most valuable storm lines; the
+    order against biggest-lines-first; and whether the campus could reconnect once all is rebuilt.
+    If an LP fails, that wave and the rest fall back to connectivity (labeled, never called verified)."""
+    g = c.g
+    final_active = np.asarray(inc["final_active"], dtype=bool)
+    damaged = [int(k) for k in np.flatnonzero(~final_active)]
+    if not damaged:
+        return None
+    t0 = time.perf_counter()
+    order, _unserved0 = _repair_order(g, final_active, damaged, c.rate)
+    order_ms = _ms(t0)
+    D = len(order)
+    pcts = WAVE_PCTS_BIG if D > BIG_DAMAGE else WAVE_PCTS
+    sizes: list[int] = []
+    size_pct: list[float] = []  # the share of damaged lines each wave reaches (aligned with sizes)
+    for p in pcts:
+        k = min(D, max(1, int(math.ceil(p * D))))
+        if not sizes or k > sizes[-1]:
+            sizes.append(k)
+            size_pct.append(p)
+    lp_ms: list[int] = []
+
+    def lp(active: np.ndarray, full: bool = False, force: bool = False) -> np.ndarray | None:
+        """force: always solve (the plan must not depend on how busy the server is); otherwise only
+        while the budget lasts."""
+        est = (max(lp_ms) * 1.2) if lp_ms else 120
+        if full:
+            with _cache_lock:
+                if _full_key(c, g) in _full_lp:
+                    est = 0
+        if not force and B.left() < est:
+            return None
+        t = time.perf_counter()
+        out = _lp_full(c, g) if full else _lp_served(g, active, c.rate)
+        if est:
+            lp_ms.append(_ms(t))
+        return out
+
+    def uf_unserved(active: np.ndarray) -> float:
+        uf = _UF(g.n, g.pd, g.pmax, g.tie)
+        for k in np.flatnonzero(active):
+            uf.union(int(g.f[k]), int(g.t[k]))
+        return uf.unserved()
+
+    extras = True  # the whole plan, whatever the server load: the same case always reads the same
+    ev_people = int(event["people"])
+    before: dict[str, float] = {}  # area -> MW lost, where the cascade ended
+    for sid, mw in (inc.get("affected") or {}).items():
+        i = g.sub_index.get(int(sid))
+        if i is not None:
+            a = area_of(g.sub_name[i])
+            before[a] = before.get(a, 0.0) + float(mw)
+    waves = []
+    prev_k, prev_out = 0, ev_people
+    km_total = 0.0
+    all_lp = True
+    for n, k in enumerate(sizes, start=1):
+        act = final_active.copy()
+        act[order[:k]] = True
+        new = order[prev_k:k]
+        km = round(sum(_line_km(g, j) for j in new), 1)
+        km_total += km
+        served = lp(act, full=(k == D), force=True) if all_lp else None
+        relit: list[str] = []
+        if served is not None:
+            lost_now = g.pd - served
+            out = min(_people(g, float(lost_now.sum()), c.code), prev_out)
+            after = _area_lost(g, lost_now)
+            back = sorted(((a, mw - after.get(a, 0.0)) for a, mw in before.items() if mw >= 1.0 and after.get(a, 0.0) <= 0.1 * mw), key=lambda x: -x[1])
+            relit = [a for a, _ in back[:6]]
+            before = after
+            method = "lp"
+        else:
+            all_lp = False
+            out = _people(g, uf_unserved(act), c.code)
+            method = "connectivity"
+        waves.append(
+            {
+                "n": n,
+                "lines": [int(g.br_ids[j]) for j in new],
+                "lines_count": len(new),
+                "lines_total": k,
+                "km": km,
+                "km_total": round(km_total, 1),
+                "people_out": int(out),
+                "people_back": int(max(ev_people - out, 0)),
+                "areas_relit": relit,
+                "method": method,
+            }
+        )
+        prev_k, prev_out = k, out
+    # hardening: keep the k most valuable storm lines standing (the plan's order, storm lines only)
+    hardening = []
+    storm_set = {g.br_index[int(b)] for b in c.trip}
+    if storm_set and all_lp:
+        storm_active = np.ones(g.m, dtype=bool)
+        storm_active[list(storm_set)] = False
+        base = lp(storm_active, force=extras)
+        if base is not None:
+            base_out = _people(g, float((g.pd - base).sum()), c.code)
+            storm_order = [k for k in order if k in storm_set]
+            for kk in HARDEN_KS[-1:] if D > BIG_DAMAGE else HARDEN_KS:
+                if kk > len(storm_order):
+                    continue
+                act = storm_active.copy()
+                act[storm_order[:kk]] = True
+                srv = lp(act, force=extras)
+                if srv is None:
+                    break
+                o = _people(g, float((g.pd - srv).sum()), c.code)
+                hardening.append(
+                    {
+                        "k": kk,
+                        "lines": [int(g.br_ids[j]) for j in storm_order[:kk]],
+                        "km": round(sum(_line_km(g, j) for j in storm_order[:kk]), 1),
+                        "people_out_without": int(base_out),
+                        "people_kept_on": int(max(base_out - o, 0)),
+                    }
+                )
+    # the same number of repairs, biggest lines first: does the plan's order matter?
+    baseline = None
+    ten = next((i for i, p in enumerate(size_pct) if p >= 0.10 - 1e-9 and sizes[i] < D), None)
+    if all_lp and ten is not None and ten < len(sizes) and ten < len(waves) and waves[ten]["method"] == "lp":
+        k = sizes[ten]
+        big = sorted(damaged, key=lambda j: (-float(g.br_kv[j]), -float(c.rate[j]), int(g.br_ids[j])))
+        act = final_active.copy()
+        act[big[:k]] = True
+        srv = lp(act, force=extras)
+        if srv is not None:
+            b_out = _people(g, float((g.pd - srv).sum()), c.code)
+            plan_out = waves[ten]["people_out"]
+            baseline = {"order": "biggest lines first", "repairs": k, "people_out": int(b_out), "plan_people_out": int(plan_out), "plan_better_by": int(b_out - plan_out)}
+    reconnect = None
+    if c.sites:
+        r = _cascade(c, g, c.extra, trip=[], upgrades=c.upgrades)
+        reconnect = {"ok": r["total_steps"] == 0 and r["people"] == 0, "steps": int(r["total_steps"]), "people": int(r["people"])}
+    method = "lp" if all_lp else "connectivity"
+    return {
+        "method": method,
+        "method_note": (
+            "line limits applied: a controlled-pickup LP (generators re-dispatched, every line within its rating; loop flows not modeled)"
+            if method == "lp"
+            else "line limits not applied (connectivity only)"
+        ),
+        "damaged_lines": D,
+        "still_out_after_all": int(waves[-1]["people_out"]) if waves and waves[-1]["lines_total"] == D and waves[-1]["method"] == "lp" else None,
+        "wave0_people_back": None,
+        "waves": waves,
+        "hardening": hardening,
+        "baseline": baseline,
+        "campus_reconnect": reconnect,
+        "timing_ms": {"order": order_ms, "lp": lp_ms},
+    }
+
+
 # ----------------------------------------------------------------------------- cost + hospitals adapters
-def _cost(c: _Case, rep: dict, B: _Budget) -> dict | None:
+def _cost(c: _Case, rep: dict) -> dict | None:
     """costs.py's sourced estimate (LBNL value of lost load, Black & Veatch line costs, EIA prices):
     briefing_costs(report) when it exists, else its cached_estimate on this case (<= 400 trips), else
     just the blackout from its VoLL for a catastrophe. Midpoints of costs.py's low-high ranges, with
@@ -1319,10 +1666,8 @@ def _cost(c: _Case, rep: dict, B: _Budget) -> dict | None:
             return None
         hours = float(getattr(costs, "DEFAULT_HOURS", 6.0))
         lines: dict[str, dict] = {}
-        if len(c.trip) <= grid.MAX_TRIPS and hasattr(costs, "cached_estimate") and B.left() > 150:
+        if not c.preset and len(c.trip) <= grid.MAX_TRIPS and hasattr(costs, "cached_estimate"):
             body = {k: v for k, v in c.body.items() if k != "preset"}
-            if c.preset:
-                body["trip"] = list(c.trip)
             est = costs.cached_estimate(costs.CostIn(**body, hours_out=hours))
             lines = {ln["key"]: ln for ln in est.get("lines", [])}
         elif hasattr(costs, "voll_per_mwh"):
@@ -1454,12 +1799,14 @@ def report_for(body: BriefingIn) -> dict:
     t_all = time.perf_counter()
     c = build_case(body)
     budget_ms = int(min(max(int(body.budget_ms or BUDGET_MAX), BUDGET_MIN), BUDGET_MAX))
+    if c.preset:
+        budget_ms = max(budget_ms, PRESET_BUDGET_MS)
     with _cache_lock:
         hit = _cache.get(c.key)
     if hit is not None and not (hit.get("unchecked") and budget_ms > hit.get("_budget_ms", BUDGET_MAX)):
         with _cache_lock:
             _cache.move_to_end(c.key)
-        return hit
+        return {**hit, "cached": True, "timing_ms": {**hit["timing_ms"], "cached_total": _ms(t_all)}}
     try:
         rep = _build(c, budget_ms, t_all)
     except EngineGap as e:
@@ -1485,8 +1832,11 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     floor = _cascade(c, g, np.zeros(g.n)) if c.sites else inc
     timing["floor"] = _ms(t0)
 
+    # replaying a step costs about one cascade solve, slow on a storm-shattered network: a catastrophe
+    # (more lines down than a drawn storm can take out) gets its first WHY_STEPS_BIG steps explained
+    why_steps = WHY_STEPS if len(c.trip) <= grid.MAX_TRIPS else WHY_STEPS_BIG
     t0 = time.perf_counter()
-    rows, first = _timeline(c, inc)
+    rows, first = _timeline(c, inc, why_steps)
     timing["timeline"] = _ms(t0)
     peak = max([int(inc["people"])] + [int(s.get("people", 0)) for s in inc["steps"]])
     pop = _population(c.code)
@@ -1525,7 +1875,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     nothing = event["steps"] == 0 and event["people"] == 0
     fixes, unchecked, _notes = ([], [], {}) if nothing else _fixes(c, B, J, inc, floor)
     firm_note = None
-    if not nothing and B.left() > 60:
+    if not nothing:
         try:
             firm_note = _firm_note(c, inc)
         except EngineGap:
@@ -1558,6 +1908,22 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
             ),
         }
 
+    recovery = None
+    t0 = time.perf_counter()
+    if verdict == "no_fix" or c.trip:
+        try:
+            recovery = _recovery(c, B, inc, event)
+        except EngineGap:
+            raise
+        except Exception as e:  # noqa: BLE001 — the plan is reported missing, never guessed
+            log.exception("briefing: recovery failed: %s", e)
+            unchecked.append("recovery")
+    timing["recovery"] = _ms(t0)
+    if no_fix and recovery and recovery.get("still_out_after_all"):
+        left = int(recovery["still_out_after_all"])
+        no_fix["after_rebuild_people"] = left
+        no_fix["sentence"] += f" Even with every line rebuilt, about {_big(left)} people stay dark at this load: only cutting demand could reach them."
+
     case_out = {
         **c.header,
         "trip_count": len(c.trip),
@@ -1588,7 +1954,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
         "bound": bound,
         "split": split,
         "no_fix": no_fix,
-        "recovery": None,
+        "recovery": recovery,
         "replay": {**c.header, "region": c.code, **inc},
         "facts": [],
         "timing_ms": {},
@@ -1598,12 +1964,13 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     rep["hospitals"] = _hospitals(c, inc)
     timing["hospitals"] = _ms(t0)
     t0 = time.perf_counter()
-    rep["cost"] = _cost(c, rep, B)
+    rep["cost"] = _cost(c, rep)
     timing["cost"] = _ms(t0)
     rep["facts"] = _facts(c, rep)
     timing["total"] = _ms(t_all)
     rep["timing_ms"] = timing
     rep["_budget_ms"] = budget_ms
+    rep["cached"] = False
     return rep
 
 

@@ -105,7 +105,38 @@ def register(ctx):
         assert r["no_fix"] and r["no_fix"]["people"] == r["bound"]["people"] and r["no_fix"]["proof"], r["no_fix"]
         assert r["timeline"][0]["action"] == "storm" and r["timeline"][0]["storm_lines"]["count"] == len(trip)
 
+    def catastrophe_no_fix_and_plan():
+        r = ctx.request("POST", "/api/briefing", {"region": "FL", "preset": "fl-cat5-statewide"})
+        assert r["kind"] == "catastrophe" and r["verdict"] == "no_fix", (r["kind"], r["verdict"])
+        assert r["case"]["preset"]["id"] == "fl-cat5-statewide" and r["event"]["storm_lines_out"] > 400, r["event"]
+        assert r["bound"]["share_pct"] >= 85, r["bound"]
+        assert r["root_cause"]["campus_share_pct"] in (None, 0.0) or r["root_cause"]["cause"] == "storm", r["root_cause"]
+        for f in r["fixes"]:
+            if f["family"] in ("shrink", "move", "flexible", "time_of_day", "onsite", "combo"):
+                assert f["verdict"] == "not_needed", f
+        rec = r["recovery"]
+        assert rec and rec["method"] == "lp", rec and rec["method"]
+        backs = [w["people_back"] for w in rec["waves"]]
+        assert len(backs) >= 4 and all(b > a for a, b in zip(backs, backs[1:])), backs
+        assert all(w["method"] == "lp" and w["km"] >= 0 for w in rec["waves"])
+        assert "no fix exists" in r["no_fix"]["sentence"].lower(), r["no_fix"]
+        # the replay can load a catastrophe (more than 400 trips) into the map
+        assert r["replay"]["total_steps"] == r["event"]["steps"] and len(r["replay"]["trip"]) == r["event"]["storm_lines_out"]
+        again = ctx.request("POST", "/api/briefing", {"region": "FL", "preset": "fl-cat5-statewide"})
+        assert again["cached"] is True and again["key"] == r["key"], again.get("cached")
+        listed = {p["id"]: p for p in ctx.request("GET", "/api/briefing/presets?region=FL")["presets"]}
+        assert listed["fl-cat5-statewide"]["lines_out"] == r["event"]["storm_lines_out"], listed["fl-cat5-statewide"]
+
+    def check_text_is_strict():
+        # the validator is exercised through what the writer/ask tracks import; here only its facts
+        r = got.get("hero") or ctx.request("POST", "/api/briefing", case)
+        texts = " ".join(str(f["text"]) for f in r["facts"])
+        for bad in ("FEMA", "evacuat", "this is not a test", "Hurricane "):
+            assert bad not in texts, bad
+
     ctx.check("briefing: hero report — timeline, root cause, areas (briefing.py)", hero_report)
+    ctx.check("briefing: Category 5 across Florida — no fix exists, LP-verified rebuild waves, cached repeat", catastrophe_no_fix_and_plan)
+    ctx.check("briefing: fact texts carry no alert phrasing or storm names", check_text_is_strict)
     ctx.check("briefing: hero fixes verified — shrink to 550 MW first; every 'holds' re-runs calm", hero_fixes_are_verified)
     ctx.check("briefing: Gulf storm + campus — no fix exists, campus families not needed", storm_has_no_fix)
     ctx.check("briefing: fact sheet has <= 160 unique facts, people marked estimates", facts_are_well_formed)
