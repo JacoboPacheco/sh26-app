@@ -7,32 +7,24 @@ import { fmt } from '../../geo'
 import { overLimitText } from '../../shell/CampusPanel'
 import { townOf, useOverload } from '../../store'
 import { Button, EmptyState, ErrorBanner, Field } from '../../ui'
-import { CAMPUS_MW, MAX_EXTRA, PRESET, SIZE_MAX, SIZE_MIN, homesLabel, newId, niceName, snapToSub } from './boomData'
+import { usePlanner } from '../planner/plannerStore'
+import BoomAgent from './BoomAgent'
+import { CAMPUS_MW, MAX_EXTRA, PRESET, SIZE_MAX, SIZE_MIN, frame, homesLabel, newId, niceName, snapToSub } from './boomData'
 import './boom.css'
 
 const DRAG_DEG = 0.05 // a press that moves farther than this before release is a drag, not a click
-const STATEWIDE_DEG = 2.5 // campuses spread wider than this: show all of Florida
-const FRAME_PAD_DEG = 0.5
-
-// Bring campuses into view with room around them (the panels float over the map's edges);
-// a buildout that spans the state gets the whole state.
-function frame(points, focus, mapRef) {
-  if (!points.length) return
-  const lons = points.map((p) => p[0])
-  const lats = points.map((p) => p[1])
-  const [w, e, s, n] = [Math.min(...lons), Math.max(...lons), Math.min(...lats), Math.max(...lats)]
-  if (Math.max(e - w, n - s) > STATEWIDE_DEG) mapRef.current?.reset()
-  else focus([...points, [w - FRAME_PAD_DEG, s - FRAME_PAD_DEG], [e + FRAME_PAD_DEG, n + FRAME_PAD_DEG]])
-}
 
 export default function BoomPanel() {
   const o = useOverload()
-  const { grid, extraSites, setExtraSites, setMapTool, mode, focus, mapRef, cascade, site, branchById, subPos } = o
+  const { grid, extraSites, setExtraSites, setMapTool, mode, focus, mapRef, cascade, site, branchById, subPos, region } = o
+  const agent = usePlanner()
   const [armed, setArmed] = useState(false)
   const [notice, setNotice] = useState(null)
   const live = armed && mode === 'boom' && !!grid
   const total = extraSites.reduce((sum, c) => sum + c.mw, 0)
   const full = extraSites.length >= MAX_EXTRA
+  const stateName = grid?.meta?.region_name || 'this state'
+  const agentBusy = agent.origin === 'boom' && agent.status === 'running'
 
   // When the panel opens with campuses already set, bring them into view.
   const opening = useRef(extraSites)
@@ -71,9 +63,9 @@ export default function BoomPanel() {
       setArmed(false)
       return
     }
-    const sub = snapToSub(grid.subs, lat, lon)
+    const sub = snapToSub(grid.subs, lat, lon, grid.meta?.bbox)
     if (!sub) {
-      setNotice('No grid there. The model covers peninsular Florida only.')
+      setNotice(`No grid there: click inside ${stateName}.`)
       return
     }
     if (extraSites.some((c) => c.sub === sub.id)) {
@@ -135,27 +127,38 @@ export default function BoomPanel() {
   return (
     <div className="stack panel-body boom">
       <p className="boom__lede">An AI buildout: several gigawatt campuses on one grid.</p>
-      <div className="boom__actions">
-        <Button onClick={loadPreset} disabled={!grid}>
-          Five 1 GW campuses near the biggest metros
-        </Button>
-        <Button variant="secondary" aria-pressed={armed} onClick={() => setArmed((a) => !a)} disabled={!grid || (full && !armed)}>
-          {armed ? 'Stop adding campuses' : 'Add campuses by clicking the map'}
-        </Button>
-        {armed && (
-          <p className="boom__armed" role="status">
-            Click anywhere on Florida to add a {fmt(CAMPUS_MW)} MW campus. Press Escape to stop.
-          </p>
-        )}
-        {notice && (
-          <p className="boom__notice" role="status">
-            {notice}
-          </p>
-        )}
-      </div>
+      <BoomAgent />
+      {region !== 'US' && (
+        <div className="boom__actions">
+          <h3 className="panel-h">Or place them yourself</h3>
+          {region === 'FL' && (
+            <Button variant="secondary" onClick={loadPreset} disabled={!grid || agentBusy}>
+              Five 1 GW campuses near the biggest metros
+            </Button>
+          )}
+          <Button variant="secondary" aria-pressed={armed} onClick={() => setArmed((a) => !a)} disabled={!grid || agentBusy || (full && !armed)}>
+            {armed ? 'Stop adding campuses' : 'Add campuses by clicking the map'}
+          </Button>
+          {armed && (
+            <p className="boom__armed" role="status">
+              Click anywhere on {stateName} to add a {fmt(CAMPUS_MW)} MW campus. Press Escape to stop.
+            </p>
+          )}
+          {notice && (
+            <p className="boom__notice" role="status">
+              {notice}
+            </p>
+          )}
+        </div>
+      )}
 
       {extraSites.length === 0 ? (
-        <EmptyState title="No campuses yet">Load the five-metro buildout, or add campuses one click at a time.</EmptyState>
+        !agentBusy &&
+        region !== 'US' && (
+          <EmptyState title="No campuses yet">
+            {region === 'FL' ? 'Let the AI place them, load the five-metro buildout, or add campuses one click at a time.' : 'Let the AI place them, or add campuses one click at a time.'}
+          </EmptyState>
+        )
       ) : (
         <>
           <div className="boom__total">
@@ -200,8 +203,8 @@ function CampusList({ campuses, onSize, onRemove }) {
               label={`${c.metro} · ${fmt(c.mw)} MW`}
               type="range"
               min={SIZE_MIN}
-              max={SIZE_MAX}
-              step={50}
+              max={Math.max(SIZE_MAX, Math.ceil(c.mw / 50) * 50)}
+              step={c.mw % 50 ? 10 : 50}
               value={c.mw}
               aria-valuetext={`${fmt(c.mw)} MW`}
               onChange={(e) => onSize(c.id, Number(e.target.value))}
@@ -221,7 +224,7 @@ function CampusList({ campuses, onSize, onRemove }) {
 
 // The combined answer: every campus (and the main data center, if one is placed) solved together.
 function Together() {
-  const { result, solving, whatifError, subName, site, mw, clearSite, cascade, extraSites } = useOverload()
+  const { result, solving, whatifError, subName, site, mw, clearSite, cascade, extraSites, grid } = useOverload()
   const campusSubs = new Set(extraSites.map((c) => c.sub))
   const current = result && (result.sites || []).some((s) => campusSubs.has(s.sub))
   const over = current ? result.overloaded : []
@@ -241,7 +244,7 @@ function Together() {
         <>
           <p className="verdict verdict--bad">{overLimitText(over)}</p>
           <p>
-            Florida breaks first near <strong>{townOf(subName(first.from))}</strong>: {lineName(first)} runs at{' '}
+            {grid?.meta?.region_name || 'The grid'} breaks first near <strong>{townOf(subName(first.from))}</strong>: {lineName(first)} runs at{' '}
             <strong className="boom__pct">{fmt(first.pct)} %</strong> of its limit.
           </p>
         </>

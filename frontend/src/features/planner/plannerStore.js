@@ -14,7 +14,9 @@ const POLL_MS = 600
 const REVEAL_MS = 650
 const MAX_POLL_FAILS = 4
 
-const IDLE = { status: 'idle', request: null, steps: [], shown: 0, result: null, error: null, loaded: null, runId: 0 }
+// origin: which panel started the run ('boom' = the AI boom mode, which puts each step's campuses on
+// the map); revealMs: the pace for this run; startedAt: performance.now() when it started (the trace's clock)
+const IDLE = { status: 'idle', request: null, steps: [], shown: 0, result: null, error: null, loaded: null, runId: 0, origin: null, revealMs: REVEAL_MS, startedAt: 0, endedAt: 0 }
 let state = IDLE
 const subs = new Set()
 function set(next) {
@@ -45,18 +47,20 @@ function schedule() {
       revealTimer = null
       if (state.shown < state.steps.length) set((s) => ({ ...s, shown: s.shown + 1 }))
     },
-    state.shown === 0 ? 150 : REVEAL_MS,
+    state.shown === 0 ? 150 : state.revealMs || REVEAL_MS,
   )
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // Start a plan and follow it to the end. A newer run (or reset) makes an older one stop quietly.
-export async function runPlan(request) {
+// opts: {origin, revealMs} (see IDLE).
+export async function runPlan(request, opts = {}) {
   const runId = state.runId + 1
   clearTimeout(revealTimer)
   revealTimer = null
-  set({ ...IDLE, status: 'running', request, runId })
+  const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  set({ ...IDLE, status: 'running', request, runId, origin: opts.origin || null, revealMs: opts.revealMs || REVEAL_MS, startedAt: now })
   let job
   try {
     job = await startPlan(request)
@@ -81,12 +85,13 @@ export async function runPlan(request) {
       continue
     }
     if (state.runId !== runId) return
+    const ended = performance.now()
     if (s.status === 'done') {
-      set((st) => ({ ...st, status: 'done', steps: s.result.steps, result: s.result }))
+      set((st) => ({ ...st, status: 'done', steps: s.result.steps, result: s.result, endedAt: ended }))
       return
     }
     if (s.status === 'error') {
-      set((st) => ({ ...st, status: 'error', steps: s.steps, error: new Error(s.error || 'The planner failed') }))
+      set((st) => ({ ...st, status: 'error', steps: s.steps, error: new Error(s.error || 'The planner failed'), endedAt: ended }))
       return
     }
     if (s.steps.length !== state.steps.length) set((st) => ({ ...st, steps: s.steps }))

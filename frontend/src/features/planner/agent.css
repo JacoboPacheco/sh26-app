@@ -1,0 +1,229 @@
+/* The siting agent's trace (owned by the planner track). Tokens only (index.css). Sober: plain
+   tabular figures, a thin left rule per step (accent = Gemini, green = the engine passed it, red =
+   a line over or a failed check), the call in monospace as it ran. Motion only says "new": a row
+   slides in once, the pending bar sweeps while Gemini or the engine works. */
+
+.agent-trace {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.agent-trace__bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.agent-trace__clock {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.agent-trace__stats {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.agent-steps__end {
+  height: 0;
+}
+
+.agent-step {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.45rem 0.6rem 0.5rem;
+  border: 1px solid var(--glass-edge);
+  border-left: 2px solid var(--glass-edge);
+  border-radius: 6px;
+  background: var(--glass-hi);
+  font-size: 0.78rem;
+  line-height: 1.38;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  animation: agent-in 0.32s ease-out both;
+}
+
+.agent-step--gemini {
+  border-left-color: var(--accent);
+}
+
+.agent-step--ok {
+  border-left-color: var(--hr-ok);
+}
+
+.agent-step--bad {
+  border-left-color: var(--overload);
+}
+
+.agent-step__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.45rem;
+  min-width: 0;
+}
+
+.agent-step__n {
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.agent-step__head .aib {
+  font-size: 0.72rem;
+}
+
+.agent-step__note-who {
+  font-size: 0.72rem;
+  color: var(--ink-2);
+}
+
+.agent-step__tool {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.agent-step__time {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.agent-step__revise {
+  font-size: 0.72rem;
+  color: var(--strain);
+}
+
+.agent-step__thought {
+  color: var(--ink);
+  font-style: italic;
+}
+
+.agent-step__why {
+  color: var(--ink-2);
+}
+
+.agent-step__call {
+  display: block;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--night) 70%, transparent);
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, 'SFMono-Regular', Menlo, monospace;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--current);
+  overflow-wrap: anywhere;
+}
+
+.agent-step__result {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-step__arrow {
+  color: var(--ink-2);
+}
+
+.agent-step--ok .agent-step__result {
+  color: var(--hr-ok);
+}
+
+.agent-step--bad .agent-step__result {
+  color: var(--overload);
+}
+
+/* a note (a retry, a hand-over to the built-in planner): one quiet line */
+.agent-step--note {
+  border-style: dashed;
+  background: transparent;
+}
+
+.agent-step__notetext {
+  color: var(--ink-2);
+}
+
+.agent-step--pending {
+  display: grid;
+  gap: 0.35rem;
+  border-style: dashed;
+  background: transparent;
+}
+
+.agent-step__pending-label {
+  color: var(--ink-2);
+}
+
+/* an indeterminate sweep: something is working right now */
+.agent-step__bar {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--glass-edge);
+}
+
+.agent-step__bar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  background: var(--accent);
+  animation: agent-sweep 1.1s ease-in-out infinite;
+}
+
+.agent-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@keyframes agent-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes agent-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-step {
+    animation: none;
+  }
+
+  .agent-step__bar::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}

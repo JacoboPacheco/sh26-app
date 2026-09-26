@@ -8,10 +8,10 @@ export const CAMPUS_MW = 1000 // what a click adds
 export const SIZE_MIN = 100
 export const SIZE_MAX = 2000
 const MAX_SNAP_KM = 75 // matches backend/grid.py: farther than this from any substation is off the model
-const LAT_MIN = 24.3
-const LAT_MAX = 31.1
-const LON_MIN = -87.7
-const LON_MAX = -79.4
+const FL_BBOX = [-87.7, 24.3, -79.4, 31.1] // [lon0, lat0, lon1, lat1] when the grid has none
+const BBOX_PAD_DEG = 0.3
+const STATEWIDE_DEG = 2.5 // campuses spread wider than this: show the whole state
+const FRAME_PAD_DEG = 0.5
 
 // Five 1 GW campuses, each on a substation near a big metro (on land, 100 kV and up), picked so
 // the white squares don't cover the city names. Together: 71 lines over limit and a 30-step
@@ -31,9 +31,12 @@ function km(lat1, lon1, lat2, lon2) {
   return 2 * 6371 * Math.asin(Math.sqrt(a))
 }
 
-// The substation a campus dropped at (lat, lon) connects to, or null when the point is off the model.
-export function snapToSub(subs, lat, lon) {
-  if (!(lat >= LAT_MIN && lat <= LAT_MAX && lon >= LON_MIN && lon <= LON_MAX)) return null
+// The substation a campus dropped at (lat, lon) connects to, or null when the point is off the model
+// (outside the state's box, `bbox` = the grid's meta.bbox, or farther than MAX_SNAP_KM from any substation).
+export function snapToSub(subs, lat, lon, bbox = FL_BBOX) {
+  const [lon0, lat0, lon1, lat1] = bbox || FL_BBOX
+  const p = BBOX_PAD_DEG
+  if (!(lat >= lat0 - p && lat <= lat1 + p && lon >= lon0 - p && lon <= lon1 + p)) return null
   let best = null
   let bestKm = Infinity
   for (const s of subs) {
@@ -63,6 +66,17 @@ export function homesLabel(mw) {
   const n = mw * HOMES_PER_MW
   if (n >= 1e6) return `${(Math.round(n / 1e5) / 10).toLocaleString('en-US')} million`
   return Math.round(n).toLocaleString('en-US')
+}
+
+// Bring points into view with room around them (the panels float over the map's edges); a set that
+// spans the state gets the whole state.
+export function frame(points, focus, mapRef) {
+  if (!points.length) return
+  const lons = points.map((p) => p[0])
+  const lats = points.map((p) => p[1])
+  const [w, e, s, n] = [Math.min(...lons), Math.max(...lons), Math.min(...lats), Math.max(...lats)]
+  if (Math.max(e - w, n - s) > STATEWIDE_DEG) mapRef.current?.reset()
+  else focus([...points, [w - FRAME_PAD_DEG, s - FRAME_PAD_DEG], [e + FRAME_PAD_DEG, n + FRAME_PAD_DEG]])
 }
 
 let seq = 0

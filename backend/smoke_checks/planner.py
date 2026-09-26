@@ -8,7 +8,34 @@ so the numbers the panel shows are the numbers the workspace will get."""
 
 import time
 
-ALLOWED_AI = {"used", "off", "not_configured", "unavailable", "slow", "rejected", "out_of_calls", "supply"}
+ALLOWED_AI = {"used", "off", "not_configured", "unavailable", "rate_limited", "slow", "rejected", "out_of_calls", "supply"}
+TOOLS = {"headroom_top", "split", "whatif", "move", "shrink", "fix", "cascade", "finish", "check", "note"}
+
+
+def trace_ok(steps, label):
+    """The fields the AI boom mode's trace shows: the call as it ran, the engine's answer, its time,
+    and a reason (Gemini's thought or the built-in planner's rule) on every tool step."""
+    assert steps, f"{label}: no steps"
+    assert [s["n"] for s in steps] == list(range(1, len(steps) + 1)), f"{label}: steps out of order"
+    for s in steps:
+        assert s["by"] in ("gemini", "planner") and s["tool"] in TOOLS, (label, s["by"], s["tool"])
+        if s["tool"] == "note":
+            assert s["call"] is None and s["ms"] is None, (label, s)
+            continue
+        assert isinstance(s["call"], dict) and s["call"]["tool"] and isinstance(s["call"]["args"], dict), (label, s["call"])
+        assert isinstance(s["result"], str) and s["result"], (label, s["tool"])
+        assert isinstance(s["ms"], int) and 0 <= s["ms"] < 60000, (label, s["tool"], s["ms"])
+        if s["by"] == "gemini":
+            assert isinstance(s["call_n"], int) and 1 <= s["call_n"] <= 6, (label, s.get("call_n"))
+            assert isinstance(s.get("ai_cached"), bool), (label, "a Gemini step says whether its decision came from the cache")
+        else:
+            assert s["tool"] == "check" or isinstance(s["why"], str) and s["why"], (label, s["tool"], s.get("why"))
+        for sub in s["call"]["args"].get("sites", []):
+            assert isinstance(sub["sub"], int) and isinstance(sub["mw"], int), (label, sub)
+        for u in s.get("upgrade_lines", []):
+            assert isinstance(u["from"], int) and isinstance(u["to"], int) and u["added_mva"] > 0, (label, u)
+    last = steps[-1]
+    assert last["tool"] == "check" and last["result"].startswith(("passes", "does not pass")), (label, last["result"])
 
 
 def register(ctx):
@@ -38,6 +65,9 @@ def register(ctx):
         assert len(set(towns)) == len(towns), f"one campus per town: {towns}"
         assert sum(s["mw"] for s in p["sites"]) == 2000
         assert r["steps"] and r["steps"][-1]["tool"] == "check" and r["steps"][-1]["ok"] is True, r["steps"][-1:]
+        trace_ok(r["steps"], "Texas 2,000 MW")
+        ran = sorted((x["sub"], x["mw"]) for x in r["steps"][-1]["call"]["args"]["sites"])
+        assert ran == sorted((s["sub"], s["mw"]) for s in p["sites"]), f"the check step ran on {ran}, not the plan's sites"
         case = r["case"]
         assert case["region"] == "TX" and case["mw"] == p["sites"][0]["mw"], case
         w, _ = calm_in_workspace(case, "Texas 2,000 MW")
@@ -50,6 +80,10 @@ def register(ctx):
         assert v["ok"] is True and p["total_mw"] == 3000, (v, p["total_mw"])
         assert p["upgrades"] and p["upgrade_lines"] and p["added_mva"] > 0, "3,000 MW in Florida should need upgrades"
         assert r["case"]["upgrades"], "the case carries the upgrades"
+        trace_ok(r["steps"], "Florida 3,000 MW")
+        # the fix step names the same branches the plan upgrades, with their ends for the map
+        fix = [s for s in r["steps"] if s["tool"] == "fix"]
+        assert fix and {str(u["id"]) for u in fix[-1]["upgrade_lines"]} == set(p["upgrades"]), (fix[-1:], p["upgrades"])
         calm_in_workspace(r["case"], "Florida 3,000 MW with upgrades")
         alt = r["without_upgrades"]
         assert alt and 0 < alt["total_mw"] < 3000 and alt["verification"]["ok"] is True, alt and alt["total_mw"]
@@ -64,6 +98,12 @@ def register(ctx):
         assert r["near"] and r["near"]["town"] == "Atlanta", r["near"]
         assert r["verification"]["ok"] is True
         assert all(s.get("km") is not None and s["km"] <= r["near"]["km"] for s in r["plan"]["sites"]), r["plan"]["sites"]
+        # "in New York" is the state the plan is for, not NY's town New York (the AI boom goal sentence);
+        # "near New York" still names the town
+        ny = plan({"region": "NY", "total_mw": 1000, "max_sites": 2, "use_ai": False, "goal": "Place 1 GW of AI campuses in New York without blacking anyone out"})
+        assert ny["near"] is None, f"'in New York' read as near {ny['near']}"
+        ny2 = plan({"region": "NY", "total_mw": 1000, "max_sites": 2, "use_ai": False, "goal": "1 GW near New York"})
+        assert ny2["near"] and ny2["near"]["town"] == "New York", ny2["near"]
 
     def small_state_supply():
         # Rhode Island's model can't generate 500 MW more: the plan places less, says why, and passes
@@ -87,6 +127,10 @@ def register(ctx):
         assert s["status"] == "done", f"job ended as {s['status']}: {s.get('error')}"
         assert s["result"]["verification"]["ok"] is True
         assert [x["text"] for x in s["steps"]] == [x["text"] for x in s["result"]["steps"]], "the live steps differ from the result's"
+        trace_ok(s["steps"], "background job")
+        # fresh is accepted (it only skips the cache of an earlier Gemini run)
+        j2 = ctx.request("POST", "/api/planner/start", {**body, "fresh": True})
+        assert j2["id"] != j["id"], j2
 
     def default_path_answers():
         # Gemini when configured (cached after the first run), the deterministic planner otherwise
@@ -95,6 +139,13 @@ def register(ctx):
         assert isinstance(r["fallback"], bool) and r["by"] in ("gemini", "planner")
         assert r["fallback"] == (r["by"] != "gemini"), (r["fallback"], r["by"])
         assert r["verification"]["ok"] is True and r["plan"]["total_mw"] == 1000, r["verification"]
+        assert r["ai"]["calls"] <= 6, f"{r['ai']['calls']} Gemini calls for one plan (the cap is 6)"
+        assert 0 <= r["ai"]["cached_calls"] <= r["ai"]["calls"], r["ai"]
+        trace_ok(r["steps"], "Florida 1,000 MW (default path)")
+        if r["by"] == "gemini":
+            g = [s for s in r["steps"] if s["by"] == "gemini"]
+            assert g[-1]["tool"] == "finish" and all(isinstance(s["ai_ms"], int) or s["ai_ms"] is None for s in g), g[-1:]
+            assert any(s["thought"] for s in g), "Gemini's steps carry its one-sentence reasons"
         calm_in_workspace(r["case"], "Florida 1,000 MW (default path)")
 
     def rejects_bad_requests():

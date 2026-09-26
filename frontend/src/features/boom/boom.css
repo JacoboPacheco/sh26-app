@@ -174,3 +174,273 @@
     opacity: 0;
   }
 }
+
+/* ------------------------------------------------------------------ the siting agent (BoomAgent) */
+.boom-agent {
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--glass-hi);
+  min-width: 0;
+}
+
+.boom-agent__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+}
+
+.boom-agent__title {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.boom-agent__how {
+  font-size: 0.75rem;
+}
+
+.boom-agent__lede,
+.boom-agent__hint,
+.boom-agent__context {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.boom-agent__context {
+  font-size: 0.75rem;
+}
+
+.boom-agent__goal {
+  display: grid;
+  gap: 0.1rem;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--night) 55%, transparent);
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.boom-agent__goal-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.boom-agent__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.boom-agent .btn {
+  width: 100%;
+}
+
+.boom-agent__invalid {
+  font-size: 0.8125rem;
+  color: var(--danger);
+}
+
+.boom-agent .agent-trace {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--glass-edge);
+}
+
+.boom-agent__result {
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--glass-edge);
+  font-size: 0.8125rem;
+  min-width: 0;
+}
+
+.boom-agent__verdict {
+  display: grid;
+  gap: 0.15rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-left: 3px solid var(--hr-ok);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--hr-ok) 7%, transparent);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  animation: boom-agent-in 0.4s ease-out both;
+}
+
+.boom-agent__verdict strong {
+  font-size: 0.95rem;
+  color: var(--hr-ok);
+}
+
+.boom-agent__verdict--bad {
+  border-left-color: var(--overload);
+  background: color-mix(in srgb, var(--overload) 7%, transparent);
+}
+
+.boom-agent__verdict--bad strong,
+p.boom-agent__verdict--bad {
+  color: var(--overload);
+}
+
+.boom-agent__badges {
+  gap: var(--space-1);
+}
+
+.boom-agent__must {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.boom-agent__must strong {
+  color: var(--ink);
+}
+
+.boom-agent__must ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.1rem;
+  color: var(--hr-ok);
+  overflow-wrap: anywhere;
+}
+
+.boom-agent__must .muted {
+  font-size: 0.75rem;
+}
+
+.boom-agent__note {
+  color: var(--strain);
+}
+
+.boom-agent__replay,
+.boom-agent__alt,
+.boom-agent__more {
+  color: var(--ink-2);
+}
+
+.boom-agent__next {
+  color: var(--ink);
+}
+
+.boom-agent__fine {
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.boom-agent__link {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+@keyframes boom-agent-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ------------------------------------------------------------------ the agent on the map */
+.boom-agent-layer text {
+  font-family: var(--font);
+  paint-order: stroke;
+  stroke: var(--night);
+  stroke-linejoin: round;
+}
+
+/* the substations the agent is ranking: faint dashed rings, fading in in rank order */
+.boom-cand {
+  animation: boom-fade 0.5s ease-out both;
+}
+
+.boom-cand__ring {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.boom-cand__label {
+  fill: var(--ink-2);
+  font-weight: 600;
+}
+
+/* a campus the agent placed: a ring that closes on it once, colored by the engine's last answer */
+.boom-drop__ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: boom-drop 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  transition: stroke 0.3s ease;
+}
+
+.boom-drop--ok .boom-drop__ring {
+  stroke: var(--hr-ok);
+}
+
+.boom-drop--bad .boom-drop__ring {
+  stroke: var(--overload);
+}
+
+/* the lines the plan upgrades: green (the fix), dashed while only proposed */
+.boom-up__line {
+  fill: none;
+  stroke: var(--hr-ok);
+  stroke-width: 3;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.95;
+}
+
+.boom-up--proposed .boom-up__line {
+  stroke-dasharray: 5 4;
+  opacity: 0.8;
+}
+
+.boom-up__label {
+  fill: var(--hr-ok);
+  font-weight: 700;
+}
+
+@keyframes boom-drop {
+  from {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes boom-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boom-agent__verdict,
+  .boom-cand,
+  .boom-drop__ring {
+    animation: none;
+  }
+}

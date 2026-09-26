@@ -2,12 +2,15 @@
 in Texas without blacking anyone out" — and it answers with sites, sizes and any upgrades, every one
 checked by the grid engine.
 
-POST /api/planner {region, goal, total_mw, max_sites, load_factor, firm, use_ai} runs a whole plan
-and returns it. POST /api/planner/start runs the same thing in the background and
-GET /api/planner/jobs/{id} returns its steps so far, so the panel can show them as they happen.
+POST /api/planner {region, goal, total_mw, max_sites, load_factor, firm, use_ai, fresh} runs a whole
+plan and returns it. POST /api/planner/start runs the same thing in the background and
+GET /api/planner/jobs/{id} returns its steps so far, so the panel can show them as they happen (the
+AI boom mode's "Let the AI place them" trace). Each step: {n, by: gemini|planner, tool, text, ok,
+thought (Gemini's one-sentence reason), why (the built-in planner's rule), call {tool, args}, result
+(the engine's answer alone), ms (engine time), ai_ms and call_n (Gemini's), sites, upgrade_lines?}.
 
-The agent: Gemini (llm.complete_json, with fallback= and timeout=10 on every call, at most AI_CALLS
-calls and AI_DEADLINE_S in all) picks one action at a time from headroom_top / whatif / fix /
+The agent: Gemini (llm.complete_json with a JSON schema, fallback= and a 10 s timeout on every call,
+at most AI_CALLS calls and AI_DEADLINE_S in all, JOB_DEADLINE_S in a job) picks one action at a time from headroom_top / whatif / fix /
 cascade / finish. Each action runs on the real engine (grid.py, powerflow.py, fixit.py) and its
 result is fed back. A "finish" is then checked the way /api/grid/whatif and /api/grid/cascade would
 check the plan's case: no line over its limit (after the plan's upgrades, if any) and nobody
@@ -28,6 +31,7 @@ in a step comes from the engine; people without power are estimates (grid.people
 
 import asyncio
 import copy
+import inspect
 import json
 import logging
 import math
@@ -59,6 +63,7 @@ from grid import (
     grid_at,
     region_code,
 )
+import llm
 from limiter import limiter
 from llm import complete_json, configured
 from powerflow import OVER_PCT, area_of
@@ -83,9 +88,15 @@ POOL_MAX = 120  # candidates kept per plan
 SHOW_TOP = 10
 BISECT_STEPS = 12
 RERATE_BISECT_STEPS = 7  # each probe runs a whole re-rating search, so fewer (within ~1 % of the most)
-AI_CALLS = 8
-AI_DEADLINE_S = 20.0  # all of Gemini's calls; the whole request stays under the smoke test's 30 s
+AI_CALLS = 6  # Gemini calls per plan, a retry included (one user action stays small)
+AI_CALL_TIMEOUT_S = 10.0  # one call; a call that hangs is asked again once (AI_RETRIES)
+AI_RETRIES = 1
+RATE_WAIT_S = 4.0  # before the retry of a call Google refused for its request limit (a 429; per-minute limits clear fast)
+BUSY_WAIT_S = 2.0  # before the retry of a call Google answered with 503 (the model is overloaded)
+AI_DEADLINE_S = 22.0  # all of Gemini's calls in POST /api/planner: the whole request stays under the smoke test's 30 s
+JOB_DEADLINE_S = 40.0  # ...in a background job (the panel's live trace): room for a slower fallback model
 AI_TOP_MAX = 15
+HISTORY_MAX = 1500  # characters of one tool result fed back to Gemini (ten ranked sites fit whole)
 JOBS_MAX = 64
 JOB_TTL_S = 900
 RUNNING_MAX = 6
@@ -203,12 +214,16 @@ def _town_at(text: str, areas: dict[str, dict]) -> dict | None:
     return None
 
 
-def parse_goal(goal: str, g) -> tuple[dict | None, list[dict]]:
+def parse_goal(goal: str, g, state_name: str = "") -> tuple[dict | None, list[dict]]:
     """Places the goal names: ("near Dallas", ["avoid Austin", ...]), each {town, lat, lon}. Only towns
-    the region's model has a substation named after count; anything else is left to Gemini."""
+    the region's model has a substation named after count; anything else is left to Gemini.
+    `state_name`: "in New York" names the state, not its town New York, so a place after "in"/"at" that
+    starts with the state's own name is skipped ("in New York City", "in the city of New York", "near
+    New York" still name the town). The avoid list is untouched: "avoid New York" still works."""
     if not goal:
         return None, []
     areas = _areas(g)
+    state = " ".join(re.findall(r"[a-z.'\-]+", state_name.lower()))
     avoid, spans = [], []
     for m in _AVOID_RE.finditer(goal):
         t = _town_at(m.group(1), areas)
@@ -219,6 +234,10 @@ def parse_goal(goal: str, g) -> tuple[dict | None, list[dict]]:
     for m in _NEAR_RE.finditer(goal):
         if any(a <= m.start() < b for a, b in spans):
             continue
+        if state and m.group(0).split()[0].lower() in ("in", "at") and "city of" not in m.group(0).lower():
+            words = " ".join(re.findall(r"[a-z.'\-]+", m.group(1).lower()))
+            if (words == state or words.startswith(state + " ")) and not words[len(state) :].lstrip().startswith("city"):
+                continue  # "in New York": the state the plan is for
         t = _town_at(m.group(1), areas)
         if t and t not in avoid:
             near = t
@@ -235,6 +254,7 @@ class PlanIn(BaseModel):
     load_factor: float = 1.0
     firm: bool = False
     use_ai: bool = True  # False: the deterministic planner only (the smoke checks; no quota)
+    fresh: bool = False  # True: run Gemini again even when an earlier run of the same request is cached
 
     @field_validator("total_mw", "load_factor", "max_sites", mode="before")
     @classmethod
@@ -285,7 +305,7 @@ class Planner:
         self.supply_capped = False  # the model's generators, not its lines, limit the total (a small state)
         self.gemini_short = False  # Gemini's what-if at the full total left load unserved
         self.hb = g.headroom_by_sub()
-        self.near, self.avoid = parse_goal(self.goal, g)
+        self.near, self.avoid = parse_goal(self.goal, g, self.state_name)
         self.spacing = NEAR_SPACING_KM if self.near else SPACING_KM
         self.pool = self._pool(self.near)
         self.near_dropped = False
@@ -298,6 +318,12 @@ class Planner:
         self.need = math.ceil(self.total / SITE_MAX_MW)  # sites needed at SITE_MAX_MW each
         self.k = max(self.need, min(self.max_sites, max(1, self.total // MIN_CAMPUS_MW)))
         self.ai_calls = 0
+        self._t0: float | None = None  # when the engine started on the step being emitted (tick())
+        self._ai_ms: int | None = None  # how long Gemini took to choose the step being emitted
+        self._ai_cached = False  # ...and whether that choice came from llm.py's cache (the same question asked before)
+        self.ai_cached_calls = 0
+        self.fresh = bool(req.fresh)
+        self.deadline = AI_DEADLINE_S  # Gemini's whole budget; run_plan sets a job's
 
     # -------------------------------------------------------------- candidates
     def _pool(self, near: dict | None, min_room: float = MIN_ROOM_MW) -> list[Cand]:
@@ -447,6 +473,8 @@ class Planner:
         lines = [
             {
                 "id": int(g.br_ids[i]),
+                "from": int(g.sub_ids[g.bus_sub_idx[g.f[i]]]),  # substation ids of its ends (the map draws it)
+                "to": int(g.sub_ids[g.bus_sub_idx[g.t[i]]]),
                 "label": self.line_label(i),
                 "kv": float(g.br_kv[i]),
                 "old_mva": round(float(g.rate[i]), 1),
@@ -545,10 +573,58 @@ class Planner:
         return sized(lo)
 
     # -------------------------------------------------------------- steps
-    def emit(self, by: str, tool: str, text: str, ok: bool | None = None, thought: str | None = None, sites: list[dict] | None = None) -> dict:
-        st = {"n": len(self.steps) + 1, "by": by, "tool": tool, "text": text, "ok": ok, "thought": thought, "sites": sites or []}
+    def tick(self) -> None:
+        """The engine starts work on the next step: its `ms` counts from here."""
+        self._t0 = time.perf_counter()
+
+    def emit(
+        self,
+        by: str,
+        tool: str,
+        text: str,
+        ok: bool | None = None,
+        thought: str | None = None,
+        sites: list[dict] | None = None,
+        call: dict | None = None,
+        result: str | None = None,
+        why: str | None = None,
+        lines: list[dict] | None = None,
+    ) -> dict:
+        """One step of the trace. `text` is the whole sentence; for the panel's trace the same step also
+        carries `call` (the tool and the arguments it ran with), `result` (the engine's answer alone),
+        `ms` (the engine's time on it), for Gemini's steps `ai_ms` (how long Gemini took to choose it)
+        and `call_n` (which of its calls), and for the built-in planner `why` (the rule it followed)."""
+        now = time.perf_counter()
+        ms = round((now - self._t0) * 1000) if self._t0 is not None and tool != "note" else None
+        self._t0 = now
+        st = {"n": len(self.steps) + 1, "by": by, "tool": tool, "text": text, "ok": ok, "thought": thought, "sites": sites or [],
+              "call": call, "result": result, "why": why, "ms": ms}
+        if by == "gemini":
+            st["ai_ms"] = self._ai_ms
+            st["ai_cached"] = self._ai_cached
+            st["call_n"] = self.ai_calls
+            self._ai_ms = None  # a call's time belongs to the first step it led to
+            self._ai_cached = False
+        if lines:
+            st["upgrade_lines"] = lines
         self.steps.append(st)
         return st
+
+    @staticmethod
+    def call_sites(sites) -> list[dict]:
+        return [{"sub": c.sub, "mw": int(m)} for c, m in sites]
+
+    def up_lines(self, fx: dict | None) -> list[dict]:
+        """A fix's re-rated branches for the map: id, ends (substation ids), MVA added."""
+        if not fx or not fx.get("lines"):
+            return []
+        g = self.g
+        out = []
+        for u in fx["lines"]:
+            i = g.br_index[int(u["id"])]
+            out.append({"id": u["id"], "from": int(g.sub_ids[g.bus_sub_idx[g.f[i]]]), "to": int(g.sub_ids[g.bus_sub_idx[g.t[i]]]),
+                        "label": u["label"], "added_mva": u["added_mva"], "new_mva": u["new_mva"]})
+        return out
 
     def sites_text(self, sites) -> str:
         return _and([f"{c.town} {_mw(m)}" for c, m in sites])
@@ -565,9 +641,23 @@ class Planner:
         where = f"within {NEAR_KM} km of {near['town']}" if near else f"in {self.state_name}"
         if not top:
             return f"Found no substation {where} with room for a campus at this demand."
+        return f"Ranked the substations {where} by how much each can take alone before a line overloads (an estimate): {self.top_result(top)}."
+
+    @staticmethod
+    def top_result(top: list[Cand]) -> str:
+        if not top:
+            return "no substation with room for a campus at this demand"
         first = ", ".join(f"{c.town} {_mw(c.room)}" for c in top[:3])
         more = f" and {len(top) - 3} more" if len(top) > 3 else ""
-        return f"Ranked the substations {where} by how much each can take alone before a line overloads (an estimate): {first}{more}."
+        return f"{first}{more} (room alone, estimate)"
+
+    def fix_result(self, fx: dict) -> str:
+        n = len(fx["lines"])
+        if not n:
+            return "no upgrade needed: no line is over its limit"
+        first = fx["lines"][0]
+        head = f"+{_n(fx['added_mva'])} MVA on {n} {'line' if n == 1 else 'lines'} ({first['label']}, {_n(first['old_mva'])} to {_n(first['new_mva'])} MVA{', and more' if n > 1 else ''})"
+        return head + ("; clears every overload" if fx["calm"] else f"; {fx['remaining']} still over: it needs new lines")
 
     def intro(self) -> None:
         """What the planner read from the request before it starts (both planners)."""
@@ -598,8 +688,17 @@ class Planner:
     # -------------------------------------------------------------- the deterministic planner
     def greedy(self) -> dict:
         """Returns {sites, upgrades, fix, alt} for the check."""
+        self.tick()
         top = self.pool[:SHOW_TOP]
-        self.emit("planner", "headroom_top", self.top_text(top, self.near), sites=[c.out() for c in top])
+        self.emit(
+            "planner",
+            "headroom_top",
+            self.top_text(top, self.near),
+            sites=[c.out() for c in top],
+            call={"tool": "headroom_top", "args": {"n": SHOW_TOP, **({"near": self.near["town"]} if self.near else {})}},
+            result=self.top_result(top),
+            why="Start where the grid has the most room: rank the substations by what each can take alone.",
+        )
         chosen = self.pick(self.k)
         if len(chosen) < self.need:
             # every candidate is closer than the spacing (a small "near" area): drop the spacing
@@ -616,7 +715,15 @@ class Planner:
             split_text = f"Split {_mw(self.total)} over the {len(chosen)} roomiest towns{apart}, each in proportion to its room: {self.sites_text(list(zip(chosen, sizes)))}."
         if len(chosen) < self.k:
             split_text += f" Only {len(chosen)} {'site fits' if len(chosen) == 1 else 'sites fit'} the spacing."
-        self.emit("planner", "split", split_text, sites=[c.out(m) for c, m in zip(chosen, sizes)])
+        self.emit(
+            "planner",
+            "split",
+            split_text,
+            sites=[c.out(m) for c, m in zip(chosen, sizes)],
+            call={"tool": "split", "args": {"total_mw": self.total, "sites": self.call_sites(zip(chosen, sizes))}},
+            result=self.sites_text(list(zip(chosen, sizes))),
+            why="Spread the total over the roomiest towns, each campus in proportion to its room.",
+        )
 
         tried = {c.sub for c in chosen}
         moves = 0
@@ -624,22 +731,35 @@ class Planner:
             sites = list(zip(chosen, sizes))
             st = self.solve(sites)
             over = self.new_over(st)
+            call = {"tool": "whatif", "args": {"sites": self.call_sites(sites)}}
             if not over:
                 together = "it" if len(sites) == 1 else ("both together" if len(sites) == 2 else f"all {len(sites)} together")
                 lost = self.short(st)
-                text = f"Solved the grid with {together}: no new line over its limit ({self.busiest_text(st)})"
+                res = f"no new line over its limit ({self.busiest_text(st)})"
                 if lost:
-                    text += f", but {_mw(lost)} of load goes unserved: this synthetic model's generators and imports can't cover it all"
-                self.emit("planner", "whatif", text + ".", ok=not lost, sites=[c.out(m) for c, m in sites])
+                    res += f", but {_mw(lost)} of load goes unserved: the model's generators and imports can't cover it all"
+                self.emit(
+                    "planner",
+                    "whatif",
+                    f"Solved the grid with {together}: {res}.",
+                    ok=not lost,
+                    sites=[c.out(m) for c, m in sites],
+                    call=call,
+                    result=res,
+                    why="Solve the grid with every campus at once: sites that load the same lines have less room together.",
+                )
                 break
             w = over[0]
             share = self.shares(st, w)
             adds = [float(share[c.bus]) * m for c, m in sites]
             j = int(np.argmax(adds))
             culprit = chosen[j]
-            text = f"Tried {self.sites_text(sites)}: {self.over_text(st, over)}."
+            res = self.over_text(st, over)
+            text = f"Tried {self.sites_text(sites)}: {res}."
             if len(sites) > 1:
-                text += f" {culprit.town} sends the most power over it ({_pct(share[culprit.bus] * 100)} of its load)."
+                blame = f"{culprit.town} sends the most power over it ({_pct(share[culprit.bus] * 100)} of its load)"
+                text += f" {blame[0].upper()}{blame[1:]}."
+                res += f"; {blame}"
             repl = None
             tiny = float(share[culprit.bus]) < 0.02  # every campus sends a sliver: moving one can't clear it
             roomy = 0  # other sites with room for this share (so the text says why no move was found)
@@ -656,28 +776,47 @@ class Planner:
                         repl = c
                         break
             if repl is not None:
-                text += f" Moved {'its' if len(sites) == 1 else _poss(culprit.town)} share to {repl.town}, which sends {_pct(max(share[repl.bus], 0) * 100)} over that line."
-                self.emit("planner", "move", text, ok=False, sites=[c.out(m) for c, m in sites])
+                moved = f"moved {'its' if len(sites) == 1 else _poss(culprit.town)} share to {repl.town}, which sends {_pct(max(share[repl.bus], 0) * 100)} over that line"
+                text += f" M{moved[1:]}."
+                self.emit(
+                    "planner",
+                    "move",
+                    text,
+                    ok=False,
+                    sites=[c.out(m) for c, m in sites],
+                    call=call,
+                    result=f"{res}; {moved}",
+                    why="A line went over: move the campus that sends it the most power to a roomy site that sends it little.",
+                )
                 chosen[j] = repl
                 tried.add(repl.sub)
                 moves += 1
                 sizes = self.split(chosen)
                 continue
             if tiny:
-                text += (
-                    " The campus sends only a sliver of its power over it (it's the added total that loads it), so moving it won't help."
+                stop = (
+                    "The campus sends only a sliver of its power over it (it's the added total that loads it), so moving it won't help."
                     if len(sites) == 1
-                    else " Every campus sends only a sliver of its power over it (the whole total loads it), so moving one won't help."
+                    else "Every campus sends only a sliver of its power over it (the whole total loads it), so moving one won't help."
                 )
             elif moves >= MAX_MOVES:
-                text += " That was the last move the planner tries."
+                stop = "That was the last move the planner tries."
             elif not roomy:
-                text += f" No other site in reach has room for {'its' if len(sites) == 1 else _poss(culprit.town)} share, so moving won't help."
+                stop = f"No other site in reach has room for {'its' if len(sites) == 1 else _poss(culprit.town)} share, so moving won't help."
             elif len(sites) > 1:
-                text += " Every other roomy site sends as much over it, so moving won't help."
+                stop = "Every other roomy site sends as much over it, so moving won't help."
             else:
-                text += " No roomy site sends less over it."
-            self.emit("planner", "whatif", text, ok=False, sites=[c.out(m) for c, m in sites])
+                stop = "No roomy site sends less over it."
+            self.emit(
+                "planner",
+                "whatif",
+                f"{text} {stop}",
+                ok=False,
+                sites=[c.out(m) for c, m in sites],
+                call=call,
+                result=res,
+                why=stop,
+            )
             break
 
         full = list(zip(chosen, sizes))
@@ -709,6 +848,9 @@ class Planner:
                 f"The most it can take with every load served: {_mw(sum(sizes))}, placed as {self.sites_text(full)}.",
                 ok=None,
                 sites=[c.out(m) for c, m in full],
+                call={"tool": "shrink", "args": {"sites": self.call_sites(full), "limit": "supply"}},
+                result=f"{_mw(sum(sizes))} with every load served: {self.sites_text(full)}",
+                why="The generators, not the lines, run out: find the most the model can serve (bisection on the engine).",
             )
             st = self.solve(full)
         target = sum(sizes)
@@ -728,6 +870,9 @@ class Planner:
                     f"Without upgrades these sites take {_mw(sum(less))} together{what}: {self.sites_text(alt)}.",
                     ok=None,
                     sites=[c.out(m) for c, m in alt],
+                    call={"tool": "shrink", "args": {"sites": self.call_sites(alt), "limit": "no upgrades"}},
+                    result=f"{_mw(sum(less))} together{what}",
+                    why="Measure the most these sites take with no upgrade at all (bisection on the engine).",
                 )
         fx = self.fix(full)
         full_txt = _mw(target) if self.supply_capped else f"the full {_mw(target)}"
@@ -743,7 +888,17 @@ class Planner:
                     f"Re-rating {n} {'line' if n == 1 else 'lines'} (+{_n(fx['added_mva'])} MVA) still leaves {fx['remaining']} over: "
                     f"{full_txt} needs new lines, not just higher ratings."
                 )
-            self.emit("planner", "fix", text, ok=fx["calm"])
+            self.emit(
+                "planner",
+                "fix",
+                text,
+                ok=fx["calm"],
+                sites=[c.out(m) for c, m in full],
+                call={"tool": "fix", "args": {"sites": self.call_sites(full)}},
+                result=self.fix_result(fx),
+                why="To build the full amount here, find the smallest set of line re-ratings that carries it.",
+                lines=self.up_lines(fx),
+            )
         if not fx["calm"] and alt is None:
             # lines over before any campus (a heat wave) leave no version without upgrades: find the
             # most these sites take with re-ratings alone instead of handing back a plan that fails
@@ -759,6 +914,10 @@ class Planner:
                     + (f", with +{_n(fx2['added_mva'])} MVA on {n2} {'line' if n2 == 1 else 'lines'}." if n2 else "."),
                     ok=None,
                     sites=[c.out(m) for c, m in part],
+                    call={"tool": "shrink", "args": {"sites": self.call_sites(part), "limit": "re-ratings"}},
+                    result=f"at most {_mw(sum(more))}" + (f" with +{_n(fx2['added_mva'])} MVA on {n2} {'line' if n2 == 1 else 'lines'}" if n2 else ""),
+                    why="Re-rating can't carry the full total: measure the most it can (bisection on the engine).",
+                    lines=self.up_lines(fx2),
                 )
                 return {"sites": part, "upgrades": fx2["upgrades"], "fix": fx2, "alt": None, "partial": True}
         if fx["calm"] or alt is None:
@@ -767,7 +926,9 @@ class Planner:
         return {"sites": alt, "upgrades": {}, "fix": fx, "alt": None, "partial": True}
 
     # -------------------------------------------------------------- the result
-    def verify_step(self, v: dict, who: str) -> None:
+    def verify_step(self, v: dict, who: str, sites=None) -> None:
+        call = {"tool": "check", "args": {**({"sites": self.call_sites(sites)} if sites else {}), "upgrades": v["upgrades"], "firm": v["firm"]}}
+        why = "Re-runs the plan the way the workspace will (the what-if, then the cascade): it passes only with no line over and nobody out."
         if v["ok"]:
             steps = "nothing trips" if v["cascade_steps"] == 0 else f"{v['cascade_steps']} {'step' if v['cascade_steps'] == 1 else 'steps'}, nobody loses power"
             text = (
@@ -775,6 +936,7 @@ class Planner:
                 f"{' with ' + str(v['upgrades']) + (' upgrade' if v['upgrades'] == 1 else ' upgrades') if v['upgrades'] else ''}, "
                 f"no line over its limit (the busiest is at {_pct(v['busiest_pct'])}), the cascade: {steps}. 0 people without power (estimate)."
             )
+            result = f"passes: no line over its limit (busiest {_pct(v['busiest_pct'])}), cascade: {steps}, 0 people without power (estimate)"
         else:
             bits = []
             if v["lines_over"]:
@@ -784,9 +946,10 @@ class Planner:
             if v["site_cut_off"]:
                 bits.append("a campus is cut off")
             text = f"Checked {who} with the engine: it does not pass — {_and(bits) or 'it fails the check'}."
+            result = f"does not pass: {_and(bits) or 'it fails the check'}"
             if self.base_people and v["people"]:
                 text += f" An estimated {self.base_people:,} of them had no power before any campus."
-        self.emit("planner", "check", text, ok=v["ok"])
+        self.emit("planner", "check", text, ok=v["ok"], call=call, result=result, why=why, sites=[c.out(m) for c, m in sites] if sites else None)
 
     def result(self, plan: dict | None, v: dict | None, body: CaseIn | None, by: str, ai_status: str, alt_v: dict | None = None) -> dict:
         g = self.g
@@ -828,7 +991,7 @@ class Planner:
             "without_upgrades": alt,
             "by": by,
             "fallback": bool(self.req.use_ai and by != "gemini"),
-            "ai": {"status": ai_status, "calls": self.ai_calls, "configured": configured()},
+            "ai": {"status": ai_status, "calls": self.ai_calls, "cached_calls": self.ai_cached_calls, "configured": configured()},
             "synthetic": True,
             "people_per_mw": round(g.people_per_mw, 2),
             "population": g.population,
@@ -839,6 +1002,7 @@ class Planner:
         note = {
             "not_configured": "Gemini isn't connected, so the built-in planner makes the plan: the same engine, step by step.",
             "unavailable": "Gemini stopped answering, so the built-in planner takes over.",
+            "rate_limited": "Gemini is over its request limit right now, so the built-in planner takes over: the same engine, step by step.",
             "slow": "Gemini took too long, so the built-in planner takes over.",
             "rejected": "Gemini's plan didn't pass the engine's check, so the built-in planner takes over.",
             "out_of_calls": f"Gemini used its {AI_CALLS} calls without a plan that passes, so the built-in planner takes over.",
@@ -851,8 +1015,9 @@ class Planner:
         plan = self.greedy()
         if not plan["sites"]:
             return self.result(None, None, None, "planner", ai_status)
+        self.tick()
         v, body = self.check(plan["sites"], plan["upgrades"])
-        self.verify_step(v, "the plan")
+        self.verify_step(v, "the plan", plan["sites"])
         alt_v = self.check(plan["alt"], {}) if plan.get("alt") else None
         return self.result(plan, v, body, "planner", ai_status, alt_v)
 
@@ -891,8 +1056,10 @@ class Planner:
         return self._pool(t), t
 
     def agent_tool(self, action: str, args: dict, thought: str | None) -> tuple[dict, dict | None]:
-        """Run one of Gemini's actions on the engine. Returns (what Gemini is told, a finished plan or None)."""
+        """Run one of Gemini's actions on the engine. Returns (what Gemini is told, a finished plan or None).
+        Each action becomes a step of the trace: the call as it ran, the engine's answer, the time."""
         g = self.g
+        self.tick()
         if action == "headroom_top":
             n = args.get("n", SHOW_TOP)
             n = int(n) if isinstance(n, (int, float)) and math.isfinite(n) else SHOW_TOP
@@ -903,11 +1070,20 @@ class Planner:
             else:
                 pool, t = self.pool, None
             top = pool[:n]
-            self.emit("gemini", "headroom_top", self.top_text(top, t), thought=thought, sites=[c.out() for c in top])
+            self.emit(
+                "gemini",
+                "headroom_top",
+                self.top_text(top, t),
+                thought=thought,
+                sites=[c.out() for c in top],
+                call={"tool": "headroom_top", "args": {"n": n, **({"near": t["town"]} if t else {})}},
+                result=self.top_result(top),
+            )
             return {"sites": [{"sub": c.sub, "town": c.town, "room_mw": round(c.room), "kv": c.kv, "lat": round(c.lat, 2), "lon": round(c.lon, 2), **({"km_from_" + t["town"]: c.km} if t else {})} for c in top]}, None
 
         sites = self.parse_sites(args.get("sites"))
         use_up = bool(args.get("use_upgrades"))
+        call = {"tool": action, "args": {"sites": self.call_sites(sites), **({"use_upgrades": True} if use_up and action in ("cascade", "finish") else {})}}
         if action == "whatif":
             st = self.solve(sites)
             over = self.new_over(st)
@@ -922,11 +1098,14 @@ class Planner:
                         "so moving or resizing campuses won't clear it: only less total MW or an upgrade will"
                     )
                 worst.append(item)
-            text = f"Tried {self.sites_text(sites)}: " + (self.over_text(st, over) + "." if over else f"no new line over its limit ({self.busiest_text(st)}).")
-            if self.short(st):
-                text += f" {_mw(self.short(st))} of load goes unserved: the model's generators and imports can't cover it all."
-            self.emit("gemini", "whatif", text, ok=not over and not self.short(st), thought=thought, sites=[c.out(m) for c, m in sites])
             lost = self.short(st)
+            res = self.over_text(st, over) if over else f"no new line over its limit ({self.busiest_text(st)})"
+            if lost:
+                res += f"; {_mw(lost)} of load goes unserved: the model's generators and imports can't cover it all"
+            text = f"Tried {self.sites_text(sites)}: " + (self.over_text(st, over) + "." if over else f"no new line over its limit ({self.busiest_text(st)}).")
+            if lost:
+                text += f" {_mw(lost)} of load goes unserved: the model's generators and imports can't cover it all."
+            self.emit("gemini", "whatif", text, ok=not over and not lost, thought=thought, sites=[c.out(m) for c, m in sites], call=call, result=res)
             told = {"total_mw": sum(m for _, m in sites), "new_lines_over": len(over), "worst": worst, "busiest_pct": round(self.busiest(st), 1), "people_without_power": g.people(st.lost_existing_mw)}
             if lost:
                 if sum(m for _, m in sites) >= self.total:
@@ -943,15 +1122,14 @@ class Planner:
                 text = f"Asked for the smallest re-rating for {self.sites_text(sites)}: +{_n(fx['added_mva'])} MVA on {n} {'line' if n == 1 else 'lines'}" + (
                     "." if fx["calm"] else f", and {fx['remaining']} still over (it needs new lines)."
                 )
-            self.emit("gemini", "fix", text, ok=fx["calm"], thought=thought, sites=[c.out(m) for c, m in sites])
+            self.emit("gemini", "fix", text, ok=fx["calm"], thought=thought, sites=[c.out(m) for c, m in sites], call=call, result=self.fix_result(fx), lines=self.up_lines(fx))
             return {"lines": n, "added_mva": fx["added_mva"], "clears_all": fx["calm"], "upgraded": [u["label"] for u in fx["lines"][:5]]}, None
         if action == "cascade":
             upg = self.fix(sites)["upgrades"] if use_up else {}
             v, _ = self.check(sites, upg)
-            text = f"Ran the cascade on {self.sites_text(sites)}{' with upgrades' if upg else ''}: " + (
-                "nothing trips." if v["cascade_steps"] == 0 else f"{v['cascade_steps']} steps, {v['people']:,} people without power (estimate)."
-            )
-            self.emit("gemini", "cascade", text, ok=v["people"] == 0 and not v["site_cut_off"], thought=thought, sites=[c.out(m) for c, m in sites])
+            res = "nothing trips" if v["cascade_steps"] == 0 else f"{v['cascade_steps']} steps, {v['people']:,} people without power (estimate)"
+            text = f"Ran the cascade on {self.sites_text(sites)}{' with upgrades' if upg else ''}: {res}."
+            self.emit("gemini", "cascade", text, ok=v["people"] == 0 and not v["site_cut_off"], thought=thought, sites=[c.out(m) for c, m in sites], call=call, result=res)
             return {"steps": v["cascade_steps"], "people_without_power": v["people"], "campus_cut_off": v["site_cut_off"], "lines_over_before": v["lines_over"]}, None
         if action == "finish":
             # the goal's places bind the final plan too
@@ -970,17 +1148,24 @@ class Planner:
                 if not (MW_MIN <= m + self.total - total <= SITE_MAX_MW):
                     raise ValueError(f"the sizes add up to {total:,} MW; the plan must place {self.total:,} MW")
                 sites[j] = (c, m + self.total - total)
+                call["args"]["sites"] = self.call_sites(sites)
             fx = self.fix(sites) if use_up else None
             upg = fx["upgrades"] if fx else {}
+            ups = f"+{_n(fx['added_mva'])} MVA of re-ratings on {len(fx['lines'])} {'line' if len(fx['lines']) == 1 else 'lines'}" if fx and fx["lines"] else ""
             self.emit(
                 "gemini",
                 "finish",
-                f"Proposed {self.sites_text(sites)}" + (f", with +{_n(fx['added_mva'])} MVA of re-ratings on {len(fx['lines'])} {'line' if len(fx['lines']) == 1 else 'lines'}." if fx and fx["lines"] else "."),
+                f"Proposed {self.sites_text(sites)}" + (f", with {ups}." if ups else "."),
                 thought=thought,
                 sites=[c.out(m) for c, m in sites],
+                call=call,
+                result=f"{_mw(sum(m for _, m in sites))} on {len(sites)} {'site' if len(sites) == 1 else 'sites'}"
+                + (f", with {ups}" if ups else ", no upgrades")
+                + ": handed to the engine to check",
+                lines=self.up_lines(fx),
             )
             v, body = self.check(sites, upg)
-            self.verify_step(v, "Gemini's plan")
+            self.verify_step(v, "Gemini's plan", sites)
             plan = {"sites": sites, "upgrades": upg, "fix": fx, "alt": None}
             if v["ok"] and upg:
                 st = self.solve(sites)
@@ -1002,7 +1187,7 @@ Reply with ONE JSON object and nothing else:
 {"thought": "<one short plain-English sentence for the user, in the present tense: what you do next and why, e.g. \"Checking the roomiest substations first.\">", "action": "<tool>", "args": {...}}
 
 Tools:
-- "headroom_top" {"n": 10, "near": "<town or null>"}: the roomiest substations, one per town, each with room_mw = the MW it can take ALONE before a line overloads (an estimate; campuses that load the same lines have less room together). "near" keeps to 80 km around that town.
+- "headroom_top" {"n": 10, "near": "<town, or an empty string>"}: the roomiest substations, one per town, each with room_mw = the MW it can take ALONE before a line overloads (an estimate; campuses that load the same lines have less room together). "near" keeps to 80 km around that town.
 - "whatif" {"sites": [{"sub": <substation id>, "mw": <MW>}]}: solves the grid with all these campuses together: new lines over their limits (worst first, with the MW each campus adds to that line), the busiest line's loading, people without power, and unserved_mw when the model's generators can't cover that much new load (then only a smaller total works).
 - "fix" {"sites": [...]}: the smallest set of line re-ratings (MVA added) that clears every overload for these campuses, and whether re-rating alone is enough.
 - "cascade" {"sites": [...], "use_upgrades": false}: runs the cascading-failure simulation: steps, people without power (an estimate), whether a campus is cut off.
@@ -1013,11 +1198,65 @@ Rules:
 - The sizes in "finish" must add up to exactly the requested total, on at most the allowed number of sites, one campus per substation.
 - Spread campuses over different towns at least 30 km apart (headroom_top gives each site's lat/lon). If a line goes over, move the campus that adds the most MW to it to a site that adds little.
 - Prefer a plan without upgrades; use them only when every spread you tried still overloads a line.
-- Be efficient: at most 8 replies in all. A good run is headroom_top, one or two whatif, then finish.
+- Be efficient: at most 6 replies in all. A good run is headroom_top, one or two whatif, then finish.
+- The thought is shown to the user beside the tool call: say what you learned from the last result and what you try now, in one sentence, with no numbers the tools did not give you.
 - Never mention real utilities, real companies, real projects or real events."""
 
 OFFLINE = {"action": "__offline__"}
 ACTIONS = ("headroom_top", "whatif", "fix", "cascade", "finish")
+
+# llm.complete_json's options the agent uses when this llm.py has them: the agent-step model
+# (GEMINI_AGENT_MODEL) and the answer cache (on by default there; a "fresh" run turns it off)
+_CJ = inspect.signature(complete_json).parameters
+
+
+def _call_kw(fresh: bool) -> dict:
+    kw = {}
+    if "model" in _CJ and getattr(llm, "AGENT_MODEL", None):
+        kw["model"] = llm.AGENT_MODEL
+    if "cache" in _CJ:
+        kw["cache"] = not fresh
+    return kw
+
+
+def _cached_count() -> int:
+    """Planner answers llm.py has served from its cache so far (its per-feature counter)."""
+    return int(llm._stats.get("by_surface", {}).get("planner", {}).get("cached", 0))
+_SITE_LIST = {
+    "type": "array",
+    "items": {"type": "object", "properties": {"sub": {"type": "integer"}, "mw": {"type": "integer"}}, "required": ["sub", "mw"]},
+}
+# Gemini's structured output: one reply = one tool call (llm.complete_json retries without the schema
+# if Google refuses it). "thought" comes first so the reason is written before the action.
+AGENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "thought": {"type": "string"},
+        "action": {"type": "string", "enum": list(ACTIONS)},
+        "args": {
+            "type": "object",
+            "properties": {"n": {"type": "integer"}, "near": {"type": "string"}, "sites": _SITE_LIST, "use_upgrades": {"type": "boolean"}},
+        },
+    },
+    "required": ["thought", "action", "args"],
+}
+
+
+def _safe_args(args: dict) -> dict:
+    """Gemini's arguments as the trace shows them when the planner refused the call: known keys only,
+    finite numbers and short strings (a reply is data, never trusted as it came)."""
+    out: dict = {}
+
+    def ok(v) -> bool:
+        return isinstance(v, bool) or (isinstance(v, (int, float)) and math.isfinite(v)) or (isinstance(v, str) and len(v) <= 60)
+
+    for k in ("n", "near", "use_upgrades"):
+        if k in args and ok(args[k]):
+            out[k] = args[k]
+    sites = args.get("sites")
+    if isinstance(sites, list):
+        out["sites"] = [{"sub": s.get("sub"), "mw": s.get("mw")} for s in sites[:8] if isinstance(s, dict) and ok(s.get("sub")) and ok(s.get("mw"))]
+    return out
 
 
 # Gemini's thought is shown as its own words; one that names a real utility or grid operator is
@@ -1067,39 +1306,76 @@ def _prompt(p: Planner, history: list[str], calls_left: int, feedback: str | Non
 
 async def run_agent(p: Planner) -> tuple[str, dict | None]:
     """Gemini's loop. Returns (status, finished plan or None): status "used" with a plan that passed,
-    else why it stopped ("unavailable", "slow", "rejected", "out_of_calls", "supply")."""
+    else why it stopped ("unavailable", "rate_limited", "slow", "rejected", "out_of_calls", "supply").
+    At most AI_CALLS calls (one retry of a failed call included) within p.deadline seconds."""
     await run_in_threadpool(p.intro)
     history: list[str] = []
     feedback = None
     rejected = False
+    retries = 0
     start = time.monotonic()
-    for call in range(AI_CALLS):
-        left = AI_DEADLINE_S - (time.monotonic() - start)
+    while p.ai_calls < AI_CALLS:
+        left = p.deadline - (time.monotonic() - start)
         if left < 2:
             return "slow", None
-        prompt = _prompt(p, history, AI_CALLS - call, feedback)
-        feedback = None
+        prompt = _prompt(p, history, AI_CALLS - p.ai_calls, feedback)
+        t0 = time.monotonic()
+        c0 = _cached_count()
         try:
-            reply, offline = await asyncio.wait_for(complete_json(prompt, system=SYSTEM, fallback=OFFLINE, timeout=min(10.0, left), surface="planner"), left)
+            reply, offline = await asyncio.wait_for(
+                complete_json(
+                    prompt, system=SYSTEM, fallback=OFFLINE, timeout=min(AI_CALL_TIMEOUT_S, left), schema=AGENT_SCHEMA, surface="planner", **_call_kw(p.fresh)
+                ),
+                left,
+            )
         except asyncio.TimeoutError:
             return "slow", None
         p.ai_calls += 1
+        ai_ms = round((time.monotonic() - t0) * 1000)
+        # the same question asked earlier: Gemini's earlier answer, served from the cache (said so in the trace)
+        from_cache = not offline and _cached_count() > c0
+        p.ai_cached_calls += int(from_cache)
         if offline:
-            return "unavailable", None
+            # one call that hangs or errors is asked again (the same prompt), in the open; a 429 (request
+            # limit) or 503 (model busy) gets a short wait first
+            last = str(llm._stats.get("last_error", ""))
+            limited = "(429)" in last
+            busy = "(503)" in last  # Google's "model overloaded": usually gone a moment later
+            left = p.deadline - (time.monotonic() - start)
+            wait = RATE_WAIT_S if limited else BUSY_WAIT_S if busy else 0.0
+            if retries < AI_RETRIES and p.ai_calls < AI_CALLS and left > 4 + wait:
+                retries += 1
+                if limited:
+                    why = f"Gemini is over its request limit (call {p.ai_calls}): waiting {wait:.0f} s, then asking once more."
+                elif busy:
+                    why = f"Gemini is busy (call {p.ai_calls}): waiting {wait:.0f} s, then asking once more."
+                else:
+                    why = f"Gemini didn't answer call {p.ai_calls} ({ai_ms / 1000:.1f} s): asking once more."
+                await run_in_threadpool(p.emit, "planner", "note", why)
+                if wait:
+                    await asyncio.sleep(wait)
+                continue
+            return ("rate_limited" if limited else "unavailable"), None
+        feedback = None
+        n = len(history) + 1
         if not isinstance(reply, dict) or reply.get("action") not in ACTIONS:
-            history.append(f"{call + 1}. (invalid reply: it must be one JSON object with an action from {', '.join(ACTIONS)})")
+            history.append(f"{n}. (invalid reply: it must be one JSON object with an action from {', '.join(ACTIONS)})")
             continue
         action = reply["action"]
         args = reply.get("args") if isinstance(reply.get("args"), dict) else {}
         thought = _thought(reply.get("thought"))
+        p._ai_ms = ai_ms
+        p._ai_cached = from_cache
         try:
             told, done = await run_in_threadpool(p.agent_tool, action, args, thought)
         except (ValueError, HTTPException) as e:
             why = e.detail if isinstance(e, HTTPException) else str(e)
-            await run_in_threadpool(p.emit, "gemini", action, f"The planner refused that request: {why}.", False, thought)
-            history.append(f"{call + 1}. {action} {json.dumps(args)[:400]} -> error: {why}")
+            await run_in_threadpool(
+                lambda: p.emit("gemini", action, f"The planner refused that request: {why}.", False, thought, call={"tool": action, "args": _safe_args(args)}, result=f"refused: {why}")
+            )
+            history.append(f"{n}. {action} {json.dumps(args)[:400]} -> error: {why}")
             continue
-        history.append(f"{call + 1}. {action} {json.dumps(args)[:400]} -> {json.dumps(told)[:900]}")
+        history.append(f"{n}. {action} {json.dumps(args)[:400]} -> {json.dumps(told)[:HISTORY_MAX]}")
         if p.gemini_short:
             return "supply", None  # a finish must place the full total, which can't pass: don't spend more calls
         if action == "finish":
@@ -1122,11 +1398,11 @@ def _cache_key(req: PlanIn) -> str:
     )
 
 
-async def run_plan(req: PlanIn, steps: list) -> dict:
+async def run_plan(req: PlanIn, steps: list, deadline: float = AI_DEADLINE_S) -> dict:
     """A whole plan: Gemini's loop when asked for (and configured), else or after it the deterministic
-    planner. `steps` fills as it goes (a job's live view)."""
+    planner. `steps` fills as it goes (a job's live view); `deadline`: Gemini's whole time budget."""
     key = _cache_key(req)
-    if req.use_ai:
+    if req.use_ai and not req.fresh:
         with _cache_lock:
             hit = _cache.get(key)
             if hit is not None:
@@ -1136,6 +1412,7 @@ async def run_plan(req: PlanIn, steps: list) -> dict:
             steps.extend(hit["steps"])
             return {**hit, "cached": True}
     p = await run_in_threadpool(Planner, req, steps)
+    p.deadline = deadline
     if not req.use_ai:
         return await run_in_threadpool(p.run_greedy, "off")
     if not configured():
@@ -1182,7 +1459,7 @@ def _gc_jobs() -> None:
 
 async def _run_job(job: _Job, req: PlanIn) -> None:
     try:
-        job.result = await run_plan(req, job.steps)
+        job.result = await run_plan(req, job.steps, JOB_DEADLINE_S)
         job.status = "done"
     except HTTPException as e:
         job.error = e.detail if isinstance(e.detail, str) else "The planner could not run this request"
