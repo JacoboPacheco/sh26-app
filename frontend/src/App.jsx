@@ -13,6 +13,7 @@ import PlantsLayer from './features/plants/PlantsLayer'
 import PlantsPanel from './features/plants/PlantsPanel'
 import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
+import RegionPicker from './shell/RegionPicker'
 import CascadeFX from './shell/CascadeFX'
 import ImpactPanel from './shell/ImpactPanel'
 import ScenarioBar from './shell/ScenarioBar'
@@ -155,12 +156,15 @@ function MissionControl({ user }) {
           <PlantsLayer />
         </GridMap>
       ) : (
-        <div className="mc-loading">{gridError ? <ErrorBanner error={gridError} onRetry={loadGrid} /> : <Loading label="Loading Florida's grid…" />}</div>
+        <div className="mc-loading">{gridError ? <ErrorBanner error={gridError} onRetry={loadGrid} /> : <Loading label={`Loading ${o.regions?.find((r) => r.code === o.region)?.name || 'the'} grid…`} />}</div>
       )}
 
       <header className="mc-top">
         <div className="mc-title">
-          <h1 className="wordmark">Overload</h1>
+          <div className="mc-title__row">
+            <h1 className="wordmark">Overload</h1>
+            <RegionPicker />
+          </div>
           <p className="hook">When the next AI data center plugs in, whose lights go out?</p>
         </div>
         <ScenarioBar />

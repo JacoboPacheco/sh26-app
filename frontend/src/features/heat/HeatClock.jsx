@@ -20,6 +20,8 @@ export default function HeatClock() {
   const { grid, result, loadFactor, setLoadFactor } = useOverload()
   const id = useId()
   const active = presetFor(loadFactor)
+  const national = grid?.meta?.region === 'US'
+  const regionName = grid?.meta?.region_name || 'Florida'
   const mood = ambienceFor(loadFactor)
 
   // Florida's existing load at this level. The what-if reports it for the level it solved; until
@@ -87,11 +89,11 @@ export default function HeatClock() {
       </div>
       {/* the visible number eases; screen readers get the settled value once */}
       <p className="heat__load" aria-hidden="true">
-        Florida&apos;s load: <strong>{Number.isFinite(gw) ? `${gw.toFixed(1)} GW` : '…'}</strong>
+        {national ? 'Pick a state to see its load' : <>{regionName}&apos;s load: <strong>{Number.isFinite(gw) ? `${gw.toFixed(1)} GW` : '…'}</strong></>}
         <span className="heat__peak"> · {peakPhrase(loadFactor)}</span>
       </p>
       <span className="heat__sr" aria-live="polite">
-        {Number.isFinite(totalMw) ? `Florida's load: ${(totalMw / 1000).toFixed(1)} GW, ${peakPhrase(loadFactor)}` : ''}
+        {Number.isFinite(totalMw) ? `${regionName}'s load: ${(totalMw / 1000).toFixed(1)} GW, ${peakPhrase(loadFactor)}` : ''}
       </span>
       <span className="heat__sr" id={`${id}-hint`}>
         {HEAT_HINT}

@@ -40,6 +40,22 @@ export function townOf(name) {
   return base.replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// The substation a click connects to (the model's own rule: nearest, within 75 km), or null off the model.
+function nearestSub(subs, lat, lon) {
+  const k = Math.cos((lat * Math.PI) / 180)
+  let best = null
+  let bd = Infinity
+  for (const s of subs) {
+    const d = (s.lat - lat) ** 2 + ((s.lon - lon) * k) ** 2
+    if (d < bd) {
+      bd = d
+      best = s
+    }
+  }
+  return best && Math.sqrt(bd) * 111 <= 75 ? best : null
+}
+export const MAX_POINTS = 12 // the backend takes 12 data centers per case: the main one and eleven more
+
 // The national map: no grid model of its own, just the state outlines (GridMap draws them).
 const US_GRID = { meta: { region: 'US', region_name: 'the U.S.', bbox: US_BBOX, synthetic: true }, subs: [], branches: [] }
 const regionQuery = (r) => `region=${encodeURIComponent(r)}`
@@ -360,13 +376,25 @@ export function OverloadProvider({ user, children }) {
   }, [gridRegion, region, placeHere, resetCount])
 
   // A click on the map. On the national map it opens the state under the click and drops the campus there.
-  const place = useCallback(
+  // Ctrl/Cmd+click: one more data center of the current size, on the substation the click connects to.
+  // The first point of a case is the main one; a second point on the same substation is ignored.
+  const addPoint = useCallback(
     (lat, lon) => {
-      if (region !== 'US') return placeHere(lat, lon)
+      if (!site) return placeHere(lat, lon)
+      if (extraSites.length + 1 >= MAX_POINTS) return
+      const sub = nearestSub(grid?.subs || [], lat, lon)
+      if (!sub || extraSites.some((c) => c.sub === sub.id)) return
+      setExtraSites([...extraSites, { id: `p${Date.now().toString(36)}${extraSites.length}`, metro: townOf(sub.name), sub: sub.id, lat: sub.lat, lon: sub.lon, mw }])
+    },
+    [site, extraSites, grid, mw, placeHere, setExtraSites],
+  )
+  const place = useCallback(
+    (lat, lon, opts = {}) => {
+      if (region !== 'US') return opts.multi ? addPoint(lat, lon) : placeHere(lat, lon)
       const code = regionAt(lat, lon)
       if (code && code !== 'DC') setRegion(code, { place: [lat, lon] })
     },
-    [region, placeHere, setRegion],
+    [region, placeHere, addPoint, setRegion],
   )
 
   const setStep = useCallback((s) => {

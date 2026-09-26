@@ -38,7 +38,7 @@ export const useMapView = () => useContext(MapViewCtx)
 // the camera flies from what was on screen to the new region (Florida → the U.S. zooms out). A grid
 // with meta.region 'US' (no subs, no branches) is the national map: every state outlined, no grid.
 //
-// Interaction: click (or drop the data-center card) calls onPlace(lat, lon); wheel zooms; drag pans.
+// Interaction: click (or drop the data-center card) calls onPlace(lat, lon, {multi}); Ctrl/Cmd+click sets multi; wheel zooms; drag pans.
 // A feature can take over the pointer with `tool` = {down, move, up, cursor} — each gets
 // {lat, lon} in map coordinates — e.g. hurricane mode drawing a storm track.
 // Layers: `children` are SVG drawn inside the camera (above the grid); `overlay({svgRef, gRef})`
@@ -220,7 +220,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
     }
     if (!d || d.moved) return
     const p = toMap(e.clientX, e.clientY)
-    if (p) onPlace(p.lat, p.lon)
+    if (p) onPlace(p.lat, p.lon, { multi: e.ctrlKey || e.metaKey }) // Ctrl/Cmd+click adds another point
   }
 
   function onDrop(e) {

@@ -74,7 +74,7 @@ export default function Timeline() {
       <div className="timeline__track">
         {!cascade ? (
           <p className="timeline__hint">
-            {ready ? 'The cascade trips the most overloaded line, re-solves, and repeats until the grid settles or splits.' : 'Drop a data center on Florida to begin.'}
+            {ready ? 'The cascade trips the most overloaded line, re-solves, and repeats until the grid settles or splits.' : `Drop a data center on ${o.region === 'US' ? 'a state' : o.grid?.meta?.region_name || 'the map'} to begin.`}
           </p>
         ) : n === 0 ? (
           <p className="timeline__hint">Nothing to cascade — no line is over its limit.</p>

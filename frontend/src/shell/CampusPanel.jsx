@@ -1,8 +1,9 @@
-import { useId, useState } from 'react'
+import { useId, useMemo, useState } from 'react'
 import floridaFive from '../data/florida_five.json'
 import { fmt } from '../geo'
-import { SEED_MARK, useOverload } from '../store'
+import { MAX_POINTS, SEED_MARK, useOverload } from '../store'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../ui'
+import { useCatalog } from '../features/catalog/catalogApi'
 import DangerPanel from '../features/danger/DangerPanel'
 import './campus.css'
 
@@ -48,7 +49,7 @@ export default function CampusPanel() {
         }}
       >
         <span className="dc-chip__mw">{fmtSize(mw)}</span>
-        <span className="dc-chip__hint">AI campus — drag it onto Florida, or click the map</span>
+        <span className="dc-chip__hint">AI campus — drag it onto the map, or click it. Hold Ctrl and click to add more points.</span>
       </div>
       <Field
         label="Size (MW)"
@@ -61,6 +62,7 @@ export default function CampusPanel() {
         hint={custom ? `Custom size ${fmt(mw)} MW: about ${people}` : `About ${people}`}
       />
       <CustomSize />
+      <ExtraPoints />
       <DangerPanel />
 
       <RealProposals />
@@ -199,6 +201,39 @@ export function overLimitText(overloaded) {
 }
 
 // Optional size past the slider (up to 50 GW): type a number and Set (or Enter), or a quick pick.
+// The points added with Ctrl+click (the main data center is the first click): each at the size it was
+// added with, removable one by one. They are the same extra campuses AI-boom mode lists.
+function ExtraPoints() {
+  const { site, mw, extraSites, setExtraSites } = useOverload()
+  if (!site && !extraSites.length) return null
+  return (
+    <div className="stack extra-points">
+      <p className="muted extra-points__hint">
+        Hold Ctrl (or Cmd) and click the map to add another point at {fmtSize(mw)}. {extraSites.length + (site ? 1 : 0)} of {MAX_POINTS}.
+      </p>
+      {extraSites.length > 0 && (
+        <>
+          <ul className="extra-points__list">
+            {extraSites.map((c) => (
+              <li key={c.id}>
+                <span>
+                  {c.metro || 'Point'} · {fmtSize(c.mw)}
+                </span>
+                <button type="button" className="extra-points__x" aria-label={`Remove the ${c.metro || 'extra'} point`} onClick={() => setExtraSites(extraSites.filter((x) => x.id !== c.id))}>
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+          <Button variant="secondary" onClick={() => setExtraSites([])}>
+            Remove all extra points
+          </Button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function CustomSize() {
   const { mw, setMw } = useOverload()
   const id = useId()
@@ -259,35 +294,49 @@ function CustomSize() {
   )
 }
 
-// The real, large Florida proposals (sourced): pick one to test a campus of its reported size at its
-// location. Facts only, each with its source; the test is on a synthetic model (see the note).
+// The real, sourced data centers of the state on the map: pick one to test a campus of its reported size
+// at its reported place. Florida leads with its five largest proposals (data/florida_five.json); every
+// other state lists the national catalog's entries for it (features/catalog). Each test runs on a
+// synthetic grid model: not a prediction about the real project or utility. Sources are shown as reported.
 function RealProposals() {
-  const { setMw, place, setMode } = useOverload()
+  const { setMw, place, setMode, region, grid } = useOverload()
+  const cat = useCatalog()
   const [pickedId, setPickedId] = useState('')
-  const picked = floridaFive.entries.find((e) => e.id === pickedId)
+  const stateName = grid?.meta?.region_name || 'this state'
+  const entries = useMemo(() => {
+    if (region === 'US') return []
+    if (region === 'FL') return floridaFive.entries
+    return (cat.data?.entries || [])
+      .filter((e) => e.state === region && !e.duplicate_of && Number.isFinite(e.lat) && Number.isFinite(e.lon) && e.mw > 0)
+      .map((e) => ({ id: e.id, name: e.name, place: e.city || e.county || stateName, mw: e.mw, status: e.status, lat: e.lat, lon: e.lon, sources: e.sources }))
+      .sort((a, b) => b.mw - a.mw)
+  }, [region, cat.data, stateName])
+  const picked = entries.find((e) => e.id === pickedId)
   const src = picked?.sources?.[0]
+  if (region === 'US') return <p className="real__note">Click a state on the map, or pick one above, to see its real data centers.</p>
   return (
     <div className="stack real">
       <Field
         as="select"
-        label="Real Florida proposal"
-        value={pickedId}
+        label={`Real data centers in ${stateName}`}
+        value={picked ? pickedId : ''}
         onChange={(ev) => {
-          const e = floridaFive.entries.find((x) => x.id === ev.target.value)
+          const e = entries.find((x) => x.id === ev.target.value)
           setPickedId(ev.target.value)
           if (!e) return
           setMode('campus')
-          setMw(e.mw)
+          setMw(Math.min(Math.round(e.mw), CUSTOM_MAX))
           place(e.lat, e.lon)
         }}
       >
-        <option value="">Pick a real proposal…</option>
-        {floridaFive.entries.map((e) => (
+        <option value="">{entries.length || cat.data ? 'Pick a real data center…' : 'Loading the catalog…'}</option>
+        {entries.map((e) => (
           <option key={e.id} value={e.id}>
             {e.name} — {e.place}, {fmt(e.mw)} MW reported ({e.status})
           </option>
         ))}
       </Field>
+      {cat.data && !entries.length && <p className="real__note">No sourced data centers for {stateName} in the catalog yet.</p>}
       {picked && (
         <p className="real__status">
           <span className="real__meta">
