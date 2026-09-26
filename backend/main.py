@@ -37,6 +37,7 @@ import hospitals
 import hurricane
 import llm
 import planner
+import plants
 import scenarios
 import towns
 import uploads
@@ -102,6 +103,7 @@ app.include_router(costs.router)
 app.include_router(hospitals.router)
 app.include_router(briefing.router)
 app.include_router(voice.router)
+app.include_router(plants.router)
 
 
 @app.get("/api/health")
