@@ -8,6 +8,7 @@ __pycache__/
 !.env.example
 *.db
 server.log
+server.log.*
 frontend.log
 check-server.log
 check-preview.log
