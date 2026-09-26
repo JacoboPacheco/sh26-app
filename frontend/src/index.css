@@ -185,6 +185,17 @@ a {
   width: 100%;
 }
 
+/* every dropdown's open list stays dark: a transparent select or option lets some browsers (Brave on
+   Windows) draw the list white under the pale text (user, Sat 17:28: "the state picker … white background") */
+select option,
+select optgroup {
+  background-color: var(--surface);
+  color: var(--ink);
+}
+.appbar .appbar__state select {
+  background-color: var(--surface);
+}
+
 .field input[type='range'] {
   padding: 0;
   border: 0;
