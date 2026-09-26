@@ -1690,7 +1690,7 @@ def compose(report: dict, length: str = "full", ai: dict | None = None) -> dict:
     w = Writer(report)
     ids = slide_ids(w, length)
     budget = BUDGET[length]
-    ai = dict(ai or {})
+    ai = {k: v for k, v in (ai or {}).items() if k[0] not in AI_KEEP_TEMPLATE}  # e.g. an older pinned cache
     slides: list[dict] = []
     for lv in (SHORT_LEVELS if length == "short" else LEVELS):
         slides = []
@@ -1783,7 +1783,7 @@ def finish(report: dict, composed: dict, length: str, ai_meta: dict) -> dict:
 def _ai_slots(slides: list[dict]) -> list[str]:
     """written_by of the presenter slots Gemini may write (every slide's first presenter segment)."""
     return [s["written_by"][lang] for s in slides for lang in LANGS
-            if s["narration"][lang] and s["narration"][lang][0]["role"] == "presenter"]
+            if s["id"] not in AI_KEEP_TEMPLATE and s["narration"][lang] and s["narration"][lang][0]["role"] == "presenter"]
 
 
 def _find_cues(w: Writer, text: str, s: dict) -> list[dict]:
@@ -1917,6 +1917,8 @@ Rules:
 - Keep every place and line name exactly as the DATA writes it, in both languages: never translate a name
   (Naples stays Naples, not Nápoles; Key West stays Key West).
 - Never write "MW" or "%": say "megawatts" / "megavatios" and "percent" / "por ciento".
+- Plain words a listener understands at once: "the areas without power" / "las zonas sin luz" (never "dark
+  areas" / "áreas oscuras"), "keep them connected" (never "keep them on"), "lines trip" / "las líneas se disparan".
 - Never name a real utility, company, agency, or storm. No dates, years, clock times or durations unless the DATA
   gives one. No advice to the public. Never sound like an emergency alert.
 - Stay within each slide's max_chars. Lead with what matters most, connect cause and effect, keep it tight.
@@ -1983,10 +1985,19 @@ def _clean_ai(text) -> str:
     return text
 
 
+# Slides whose presenter text stays the template even with Gemini on. The opening slide carries the
+# scenario's core facts right after the fixed SIMULATION sentence; in review, flash-lite rewrote it as
+# "a 1,500 megawatt data center ... leaves room for only 557 megawatts", which passes the number check
+# but inverts what the numbers mean. The first thing a listener hears stays deterministic.
+AI_KEEP_TEMPLATE = ("event",)
+
+
 def ai_slots(composed: dict) -> list[dict]:
     """The presenter paragraphs Gemini may rewrite: every slide's first presenter segment."""
     out = []
     for sl in composed["slides"]:
+        if sl["id"] in AI_KEEP_TEMPLATE:
+            continue
         for lang in LANGS:
             segs = sl["narr"][lang]
             if not segs or segs[0]["role"] != "presenter" or not segs[0]["body"]:
@@ -2291,7 +2302,7 @@ async def bulletin(request: Request, body: CaseIn):
     deck, report = await build_deck(DeckIn(**body.model_dump(), ai=True, length="short"))
     ev = deck["slides"][0]
     text = ev["headline"]["en"].rstrip(".") + ". " + " ".join(s["text"] for s in ev["narration"]["en"])
-    return {"text": text, "fallback": ev["written_by"]["en"] == "template",
+    return {"text": text, "fallback": bool(deck["ai"].get("fallback", True)),
             "facts": list(report.get("facts") or []) + deck["extra_facts"], "deck_key": deck["deck_key"]}
 
 
