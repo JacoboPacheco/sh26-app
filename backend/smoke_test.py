@@ -358,6 +358,28 @@ check("scenario validation rejects blank/long names, points outside Florida, bad
 check("scenarios are owner-only", test_scenario_owner_only)
 check("scenario delete works", test_scenario_delete)
 
+
+# Feature checks: each backend/smoke_checks/<feature>.py defines register(ctx) and adds its own
+# checks through ctx.check — one file per feature, so parallel work never edits this file.
+import importlib.util  # noqa: E402
+import types  # noqa: E402
+
+ctx = types.SimpleNamespace(
+    check=check,
+    request=request,
+    expected=EXPECTED,
+    auth=lambda: {"Authorization": f"Bearer {token['value']}"},
+)
+for _path in sorted((Path(__file__).parent / "smoke_checks").glob("*.py")):
+    _spec = importlib.util.spec_from_file_location(f"smoke_checks_{_path.stem}", _path)
+    _mod = importlib.util.module_from_spec(_spec)
+    try:
+        _spec.loader.exec_module(_mod)
+        _mod.register(ctx)
+    except Exception as e:  # noqa: BLE001 — a broken check module is a failure, not a crash
+        print(f"FAIL  smoke_checks/{_path.name} could not run: {e}")
+        failures.append(f"smoke_checks/{_path.name}")
+
 if failures:
     print(f"\n{len(failures)} check(s) failed: {', '.join(failures)}")
     sys.exit(1)

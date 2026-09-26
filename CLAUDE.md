@@ -129,6 +129,7 @@ ASSUMED (Sat 00:50): layout = map left (sticky, stays in view), controls right i
 Hero site (user, Sat 00:58): Fort Myers, one site — drop 1,500 MW → lines red → the cascade darkens ~49 substations (~1.05M homes, estimate) → slide to 500 MW at the same spot → calm. Orlando stays as the smoke-test anchor.
 Zoom (user, Sat 00:58): the map eases in on the site when the data center lands (and out to the cascade's extent when it runs); "Reset view" returns to all of Florida.
 Immersion (user, Sat 1:01 AM): "if you can make it more immersive with little effort the answer is ALWAYS yes" — build low-effort immersion (motion, glow, camera, sound-free feedback) without asking; still ask about anything that changes what the demo shows.
+Scale (user, Sat 01:08–01:12): the skeleton is "really disappointing if this is all there is" — build much bigger and use far more of the usage budget. Look: MISSION CONTROL — full-screen dark map, translucent floating panels, giant homes-dark counter, towns-going-dark feed, cascade timeline along the bottom. Features: "everything — while the program is not cluttered, keep adding" (heat-wave clock, hurricane mode, who loses power, Fix it + best sites). AI pieces: "whatever isn't weird" → Gemini bulletin + AI-boom 2030 mode; ElevenLabs voice behind a key. Build mode: parallel agents (multi-agent workflow).
 Coastline (user, Sat 00:58): download the Census cartographic boundary (cb_*_us_state_20m) once and commit the converted outline; nothing fetched at runtime.
 
 ## Current status

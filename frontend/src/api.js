@@ -75,11 +75,12 @@ export async function signup(email, password) {
   return data
 }
 
-// The grid (public): the drawable network, a what-if drop, the cascade, the headroom heatmap.
+// The grid (public): the drawable network, a what-if, the cascade, the headroom heatmap.
+// `body` is a case (backend/grid.py → CaseIn): {lat, lon, mw, sites, load_factor, trip, upgrades}.
 export const getGrid = () => api('/api/grid')
-export const whatIf = ({ lat, lon, mw }) => api('/api/grid/whatif', { method: 'POST', body: { lat, lon, mw } })
-export const runCascade = ({ lat, lon, mw }) => api('/api/grid/cascade', { method: 'POST', body: { lat, lon, mw } })
-export const getHeadroom = () => api('/api/grid/headroom')
+export const whatIf = (body) => api('/api/grid/whatif', { method: 'POST', body })
+export const runCascade = (body) => api('/api/grid/cascade', { method: 'POST', body })
+export const getHeadroom = (loadFactor = 1) => api(`/api/grid/headroom?load_factor=${encodeURIComponent(loadFactor)}`)
 
 // Saved scenarios (the signed-in demo account's).
 export const listScenarios = () => api('/api/scenarios')

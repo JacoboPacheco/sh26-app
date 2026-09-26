@@ -47,10 +47,16 @@ class State:
     weights: np.ndarray | None = field(repr=False, default=None)  # slack distribution per bus
     lost_existing_mw: float = 0.0  # of lost_mw, the part that was existing load (homes)
     lost_extra_mw: float = 0.0  # of lost_mw, the part that was the added load (the data center)
+    lost_bus: np.ndarray | None = field(repr=False, default=None)  # existing load lost per bus (MW)
+    rate: np.ndarray | None = field(repr=False, default=None)  # ratings this state was judged against
 
 
 class Grid:
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, load_factor: float = 1.0):
+        """`load_factor` scales every existing load (the heat-wave clock): 1.0 is the dataset's own
+        snapshot. Ties stay fixed; generation re-dispatches to balance."""
+        self._data = data
+        self.load_factor = float(load_factor)
         self.meta = dict(data.get("meta", {}))
         buses = data["buses"]
         self.n = len(buses)
@@ -58,7 +64,7 @@ class Grid:
         self.bus_index = {int(bid): i for i, bid in enumerate(self.bus_ids)}
         self.bus_sub = np.array([int(b["sub"]) for b in buses])
         self.bus_kv = np.array([float(b["kv"]) for b in buses])
-        self.pd = np.array([float(b["pd"]) for b in buses])
+        self.pd = np.array([float(b["pd"]) for b in buses]) * self.load_factor
         self.pg = np.array([float(b.get("pg", 0.0)) for b in buses])
         self.pmax = np.array([float(b.get("pmax", 0.0)) for b in buses])
         self.pmax = np.maximum(self.pmax, self.pg)
@@ -94,6 +100,25 @@ class Grid:
     def from_file(cls, path: str) -> "Grid":
         with open(path, encoding="utf-8") as fh:
             return cls(json.load(fh))
+
+    def variant(self, load_factor: float) -> "Grid":
+        """The same network at another load level (shares the parsed JSON, not the arrays)."""
+        return Grid(self._data, load_factor)
+
+    def extra_load(self, sites: list[tuple[int, float]]) -> np.ndarray:
+        """Per-bus added load from [(bus index, MW), ...] — several data centers at once."""
+        extra = np.zeros(self.n)
+        for bus, mw in sites:
+            extra[bus] += mw
+        return extra
+
+    def rates_with(self, upgrades: dict[int, float] | None) -> np.ndarray:
+        """Ratings after upgrades {branch id: new rating MVA}; never lowers a rating."""
+        rate = self.rate.copy()
+        for bid, new in (upgrades or {}).items():
+            i = self.br_index[int(bid)]
+            rate[i] = max(rate[i], float(new))
+        return rate
 
     # ------------------------------------------------------------------ geometry
     def nearest_sub(self, lat: float, lon: float) -> int:
@@ -180,14 +205,19 @@ class Grid:
         # Split the shed load into existing load (homes) and the added load (the data center itself).
         with np.errstate(divide="ignore", invalid="ignore"):
             frac = np.where(load > _EPS, served / load, 1.0)
-        lost_existing = float((self.pd * (1.0 - frac)).sum())
+        lost_bus = self.pd * (1.0 - frac)
+        lost_existing = float(lost_bus.sum())
         lost_extra = float((extra_load * (1.0 - frac)).sum())
-        return P, served, gen, tie, lost, dark, comp, np.array(refs, dtype=int), weights, lost_existing, lost_extra
+        return P, served, gen, tie, lost, dark, comp, np.array(refs, dtype=int), weights, lost_existing, lost_extra, lost_bus
 
-    def solve(self, active: np.ndarray, extra_load: np.ndarray | None = None) -> State:
+    def solve(self, active: np.ndarray, extra_load: np.ndarray | None = None, rate: np.ndarray | None = None) -> State:
         if extra_load is None:
             extra_load = np.zeros(self.n)
-        P, served, gen, tie, lost, dark, comp, refs, weights, lost_existing, lost_extra = self._balance(active, extra_load)
+        if rate is None:
+            rate = self.rate
+        P, served, gen, tie, lost, dark, comp, refs, weights, lost_existing, lost_extra, lost_bus = self._balance(
+            active, extra_load
+        )
         b = 1.0 / self.x[active]
         fa, ta = self.f[active], self.t[active]
         rows = np.concatenate([fa, ta, fa, ta])
@@ -203,7 +233,7 @@ class Grid:
             theta[keep] = lu.solve(P[keep])
         flow = np.zeros(self.m)
         flow[active] = (theta[fa] - theta[ta]) / self.x[active] * BASE_MVA
-        loading = np.abs(flow) / self.rate * 100.0
+        loading = np.abs(flow) / rate * 100.0
         return State(
             active=active.copy(),
             flow=flow,
@@ -218,6 +248,8 @@ class Grid:
             weights=weights,
             lost_existing_mw=lost_existing,
             lost_extra_mw=lost_extra,
+            lost_bus=lost_bus,
+            rate=rate,
         )
 
     # ------------------------------------------------------------------ what-if
@@ -238,7 +270,7 @@ class Grid:
             "from": int(self.sub_ids[self.bus_sub_idx[self.f[i]]]),
             "to": int(self.sub_ids[self.bus_sub_idx[self.t[i]]]),
             "kv": float(self.br_kv[i]),
-            "rate": float(self.rate[i]),
+            "rate": float((state.rate if state.rate is not None else self.rate)[i]),
         }
 
     # ------------------------------------------------------------------ headroom
@@ -291,17 +323,32 @@ class Grid:
         return float(min(self.headroom_for_buses(np.array([bus]))[0], 1e6))
 
     # ------------------------------------------------------------------ cascade
+    def lost_by_sub(self, state: State, min_mw: float = 0.1) -> dict[int, float]:
+        """Existing load lost per substation (MW), only where it's at least `min_mw`."""
+        per = np.zeros(len(self.sub_ids))
+        np.add.at(per, self.bus_sub_idx, state.lost_bus if state.lost_bus is not None else 0.0)
+        return {int(self.sub_ids[i]): round(float(per[i]), 1) for i in np.flatnonzero(per >= min_mw)}
+
     def cascade(self, bus: int | None, mw: float, trip: list[int] | None = None) -> dict:
-        """Trip the most overloaded branch, re-solve, repeat (SPEC.md M2)."""
-        extra = np.zeros(self.n)
-        if bus is not None:
-            extra[bus] = mw
+        """One data center (or none); see cascade_case."""
+        return self.cascade_case(self.extra_load([(bus, mw)] if bus is not None else []), trip)
+
+    def cascade_case(
+        self, extra: np.ndarray, trip: list[int] | None = None, upgrades: dict[int, float] | None = None
+    ) -> dict:
+        """Trip the most overloaded branch, re-solve, repeat (SPEC.md M2). `trip` knocks branches out
+        before step 1 (a hurricane) and is reported as step 0; `upgrades` raises ratings (Fix it).
+
+        Each step lists the substations that newly lose load (`newly_affected`: [[sub id, MW lost]]),
+        so the UI can name towns as they go dark."""
+        rate = self.rates_with(upgrades)
         active = np.ones(self.m, dtype=bool)
         for bid in trip or []:
             active[self.br_index[int(bid)]] = False
         steps = []
-        state = self.solve(active, extra)
+        state = self.solve(active, extra, rate)
         prev_dark = np.zeros(self.n, dtype=bool)
+        seen_affected: set[int] = set()
         capped = False
         n = 0
         tripped_ids = [int(b) for b in (trip or [])]
@@ -309,11 +356,15 @@ class Grid:
             over = np.flatnonzero(state.active & (state.loading_pct > OVER_PCT + 1e-6))
             newly_dark = state.dark_bus & ~prev_dark
             if n > 0 or len(trip or []):
+                lost = self.lost_by_sub(state)
+                fresh = [[sid, mw_] for sid, mw_ in lost.items() if sid not in seen_affected]
+                seen_affected.update(lost)
                 steps.append(
                     {
                         "n": n,
                         "tripped": tripped_ids,
                         "dark_subs": sorted({int(self.sub_ids[self.bus_sub_idx[i]]) for i in np.flatnonzero(newly_dark)}),
+                        "newly_affected": sorted(fresh, key=lambda x: -x[1]),
                         "hot": [self.branch_info(i, state) for i in np.flatnonzero(state.active & (state.loading_pct > HOT_PCT))],
                         "lost_mw": round(state.lost_existing_mw, 1),
                         "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
@@ -331,10 +382,11 @@ class Grid:
             active[worst] = False
             tripped_ids = [int(self.br_ids[worst])]
             n += 1
-            state = self.solve(active, extra)
+            state = self.solve(active, extra, rate)
         return {
             "steps": steps,
             "final_loading_pct": np.round(state.loading_pct, 1).tolist(),
+            "final_flow_mw": np.round(state.flow).astype(int).tolist(),
             "final_active": state.active.tolist(),
             "outcome": "islanded" if state.lost_mw > 0.5 else "settled",
             "capped": capped,
@@ -342,6 +394,7 @@ class Grid:
             "lost_mw": round(state.lost_existing_mw, 1),
             "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
             "site_dark_mw": round(state.lost_extra_mw, 1),
+            "affected": self.lost_by_sub(state),
         }
 
     # ------------------------------------------------------------------ payloads
@@ -370,6 +423,7 @@ class Grid:
                 "kv": float(self.br_kv[i]),
                 "rate_mva": float(self.rate[i]),
                 "base_pct": round(float(self.base.loading_pct[i]), 1),
+                "base_flow": int(round(float(self.base.flow[i]))),  # signed MW, from -> to positive
             }
             for i in range(self.m)
         ]

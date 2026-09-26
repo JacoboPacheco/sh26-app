@@ -1,7 +1,6 @@
-import { memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { createContext, memo, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import outline from './data/florida_outline.json'
 import { CITIES, HEIGHT, WIDTH, project, toPath, unproject } from './geo'
-import { Button } from './ui'
 
 const LAND = outline.land.map((ring) => toPath(ring)).join('')
 const LAKES = outline.lakes.map((l) => toPath(l))
@@ -11,11 +10,21 @@ const FOCUS_MAX_ZOOM = 6
 const FOCUS_MIN_BOX = 140 // map units (~1.4° of latitude): the tightest a focus zooms
 const EASE_MS = 900
 
-// The dark Florida map: the grid's branches colored by loading, substations as dots sized by load,
-// and the data-center site. Click (or drop the data-center card) to place the site; wheel zooms,
-// drag pans. It renders what the parent computed — no power-flow logic here. The parent moves the
-// camera through `ref.current.focus([[lon, lat], ...])`, which eases to fit those points.
-export default function GridMap({ ref, grid, lineClasses, subClasses, site, headroomMode, onPlace }) {
+// What a map layer needs to draw at the right size: the current zoom and the projection.
+const MapViewCtx = createContext({ k: 1, project })
+export const useMapView = () => useContext(MapViewCtx)
+
+// The full-screen night map of Florida: branches colored by loading, substations as city lights
+// that go out when they lose power, the data-center sites. It renders what the store computed —
+// no power-flow logic here.
+//
+// Interaction: click (or drop the data-center card) calls onPlace(lat, lon); wheel zooms; drag pans.
+// A feature can take over the pointer with `tool` = {down, move, up, cursor} — each gets
+// {lat, lon} in map coordinates — e.g. hurricane mode drawing a storm track.
+// Layers: `children` are SVG drawn inside the camera (above the grid); `overlay({svgRef, gRef})`
+// renders HTML over the map (the flow canvas reads gRef's screen matrix every frame).
+// The parent moves the camera through `ref.current.focus([[lon, lat], ...])`.
+export default function GridMap({ ref, grid, lineClasses, subClasses, sites = [], headroomMode, onPlace, tool, children, overlay }) {
   const svgRef = useRef(null)
   const gRef = useRef(null)
   const drag = useRef(null)
@@ -48,6 +57,9 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, site, head
         const cy = (y0 + y1) / 2
         easeTo({ k, tx: WIDTH / 2 - cx * k, ty: HEIGHT / 2 - cy * k })
       },
+      reset() {
+        easeTo({ k: 1, tx: 0, ty: 0 })
+      },
     }),
     [easeTo],
   )
@@ -68,7 +80,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, site, head
     return { segments, dots }
   }, [grid])
 
-  // map units under a client (screen) point, inside the zoomed group
+  // map coordinates under a client (screen) point, inside the zoomed group
   const toMap = useCallback((clientX, clientY) => {
     const ctm = gRef.current?.getScreenCTM()
     if (!ctm) return null
@@ -97,13 +109,24 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, site, head
 
   function onPointerDown(e) {
     if (e.button !== 0) return
+    e.currentTarget.setPointerCapture(e.pointerId)
+    if (tool) {
+      const p = toMap(e.clientX, e.clientY)
+      drag.current = { tool: true }
+      if (p) tool.down?.(p)
+      return
+    }
     const scale = svgRef.current.getScreenCTM()?.a || 1
     drag.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, scale, moved: false }
-    e.currentTarget.setPointerCapture(e.pointerId)
   }
 
   function onPointerMove(e) {
     const d = drag.current
+    if (tool) {
+      const p = toMap(e.clientX, e.clientY)
+      if (p) tool.move?.(p, !!d)
+      return
+    }
     if (!d) return
     const dx = e.clientX - d.x
     const dy = e.clientY - d.y
@@ -115,6 +138,11 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, site, head
   function onPointerUp(e) {
     const d = drag.current
     drag.current = null
+    if (tool) {
+      const p = toMap(e.clientX, e.clientY)
+      if (p) tool.up?.(p)
+      return
+    }
     if (!d || d.moved) return
     const p = toMap(e.clientX, e.clientY)
     if (p) onPlace(p.lat, p.lon)
@@ -127,10 +155,10 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, site, head
   }
 
   const k = view.k
-  const sitePt = site ? project(site.lon, site.lat) : null
+  const mapView = useMemo(() => ({ k, project }), [k])
 
   return (
-    <div className="map">
+    <div className={`map${tool ? ' map--tool' : ''}`} style={tool?.cursor ? { cursor: tool.cursor } : undefined}>
       <svg
         ref={svgRef}
         className={`map-svg${headroomMode ? ' map-svg--headroom' : ''}`}
@@ -150,8 +178,13 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, site, head
             <stop offset="0" className="blackout-core" />
             <stop offset="1" className="blackout-edge" />
           </radialGradient>
+          {/* the halo of a lit substation: warm sodium light fading out */}
+          <radialGradient id="citylight">
+            <stop offset="0" className="light-core" />
+            <stop offset="1" className="light-edge" />
+          </radialGradient>
         </defs>
-        <rect className="map-sea" width={WIDTH} height={HEIGHT} />
+        <rect className="map-sea" x={-WIDTH} y={-HEIGHT} width={WIDTH * 3} height={HEIGHT * 3} />
         <g
           ref={gRef}
           className={easing ? 'map-cam map-cam--ease' : 'map-cam'}
@@ -162,6 +195,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, site, head
             <path key={d} className="map-lake" d={d} />
           ))}
           <GridLayers geom={geom} lineClasses={lineClasses} subClasses={subClasses} />
+          <MapViewCtx.Provider value={mapView}>{children}</MapViewCtx.Provider>
           {CITIES.map((c) => {
             const [x, y] = project(c.lon, c.lat)
             return (
@@ -170,24 +204,26 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, site, head
               </text>
             )
           })}
-          {sitePt && (
-            <g className="site" transform={`translate(${sitePt[0]} ${sitePt[1]})`}>
-              <circle className="site-ring" r={14 / k} />
-              <circle className="site-dot" r={6 / k} />
-            </g>
-          )}
+          {sites.map((s, i) => {
+            const [x, y] = project(s.lon, s.lat)
+            return (
+              <g key={`${s.lat},${s.lon},${i}`} className={s.primary ? 'site site--primary' : 'site'} transform={`translate(${x} ${y})`}>
+                <circle className="site-ring" r={16 / k} />
+                <rect className="site-dot" x={-5 / k} y={-5 / k} width={10 / k} height={10 / k} />
+              </g>
+            )
+          })}
         </g>
       </svg>
-      <div className="map-tools">
-        <Button variant="secondary" onClick={() => easeTo({ k: 1, tx: 0, ty: 0 })} disabled={k === 1}>
-          Reset view
-        </Button>
-      </div>
+      {overlay?.({ svgRef, gRef })}
+      <button type="button" className="map-reset" onClick={() => easeTo({ k: 1, tx: 0, ty: 0 })} disabled={k === 1}>
+        All of Florida
+      </button>
     </div>
   )
 }
 
-// The heavy part (≈3,300 lines + 1,300 dots), memoized so panning and zooming don't re-render it.
+// The heavy part (≈3,300 lines + 1,300 lights), memoized so panning and zooming don't re-render it.
 const GridLayers = memo(function GridLayers({ geom, lineClasses, subClasses }) {
   const line = (s, top) => (
     <line
@@ -207,6 +243,11 @@ const GridLayers = memo(function GridLayers({ geom, lineClasses, subClasses }) {
           .map((d) => (
             <circle key={d.id} cx={d.x} cy={d.y} r={7} fill="url(#blackout)" />
           ))}
+      </g>
+      <g className="halos">
+        {geom.dots.map((d) => (
+          <circle key={d.id} className={`halo ${subClasses[d.id] || ''}`} cx={d.x} cy={d.y} r={d.r * 3.2} fill="url(#citylight)" />
+        ))}
       </g>
       <g className="lines">{geom.segments.map((s) => line(s, false))}</g>
       {/* stressed lines drawn again on top so a red line is never hidden under a calm one */}

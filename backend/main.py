@@ -26,7 +26,10 @@ for _name in ("uvicorn", "uvicorn.access"):
     logging.getLogger(_name).addHandler(_log_file)
 
 import auth
+import bulletin
+import fixit
 import grid
+import hurricane
 import llm
 import scenarios
 import uploads
@@ -80,6 +83,9 @@ app.include_router(uploads.router)
 app.include_router(llm.router)
 app.include_router(grid.router)
 app.include_router(scenarios.router)
+app.include_router(hurricane.router)
+app.include_router(fixit.router)
+app.include_router(bulletin.router)
 
 
 @app.get("/api/health")
