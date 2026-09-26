@@ -94,18 +94,22 @@ def _plants(g) -> dict:
     tie = float(g.tie.sum())  # negative: the state exports to its neighbors in the model
     need = load - tie
     spare = max(pmax - need, 0.0)
-    reserve = load * RESERVE_PCT / 100.0
+    exports = max(-tie, 0.0)
+    # the reserve covers the new load too: the plants (less what the state exports) must stay RESERVE_PCT above the
+    # state's whole load, old and new, so the room is (pmax - exports) / (1 + r) - load (Florida: 4.27 GW, not 4.91)
+    room = max((pmax - exports) / (1.0 + RESERVE_PCT / 100.0) - load, 0.0)
+    reserve = max(spare - room, 0.0)
     return {
         "max_mw": round(pmax),
         "load_mw": round(load),
-        "export_mw": round(max(-tie, 0.0)),
+        "export_mw": round(exports),
         "spare_mw": round(spare),  # before the state stops exporting
         "reserve_pct": RESERVE_PCT,
-        "reserve_mw": round(reserve),
-        "room_mw": round(max(spare - reserve, 0.0)),  # new load the plants carry at this level with the reserve kept
+        "reserve_mw": round(reserve),  # what the reserve holds back of the spare output, on the old and new load together
+        "room_mw": round(room),  # new load the plants carry at this level with the reserve kept
         "sentence": (
             f"The model's power plants can make {spare / 1000:,.1f} GW more at this load level before the state stops exporting; "
-            f"keeping a {RESERVE_PCT:.0f} % planning reserve leaves {max(spare - reserve, 0.0) / 1000:,.1f} GW for new load."
+            f"keeping a {RESERVE_PCT:.0f} % planning reserve on the whole load, new campuses included, leaves {room / 1000:,.1f} GW for new load."
         ),
     }
 
