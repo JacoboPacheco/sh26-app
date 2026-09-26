@@ -132,3 +132,9 @@
     max-height: calc(100vh - 178px - 128px);
   }
 }
+
+.pitch__link {
+  color: var(--hr-ok);
+  font-weight: 650;
+  white-space: nowrap;
+}

@@ -10,7 +10,6 @@ import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
 import PlantsLayer from './features/plants/PlantsLayer'
 import UnlockLayer from './features/unlock/UnlockLayer'
-import UnlockPanel from './features/unlock/UnlockPanel'
 import StrengthenPage from './features/unlock/StrengthenPage'
 import { NO_SUBS, strengthenClick, useStayOnStrengthen, useStrengthenLines } from './features/unlock/strengthenMap'
 import PlantsPanel from './features/plants/PlantsPanel'
@@ -67,7 +66,6 @@ const MODES = [
   { id: 'hurricane', label: 'Hurricane', Panel: HurricanePanel },
   { id: 'boom', label: 'AI boom', Panel: BoomPanel },
   { id: 'fix', label: 'Fix it', Panel: FixPanel },
-  { id: 'unlock', label: 'Strengthen', Panel: UnlockPanel },
   { id: 'plants', label: 'Plants', Panel: PlantsPanel },
 ]
 
@@ -218,7 +216,12 @@ function MissionControl() {
           <header className="mc-top">
             <div className="mc-title">
               <h1 className="hook">When the next AI data center plugs in, whose lights go out?</h1>
-              <p className="pitch">AI finds where data centers strain the grid, tests the fixes that take the strain away, and shows how many more it can safely carry.</p>
+              <p className="pitch">
+                …and how many more can the grid safely take? AI finds where they strain it and tests the fixes; the physics engine checks every one.{' '}
+                <a className="pitch__link" href="#/strengthen" onClick={(e) => pickTab('strengthen', e)}>
+                  Strengthen the grid
+                </a>
+              </p>
             </div>
             <ScenarioBar />
           </header>
