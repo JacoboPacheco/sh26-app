@@ -27,15 +27,15 @@ Must have (demo breaks without these — tick each in the commit that finishes i
 - [x] M3 — headroom heatmap: MW each substation can take before the first overload
 
 Nice to have — the expansion the user asked for (Sat 01:10: "everything, while not cluttered"), built in parallel by a workflow (Sat 01:33), one track each:
-- [ ] 1. Living grid: electricity flowing along every line (canvas), a one-time opening, a visual map legend
-- [ ] 2. Heat-wave clock: time-of-day load presets (3 AM / 9 AM / 4 PM / heat wave) + ambient tint
-- [ ] 3. Hurricane mode: draw a storm track, its corridor is knocked out, the same cascade runs (replaces "click a line")
-- [ ] 4. Who loses power: a live feed of towns going dark + town labels on the map (hospitals wait for the HIFLD download OK)
-- [ ] 5. Fix it (smallest set of upgrades, in MVA) + best sites for the chosen size
-- [ ] 6. Gemini emergency bulletin with fallback + read aloud (browser speech) — MLH Gemini
-- [ ] 7. AI-boom mode: several gigawatt campuses at once
-- [ ] 8. Later: ElevenLabs voice for the bulletin (needs a key) · hospitals on backup (needs the HIFLD download OK) · dark basemap tiles
-- [ ] 9. Build plans (Sperry GridLock): DESC + Georgia ITS planned projects located, validated and compared; overlaps on the map, ranked coordination opportunities, savings estimate; the data pipeline shown (SPEC.md → Build plans)
+- [x] 1. Living grid: electricity flowing along every line (canvas), a one-time opening, a visual map legend
+- [x] 2. Heat-wave clock: time-of-day load presets (3 AM / 9 AM / 4 PM / heat wave) + ambient tint
+- [x] 3. Hurricane mode: draw a storm track, its corridor is knocked out, the same cascade runs (replaces "click a line")
+- [x] 4. Who loses power: a live feed of towns going dark + town labels on the map (hospitals wait for the HIFLD download OK)
+- [x] 5. Fix it (smallest set of upgrades, in MVA) + best sites for the chosen size
+- [x] 6. Gemini emergency bulletin with fallback + read aloud (browser speech) — MLH Gemini
+- [x] 7. AI-boom mode: several gigawatt campuses at once
+- [ ] 8. Later: ElevenLabs voice for the bulletin (built, needs your key) · hospitals on backup (DONE, OpenStreetMap) · dark basemap tiles (not done)
+- [x] 9. Build plans (Sperry GridLock): DESC + Georgia ITS planned projects located, validated and compared; overlaps on the map, ranked coordination opportunities, savings estimate; the data pipeline shown (SPEC.md → Build plans)
 
 Explicitly NOT doing:
 - [ ] AC power flow / voltages / dynamics; real or real-time utility data; user-uploaded grids; markets or cost modeling; login screen; report export; native mobile layout
