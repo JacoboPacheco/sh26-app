@@ -1,281 +1,68 @@
-import { useEffect, useState } from 'react'
-import { Badge, Button, EmptyState, ErrorBanner, Loading } from '../../ui'
+import { useEffect, useRef } from 'react'
+import { EmptyState } from '../../ui'
 import { useGridlock } from './context'
-import {
-  KIND_LABEL,
-  TIER_SHARE,
-  fmtBuiltAt,
-  fmtDate,
-  fmtKv,
-  fmtMoney,
-  fmtRange,
-  fmtPairDistance,
-  fmtTimeline,
-  osmUrl,
-  sourceLink,
-  toneOf,
-  utilityName,
-} from './format'
+import { KIND_LABEL, displayName, fmtBuiltAt, fmtDate, fmtKv, fmtMoney, osmUrl, sourceLink, toneOf, utilityName } from './format'
 import './gridlock.css'
 
-// The card over the map's right side: an opportunity (both projects, why it ranks, a rough
-// estimate) or one project's "Where this came from" (PDF page, raw text, OSM matches, checks).
+// A project's "Where this came from" (PDF page, raw text, OpenStreetMap matches, checks): a card over the map's
+// right side when no pair is open, or inside the pair's sheet (PairSheet.jsx renders ProjectCard with Back).
 export default function DetailCard() {
   const g = useGridlock()
   const { sel, close } = g
   useEffect(() => {
-    if (!sel) return
+    if (sel?.kind !== 'project') return
     const onKey = (e) => e.key === 'Escape' && close()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [sel, close])
-  if (!sel) return null
+  if (sel?.kind !== 'project') return null
   return (
-    <aside className="gl gl-card" aria-label={sel.kind === 'overlap' ? 'Coordination opportunity' : 'Where this came from'}>
-      {sel.kind === 'overlap' ? <OpportunityCard sel={sel} /> : <ProjectCard sel={sel} />}
+    <aside className="gl gl-card" aria-label="Where this came from">
+      <ProjectCard sel={sel} onBack={sel.back ? g.back : null} onClose={close} />
     </aside>
   )
 }
 
-function CardHead({ eyebrow, title, sub, onBack, backLabel }) {
-  const { close } = useGridlock()
+function CardHead({ eyebrow, title, sub, onBack, backLabel, onClose, autoFocus }) {
+  // inside a pair's sheet the card opens over the steps (which go inert): its heading takes focus
+  const h = useRef(null)
+  useEffect(() => {
+    if (autoFocus) h.current?.focus({ preventScroll: true })
+  }, [autoFocus, title])
   return (
     <header className="gl-card__head">
       <div className="gl-card__nav">
         {onBack ? (
-          <button type="button" className="gl-link" onClick={onBack}>
-            Back to {backLabel}
+          <button type="button" className="gl-back" onClick={onBack}>
+            <span aria-hidden="true">‹</span> Back to {backLabel}
           </button>
         ) : (
           <span className="gl-card__eyebrow">{eyebrow}</span>
         )}
-        <button type="button" className="gl-close" onClick={close} aria-label="Close">
-          ×
-        </button>
+        {onClose && (
+          <button type="button" className="gl-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        )}
       </div>
       {onBack && <span className="gl-card__eyebrow">{eyebrow}</span>}
-      <h2 className="gl-card__title">{title}</h2>
+      <h2 className="gl-card__title" ref={h} tabIndex={autoFocus ? -1 : undefined}>
+        {title}
+      </h2>
       {sub && <p className="gl-card__sub">{sub}</p>}
     </header>
   )
 }
 
-// ------------------------------------------------------------------ opportunity
-function OpportunityCard({ sel }) {
-  const g = useGridlock()
-  const live = g.overlaps.find((o) => o.id === sel.id)
-  const o = live || sel.overlap
-  const a = g.byId[o.a]
-  const b = g.byId[o.b]
-  const share = o.share || TIER_SHARE[o.tier]
-  const rank = o.displayRank ?? o.rank
-  const method = g.params.method
-  const dist = fmtPairDistance(o, method)
-  const where =
-    method === 'center'
-      ? `Centers ${dist.replace(/ between centers$/, '')} apart`
-      : o.crosses
-        ? 'The two projects cross'
-        : o.distance_km < 0.05
-          ? 'The two projects meet'
-          : `${dist} apart at the closest points`
-  return (
-    <>
-      <CardHead eyebrow={`Opportunity ${rank ? `#${rank}` : ''}`.trim()} title={o.tier_label} sub={`${where}; ${fmtTimeline(o)}.`} />
-      {!live && <p className="gl-note">Outside the current settings. Widen the distance to see it in the list again.</p>}
-
-      <div className="gl-pair">
-        <ProjectMini p={a} id={o.a} />
-        <div className="gl-pair__link" aria-hidden="true">
-          <span>{method === 'center' ? dist.replace(/ between centers$/, '') : o.crosses ? 'cross' : dist}</span>
-        </div>
-        <ProjectMini p={b} id={o.b} />
-      </div>
-
-      <section className="gl-sec">
-        <h3>What they could share</h3>
-        <p className="gl-share-line">{share}</p>
-        <Button onClick={() => g.openDraft(o)}>Draft agreement</Button>
-      </section>
-
-      <section className="gl-sec">
-        <h3>Why it ranks {rank ? `#${rank}` : ''}</h3>
-        {o.reasons?.length ? (
-          <ul className="gl-reasons">
-            {o.reasons.map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted">Score {o.score ?? '–'}.</p>
-        )}
-        {o.reasons?.length > 0 && !o.reasons.some((r) => /^Score/.test(r)) && <p className="gl-fine">Score {o.score ?? '–'}.</p>}
-      </section>
-
-      <Estimate id={o.id} />
-
-      <p className="gl-fine">
-        These projects could coordinate. This compares public plans only; it doesn&apos;t say whether the utilities already work together.
-      </p>
-    </>
-  )
-}
-
-function ProjectMini({ p, id }) {
-  const g = useGridlock()
-  if (!p) return <p className="muted">Project {id} is not in the current data.</p>
-  const meta = [fmtKv(p.kv), KIND_LABEL[p.kind], p.in_service ? `in service ${fmtDate(p.in_service)}` : 'no in-service date'].filter(Boolean)
-  return (
-    <div className={`gl-mini gl-mini--${toneOf(p.utility)}`}>
-      <span className="gl-mini__who">
-        <span className={`gl-swatch gl-swatch--${toneOf(p.utility)}`} aria-hidden="true" />
-        {utilityName(p.utility)}
-      </span>
-      <strong className="gl-mini__name">{p.name}</strong>
-      <span className="gl-mini__meta">{meta.join(' · ')}</span>
-      <span className="gl-mini__meta">
-        Location: {p.confidence || 'unknown'} confidence
-        {p.status ? ` · ${p.status}` : ''}
-      </span>
-      <button type="button" className="gl-link" onClick={() => g.openProject(p.id)}>
-        Where this came from
-      </button>
-    </div>
-  )
-}
-
-// GET /api/gridlock/estimate/<id>?window_months=: rough low-high items with their basis and source
-function Estimate({ id }) {
-  const g = useGridlock()
-  const months = g.params.window_months
-  const key = `${id}@${months}`
-  const [st, setSt] = useState({ key: null })
-  const [tries, setTries] = useState(0)
-  useEffect(() => {
-    if (!g.client) return
-    let live = true
-    g.client.estimate(id, months).then(
-      (data) => live && setSt({ key, status: 'ready', data }),
-      (error) => live && setSt({ key, status: 'error', error }),
-    )
-    return () => {
-      live = false
-    }
-  }, [g.client, id, months, key, tries])
-  const cur = st.key === key ? st : { status: 'loading' }
-  return (
-    <section className="gl-sec gl-est" aria-live="polite">
-      <div className="gl-sec__row">
-        <h3>What sharing could save</h3>
-        <Badge>Rough estimate</Badge>
-      </div>
-      {cur.status === 'loading' && <Loading label="Estimating…" />}
-      {cur.status === 'error' &&
-        (/no overlap|not found|unknown|aren't a/i.test(cur.error.message) ? (
-          <EmptyState title="No estimate for this pair">{cur.error.message}</EmptyState>
-        ) : (
-          <ErrorBanner error={cur.error} onRetry={() => setTries((n) => n + 1)} />
-        ))}
-      {cur.status === 'ready' && <EstimateBody e={cur.data} />}
-    </section>
-  )
-}
-
-function EstimateBody({ e }) {
-  const items = e?.items || []
-  const sources = e?.sources || []
-  const urlFor = (title) => sources.find((s) => s.title === title)?.url
-  if (!items.length) return <EmptyState title="Nothing to estimate for this pair" />
-  return (
-    <>
-      {(e.total_low != null || e.total_high != null) && (
-        <p className="gl-est__total">
-          <strong>{fmtRange(e.total_low, e.total_high, e.unit)}</strong>{' '}
-          <span className="muted">if the two projects share what their distance and timing allow</span>
-        </p>
-      )}
-      <ul className="gl-est__items">
-        {items.map((it, i) => (
-          <li key={`${it.id || it.label}-${i}`}>
-            <div className="gl-est__line">
-              <span>{it.label}</span>
-              <strong>{fmtRange(it.low, it.high, it.unit)}</strong>
-            </div>
-            {it.basis && <span className="gl-est__basis">{it.basis}</span>}
-            <span className="gl-est__meta">
-              {it.needs && <span className="gl-est__needs">Needs {it.needs}</span>}
-              {it.source && <SourceRef s={typeof it.source === 'string' && urlFor(it.source) ? { title: it.source, url: urlFor(it.source) } : it.source} />}
-            </span>
-          </li>
-        ))}
-      </ul>
-      {e.context?.length > 0 && (
-        <details className="gl-details">
-          <summary>Rough size of each project</summary>
-          <ul>
-            {e.context.map((c) => (
-              <li key={c.project}>
-                <strong>{c.project}</strong> {fmtRange(c.cost_low, c.cost_high)}
-                {c.basis && <span className="gl-est__basis"> {c.basis}</span>}
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {e.assumptions?.length > 0 && (
-        <details className="gl-details">
-          <summary>Assumptions ({e.assumptions.length})</summary>
-          <ul>
-            {e.assumptions.map((a) => (
-              <li key={a}>{a}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {sources.length > 0 && (
-        <details className="gl-details">
-          <summary>Sources ({sources.length})</summary>
-          <ul>
-            {sources.map((s, i) => (
-              <li key={i}>
-                <SourceRef s={s} />
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-    </>
-  )
-}
-
-function SourceRef({ s }) {
-  if (typeof s === 'string') {
-    return /^https?:\/\//.test(s) ? (
-      <a className="gl-est__src" href={s} target="_blank" rel="noreferrer">
-        {s.replace(/^https?:\/\//, '').slice(0, 60)}
-      </a>
-    ) : (
-      <span className="gl-est__src">{s}</span>
-    )
-  }
-  return s?.url ? (
-    <a className="gl-est__src" href={s.url} target="_blank" rel="noreferrer">
-      {s.title || s.url}
-    </a>
-  ) : (
-    <span className="gl-est__src">{s?.title || ''}</span>
-  )
-}
-
 // ------------------------------------------------------------------ project provenance
-function ProjectCard({ sel }) {
+export function ProjectCard({ sel, onBack, onClose, backLabel, autoFocus = false }) {
   const g = useGridlock()
   const p = g.byId[sel.id]
   const backRank = sel.back ? (sel.back.overlap?.displayRank ?? sel.back.overlap?.rank) : null
   if (!p) {
     return (
       <>
-        <CardHead eyebrow="Project" title={sel.id} />
+        <CardHead eyebrow="Project" title={sel.id} onBack={onBack} backLabel={backLabel || 'the pair'} onClose={onClose} autoFocus={autoFocus} />
         <EmptyState title="This project is not in the current data" />
       </>
     )
@@ -289,8 +76,10 @@ function ProjectCard({ sel }) {
   return (
     <>
       <CardHead
-        onBack={sel.back ? g.back : null}
-        backLabel={`opportunity${backRank ? ` #${backRank}` : ''}`}
+        autoFocus={autoFocus}
+        onBack={onBack}
+        onClose={onClose}
+        backLabel={backLabel || `pair${backRank ? ` ${backRank}` : ''}`}
         eyebrow={
           <>
             <span className={`gl-swatch gl-swatch--${toneOf(p.utility)}`} aria-hidden="true" />
@@ -298,7 +87,7 @@ function ProjectCard({ sel }) {
             {p.state ? `, ${p.state}` : ''}
           </>
         }
-        title={p.name}
+        title={displayName(p.name)}
         sub={[fmtKv(p.kv), KIND_LABEL[p.kind], p.id].filter(Boolean).join(' · ')}
       />
 

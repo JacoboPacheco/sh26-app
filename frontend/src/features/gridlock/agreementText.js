@@ -1,9 +1,10 @@
 // Build agreement: words and the plain-text (.md) version of a draft. The draft itself comes from the
 // backend (backend/agreement.py); this only labels it and writes it out as text for the download.
-import { fmtDate, fmtRange } from './format'
+import { MONTHS, MONTHS_ES, fmtDate, fmtRange } from './format'
 
 export const LABELS = {
   en: {
+    lang: 'en',
     module: 'Build agreement',
     eyebrow: 'Draft coordination proposal',
     parties: 'Parties',
@@ -45,8 +46,10 @@ export const LABELS = {
     negRound: (r) => `agreed in round ${r}`,
     negTag: 'Negotiated',
     dropNeg: "Use the draft's own terms",
+    needs: 'Needs',
   },
   es: {
+    lang: 'es',
     module: 'Acuerdo de obra',
     eyebrow: 'Borrador de propuesta de coordinación',
     parties: 'Partes',
@@ -88,14 +91,14 @@ export const LABELS = {
     negRound: (r) => `acordados en la ronda ${r}`,
     negTag: 'Negociado',
     dropNeg: 'Usar los términos propios del borrador',
+    needs: 'Requiere',
   },
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-export function fmtMonth(iso) {
+export function fmtMonth(iso, lang = 'en') {
   if (!iso) return '–'
   const [y, m] = iso.split('-').map(Number)
-  return m ? `${MONTHS[m - 1]} ${y}` : String(y)
+  return m ? `${(lang === 'es' ? MONTHS_ES : MONTHS)[m - 1]} ${y}` : String(y)
 }
 
 // the sources an item's facts point to, one per label (the draft cites fact keys; the page shows sources)
@@ -132,7 +135,7 @@ export function agreementMarkdown(doc, lang = 'en') {
   L.push(`${t.generated} ${new Date().toISOString().slice(0, 10)} · ${doc.overlap?.tier_label || ''} · ${doc.overlap_id}`, '')
   L.push(`## ${t.parties}`, '')
   for (const p of projects) {
-    const bits = [p.kv?.length ? `${p.kv.join(' / ')} kV` : null, p.kind_label, p.in_service ? `${t.inService} ${fmtDate(p.in_service)}` : null, p.status]
+    const bits = [p.kv?.length ? `${p.kv.join(' / ')} kV` : null, p.kind_label, p.in_service ? `${t.inService} ${fmtDate(p.in_service, t.lang)}` : null, p.status]
     L.push(`- **${p.utility_name}** (${p.utility}): ${p.display_name} (${p.id}); ${bits.filter(Boolean).join(', ')}. ${t.filed}: ${p.source?.label}${p.source?.url ? ` <${p.source.url}>` : ''}`)
   }
   L.push('', d.summary.text + refText(d.summary, byKey), '')
@@ -147,13 +150,13 @@ export function agreementMarkdown(doc, lang = 'en') {
   const jw = d.joint_window
   const past = jw.status === 'past' || (!jw.overlap && jw.past_sides?.length)
   L.push(`## 2. ${past ? t.windowPast : t.window}`, '', jw.text + refText(jw, byKey), '')
-  if (jw.as_of) L.push(`${t.today.replace(/,$/, '')}: ${fmtDate(jw.as_of)}. ${jw.status === 'past' ? `${t.jointPast}: ${fmtMonth(jw.start)} to ${fmtMonth(jw.end)}.` : ''}`.trim(), '')
+  if (jw.as_of) L.push(`${t.today.replace(/,$/, '')}: ${fmtDate(jw.as_of, t.lang)}. ${jw.status === 'past' ? `${t.jointPast}: ${fmtMonth(jw.start, t.lang)} – ${fmtMonth(jw.end, t.lang)}.` : ''}`.trim(), '')
   for (const [side, w] of [
     ['a', jw.a],
     ['b', jw.b],
   ]) {
     const p = d.parties.find((x) => x.side === side)
-    if (w) L.push(`- ${p?.short}: ${fmtMonth(w.start)} to ${fmtMonth(w.end)} (${w.basis})`)
+    if (w) L.push(`- ${p?.short}: ${fmtMonth(w.start, t.lang)} – ${fmtMonth(w.end, t.lang)} (${w.basis})`)
   }
   L.push('', `## 3. ${t.roles}`, '')
   for (const r of d.roles) {

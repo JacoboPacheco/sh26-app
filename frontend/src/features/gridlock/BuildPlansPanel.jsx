@@ -1,31 +1,41 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../../ui'
 import { useGridlock } from './context'
 import PipelinePanel from './PipelinePanel'
-import { KM_PER_MI, TIER_LABEL, TIER_ORDER, UTILITIES, fmtDistance, fmtInt, fmtTimeline, pairDistance, toneOf, utilityShort } from './format'
+import { KM_PER_MI, TIER_LABEL, TIER_ORDER, UTILITIES, displayName, fmtInt, fmtMi, pairDistance, toneOf, utilityShort, whenOf } from './format'
 import './gridlock.css'
 
-// The Build plans sidebar: the story, the sources, the comparison settings, the ranked list of
-// coordination opportunities, and the data pipeline (the part that makes every number traceable).
+// The Build together rail: a short title and one sentence, the two filings, the filters folded away, then the
+// ranked pairs at once (picking one opens its sheet over the map). The data pipeline (the part that makes every
+// number traceable) and the full project list are one click away in the rail's footer.
 export default function BuildPlansPanel({ extra }) {
   const g = useGridlock()
+  const view = g.tab === 'pipeline' || g.tab === 'projects' ? g.tab : 'pairs'
   return (
     <div className="gl gl-side">
+      {view === 'pairs' ? (
+        <PairsView extra={extra} />
+      ) : (
+        <SubView view={view} />
+      )}
+      {view === 'pairs' && g.conn.status === 'ready' && <RailFoot />}
+    </div>
+  )
+}
+
+function PairsView({ extra }) {
+  const g = useGridlock()
+  return (
+    <>
       <header className="gl-head">
-        <div className="gl-head__top">
-          <span className="gl-module">Two utilities&apos; public construction plans</span>
-          {g.conn.status === 'ready' && !g.fallback && <Badge>Real public filings</Badge>}
+        <div className="gl-head__row">
+          <h1 className="gl-title">Build together</h1>
           {g.fallback && <Badge tone="warn">Sperry&apos;s worked example</Badge>}
           {extra}
         </div>
-        <h1 className="gl-story">Build agreement</h1>
-        <p className="gl-lede gl-lede--why">
-          FERC&apos;s Order 1920 (2024) asks for more coordinated, long-term transmission planning because neighboring utilities have
-          planned in isolation. Where their plans overlap, building together can share crews, equipment and outage windows.
-        </p>
         <p className="gl-lede">
-          We read Dominion Energy South Carolina&apos;s and Georgia&apos;s filings, place every project on the map and rank the pairs that
-          overlap. Pick one and <strong>Draft agreement</strong> writes the coordination proposal, every figure sourced.
+          Where two utilities&apos; public construction plans overlap in place and time, building together can share crews, equipment and
+          outage windows. Pick a pair to draft an agreement.
         </p>
         <SourcesLine />
         {g.fallback && (
@@ -39,39 +49,11 @@ export default function BuildPlansPanel({ extra }) {
       {g.conn.status === 'error' && <ErrorBanner error={g.conn.error} onRetry={g.reload} />}
       {g.conn.status === 'ready' && (
         <>
-          <div className="gl-tabs" role="tablist" aria-label="Build plans sections">
-            {[
-              ['opportunities', 'Opportunities'],
-              ['projects', 'Projects'],
-              ['pipeline', 'Data pipeline'],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                id={`gl-tab-${id}`}
-                aria-controls={`gl-panel-${id}`}
-                aria-selected={g.tab === id}
-                className={`gl-tab${g.tab === id ? ' gl-tab--on' : ''}`}
-                onClick={() => g.setTab(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div role="tabpanel" id={`gl-panel-${g.tab}`} aria-labelledby={`gl-tab-${g.tab}`} className="gl-tabpanel">
-            {g.tab === 'opportunities' && (
-              <>
-                <Controls />
-                <RankedList />
-              </>
-            )}
-            {g.tab === 'projects' && <ProjectFinder />}
-            {g.tab === 'pipeline' && <PipelinePanel />}
-          </div>
+          <Filters />
+          <RankedList />
         </>
       )}
-    </div>
+    </>
   )
 }
 
@@ -81,10 +63,10 @@ function SourcesLine() {
   if (!sources.length) return null
   return (
     <p className="gl-sources">
-      Sources:{' '}
+      Public filings:{' '}
       {sources.map((s, i) => (
         <span key={s.id || i}>
-          {i > 0 && '; '}
+          {i > 0 && (i === sources.length - 1 ? ' and ' : ', ')}
           {s.url ? (
             <a href={s.url} target="_blank" rel="noreferrer" title={s.title}>
               {shortTitle(s)}
@@ -92,7 +74,6 @@ function SourcesLine() {
           ) : (
             shortTitle(s)
           )}
-          {s.pages ? ` (${s.pages} page${s.pages === 1 ? '' : 's'})` : ''}
         </span>
       ))}
       .
@@ -100,15 +81,16 @@ function SourcesLine() {
   )
 }
 
-// the filings' full titles are long; the header names them briefly (full titles in the pipeline tab)
+// the filings' full titles are long; the rail names them briefly (full titles in the data pipeline)
 function shortTitle(s) {
   if (s.short_title) return s.short_title
   if (s.utility === 'DESC') return 'Dominion Energy SC projects, 2024–2028'
-  if (s.utility === 'GA' || s.utility === 'GPC') return 'Georgia Power 2025 IRP, Volume 3 (public disclosure)'
+  if (s.utility === 'GA' || s.utility === 'GPC') return 'Georgia Power 2025 IRP, Vol. 3'
   return s.title
 }
 
-function Controls() {
+// Every comparison setting in one closed fold, its summary saying what is set.
+function Filters() {
   const g = useGridlock()
   const { params, setParams, toggleUtility } = g
   const counts = useMemo(() => {
@@ -119,139 +101,156 @@ function Controls() {
   const mi = params.max_km / KM_PER_MI
   const shown = UTILITIES.filter((u) => u.id === 'DESC' || u.id === 'GPC' || counts[u.id])
   const on = UTILITIES.filter((u) => params.utilities[u.id])
+  const georgia = on.filter((u) => u.id !== 'DESC')
+  const summary = [
+    `within ${mi.toFixed(mi < 10 ? 1 : 0)} mi`,
+    params.method === 'center' ? 'center to center' : 'closest points',
+    `${params.window_months}-month windows`,
+    georgia.length === 1 && georgia[0].id === 'GPC' && params.utilities.DESC ? null : on.map((u) => u.short).join(', ') || 'no utilities',
+    g.tierFilter ? `only ${TIER_LABEL[g.tierFilter].toLowerCase()}` : null,
+  ].filter(Boolean)
   return (
-    <section className="gl-controls" aria-label="Comparison settings">
-      <Field
-        label={`Within ${params.max_km} km (${mi.toFixed(mi < 10 ? 1 : 0)} mi)`}
-        hint="Sperry's cutoff is 25 mi (40 km)."
-        type="range"
-        min={1}
-        max={50}
-        step={1}
-        value={params.max_km}
-        aria-valuetext={`${params.max_km} kilometers`}
-        onChange={(e) => setParams({ max_km: Number(e.target.value) })}
-      />
-      <fieldset className="gl-seg">
-        <legend>Measure between</legend>
-        {[
-          ['closest', 'Closest points'],
-          ['center', "Centers (Sperry's method)"],
-        ].map(([id, label]) => (
-          <label key={id} className={params.method === id ? 'gl-seg--on' : ''}>
-            <input type="radio" name="gl-method" value={id} checked={params.method === id} onChange={() => setParams({ method: id })} />
-            {label}
-          </label>
-        ))}
-      </fieldset>
-      <details className="gl-more">
-        <summary>
-          More settings{' '}
-          <span className="gl-fine">
-            {params.window_months}-month build window · {on.map((u) => u.short).join(', ') || 'no utilities'}
-          </span>
-        </summary>
-        <div className="gl-more__body">
-          <Field
-            label={`Build window: ${params.window_months} months before in service`}
-            hint={
-              g.ov.window_assumed
-                ? `Used for the ${fmtInt(g.ov.window_assumed.projects)} of ${fmtInt(g.ov.window_assumed.of)} projects whose filing gives no start date; the rest keep their filed window. Pairs building at the same time rank higher.`
-                : 'Pairs whose build windows share months rank higher.'
-            }
-            type="range"
-            min={6}
-            max={60}
-            step={6}
-            value={params.window_months}
-            aria-valuetext={`${params.window_months} months`}
-            onChange={(e) => setParams({ window_months: Number(e.target.value) })}
-          />
-          <fieldset className="gl-utils">
-            <legend>Utilities</legend>
-            {shown.map((u) => (
-              <label key={u.id} className="gl-check-row">
-                <input type="checkbox" checked={!!params.utilities[u.id]} onChange={() => toggleUtility(u.id)} />
-                <span className={`gl-swatch gl-swatch--${u.tone}`} aria-hidden="true" />
-                <span className="gl-check-row__name">{u.name}</span>
-                <span className="gl-check-row__n">{counts[u.id] != null ? fmtInt(counts[u.id]) : ''}</span>
-              </label>
-            ))}
-            <p className="gl-fine">Georgia&apos;s sponsors plan one integrated system together, so each is compared with DESC.</p>
+    <details className="gl-filters">
+      <summary>
+        <span className="gl-filters__label">Filters</span>
+        <span className="gl-filters__now">{summary.join(', ')}</span>
+      </summary>
+      <div className="gl-filters__body">
+        <Field
+          label={`Within ${params.max_km} km (${mi.toFixed(mi < 10 ? 1 : 0)} mi)`}
+          hint="Sperry's cutoff is 25 mi (40 km)."
+          type="range"
+          min={1}
+          max={50}
+          step={1}
+          value={params.max_km}
+          aria-valuetext={`${params.max_km} kilometers`}
+          onChange={(e) => setParams({ max_km: Number(e.target.value) })}
+        />
+        <fieldset className="gl-seg">
+          <legend>Measure between</legend>
+          {[
+            ['closest', 'Closest points'],
+            ['center', "Centers (Sperry's method)"],
+          ].map(([id, label]) => (
+            <label key={id} className={params.method === id ? 'gl-seg--on' : ''}>
+              <input type="radio" name="gl-method" value={id} checked={params.method === id} onChange={() => setParams({ method: id })} />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+        <Field
+          label={`Build window: ${params.window_months} months before in service`}
+          hint={
+            g.ov.window_assumed
+              ? `Used for the ${fmtInt(g.ov.window_assumed.projects)} of ${fmtInt(g.ov.window_assumed.of)} projects whose filing gives no start date; the rest keep their filed window.`
+              : 'Pairs whose build windows share months rank higher.'
+          }
+          type="range"
+          min={6}
+          max={60}
+          step={6}
+          value={params.window_months}
+          aria-valuetext={`${params.window_months} months`}
+          onChange={(e) => setParams({ window_months: Number(e.target.value) })}
+        />
+        <fieldset className="gl-utils">
+          <legend>Utilities</legend>
+          {shown.map((u) => (
+            <label key={u.id} className="gl-check-row">
+              <input type="checkbox" checked={!!params.utilities[u.id]} onChange={() => toggleUtility(u.id)} />
+              <span className={`gl-swatch gl-swatch--${u.tone}`} aria-hidden="true" />
+              <span className="gl-check-row__name">{u.name}</span>
+              <span className="gl-check-row__n">{counts[u.id] != null ? fmtInt(counts[u.id]) : ''}</span>
+            </label>
+          ))}
+          <p className="gl-fine">Georgia&apos;s sponsors plan one integrated system together, so each is compared with DESC.</p>
+        </fieldset>
+        {g.ov.by_tier && (g.ov.flagged || 0) > 0 && (
+          <fieldset className="gl-tierset">
+            <legend>Show</legend>
+            <div className="gl-tierset__opts">
+              <button type="button" className={`gl-chip${!g.tierFilter ? ' is-on' : ''}`} aria-pressed={!g.tierFilter} onClick={() => g.setTierFilter(null)}>
+                Every pair
+              </button>
+              {TIER_ORDER.filter((t) => g.ov.by_tier[t]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`gl-chip gl-tier gl-tier--${t}${g.tierFilter === t ? ' is-on' : ''}`}
+                  aria-pressed={g.tierFilter === t}
+                  onClick={() => g.setTierFilter(g.tierFilter === t ? null : t)}
+                >
+                  {TIER_LABEL[t]} ({fmtInt(g.ov.by_tier[t])})
+                </button>
+              ))}
+            </div>
           </fieldset>
-        </div>
-      </details>
-    </section>
+        )}
+      </div>
+    </details>
   )
 }
 
 const ORDERS = [
-  ['score', 'Best score'],
-  ['distance', 'Closest first'],
+  ['score', 'Best match'],
+  ['distance', 'Closest'],
 ]
 
 function RankedList() {
   const g = useGridlock()
-  const { ov, overlaps, params, sel, byId } = g
+  const { ov, overlaps, params } = g
   const [all, setAll] = useState(false)
   const [order, setOrder] = useState('score')
-  const [tier, setTier] = useState(null)
-  // the engine ranks by score; "closest first" and a tier filter only re-order / narrow what it sent
+  const tier = g.tierFilter && ov.by_tier?.[g.tierFilter] ? g.tierFilter : null
+  // the engine ranks by score; "closest" and the tier filter only re-order / narrow what it sent. Best match keeps
+  // the engine's order but lists the pairs whose shared months have already passed (as filed) after the rest, under
+  // their own line, each keeping its rank (the engine's score still counts a passed window in full)
   const listed = useMemo(() => {
     const rows = tier ? overlaps.filter((o) => o.tier === tier) : overlaps
-    if (order !== 'distance') return rows
+    if (order !== 'distance') return [...rows.filter((o) => o.ahead !== 'past'), ...rows.filter((o) => o.ahead === 'past')]
     const d = (o) => pairDistance(o, params.method).km ?? Infinity
     return [...rows].sort((a, b) => d(a) - d(b) || (a.rank ?? 0) - (b.rank ?? 0))
   }, [overlaps, tier, order, params.method])
-  const shown = all ? listed : listed.slice(0, 10)
+  const shown = all ? listed : listed.slice(0, 12)
+  const firstPast = order === 'distance' ? -1 : listed.findIndex((o) => o.ahead === 'past')
   const total = ov.total_pairs || 0
   const flagged = ov.flagged ?? overlaps.length
-  const share = total ? flagged / total : 0
-  const tierOn = tier && ov.by_tier?.[tier] ? tier : null
+  const mi = params.max_km / KM_PER_MI
 
   return (
     <section className="gl-ranked" aria-labelledby="gl-ranked-h">
-      <div className="gl-sec__row">
-        <h2 id="gl-ranked-h" className="gl-h2">
-          Top coordination opportunities
-        </h2>
-        {ov.status === 'refreshing' && <span className="gl-fine">Updating…</span>}
+      <div className="gl-listhead">
+        <div className="gl-listhead__txt">
+          <h2 id="gl-ranked-h" className="gl-listhead__h">
+            {ov.status === 'loading' ? (
+              'Comparing the plans…'
+            ) : (
+              <>
+                <strong>
+                  {fmtInt(tier ? listed.length : flagged)} pair{(tier ? listed.length : flagged) === 1 ? '' : 's'}
+                </strong>{' '}
+                within {mi.toFixed(mi < 10 ? 1 : 0)} mi
+              </>
+            )}
+          </h2>
+          {total > 0 && ov.status !== 'loading' && <p className="gl-listhead__of">of {fmtInt(total)} cross-state pairs compared</p>}
+        </div>
+        {flagged > 1 && (
+          <div className="gl-sort" role="group" aria-label="Sort the pairs">
+            {ORDERS.map(([id, label]) => (
+              <button key={id} type="button" className={order === id ? 'is-on' : ''} aria-pressed={order === id} onClick={() => setOrder(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
-      {ov.status === 'loading' && <Loading label="Comparing the plans…" />}
+      {ov.status === 'loading' && <Loading label="Ranking the pairs…" />}
       {ov.status === 'error' && <ErrorBanner error={ov.error} onRetry={g.loadOverlaps} />}
       {(ov.status === 'ready' || ov.status === 'refreshing') && (
         <>
-          {!g.pairs.length ? (
-            <EmptyState title="Nothing to compare">Switch on DESC and at least one Georgia utility.</EmptyState>
-          ) : (
-            <div className="gl-share">
-              <p>
-                <strong>{fmtInt(flagged)}</strong> of {fmtInt(total)} cross-state pairs are within {params.max_km} km
-                {params.method === 'center' ? ', center to center' : ''}. Most planned projects aren&apos;t near each other; these are the
-                ones that are.
-              </p>
-              <div className="gl-share__bar" aria-hidden="true">
-                <span style={{ width: `${Math.max(flagged ? 1.5 : 0, share * 100)}%` }} />
-              </div>
-              {ov.by_tier && flagged > 0 && (
-                <ul className="gl-tiers" aria-label="Show only one distance tier">
-                  {TIER_ORDER.filter((t) => ov.by_tier[t]).map((t) => (
-                    <li key={t}>
-                      <button
-                        type="button"
-                        className={`gl-tier gl-tier--${t} gl-tierbtn${tierOn === t ? ' gl-tierbtn--on' : ''}`}
-                        aria-pressed={tierOn === t}
-                        onClick={() => setTier((cur) => (cur === t ? null : t))}
-                      >
-                        {fmtInt(ov.by_tier[t])} {TIER_LABEL[t].toLowerCase()}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {ov.truncated && <p className="gl-fine">The engine sent the top {fmtInt(overlaps.length)}; narrow the distance to see the rest ranked.</p>}
-            </div>
-          )}
+          {!g.pairs.length && <EmptyState title="Nothing to compare">Switch on DESC and at least one Georgia utility under Filters.</EmptyState>}
           {g.pairs.length > 0 && !flagged && (
             <EmptyState
               title={`No pairs within ${params.max_km} km`}
@@ -262,77 +261,29 @@ function RankedList() {
                   </Button>
                 ) : null
               }
-            />
+            >
+              Widen the distance under Filters.
+            </EmptyState>
           )}
-          {flagged > 0 && (
-            <div className="gl-order" role="group" aria-label="Order the list">
-              {ORDERS.map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={`gl-order__btn${order === id ? ' gl-order__btn--on' : ''}`}
-                  aria-pressed={order === id}
-                  onClick={() => setOrder(id)}
-                >
-                  {label}
-                </button>
-              ))}
-              {(order !== 'score' || tierOn) && <span className="gl-fine">Numbers are the score rank.</span>}
-            </div>
-          )}
-          <ol className={`gl-list${ov.status === 'refreshing' ? ' gl-list--stale' : ''}`}>
-            {shown.map((o) => {
-              const a = byId[o.a]
-              const b = byId[o.b]
-              const on = sel?.kind === 'overlap' && sel.id === o.id
-              const drafting = g.draft?.id === o.id
-              return (
-                <li key={o.id} className="gl-li">
-                  <button
-                    type="button"
-                    className={`gl-item gl-item--${o.tier}${on ? ' gl-item--on' : ''}`}
-                    aria-current={on || undefined}
-                    onClick={() => {
-                      g.openOverlap(o)
-                      // stacked on a phone: bring the map (and the card under it) into view
-                      if (window.matchMedia?.('(max-width: 760px)').matches) document.querySelector('.gl-map')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }}
-                    onPointerEnter={(e) => e.pointerType !== 'touch' && g.setHover({ kind: 'overlap', id: o.id })}
-                    onPointerLeave={() => g.setHover(null)}
-                    onFocus={(e) => e.currentTarget.matches(':focus-visible') && g.setHover({ kind: 'overlap', id: o.id })}
-                    onBlur={() => g.setHover(null)}
-                  >
-                    <span className="gl-item__rank">{o.displayRank ?? o.rank}</span>
-                    <span className="gl-item__body">
-                      <span className="gl-item__top">
-                        <span className={`gl-tier gl-tier--${o.tier}`}>{o.tier_label}</span>
-                        <span className="gl-item__dist">{fmtDistance(pairDistance(o, params.method).km, pairDistance(o, params.method).mi)}</span>
-                      </span>
-                      <ProjLine p={a} id={o.a} />
-                      <ProjLine p={b} id={o.b} />
-                      <span className="gl-item__time">
-                        {fmtTimeline(o)}
-                        {o.sperry && <span className="gl-sperrytag">In Sperry&apos;s example ({o.sperry})</span>}
-                      </span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`gl-draftbtn${drafting ? ' is-on' : ''}`}
-                    aria-pressed={drafting}
-                    aria-label={`Draft agreement for opportunity ${o.displayRank ?? o.rank}: ${a?.name || o.a} and ${b?.name || o.b}`}
-                    onClick={() => (drafting ? g.closeDraft() : g.openDraft(o))}
-                  >
-                    Draft agreement
-                  </button>
-                </li>
-              )
-            })}
+          {ov.truncated && <p className="gl-fine">The engine sent the top {fmtInt(overlaps.length)}; narrow the distance to see the rest ranked.</p>}
+          {order !== 'score' && flagged > 1 && <p className="gl-fine">Sorted by distance; each keeps its best-match rank.</p>}
+          {order === 'score' && firstPast > 0 && <p className="gl-fine">Pairs whose shared months have passed are listed last; each keeps its rank.</p>}
+          <ol className={`gl-rows${ov.status === 'refreshing' ? ' gl-rows--stale' : ''}`} aria-busy={ov.status === 'refreshing' || undefined}>
+            {shown.map((o, i) => (
+              <Fragment key={o.id}>
+                {i === firstPast && i > 0 && (
+                  <li className="gl-rows__sep" aria-hidden="true">
+                    Shared months already passed, as filed
+                  </li>
+                )}
+                <PairRow o={o} />
+              </Fragment>
+            ))}
           </ol>
-          {listed.length > 10 && (
-            <Button variant="secondary" onClick={() => setAll((v) => !v)}>
-              {all ? 'Show the first 10' : `Show all ${listed.length}`}
-            </Button>
+          {listed.length > 12 && (
+            <button type="button" className="gl-more-rows" onClick={() => setAll((v) => !v)} aria-expanded={all}>
+              {all ? 'Show the top 12' : `Show all ${listed.length} pairs`}
+            </button>
           )}
         </>
       )}
@@ -340,14 +291,100 @@ function RankedList() {
   )
 }
 
-function ProjLine({ p, id }) {
-  const u = p?.utility
+function PairRow({ o }) {
+  const g = useGridlock()
+  const a = g.byId[o.a]
+  const b = g.byId[o.b]
+  const on = g.draft?.id === o.id
+  const d = pairDistance(o, g.params.method)
+  const when = whenOf(o)
+  const rank = o.displayRank ?? o.rank
+  const dist = d.km == null ? 'distance unknown' : d.km < 0.05 ? (o.crosses ? 'crossing' : 'touching') : `${fmtMi(d.mi)} apart`
   return (
-    <span className="gl-item__proj">
+    <li>
+      <button
+        type="button"
+        className={`gl-row gl-row--${when.tone}${on ? ' is-on' : ''}`}
+        aria-current={on || undefined}
+        data-pair={o.id}
+        onClick={() => g.openDraft(o)}
+        onPointerEnter={(e) => e.pointerType !== 'touch' && g.setHover({ kind: 'overlap', id: o.id })}
+        onPointerLeave={() => g.setHover(null)}
+        onFocus={(e) => e.currentTarget.matches(':focus-visible') && g.setHover({ kind: 'overlap', id: o.id })}
+        onBlur={() => g.setHover(null)}
+      >
+        <span className="gl-row__rank">
+          <span className="gl-sr">Pair </span>
+          {rank}
+        </span>
+        <span className="gl-row__body">
+          <ProjLine p={a} id={o.a} />
+          <ProjLine p={b} id={o.b} />
+          <span className="gl-row__meta">
+            <span>{dist}</span>
+            <span className={`gl-when gl-when--${when.tone}`}>{when.row}</span>
+          </span>
+          {/* the tier only when it isn't the usual one (crews and equipment: most pairs); the map key and Filters list all */}
+          {(o.tier !== 'crews' || o.sperry) && (
+            <span className="gl-row__foot">
+              {o.tier !== 'crews' && <span className={`gl-tier gl-tier--${o.tier}`}>{o.tier_label}</span>}
+              {o.sperry && <span className="gl-sperrytag">In Sperry&apos;s example ({o.sperry})</span>}
+            </span>
+          )}
+        </span>
+      </button>
+    </li>
+  )
+}
+
+function ProjLine({ p, id }) {
+  const g = useGridlock()
+  const u = p?.utility
+  // two filed projects can read almost alike (DESC-6809E "… 46kV Rebuilds", DESC-6809G "… 46kV"): add the number
+  const dup = g.nearDup?.has(id)
+  return (
+    <span className="gl-row__proj">
       <span className={`gl-swatch gl-swatch--${toneOf(u)}`} aria-hidden="true" />
-      <span className="gl-item__who">{utilityShort(u)}</span>
-      <span className="gl-item__name">{p?.name || id}</span>
+      <span className="gl-sr">{utilityShort(u)}: </span>
+      <span className="gl-row__name" title={p?.name ? `${utilityShort(u)}: ${displayName(p.name)} (${id})` : undefined}>
+        {displayName(p?.name) || id}
+      </span>
+      {dup && <span className="gl-row__id">{id}</span>}
     </span>
+  )
+}
+
+// the way into the pipeline and the full project list, always in view under the pairs
+function RailFoot() {
+  const g = useGridlock()
+  const n = (g.projects.list || []).length
+  return (
+    <nav className="gl-railfoot" aria-label="How this data was built">
+      <button type="button" className="gl-railfoot__main" onClick={() => g.setTab('pipeline')}>
+        <span className="gl-railfoot__t">How we built this</span>
+        <span className="gl-railfoot__d">The data pipeline, every check shown</span>
+      </button>
+      <button type="button" className="gl-railfoot__side" onClick={() => g.setTab('projects')}>
+        {n ? `All ${fmtInt(n)} projects` : 'All projects'}
+      </button>
+    </nav>
+  )
+}
+
+function SubView({ view }) {
+  const g = useGridlock()
+  return (
+    <>
+      <header className="gl-subhead">
+        <button type="button" className="gl-back" onClick={() => g.setTab('opportunities')}>
+          <span aria-hidden="true">‹</span> Pairs
+        </button>
+        <h1 className="gl-title">{view === 'pipeline' ? 'How we built this' : 'All projects'}</h1>
+      </header>
+      {g.conn.status === 'loading' && <Loading label="Reading the construction plans…" />}
+      {g.conn.status === 'error' && <ErrorBanner error={g.conn.error} onRetry={g.reload} />}
+      {g.conn.status === 'ready' && (view === 'pipeline' ? <PipelinePanel /> : <ProjectFinder />)}
+    </>
   )
 }
 
@@ -373,7 +410,7 @@ function ProjectFinder() {
       <Field label="Find a project" type="search" value={q} placeholder="A name, place or project number" onChange={(e) => setQ(e.target.value)} />
       <p className="gl-fine">
         {fmtInt(shown.length)} of {fmtInt(list.length)} located projects
-        {setAside ? `; ${fmtInt(setAside)} more set aside (see Data pipeline)` : ''}. Only switched-on utilities are listed.
+        {setAside ? `; ${fmtInt(setAside)} more set aside (see How we built this)` : ''}. Only switched-on utilities are listed.
       </p>
       {!shown.length ? (
         <EmptyState title="No project matches">Try a substation name, like McIntosh or Thurmond.</EmptyState>
@@ -389,12 +426,12 @@ function ProjectFinder() {
                 onPointerEnter={(e) => e.pointerType !== 'touch' && g.setHover({ kind: 'project', id: p.id })}
                 onPointerLeave={() => g.setHover(null)}
               >
-                <span className="gl-item__proj">
+                <span className="gl-row__proj">
                   <span className={`gl-swatch gl-swatch--${toneOf(p.utility)}`} aria-hidden="true" />
                   <span className="gl-item__who">{utilityShort(p.utility)}</span>
-                  <span className="gl-prow__name">{p.name}</span>
+                  <span className="gl-prow__name">{displayName(p.name)}</span>
                 </span>
-                <span className="gl-item__time">
+                <span className="gl-fine">
                   {[p.in_service ? `in service ${p.in_service.slice(0, 7)}` : 'no date', `${p.confidence || 'unknown'} confidence`, p.id].join(' · ')}
                 </span>
               </button>

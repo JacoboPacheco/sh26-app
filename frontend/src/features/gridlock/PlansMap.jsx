@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { ErrorBanner, Loading } from '../../ui'
 import { useGridlock } from './context'
 import { OUTLINES, OUTLINES_BBOX } from './outlines'
-import { boundsOf, fmtPairDistance, projectPoints, toneOf, utilityShort } from './format'
+import { boundsOf, displayName, fmtPairDistance, projectPoints, toneOf, utilityShort } from './format'
 import './gridlock.css'
 
 // The Build plans map: our own SVG, an equirectangular projection over the basemap's bbox (the
@@ -72,7 +72,13 @@ function stateEntries(states) {
 
 export default function PlansMap() {
   const g = useGridlock()
-  const { basemap, projects, visible, overlaps, sel, hover, setHover, openOverlap, openProject, registerMap, byId } = g
+  const { basemap, projects, visible, overlaps, sel, hover, setHover, openOverlap, openProject, registerMap, byId, cover } = g
+  // the sheet covers the map's right side: camera moves frame what is left visible (read through a ref so a
+  // fly that runs in the same commit as the sheet's first measurement already sees it)
+  const coverRef = useRef(cover)
+  useLayoutEffect(() => {
+    coverRef.current = cover
+  }, [cover])
   const wrapRef = useRef(null)
   const svgRef = useRef(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
@@ -105,7 +111,8 @@ export default function PlansMap() {
   useLayoutEffect(() => {
     const el = wrapRef.current
     if (!el) return
-    const measure = () => setSize({ w: el.clientWidth, h: el.clientHeight })
+    // a hidden map (printing, a collapsed parent) measures 0: keep the last real size so the view survives
+    const measure = () => el.clientWidth && el.clientHeight && setSize({ w: el.clientWidth, h: el.clientHeight })
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
@@ -160,11 +167,13 @@ export default function PlansMap() {
   )
   useEffect(() => () => cancelAnimationFrame(anim.current), [])
 
-  // the visible part of the map: the detail card covers the right side on wide screens
+  // the visible part of the map: the sheet (or, without it, a project's card) covers the right side
   const insets = useCallback(
     (card) => {
       const wide = size.w > 700
-      return { l: 40, t: 40, r: card && wide ? Math.min(420, size.w * 0.45) : 40, b: wide ? 90 : 40 }
+      const c = coverRef.current
+      const r = c > 0 && c < size.w - 160 ? c + 36 : card && wide ? Math.min(420, size.w * 0.45) : 40
+      return { l: 64, t: 36, r, b: wide ? 64 : 40 }
     },
     [size.w],
   )
@@ -318,7 +327,7 @@ export default function PlansMap() {
     } else if (e.key === '+' || e.key === '=') zoomAt(1.5, size.w / 2, size.h / 2, true)
     else if (e.key === '-' || e.key === '_') zoomAt(1 / 1.5, size.w / 2, size.h / 2, true)
     else if (e.key === '0') fit()
-    else if (e.key === 'Escape') g.close()
+    else if (e.key === 'Escape' && !g.draft) g.close()
   }
 
   // --- what is highlighted ---
@@ -336,6 +345,9 @@ export default function PlansMap() {
   }
 
   const k = view?.k || 1
+  // the right edge of the part of the map not under the sheet (or a project's card), screen px
+  const visibleRight =
+    cover > 0 && cover < size.w - 160 ? size.w - cover - 6 : sel?.kind === 'project' && !g.draft && size.w > 700 ? size.w - Math.min(420, size.w * 0.45) + 30 : size.w - 10
   const loadingMsg = projects.status === 'loading' ? 'Loading projects…' : basemap.status === 'loading' ? 'Loading the map…' : null
   const selectedOverlap = sel?.kind === 'overlap' ? overlaps.find((o) => o.id === sel.id) || sel.overlap : null
 
@@ -350,9 +362,11 @@ export default function PlansMap() {
     () => [...overlaps].filter((o) => byId[o.a] && byId[o.b]).sort((a, b) => (TIER_RANK[b.tier] ?? 4) - (TIER_RANK[a.tier] ?? 4)),
     [overlaps, byId],
   )
+  const rankSpots = useMemo(() => placeRanks(drawnOverlaps, proj, k), [drawnOverlaps, proj, k])
+  const focusPlaced = focus && view ? placeFocusLabels([...focus.projects], byId, proj, view, visibleRight) : []
 
   return (
-    <div className="gl gl-map" ref={wrapRef} onPointerLeave={() => setTip(null)}>
+    <div className="gl gl-map" ref={wrapRef} onPointerLeave={() => setTip(null)} style={{ '--gl-cover': `${cover || 0}px` }}>
       <svg
         ref={svgRef}
         className="gl-map__svg"
@@ -426,39 +440,64 @@ export default function PlansMap() {
                 <Connector key={o.id} o={o} proj={proj} k={k} on={focus?.overlap === o.id} dim={!!focus && focus.overlap !== o.id} onClick={() => openOverlap(o)} />
               ))}
             </g>
-            {focus && <FocusLabels ids={[...focus.projects]} byId={byId} proj={proj} view={view} right={size.w - insets(!!sel).r + 30} />}
-            {selectedOverlap && <RankBadge o={selectedOverlap} proj={proj} k={k} />}
+            {/* the top ten's ranks above every line and mark (with a dark halo), so none hides under a project */}
+            <g className={`gl-ranks${focus ? ' gl-has-focus' : ''}`} aria-hidden="true">
+              {[...rankSpots].map(([id, spot]) =>
+                focus?.overlap === id ? null : (
+                  <text
+                    key={id}
+                    className="gl-ring__rank"
+                    x={spot.x / k}
+                    y={spot.y / k}
+                    fontSize={10 / k}
+                    strokeWidth={3 / k}
+                    textAnchor={spot.end ? 'end' : 'start'}
+                  >
+                    {spot.text}
+                  </text>
+                ),
+              )}
+            </g>
+            {focus && <FocusLabels placed={focusPlaced} k={k} />}
+            {selectedOverlap && <RankBadge o={selectedOverlap} proj={proj} k={k} avoid={focusPlaced} />}
           </g>
         )}
       </svg>
 
       {tip && (
-        <div className="gl-tip" style={{ left: Math.min(tip.x + 14, size.w - 250), top: Math.max(8, tip.y - 12) }} role="tooltip">
+        <div className="gl-tip" style={{ left: Math.max(8, Math.min(tip.x + 14, size.w - (cover > 0 ? cover : 0) - 258)), top: Math.max(8, tip.y - 12) }} role="tooltip">
           {tip.content}
         </div>
       )}
 
       <div className="gl-zoom" role="group" aria-label="Zoom">
-        <button type="button" onClick={() => zoomAt(1.6, size.w / 2, size.h / 2, true)} aria-label="Zoom in">
-          +
+        <button type="button" onClick={() => zoomAt(1.6, (size.w - cover) / 2, size.h / 2, true)} aria-label="Zoom in" title="Zoom in">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 3v10M3 8h10" />
+          </svg>
         </button>
-        <button type="button" onClick={() => zoomAt(1 / 1.6, size.w / 2, size.h / 2, true)} aria-label="Zoom out">
-          −
+        <button type="button" onClick={() => zoomAt(1 / 1.6, (size.w - cover) / 2, size.h / 2, true)} aria-label="Zoom out" title="Zoom out">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M3 8h10" />
+          </svg>
         </button>
-        <button type="button" className="gl-zoom__fit" onClick={fit}>
-          Fit
+        <button type="button" onClick={fit} aria-label="Fit both states" title="Fit both states">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" />
+          </svg>
         </button>
       </div>
 
-      <Legend />
-
-      <p className="gl-attrib">
-        Outlines: U.S. Census Bureau. Lines and substations: ©{' '}
-        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
-          OpenStreetMap
-        </a>{' '}
-        contributors.
-      </p>
+      <div className="gl-mapfoot">
+        <MapKey />
+        <p className="gl-attrib">
+          Outlines: U.S. Census Bureau. Lines and substations: ©{' '}
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+            OpenStreetMap
+          </a>{' '}
+          contributors.
+        </p>
+      </div>
 
       {(loadingMsg || basemap.status === 'error' || projects.status === 'error') && (
         <div className="gl-map__status">
@@ -545,7 +584,7 @@ function ProjectMark({ p, proj, k, on, onEnter, onLeave, onClick }) {
   const tone = toneOf(p.utility)
   const conf = p.confidence || 'low'
   const cls = `gl-proj gl-proj--${tone} gl-conf--${conf}${on ? ' gl-on' : ''}`
-  const label = `${utilityShort(p.utility)}: ${p.name}`
+  const label = `${utilityShort(p.utility)}: ${displayName(p.name)}`
   const line = pts.length >= 2
   const d = line ? pts.map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join('') : null
   return (
@@ -593,11 +632,6 @@ function OverlapRing({ o, proj, k, on, onEnter, onLeave, onClick }) {
         <title>{`Could coordinate: ${o.tier_label}${rank ? ` (#${rank})` : ''}`}</title>
         <circle className="gl-ring__hit" cx={cx} cy={cy} r={11 / k} />
         <circle className="gl-ring__mark" cx={cx} cy={cy} r={3.4 / k} />
-        {rank != null && rank <= 10 && (
-          <text className="gl-ring__rank" x={cx + 5.5 / k} y={cy - 5.5 / k} fontSize={10 / k}>
-            {rank}
-          </text>
-        )}
       </g>
     )
   }
@@ -626,60 +660,135 @@ function Connector({ o, proj, k, on, dim, onClick }) {
   )
 }
 
+// The top ten pairs carry their rank beside their mark. Placed in screen px at this zoom, best rank first: the first
+// of six spots around the mark that overlaps no rank placed before it, no other mark and no city label; with none
+// free, the rank joins the label it would have covered ("1, 3": two pairs meet there), so digits never run together.
+const RANK_SPOTS = [
+  [5.5, -5.5, false],
+  [-5.5, -5.5, true],
+  [5.5, 12, false],
+  [-5.5, 12, true],
+  [7, 3.5, false],
+  [-7, 3.5, true],
+]
+function placeRanks(overlaps, proj, k) {
+  const out = new Map()
+  const top = overlaps
+    .map((o) => ({ o, rank: o.displayRank ?? o.rank, pair: worldPair(o, proj) }))
+    .filter((x) => x.pair && x.rank != null && x.rank <= 10)
+    .sort((a, b) => a.rank - b.rank)
+  if (!top.length) return out
+  const hits = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
+  const cities = CITIES.flatMap(([name, lat, lon]) => {
+    const [x, y] = proj.w(lon, lat)
+    const sx = x * k
+    const sy = y * k
+    return [
+      [sx + 3, sy - 13, sx + 4 + name.length * 5.9, sy - 1],
+      [sx - 2.5, sy - 2.5, sx + 2.5, sy + 2.5],
+    ]
+  })
+  const marks = top.map(({ pair: [[x1, y1], [x2, y2]] }) => [((x1 + x2) / 2) * k, ((y1 + y2) / 2) * k])
+  const placed = [] // {box, spot}
+  top.forEach(({ o, rank }, i) => {
+    const [mx, my] = marks[i]
+    const w = String(rank).length * 6.2 + 1
+    const boxAt = ([dx, dy, end]) => [end ? mx + dx - w : mx + dx, my + dy - 8, end ? mx + dx : mx + dx + w, my + dy + 2]
+    const clearOfRanks = (c) => !placed.some((p) => hits(boxAt(c), p.box))
+    const clearOfMap = (c) => !cities.some((cb) => hits(boxAt(c), cb)) && !marks.some(([x, y], j) => j !== i && hits(boxAt(c), [x - 4, y - 4, x + 4, y + 4]))
+    const pick = RANK_SPOTS.find((c) => clearOfRanks(c) && clearOfMap(c)) || RANK_SPOTS.find(clearOfRanks)
+    if (pick) {
+      const spot = { x: mx + pick[0], y: my + pick[1], end: pick[2], text: String(rank) }
+      out.set(o.id, spot)
+      placed.push({ box: boxAt(pick), spot })
+      return
+    }
+    // every spot covers a rank already placed (pairs that meet at one place): join that label
+    const near = placed.find((p) => hits(boxAt(RANK_SPOTS[0]), p.box)) || placed.find((p) => RANK_SPOTS.some((c) => hits(boxAt(c), p.box)))
+    near.spot.text = `${near.spot.text}, ${rank}`
+    const add = (String(rank).length + 2) * 6.2
+    near.box = near.spot.end ? [near.box[0] - add, near.box[1], near.box[2], near.box[3]] : [near.box[0], near.box[1], near.box[2] + add, near.box[3]]
+  })
+  return out
+}
+
 // The highlighted project(s), named on the map: at the middle of each line (or beside the point),
 // the second one nudged below so a pair that meets doesn't print on top of itself, and right-anchored
 // when it would run under the detail card (`right`: the visible map's right edge, screen px).
-function FocusLabels({ ids, byId, proj, view, right }) {
+// Returns each label with its box in world units (the selected pair's badge keeps clear of them).
+function placeFocusLabels(ids, byId, proj, view, right) {
   const { k } = view
   const placed = []
+  const out = []
+  for (const id of ids.slice(0, 2)) {
+    const p = byId[id]
+    const pts = projectPoints(p).map(([lon, lat]) => proj.w(lon, lat))
+    if (!pts.length) continue
+    const a = pts[0]
+    const b = pts[pts.length - 1]
+    const mx = (a[0] + b[0]) / 2
+    let y = (a[1] + b[1]) / 2 - 7 / k
+    const CH = 6.6 // px per character at 11.5 px (names are title-cased for display)
+    const sx = mx * k + view.x
+    const roomR = right - sx - 9
+    const roomL = sx - 9
+    // right of the anchor unless it doesn't fit there and the left has more room; cut to fit
+    const full = displayName(p.name)
+    const flip = full.length * CH > roomR && roomL > roomR
+    const fits = Math.max(12, Math.min(42, Math.floor((flip ? roomL : roomR) / CH)))
+    const name = full.length > fits ? `${full.slice(0, fits - 1)}…` : full
+    const x = flip ? mx - 9 / k : mx + 9 / k
+    // the text's extent (a flipped label ends at x): a second label that would overlap the first moves below it
+    const w = (name.length * CH) / k
+    const x0 = flip ? x - w : x
+    const x1 = flip ? x : x + w
+    const hit = placed.find(([a0, a1, py]) => x0 < a1 && x1 > a0 && Math.abs(py - y) < 17 / k)
+    if (hit) y = hit[2] + 19 / k
+    placed.push([x0, x1, y])
+    out.push({ id, tone: toneOf(p.utility), name, x, y, flip, box: [x0, y - 10 / k, x1, y + 3.5 / k] })
+  }
+  return out
+}
+
+function FocusLabels({ placed, k }) {
   return (
     <g aria-hidden="true">
-      {ids.slice(0, 2).map((id) => {
-        const p = byId[id]
-        const pts = projectPoints(p).map(([lon, lat]) => proj.w(lon, lat))
-        if (!pts.length) return null
-        const a = pts[0]
-        const b = pts[pts.length - 1]
-        const mx = (a[0] + b[0]) / 2
-        let y = (a[1] + b[1]) / 2 - 7 / k
-        const CH = /[a-z]/.test(p.name) ? 6.6 : 7.8 // px per character at 11.5 px (capitals run wider)
-        const sx = mx * k + view.x
-        const roomR = right - sx - 9
-        const roomL = sx - 9
-        // right of the anchor unless it doesn't fit there and the left has more room; cut to fit
-        const flip = p.name.length * CH > roomR && roomL > roomR
-        const fits = Math.max(12, Math.min(42, Math.floor((flip ? roomL : roomR) / CH)))
-        const name = p.name.length > fits ? `${p.name.slice(0, fits - 1)}…` : p.name
-        const x = flip ? mx - 9 / k : mx + 9 / k
-        if (placed.some(([px, py]) => Math.abs(px - x) < 160 / k && Math.abs(py - y) < 16 / k)) y += 20 / k
-        placed.push([x, y])
-        return (
-          <text
-            key={id}
-            className={`gl-focus-label gl-focus-label--${toneOf(p.utility)}`}
-            x={x}
-            y={y}
-            textAnchor={flip ? 'end' : 'start'}
-            fontSize={11.5 / k}
-            strokeWidth={3.5 / k}
-          >
-            {name}
-          </text>
-        )
-      })}
+      {placed.map((l) => (
+        <text
+          key={l.id}
+          className={`gl-focus-label gl-focus-label--${l.tone}`}
+          x={l.x}
+          y={l.y}
+          textAnchor={l.flip ? 'end' : 'start'}
+          fontSize={11.5 / k}
+          strokeWidth={3.5 / k}
+        >
+          {l.name}
+        </text>
+      ))}
     </g>
   )
 }
 
-function RankBadge({ o, proj, k }) {
+function RankBadge({ o, proj, k, avoid = [] }) {
   const pair = worldPair(o, proj)
   if (!pair) return null
   const [[x1, y1], [x2, y2]] = pair
   const half = Math.hypot(x2 - x1, y2 - y1) / 2
   const r = Math.max(half + 8 / k, 13 / k)
-  // lower left of the pair: the project names are labelled up and to the right
-  const cx = (x1 + x2) / 2 - r * 0.72
-  const cy = (y1 + y2) / 2 + r * 0.72
+  // lower left of the pair (the project names are labelled up and to the right), else the first corner of the ring
+  // clear of both names
+  const mx = (x1 + x2) / 2
+  const my = (y1 + y2) / 2
+  const R = 10.5 / k
+  const clear = ([cx, cy]) => !avoid.some(({ box }) => cx - R < box[2] && cx + R > box[0] && cy - R < box[3] && cy + R > box[1])
+  const corners = [
+    [-1, 1],
+    [1, 1],
+    [-1, -1],
+    [1, -1],
+  ].map(([sx, sy]) => [mx + sx * r * 0.72, my + sy * r * 0.72])
+  const [cx, cy] = corners.find(clear) || corners[0]
   const rank = o.displayRank ?? o.rank
   return (
     <g className="gl-badge" aria-hidden="true">
@@ -695,7 +804,7 @@ function ProjectTip({ p }) {
   return (
     <>
       <span className={`gl-swatch gl-swatch--${toneOf(p.utility)}`} aria-hidden="true" />
-      <strong>{utilityShort(p.utility)}</strong> {p.name}
+      <strong>{utilityShort(p.utility)}</strong> {displayName(p.name)}
       <span className="gl-tip__sub">
         {p.in_service ? `In service ${p.in_service}` : 'No in-service date'} · location {p.confidence || 'unknown'} confidence
       </span>
@@ -710,20 +819,19 @@ function OverlapTip({ o, byId, method }) {
         #{o.displayRank ?? o.rank} · {o.tier_label}
       </strong>
       <span className="gl-tip__sub">
-        {fmtPairDistance(o, method)}: {byId[o.a]?.name} and {byId[o.b]?.name}
+        {fmtPairDistance(o, method)}: {displayName(byId[o.a]?.name)} and {displayName(byId[o.b]?.name)}
       </span>
     </>
   )
 }
 
-function Legend() {
+// The map key: a small chip, closed by default, that opens upward over the map's lower left.
+function MapKey() {
   const g = useGridlock()
-  // open on wide screens, folded on a phone (set once, so the reader's own toggle sticks)
-  const [openAtStart] = useState(() => !window.matchMedia?.('(max-width: 760px)').matches)
   const others = ['GTC', 'MEAG', 'DU'].filter((u) => g.params.utilities[u])
   return (
-    <details className="gl-legend" open={openAtStart}>
-      <summary>Legend</summary>
+    <details className="gl-key">
+      <summary>Map key</summary>
       <ul>
         {g.params.utilities.DESC && (
           <li>
@@ -747,7 +855,7 @@ function Legend() {
           <svg width="26" height="14" aria-hidden="true">
             <circle cx="13" cy="7" r="3.4" className="gl-legend__mark" />
           </svg>
-          A pair that could coordinate (closer is brighter; the top ten numbered like the list; hover for its ring)
+          A pair that could build together (brighter is closer; the top ten carry their rank)
         </li>
         <li>
           <LegendLine tone="osm" /> Existing lines, 115 kV and up

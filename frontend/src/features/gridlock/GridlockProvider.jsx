@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GridlockContext } from './context'
 import { connect } from './gridlockApi'
-import { boundsOf, projectPoints } from './format'
+import { boundsOf, nearDuplicates, projectPoints } from './format'
 
 // State shared by the Build plans sidebar, the map and the detail card: the engine's data, the
 // comparison settings, and what is selected / hovered. Everything is computed by the backend
@@ -25,6 +25,7 @@ export function GridlockProvider({ children }) {
   const [sel, setSel] = useState(null) // {kind: 'overlap', id, overlap} | {kind: 'project', id, back}
   const [hover, setHover] = useState(null) // {kind: 'overlap' | 'project', id}
   const [tab, setTabState] = useState('opportunities')
+  const [tierFilter, setTierFilter] = useState(null) // show only one distance tier in the list (Filters)
   // a list that unmounts mid-hover never sends pointerleave: switching tabs clears the hover
   const setTab = useCallback((t) => {
     setHover(null)
@@ -134,6 +135,8 @@ export function GridlockProvider({ children }) {
   }, [client, loadOverlaps])
 
   const byId = useMemo(() => Object.fromEntries((projects.list || []).map((p) => [p.id, p])), [projects.list])
+  // projects whose names nearly match another's: the list adds their project number
+  const nearDup = useMemo(() => nearDuplicates(projects.list), [projects.list])
   const visible = useMemo(() => (projects.list || []).filter((p) => params.utilities[p.utility] ?? true), [projects.list, params.utilities])
   const overlaps = useMemo(() => (ov.overlaps || []).filter((o) => byId[o.a] && byId[o.b]), [ov.overlaps, byId])
 
@@ -156,25 +159,27 @@ export function GridlockProvider({ children }) {
     [byId],
   )
 
-  // Build agreement: the draft document open beside the map ({id, overlap} | null). Opening it selects the
-  // pair on the map; the page flies to it once the map has made room for the document. While a draft is
-  // open, picking another opportunity (list or map) drafts that one instead.
+  // The sheet: the pair open over the right of the map ({id, overlap} | null), with its three steps (the
+  // overlap, the two agents negotiating, the drafted agreement). Picking a pair anywhere (the list, the map,
+  // the pipeline's Sperry table) opens it; the page frames the pair in the part of the map left visible.
+  // `cover`: how many px of the map's right side the sheet covers (0 when closed or full screen).
   const [draft, setDraft] = useState(null)
-  const drafting = useRef(false)
-  useEffect(() => {
-    drafting.current = !!draft
-  }, [draft])
-  const openOverlap = useCallback(
-    (o, { fly = true } = {}) => {
-      setSel({ kind: 'overlap', id: o.id, overlap: o })
-      if (drafting.current) setDraft((cur) => (cur?.id === o.id ? cur : { id: o.id, overlap: o }))
-      else if (fly) mapApi.current?.flyTo(boundsForOverlap(o), { card: true })
-    },
-    [boundsForOverlap],
-  )
+  const [cover, setCover] = useState(0)
+  const openDraft = useCallback((o) => {
+    setHover(null)
+    setSel({ kind: 'overlap', id: o.id, overlap: o })
+    setDraft((cur) => (cur?.id === o.id ? cur : { id: o.id, overlap: o }))
+  }, [])
+  const openOverlap = openDraft
+  const closeDraft = useCallback(() => {
+    setDraft(null)
+    setSel(null)
+  }, [])
+  // a project's "Where this came from": inside the sheet when one is open (Back returns to the pair), else a
+  // card over the map
   const openProject = useCallback(
     (id, { fly = false } = {}) => {
-      setSel((cur) => ({ kind: 'project', id, back: cur?.kind === 'overlap' ? cur : null }))
+      setSel((cur) => ({ kind: 'project', id, back: cur?.kind === 'overlap' ? cur : cur?.back || null }))
       const b = boundsOf(projectPoints(byId[id]))
       if (fly) mapApi.current?.flyTo(b, { card: true })
       else mapApi.current?.ensureVisible(b)
@@ -183,13 +188,6 @@ export function GridlockProvider({ children }) {
   )
   const close = useCallback(() => setSel(null), [])
   const back = useCallback(() => setSel((cur) => cur?.back || null), [])
-
-  const openDraft = useCallback((o) => {
-    setHover(null)
-    setSel({ kind: 'overlap', id: o.id, overlap: o })
-    setDraft({ id: o.id, overlap: o })
-  }, [])
-  const closeDraft = useCallback(() => setDraft(null), [])
   const flyToOverlap = useCallback((o) => mapApi.current?.flyTo(boundsForOverlap(o), { card: false }), [boundsForOverlap])
 
   const value = {
@@ -204,6 +202,7 @@ export function GridlockProvider({ children }) {
     projects,
     loadProjects,
     byId,
+    nearDup,
     visible,
     basemap,
     loadBasemap,
@@ -226,10 +225,14 @@ export function GridlockProvider({ children }) {
     openDraft,
     closeDraft,
     flyToOverlap,
+    cover,
+    setCover,
     hover,
     setHover,
     tab,
     setTab,
+    tierFilter,
+    setTierFilter,
     mapApi,
     registerMap,
   }

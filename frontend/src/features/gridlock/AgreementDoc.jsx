@@ -1,167 +1,28 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import AiBadge from '../ai/AiBadge'
-import { Button, ErrorBanner, Loading } from '../../ui'
-import { useGridlock } from './context'
-import { LABELS, agreementMarkdown, fmtMonth, sourcesFor } from './agreementText'
-import { fmtDate, fmtRange, toneOf } from './format'
-import Negotiation from './Negotiation'
+import { fmtMonth, sourcesFor } from './agreementText'
+import { fmtDate, fmtRange, kindText, statusText, toneOf } from './format'
 import './agreement.css'
 
-// Build agreement: the draft coordination proposal for one overlap, as a document beside the map.
-// The plain (template) draft arrives at once; Gemini's wording replaces it when every number it wrote
-// has passed the backend's check (GET /api/agreement/<id>). Print gives the document alone, black on white.
-// Above it, "Let two AI agents negotiate it" (Negotiation.jsx); "Use these terms in the draft" re-asks for the draft
-// with ?negotiated=<that negotiation> so the agreed, verified terms become the draft's scope, split and window.
-export default function AgreementDoc() {
-  const g = useGridlock()
-  const { draft, closeDraft, client } = g
-  const months = g.params.window_months
-  const [lang, setLang] = useState('en')
-  // which negotiation's terms the draft uses ('en' | 'es' | 'plain' | null), for this pair and window setting only
-  const caseKey = draft ? `${draft.id}@${months}` : null
-  const [negSel, setNegSel] = useState({ for: null, key: null })
-  const negKey = negSel.for === caseKey ? negSel.key : null
-  const key = draft ? `${draft.id}@${months}@${lang}@${negKey || ''}` : null
-  const [plain, setPlain] = useState({ key: null })
-  const [ai, setAi] = useState({ key: null })
-  const [tries, setTries] = useState(0)
-  const scrollRef = useRef(null)
-  const jumpToTerms = useRef(false)
+// Step 3 of a pair's sheet (PairSheet.jsx): the draft coordination proposal as a document. The plain (template)
+// draft arrives at once; Gemini's wording replaces it when every number it wrote has passed the backend's check
+// (GET /api/agreement/<id>). Print gives the document alone, black on white (the sheet portals a print copy).
+// useAgreement.js fetches one version; Paper renders it; DraftStatus says who wrote it; WindowTimeline draws both
+// projects' build windows on one axis (step 1 reuses it).
 
-  useEffect(() => {
-    if (!client || !draft) return
-    let live = true
-    const negotiated = negKey || undefined
-    client.agreement(draft.id, { window_months: months, lang, ai: false, negotiated }).then(
-      (data) => live && setPlain({ key, status: 'ready', data }),
-      (error) => live && setPlain({ key, status: 'error', error }),
-    )
-    client.agreement(draft.id, { window_months: months, lang, ai: true, negotiated }).then(
-      (data) => live && setAi({ key, status: 'ready', data }),
-      (error) => live && setAi({ key, status: 'error', error }),
-    )
-    return () => {
-      live = false
-    }
-  }, [client, draft, months, lang, key, tries, negKey])
-  const applyTerms = useCallback(
-    (k) => {
-      jumpToTerms.current = !!k
-      setNegSel({ for: caseKey, key: k })
-    },
-    [caseKey],
+// the document alone for print: a copy portaled to <body> (agreement.css hides everything else while printing)
+export function PrintCopy({ doc, t }) {
+  return createPortal(
+    <div className="gl gl-print">
+      <Paper doc={doc} t={t} print />
+    </div>,
+    document.body,
   )
+}
 
-  useEffect(() => {
-    if (!draft) return
-    const onKey = (e) => e.key === 'Escape' && !e.defaultPrevented && closeDraft()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [draft, closeDraft])
-
-  // print = the document alone: a copy portaled to <body>, and a class that hides the app while printing
-  useEffect(() => {
-    if (!draft) return
-    const on = () => document.body.classList.add('gl-printing')
-    const off = () => document.body.classList.remove('gl-printing')
-    window.addEventListener('beforeprint', on)
-    window.addEventListener('afterprint', off)
-    return () => {
-      window.removeEventListener('beforeprint', on)
-      window.removeEventListener('afterprint', off)
-      off()
-    }
-  }, [draft])
-
-  const cur = {
-    plain: plain.key === key ? plain : { status: 'loading' },
-    ai: ai.key === key ? ai : { status: 'loading' },
-  }
-  const doc = cur.ai.status === 'ready' ? cur.ai.data : cur.plain.status === 'ready' ? cur.plain.data : null
-  const aiPending = cur.ai.status === 'loading'
-  const t = LABELS[doc?.lang === 'es' ? 'es' : 'en']
-
-  // after "Use these terms in the draft": bring the draft's negotiated line into view once it has them
-  useEffect(() => {
-    if (!jumpToTerms.current || !doc?.draft?.negotiated) return
-    jumpToTerms.current = false
-    requestAnimationFrame(() => scrollRef.current?.querySelector('.gl-paper__neg')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-  }, [doc])
-
-  const print = useCallback(() => {
-    document.body.classList.add('gl-printing')
-    window.print()
-    setTimeout(() => document.body.classList.remove('gl-printing'), 500)
-  }, [])
-  const download = useCallback(() => {
-    if (!doc) return
-    const blob = new Blob([agreementMarkdown(doc, doc.lang)], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `draft-coordination-proposal-${doc.overlap_id.replace(/[^\w-]+/g, '_')}.md`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 2000)
-  }, [doc])
-
-  if (!draft) return null
-  const failed = cur.plain.status === 'error' && cur.ai.status === 'error'
-
-  return (
-    <aside className="gl gl-doc" aria-label="Draft coordination agreement" aria-busy={!doc || aiPending || undefined}>
-      <div className="gl-doc__bar">
-        <div className="gl-doc__bar-top">
-          <span className="gl-doc__module">{t.module}</span>
-          <div className="gl-doc__lang" role="group" aria-label="Language">
-            {[
-              ['en', 'English'],
-              ['es', 'Español'],
-            ].map(([id, label]) => (
-              <button key={id} type="button" aria-pressed={lang === id} className={lang === id ? 'is-on' : ''} onClick={() => setLang(id)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <button type="button" className="gl-close" onClick={closeDraft} aria-label={t.close} title={t.close}>
-            ×
-          </button>
-        </div>
-        <div className="gl-doc__bar-row">
-          <Status doc={doc} pending={aiPending} aiError={cur.ai.status === 'error' ? cur.ai.error : null} t={t} onRetry={() => setTries((n) => n + 1)} />
-          <div className="gl-doc__actions">
-            <Button variant="secondary" onClick={print} disabled={!doc}>
-              {t.print}
-            </Button>
-            <Button variant="secondary" onClick={download} disabled={!doc}>
-              {t.download}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      <div className="gl-doc__scroll" ref={scrollRef}>
-        {client && (
-          <Negotiation
-            key={`${caseKey}@${lang}`}
-            client={client}
-            draftId={draft.id}
-            months={months}
-            lang={lang}
-            parties={doc?.draft?.parties}
-            used={negKey}
-            onUse={applyTerms}
-          />
-        )}
-        {!doc && !failed && <Loading label="Drafting from the two filings…" />}
-        {failed && <ErrorBanner error={cur.plain.error} onRetry={() => setTries((n) => n + 1)} />}
-        {doc && <Paper doc={doc} t={t} onDropNeg={() => applyTerms(null)} />}
-      </div>
-      {doc && createPortal(<div className="gl gl-print">{<Paper doc={doc} t={t} print />}</div>, document.body)}
-    </aside>
-  )
+export function DraftStatus({ doc, pending, aiError, t, onRetry }) {
+  return <Status doc={doc} pending={pending} aiError={aiError} t={t} onRetry={onRetry} />
 }
 
 function Status({ doc, pending, aiError, t, onRetry }) {
@@ -171,7 +32,7 @@ function Status({ doc, pending, aiError, t, onRetry }) {
       <span className="gl-doc__status">
         <AiBadge by="fallback" why="Gemini drafting" compact title={t.drafting} />
         <span className="gl-doc__pulse" aria-hidden="true" />
-        <span className="gl-fine">Gemini drafting…</span>
+        <span className="gl-fine">{doc?.lang === 'es' ? 'Gemini redactando…' : 'Gemini drafting…'}</span>
       </span>
     )
   }
@@ -208,7 +69,7 @@ function shortWhy(r) {
 }
 
 // The document itself (the screen panel and the print copy render the same thing).
-function Paper({ doc, t, print = false, onDropNeg }) {
+export function Paper({ doc, t, print = false, onDropNeg }) {
   const d = doc.draft
   const byKey = Object.fromEntries((doc.facts || []).map((f) => [f.key, f]))
   const [factsOpen, setFactsOpen] = useState(false)
@@ -217,7 +78,14 @@ function Paper({ doc, t, print = false, onDropNeg }) {
   const jump = useCallback((k) => {
     setFactsOpen(true)
     setFlash(k)
-    requestAnimationFrame(() => root.current?.querySelector(`[data-fact="${CSS.escape(k)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+    requestAnimationFrame(() => {
+      // scroll the sheet's body, not the page
+      const el = root.current?.querySelector(`[data-fact="${CSS.escape(k)}"]`)
+      const body = el?.closest('.gl-sheet__body')
+      if (!el || !body) return
+      const top = body.scrollTop + el.getBoundingClientRect().top - body.getBoundingClientRect().top - body.clientHeight / 2
+      body.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    })
     setTimeout(() => setFlash((cur) => (cur === k ? null : cur)), 1600)
   }, [])
   const refs = (item) => <Refs item={item} byKey={byKey} onJump={jump} print={print} />
@@ -241,9 +109,12 @@ function Paper({ doc, t, print = false, onDropNeg }) {
           )}
         </p>
       )}
-      <p className="gl-paper__eyebrow">
-        {t.eyebrow} · {doc.overlap?.tier_label} · {t.generated.toLowerCase()} {new Date().toLocaleDateString(doc.lang === 'es' ? 'es' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-      </p>
+      <header className="gl-paper__mast">
+        <span>{t.eyebrow}</span>
+        <span>
+          {t.generated} {new Date().toLocaleDateString(doc.lang === 'es' ? 'es' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+        </span>
+      </header>
       <h2 className="gl-paper__title">{d.title}</h2>
 
       <section className="gl-paper__parties" aria-label={t.parties}>
@@ -255,7 +126,14 @@ function Paper({ doc, t, print = false, onDropNeg }) {
             </span>
             <strong className="gl-party__proj">{p.display_name}</strong>
             <span className="gl-party__meta">
-              {[p.kv?.length ? `${p.kv.join(' / ')} kV` : null, p.kind_label, p.in_service ? `${t.inService} ${fmtDate(p.in_service)}` : null, p.status].filter(Boolean).join(' · ')}
+              {[
+                p.kv?.length ? `${p.kv.join(' / ')} kV` : null,
+                kindText(p, t.lang),
+                p.in_service ? `${t.inService} ${fmtDate(p.in_service, t.lang)}` : null,
+                statusText(p.status, t.lang),
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </span>
             <span className="gl-party__meta">
               {p.id} · {t.filed}{' '}
@@ -348,7 +226,7 @@ function Paper({ doc, t, print = false, onDropNeg }) {
                 </div>
                 <span className="gl-fine">
                   {it.basis}
-                  {it.needs ? `. Needs ${it.needs}` : ''}.{' '}
+                  {it.needs ? `. ${t.needs} ${it.needs}` : ''}.{' '}
                   {src?.url && !print ? (
                     <a className="gl-ref" href={src.url} target="_blank" rel="noreferrer">
                       {it.source}
@@ -499,7 +377,7 @@ function windowTitle(jw, t) {
 }
 
 // both projects' build windows on one time axis, the months they share, and the draft's date
-function WindowTimeline({ jw, parties, t }) {
+export function WindowTimeline({ jw, parties, t }) {
   const rows = [
     ['a', jw.a],
     ['b', jw.b],
@@ -518,7 +396,11 @@ function WindowTimeline({ jw, parties, t }) {
   const at = (p) => `calc(var(--tl-who) + (100% - var(--tl-who)) * ${p / 100})`
   // short labels: the dates are on each project's bar and in the sentence below
   const jointLabel =
-    jw.status === 'past' ? t.jointPast : jw.status === 'open' ? `${t.jointOpen} ${fmtMonth(jw.end)}` : `${t.joint}: ${fmtMonth(jw.start)} – ${fmtMonth(jw.end)}`
+    jw.status === 'past'
+      ? t.jointPast
+      : jw.status === 'open'
+        ? `${t.jointOpen} ${fmtMonth(jw.end, t.lang)}`
+        : `${t.joint}: ${fmtMonth(jw.start, t.lang)} – ${fmtMonth(jw.end, t.lang)}`
   return (
     <div className={`gl-tl${now != null ? ' has-now' : ''}`} role="img" aria-label={jw.text}>
       <div className="gl-tl__grid">
@@ -531,10 +413,10 @@ function WindowTimeline({ jw, parties, t }) {
                 <span
                   className={`gl-tl__bar gl-tl__bar--${toneOf(p?.code)}${w.assumed ? ' gl-tl__bar--derived' : ''}`}
                   style={{ left: `${pos(w.start)}%`, width: `${Math.max(0.8, pos(w.end) - pos(w.start))}%` }}
-                  title={`${fmtMonth(w.start)} to ${fmtMonth(w.end)}: ${w.basis}`}
+                  title={`${fmtMonth(w.start, t.lang)} – ${fmtMonth(w.end, t.lang)}: ${w.basis}`}
                 />
                 <span className="gl-tl__dates" style={{ left: `${Math.min(pos(w.start), 70)}%` }}>
-                  {fmtMonth(w.start)} – {fmtMonth(w.end)}
+                  {fmtMonth(w.start, t.lang)} – {fmtMonth(w.end, t.lang)}
                   {w.assumed ? ` (${t.derived})` : ''}
                 </span>
               </span>
@@ -547,7 +429,7 @@ function WindowTimeline({ jw, parties, t }) {
             style={{ left: at(pos(jw.start)), width: `calc((100% - var(--tl-who)) * ${(pos(jw.end) - pos(jw.start)) / 100})` }}
           >
             {!jw.negotiated && (
-              <span className="gl-tl__joint-label" title={`${fmtMonth(jw.start)} – ${fmtMonth(jw.end)}`}>
+              <span className="gl-tl__joint-label" title={`${fmtMonth(jw.start, t.lang)} – ${fmtMonth(jw.end, t.lang)}`}>
                 {jointLabel}
               </span>
             )}
@@ -557,10 +439,10 @@ function WindowTimeline({ jw, parties, t }) {
           <span
             className={`gl-tl__neg${pos(jw.negotiated.start) > 55 ? ' is-right' : ''}`}
             style={{ left: at(pos(jw.negotiated.start)), width: `calc((100% - var(--tl-who)) * ${Math.max(0.8, pos(jw.negotiated.end) - pos(jw.negotiated.start)) / 100})` }}
-            title={`${fmtMonth(jw.negotiated.start)} – ${fmtMonth(jw.negotiated.end)}`}
+            title={`${fmtMonth(jw.negotiated.start, t.lang)} – ${fmtMonth(jw.negotiated.end, t.lang)}`}
           >
             <span className="gl-tl__neg-label">
-              {t.negTag}: {fmtMonth(jw.negotiated.start)} – {fmtMonth(jw.negotiated.end)}
+              {t.negTag}: {fmtMonth(jw.negotiated.start, t.lang)} – {fmtMonth(jw.negotiated.end, t.lang)}
             </span>
           </span>
         )}
@@ -576,7 +458,7 @@ function WindowTimeline({ jw, parties, t }) {
           ))}
         {now != null && (
           <span className={`gl-tl__now-label${now > 80 ? ' is-right' : now < 12 ? ' is-left' : ''}`} style={{ left: at(now) }}>
-            {t.today} {fmtDate(jw.as_of)}
+            {t.today} {fmtDate(jw.as_of, t.lang)}
           </span>
         )}
       </div>
