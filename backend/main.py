@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
@@ -65,6 +66,16 @@ def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 
 
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+
+def validation_handler(request: Request, exc: RequestValidationError):
+    # FastAPI's default echoes the input back; a bare NaN/Infinity body can't be serialized and
+    # became a 500. Keep FastAPI's shape (a list the frontend already formats) minus "input".
+    errors = [{k: v for k, v in e.items() if k in ("loc", "msg", "type")} for e in exc.errors()]
+    return JSONResponse({"detail": errors or "The request body is not valid for this endpoint."}, status_code=422)
+
+
+app.add_exception_handler(RequestValidationError, validation_handler)
 
 
 # Runs before routing and body parsing, so a huge upload is refused without being

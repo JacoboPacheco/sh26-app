@@ -1,7 +1,7 @@
+import { presetFor } from '../features/heat/presets'
 import { fmt } from '../geo'
 import { useOverload } from '../store'
 
-const LEVEL_NAMES = { '0.62': '3 AM load', '0.82': '9 AM load', '1.04': 'Heat wave', '1.08': 'Heat wave' }
 
 // The scenario, written out as the pieces that are in it right now. Each piece has its own ×;
 // "Start over" clears everything. This is how the features combine: they all add to one case.
@@ -21,7 +21,8 @@ export default function ScenarioBar() {
     })
   }
   if (loadFactor !== 1) {
-    const name = LEVEL_NAMES[loadFactor.toFixed(2)] || `${Math.round(loadFactor * 100)} % of peak load`
+    const preset = presetFor(loadFactor)
+    const name = preset ? (preset.factor > 1 ? preset.label : `${preset.label} load`) : `${Math.round(loadFactor * 100)} % of peak load`
     pieces.push({ key: 'load', label: name, remove: () => setLoadFactor(1) })
   }
   if (trip.length) {

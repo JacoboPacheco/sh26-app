@@ -18,3 +18,10 @@ scratch/
 
 # raw public data pulled by backend/demo/build_grid.py (the built JSON is committed, the sources are not)
 backend/demo/raw/
+
+# parallel agents' throwaway servers
+backend/scratch-*.log
+backend/scratch-*.out
+scratch_*.db
+backend/scratch_*.db
+backend/.voice_cache/

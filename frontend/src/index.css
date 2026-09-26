@@ -298,12 +298,14 @@ a {
   color: var(--ink);
 }
 
+/* the clock stays pinned top right; "Signed in as" sits under it (the scenario bar's width varies) */
 .mc-top__right {
   display: flex;
-  gap: var(--space-3);
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  flex: none;
+  gap: var(--space-1);
 }
 
 .signed-in {
@@ -311,11 +313,10 @@ a {
   color: var(--ink-2);
 }
 
+/* opaque on purpose: a backdrop blur over the animated map costs ~15 fps (measured 37-46 vs 59 fps) */
 .glass {
   position: absolute;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(14px) saturate(1.2);
-  backdrop-filter: blur(14px) saturate(1.2);
+  background: var(--surface);
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius-lg);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
@@ -424,9 +425,7 @@ a {
   max-width: 46rem;
   margin: 0 auto;
   padding: 0.35rem 0.4rem 0.35rem 0.8rem;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  background: var(--surface);
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius-lg);
 }

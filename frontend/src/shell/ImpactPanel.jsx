@@ -39,7 +39,8 @@ export default function ImpactPanel() {
             ? `The grid split after ${n} ${n === 1 ? 'step' : 'steps'}: ${fmt(cascade.lost_mw)} MW of existing load lost.`
             : `Settled after ${n} ${n === 1 ? 'step' : 'steps'}.`}
           {cascade.capped && ' It was still spreading when the model stopped at 30 steps.'}
-          {cascade.site_dark_mw > 0.5 && ` The data centers' own ${fmt(cascade.site_dark_mw)} MW lost power too.`}
+          {cascade.site_dark_mw > 0.5 &&
+            ` ${(cascade.sites?.length || 1) === 1 ? "The data center's" : "The data centers'"} own ${fmt(cascade.site_dark_mw)} MW lost power too.`}
         </p>
       )}
       <TownsFeed />
