@@ -38,7 +38,7 @@ Nice to have — the expansion the user asked for (Sat 01:10: "everything, while
 - [x] 9. Build plans (Sperry GridLock): DESC + Georgia ITS planned projects located, validated and compared; overlaps on the map, ranked coordination opportunities, savings estimate; the data pipeline shown (SPEC.md → Build plans)
 
 Explicitly NOT doing:
-- [ ] AC power flow / voltages / dynamics; real or real-time utility data; user-uploaded grids; markets or cost modeling; login screen; report export; native mobile layout
+- [ ] AC power flow / voltages / dynamics; real or real-time utility data; user-uploaded grids; electricity markets or price forecasts; login screen; native mobile layout (cost estimates were added by the user at Sat 02:18 — COST; printable reports by the vote and site-report features)
 
 ## Phases
 Every session starts with PLAYBOOK.md → "Knowing where we are", before anything else. When I say I'm leaving or going to sleep, reread PLAYBOOK → Away mode and follow it instead of asking. Every prompt arrives with a `Now:` line from a hook — that's the clock for every time rule; in a long turn, run `date`.

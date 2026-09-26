@@ -60,7 +60,7 @@ A module inside Overload: where neighboring utilities could build together. Real
 
 ## Explicitly out of scope
 
-AC power flow, voltages, frequency or dynamics; real utility data, real-time data, or any claim about a real network; user-uploaded grids; cost or market modeling; N-2 contingency screening; a login screen or multi-user features; report export; a native mobile layout (the page must not overflow at 375 px and the map scales, but the demo is the laptop).
+AC power flow, voltages, frequency or dynamics; real utility data, real-time data, or any claim about a real network; user-uploaded grids; electricity-market modeling (cost ESTIMATES were added at Sat 02:18, each a labeled range with its formula and source); N-2 contingency screening (the site report runs an N-1 screen); a login screen or multi-user features; a native mobile layout (printable briefs came with the vote pages and the site report) (the page must not overflow at 375 px and the map scales, but the demo is the laptop).
 
 ## Sponsor challenges targeted, and why
 
