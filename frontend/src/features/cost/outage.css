@@ -1,0 +1,87 @@
+/* The outage-and-cost block under the hit counter: plain figures, no outlines, red only for what is lost. */
+.loss {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--glass-edge);
+  transition: opacity 0.2s;
+}
+.loss--stale {
+  opacity: 0.55;
+}
+.loss__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.loss__k {
+  color: var(--ink-2);
+  font-size: 0.85rem;
+}
+.loss__time {
+  font-size: 1.15rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.loss__row--money {
+  align-items: flex-end;
+}
+.loss__money {
+  font-size: 2.6rem;
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 62%;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--overload);
+}
+.loss__note {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.78rem;
+}
+.loss__none {
+  margin: 0;
+  color: var(--ink-2);
+}
+.loss__how {
+  font-size: 0.78rem;
+  color: var(--ink-2);
+}
+.loss__how summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.loss__how p {
+  margin: var(--space-2) 0 0;
+}
+.loss--wait {
+  color: var(--ink-2);
+  font-size: 0.85rem;
+}
+.loss__retry {
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* the one fold under the panel: everything that is not the two numbers or the presentation */
+.impact .more {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+.impact .more > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.impact .more__body {
+  margin-top: var(--space-3);
+}
+.impact .present .btn {
+  width: 100%;
+}

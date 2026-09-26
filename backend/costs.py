@@ -151,7 +151,44 @@ SOURCES = {
 
 
 class CostIn(CaseIn):
-    hours_out: float = DEFAULT_HOURS  # how long the lost load stays dark
+    hours_out: float | None = None  # how long the lost load stays dark; None = estimated from the incident's size (outage_hours)
+
+
+# ---------------------------------------------------------------------------------- outage time
+# How long the lights stay out, by the size of the incident (people without power). Our own rule of thumb,
+# on the long side by design (a big cascade takes days to rebuild, not hours), interpolated on a log scale.
+# Not a forecast: real restoration depends on the cause and on crews. Shown next to the cost, with this sentence.
+OUTAGE_POINTS = [(1_000, 2.0), (10_000, 4.0), (100_000, 8.0), (1_000_000, 24.0), (5_000_000, 48.0), (20_000_000, HOURS_MAX)]
+OUTAGE_BASIS = (
+    "Estimated from the size of the incident: about 4 hours for 10,000 people, 8 hours for 100,000, a day for a million "
+    "and up to 3 days for many millions. A rule of thumb on the long side, not a forecast."
+)
+
+
+def outage_hours(people: float) -> float:
+    """Estimated hours without power for an incident that leaves `people` in the dark (0 when nobody is)."""
+    p = float(people or 0)
+    if p <= 0:
+        return 0.0
+    xs = [math.log10(x) for x, _ in OUTAGE_POINTS]
+    ys = [y for _, y in OUTAGE_POINTS]
+    return round(float(np.interp(math.log10(max(p, 1.0)), xs, ys)), 1)
+
+
+def outage_label(h: float, lang: str = "en") -> str:
+    """'about 8 hours', 'about a day', 'about 3 days' (or the Spanish)."""
+    en = lang == "en"
+    if h <= 0:
+        return "no outage" if en else "sin apagón"
+    if h < 1.5:
+        return "about an hour" if en else "aproximadamente una hora"
+    if h < 22:
+        n = int(round(h))
+        return f"about {n} hours" if en else f"unas {n} horas"
+    if h < 36:
+        return "about a day" if en else "aproximadamente un día"
+    d = int(round(h / 24))
+    return f"about {d} days" if en else f"unos {d} días"
 
 
 # ---------------------------------------------------------------------------------- helpers
@@ -250,13 +287,16 @@ def _upgrade_items(g, rate0_orig: np.ndarray, rate_final: np.ndarray, idx: list[
 
 def estimate(body: CostIn) -> dict:
     """The deterministic estimate for a case. Raises 422 with a readable sentence."""
-    hours = _check_hours(body.hours_out)
+    given = body.hours_out is not None
+    hours = _check_hours(body.hours_out) if given else 0.0
     code = region_code(body.region)
     g, sites, trip, upgrades = check_case(body)
     if not sites and not trip and abs(g.load_factor - 1.0) < 1e-9:
         raise HTTPException(status_code=422, detail="Nothing to price yet: drop a data center, draw a storm or change the time of day")
     extra, header = _case_header(g, sites, trip, upgrades)
     casc = g.cascade_case(extra, trip, upgrades, firm_buses=case_firm_buses(g, sites, body.firm))
+    if not given:  # the outage lasts as long as an incident this big takes to put right
+        hours = outage_hours(casc.get("people") or 0) if float(casc["lost_mw"]) > 0.5 else 0.0
 
     # upgrades that keep every line under its limit: the case's own plus the Fix it greedy's
     active = np.ones(g.m, dtype=bool)
@@ -308,7 +348,7 @@ def estimate(body: CostIn) -> dict:
             else "No customer loses power in this case."
         ),
         "assumption": (
-            f"The lights stay off for {hours:g} hours. Value of lost load from LBNL's interruption costs by customer class "
+            f"The lights stay off for {hours:g} hours ({'as chosen' if given else 'estimated from the incident' + chr(39) + 's size: ' + OUTAGE_BASIS}). Value of lost load from LBNL's interruption costs by customer class "
             f"({'at the 16-hour rate, the longest LBNL estimates' if hours > 16 else 'interpolated by outage length'}), weighted "
             f"by 2024 U.S. sales: {RES_SHARE:.1%} homes, the rest businesses. Low: every business at the large-business rate. "
             f"High: one business MWh in ten at the small-business rate (our assumption). 2013 dollars raised to 2024 by CPI-U."
@@ -453,10 +493,29 @@ def estimate(body: CostIn) -> dict:
         )
     notes.append("Not counted: the campus's own downtime, repairing tripped lines, and new power plants.")
 
+    # the one-glance answer: how long, and how much (the high end of the range: we guess on the higher side)
+    if lost_mw > 0.5:
+        head = {"kind": "blackout", "label": "Cost of the blackout", "cost_high": blackout["high"], "cost_low": blackout["low"]}
+    elif up_high > 0:
+        head = {"kind": "upgrades", "label": "Upgrades to stop the overloads", "cost_high": up_high, "cost_low": up_low}
+    else:
+        head = {"kind": "none", "label": "No blackout, no upgrades needed", "cost_high": 0, "cost_low": 0}
+    head.update(
+        {
+            "outage_hours": hours,
+            "outage_label": outage_label(hours),
+            "outage_label_es": outage_label(hours, "es"),
+            "outage_estimated": not given,
+            "outage_basis": OUTAGE_BASIS if not given else f"Outage length chosen: {hours:g} hours.",
+            "people": int(casc.get("people") or 0),
+        }
+    )
+
     return {
         "region": code,
         "region_name": name,
         "synthetic": True,
+        "headline": head,
         "hours_out": hours,
         "mw": mw,
         "sub_area": area,

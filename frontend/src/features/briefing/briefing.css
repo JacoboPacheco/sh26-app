@@ -1138,3 +1138,17 @@ html.review-open [data-review-hide] {
     display: grid !important;
   }
 }
+
+/* the toll slide: expected cost and time without power side by side, the first thing on screen */
+.rs-toll {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem 3rem;
+}
+.rs-toll .rs-big__n {
+  font-size: clamp(3.2rem, 7vw, 6.4rem);
+}
+.rs-slide--toll .rs-headline {
+  font-weight: 600;
+}

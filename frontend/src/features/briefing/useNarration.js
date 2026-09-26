@@ -23,7 +23,7 @@ export const canSpeak =
 
 // Sound starts off (the user asked, Sat 03:18); the choice is remembered per viewer.
 const MUTE_KEY = 'overload.sound.muted'
-function readMuted() {
+export function readMuted() {
   try {
     return localStorage.getItem(MUTE_KEY) !== '0'
   } catch {

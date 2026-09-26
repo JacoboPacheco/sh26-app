@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useOverload } from '../../store'
+import { readMuted } from '../briefing/useNarration'
 import { Badge, Button, ErrorBanner, Loading } from '../../ui'
 import './ask.css'
 import { askQuestion, askSuggestions, audioUrl, caseForCascade, voiceConfigured, voiceSegment } from './askApi'
@@ -251,7 +252,7 @@ function Answer({ res, t, speech }) {
         ) : (
           <Badge tone="warn">{t.pattern}</Badge>
         )}
-        {speech.available && (
+        {speech.available && !readMuted() && ( // sound is off until this viewer turns it on (the review stage's Sound button)
           <Button
             variant="secondary"
             aria-pressed={speech.speaking}

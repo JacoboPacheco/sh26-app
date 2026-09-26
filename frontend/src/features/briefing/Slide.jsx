@@ -25,10 +25,18 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
       ) : (
         <>
           {big && (
-            <p className={`rs-big rs-big--${big.tone || 'neutral'}`}>
-              <span className="rs-big__n">{big.display?.[lang] || big.display?.en || num(big.value)}</span>
-              <span className="rs-big__label">{big.label?.[lang] || big.label?.en}</span>
-            </p>
+            <div className={slide.big2 ? 'rs-toll' : undefined}>
+              <p className={`rs-big rs-big--${big.tone || 'neutral'}`}>
+                <span className="rs-big__n">{big.display?.[lang] || big.display?.en || num(big.value)}</span>
+                <span className="rs-big__label">{big.label?.[lang] || big.label?.en}</span>
+              </p>
+              {slide.big2 && (
+                <p className={`rs-big rs-big--${slide.big2.tone || 'neutral'}`}>
+                  <span className="rs-big__n">{slide.big2.display?.[lang] || slide.big2.display?.en}</span>
+                  <span className="rs-big__label">{slide.big2.label?.[lang] || slide.big2.label?.en}</span>
+                </p>
+              )}
+            </div>
           )}
           <h2 className="rs-headline" id={`rs-h-${slide.id}`}>
             {headline}

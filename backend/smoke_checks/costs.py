@@ -60,6 +60,18 @@ def register(ctx):
         assert abs(b12["mwh"] - 2 * b6["mwh"]) < 1, (b6["mwh"], b12["mwh"])
         assert b12["low"] > b6["low"]
 
+    def outage_time_from_size():
+        r = ctx.request("POST", "/api/cost", case)  # no hours_out: estimated from the incident's size
+        h, by = r["headline"], lines(r)
+        assert h["kind"] == "blackout" and h["outage_estimated"] is True, h
+        assert h["cost_high"] == by["blackout"]["high"] and 0 < h["cost_low"] < h["cost_high"], h
+        assert r["hours_out"] == h["outage_hours"] and 12 <= h["outage_hours"] <= 36, h  # ~780,000 people: about a day
+        assert h["outage_label"].startswith("about") and h["outage_label_es"] and h["outage_basis"], h
+        chosen = ctx.request("POST", "/api/cost", {**case, "hours_out": 12})["headline"]
+        assert chosen["outage_estimated"] is False and chosen["outage_hours"] == 12, chosen
+        none = ctx.request("POST", "/api/cost", calm)["headline"]
+        assert none["outage_hours"] == 0 and none["kind"] in ("none", "upgrades"), none
+
     def region_and_firm_are_honored():
         tx = ctx.request("POST", "/api/cost", {"region": "TX", "lat": 32.45, "lon": -99.73, "mw": 800})
         assert tx["region"] == "TX" and tx["lines"][2]["price_cents_kwh"] == 6.12, (tx["region"], tx["lines"][2]["price_cents_kwh"])
@@ -101,6 +113,7 @@ def register(ctx):
     ctx.check("cost: the hero case prices the same cascade and Fix it the engine runs", hero_matches_the_engine)
     ctx.check("cost: a calm case has no blackout or upgrades, only a power bill", calm_case_costs_nothing)
     ctx.check("cost: twice the hours, twice the unserved energy", hours_scale_the_blackout)
+    ctx.check("cost: the outage time is estimated from the incident's size and the headline is the high end", outage_time_from_size)
     ctx.check("cost: region and firm service are honored", region_and_firm_are_honored)
     ctx.check("cost: upgrades are called 'prevent' only when the re-run cascade leaves nobody dark", prevent_only_when_it_does)
     ctx.check("cost: rejects bad hours, an empty case, a size of 0, an unknown region", rejects_bad_input)

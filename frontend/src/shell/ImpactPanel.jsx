@@ -1,7 +1,9 @@
-import { memo, useLayoutEffect, useMemo, useRef } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Bulletin from '../features/bulletin/Bulletin'
 import MapLegend from '../features/flow/MapLegend'
+import PresentDamage from '../features/briefing/PresentDamage'
 import CostCard from '../features/cost/CostCard'
+import OutageCost from '../features/cost/OutageCost'
 import TownsFeed from '../features/impact/TownsFeed'
 import { hitTowns, roundPeople, useHitEvents, useReducedMotion } from '../features/impact/towns'
 import { fmt } from '../geo'
@@ -20,6 +22,8 @@ export default function ImpactPanel() {
   const done = !!cascade && n > 0 && step >= n && !live
   // nobody lost power in the end (the grid rerouted around every failure): the counter stays pale
   const calm = !!cascade && (cascade.people_zone ?? cascade.people ?? 0) === 0
+  // the rest (full cost breakdown, towns going dark, the map key) sits behind one closed fold, mounted only once opened
+  const [more, setMore] = useState(false)
   return (
     <div className="stack panel-body impact">
       {result && !cascade ? (
@@ -32,18 +36,27 @@ export default function ImpactPanel() {
       {done && (
         <p className={cascade.outcome === 'islanded' ? 'verdict verdict--bad' : 'verdict'}>
           {cascade.outcome === 'islanded'
-            ? `The grid split after ${n} ${n === 1 ? 'step' : 'steps'}: ${fmt(cascade.lost_mw)} MW of existing load lost.`
+            ? `The grid split after ${n} ${n === 1 ? 'step' : 'steps'}: ${fmt(cascade.lost_mw)} MW of load lost.`
             : `Settled after ${n} ${n === 1 ? 'step' : 'steps'}.`}
           {cascade.capped && ' It was still spreading when the model stopped at 30 steps.'}
           {cascade.site_dark_mw > 0.5 &&
             ` ${(cascade.sites?.length || 1) === 1 ? "The data center's" : "The data centers'"} own ${fmt(cascade.site_dark_mw)} MW lost power too.`}
         </p>
       )}
-      {/* the estimated costs of the solved case (features/cost): visible whenever there's a case */}
-      {result && <CostCard bare />}
-      <TownsFeed />
-      <Bulletin />
-      {!result && !cascade && <MapLegend />}
+      {/* under the counter: how long the lights are out and what it costs (the high end), then one click to present it */}
+      {result && <OutageCost />}
+      {result && <PresentDamage />}
+      <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>
+        <summary>More: incident briefing, cost breakdown, towns, map key</summary>
+        {more && (
+          <div className="stack more__body">
+            <Bulletin />
+            {result && <CostCard bare />}
+            <TownsFeed />
+            <MapLegend />
+          </div>
+        )}
+      </details>
     </div>
   )
 }

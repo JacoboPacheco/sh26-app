@@ -1808,7 +1808,8 @@ def _cost(c: _Case, rep: dict, notes: dict) -> dict | None:
                 return {**out, "source": "costs.py"}
             return None
         g = c.g
-        hours = float(costs.DEFAULT_HOURS)
+        # how long the lights stay out: estimated from the incident's size (costs.outage_hours), like the cost panel
+        hours = float(costs.outage_hours(int((rep.get("event") or {}).get("people") or 0))) or float(costs.DEFAULT_HOURS)
         S = costs.SOURCES
         lines: dict[str, dict] = {}
         lost_mw = max(float(rep["event"]["lost_mw"]), 0.0)
@@ -1818,7 +1819,7 @@ def _cost(c: _Case, rep: dict, notes: dict) -> dict | None:
             lines["blackout"] = {
                 "low": round(mwh * v_lo),
                 "high": round(mwh * v_hi),
-                "assumption": f"{lost_mw:,.0f} MW of customers dark for {hours:g} hours (an assumption) at LBNL's value of lost load by customer class, weighted by U.S. sales (2024 dollars).",
+                "assumption": f"{lost_mw:,.0f} MW of customers dark for about {hours:g} hours (estimated from the incident's size) at LBNL's value of lost load by customer class, weighted by U.S. sales (2024 dollars).",
                 "sources": [S["lbnl_voll"], S["eia_sales"], S["cpi"]],
             }
         up = notes.get("upgrade") or {}
@@ -1883,7 +1884,7 @@ def _cost(c: _Case, rep: dict, notes: dict) -> dict | None:
         lo_, hi_ = money(float(who.get("low") or 0)), money(float(who["high"]))
         span = hi_ if lo_ == hi_ else f"{lo_} to {hi_}"
         who_txt = f"{span} per household per month (illustrative)"
-    assumptions = [{"key": "hours_out", "value": hours, "unit": "hours", "note": "How long the lost load stays dark (an assumption)."}]
+    assumptions = [{"key": "hours_out", "value": hours, "unit": "hours", "note": "How long the lost load stays dark (estimated from the incident's size, a rule of thumb)."}]
     sources = []
     for key in ("blackout", "upgrades", "power_bill", "who_pays"):
         ln = lines.get(key)
@@ -1895,7 +1896,9 @@ def _cost(c: _Case, rep: dict, notes: dict) -> dict | None:
     return {
         "source": "costs.py",
         "duration_h_assumed": hours,
+        "outage_label": {"en": costs.outage_label(hours), "es": costs.outage_label(hours, "es")},
         "blackout_usd": blackout,
+        "blackout_high_usd": r_b[1] if r_b else None,  # the top of the range: the headline figure (we guess on the higher side)
         "upgrade_usd": upgrade,
         "campus_bill_usd_per_year": bill,
         "ranges": {"blackout_usd": r_b, "upgrade_usd": r_u, "campus_bill_usd_per_year": r_c},

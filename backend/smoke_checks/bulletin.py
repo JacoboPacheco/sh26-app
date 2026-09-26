@@ -26,8 +26,8 @@ def register(ctx):
         d = ctx.request("POST", "/api/briefing/deck", {**case, "ai": False})
         state["deck"] = d
         ids = [s["id"] for s in d["slides"]]
-        assert ids[:3] == ["event", "chain", "areas"] and ids[-1] == "bottom_line", ids
-        assert 5 <= len(ids) <= 9 and len(set(ids)) == len(ids), ids
+        assert ids[:4] == ["toll", "event", "chain", "areas"] and ids[-1] == "bottom_line", ids
+        assert 5 <= len(ids) <= 10 and len(set(ids)) == len(ids), ids
         assert d["ai"]["by"] == "template" and d["region"] == "FL", d["ai"]
         for lang, open_words in (("en", ("simulat", "synthetic")), ("es", ("simula", "sintétic"))):
             first = d["slides"][0]["narration"][lang][0]["text"].lower()
@@ -48,6 +48,15 @@ def register(ctx):
         areas = next(s for s in d["slides"] if s["id"] == "areas")
         assert any(c["name"] == "area" for seg in areas["narration"]["en"] for c in seg["cues"]), "no area cues"
         assert "estimate" in d["slides"][0]["big"]["label"]["en"], d["slides"][0]["big"]
+        # the lead: expected cost (the high end) and time without power, the same numbers the cost panel shows
+        toll = d["slides"][0]
+        assert toll["kind"] == "toll" and toll["big"]["display"]["en"].startswith("$") and toll["big2"]["display"]["en"], toll
+        panel = ctx.request("POST", "/api/cost", case)["headline"]
+        assert abs(toll["big"]["value"] - panel["cost_high"]) <= 0.02 * panel["cost_high"], (toll["big"]["value"], panel["cost_high"])
+        assert abs(toll["big2"]["value"] - panel["outage_hours"]) < 0.5, (toll["big2"]["value"], panel["outage_hours"])
+        assert toll["headline"]["en"].startswith("Expected cost") and "expected cost" in toll["narration"]["en"][0]["text"].lower(), toll["headline"]
+        assert "costo esperado" in toll["narration"]["es"][0]["text"].lower(), toll["narration"]["es"][0]["text"]
+        assert not any("simulation" in seg["text"].lower() for seg in d["slides"][1]["narration"]["en"]), "the SIMULATION opening is repeated after the toll"
         blob = str(d)
         m = NEVER.search(blob)
         assert not m, f"forbidden phrase in the deck: {m.group(0)!r}"
@@ -65,7 +74,8 @@ def register(ctx):
     def test_short_deck():
         d = ctx.request("POST", "/api/briefing/deck", {**case, "ai": False, "length": "short"})
         ids = [s["id"] for s in d["slides"]]
-        assert ids == d["short"] and ids[0] == "event" and ids[-1] == "bottom_line" and len(ids) <= 5, ids
+        assert ids == d["short"] and ids[0] == "toll" and ids[-1] == "bottom_line" and len(ids) <= 6, ids
+        assert "cause" in ids and ("fix" in ids or "no_fix" in ids), f"the presentation must say why it failed and what to do: {ids}"
         assert d["est_s"]["en"] <= 65 and d["total_chars"]["en"] <= d["budget"]["en"], (d["est_s"], d["total_chars"])
 
     def test_ai_deck():

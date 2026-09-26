@@ -6,5 +6,6 @@ import { api } from '../../api'
 //               total_one_time, insights, notes, lost_mw, people, region_name, …}
 //   getCostAi → the same plus ai: {blackout|upgrades|power_bill|who_pays: {low, high, reasoning, fallback}}
 //               and fallback: true when Gemini wasn't used (the AI column then repeats the formula)
-export const getCost = (body, hoursOut) => api('/api/cost', { method: 'POST', body: { ...body, hours_out: hoursOut } })
+// no hoursOut: the backend estimates the outage length from the incident's size (costs.outage_hours)
+export const getCost = (body, hoursOut) => api('/api/cost', { method: 'POST', body: hoursOut == null ? body : { ...body, hours_out: hoursOut } })
 export const getCostAi = (body, hoursOut) => api('/api/cost/ai', { method: 'POST', body: { ...body, hours_out: hoursOut } })

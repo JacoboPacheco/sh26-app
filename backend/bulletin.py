@@ -51,8 +51,9 @@ log = logging.getLogger("uvicorn.error")
 
 VERSION = 1
 LANGS = ("en", "es")
-ORDER = ("event", "chain", "areas", "hospitals", "cost", "cause", "fix", "no_fix", "recovery", "bottom_line")
-SHORT = ("event", "chain", "areas", "fix", "no_fix", "bottom_line")  # the ≤ 60 s demo version
+ORDER = ("toll", "event", "chain", "areas", "hospitals", "cost", "cause", "fix", "no_fix", "recovery", "bottom_line")
+# the ≤ 60 s presentation: the toll (expected cost and outage time) first, then who is hit, why it failed, what to do
+SHORT = ("toll", "areas", "cause", "fix", "no_fix", "bottom_line")
 # narration characters; the short deck is the <= 60 s demo version (~14.5 spoken chars/s + pauses)
 BUDGET = {"full": {"en": 2000, "es": 2300}, "short": {"en": 800, "es": 920}}
 # per-segment caps; Spanish runs ~15-20 % longer than English for the same content
@@ -548,6 +549,7 @@ class Writer:
                 self.names.add(a)
         preset = self.case.get("preset") or None
         self.preset = preset if isinstance(preset, dict) and preset.get("id") else None
+        self.lead = "event"  # the id of the deck's first slide (compose sets it): it carries the SIMULATION opening
         self.lf = round(float(self.case.get("load_factor") or 1.0), 2)
         self.many_storms = bool(self.preset) and self.preset.get("id") in ("fl-season-20",)
         self.areas = [a for a in (report.get("areas") or []) if a.get("people", 0) > 0]
@@ -690,6 +692,83 @@ def _seg(role: str, body: str, prefix: str = "", suffix: str = "") -> dict:
     return {"role": role, "prefix": prefix, "body": body, "suffix": suffix}
 
 
+def hours_say(h: float, lang: str) -> str:
+    """The outage length as it is spoken: 'about a day', 'about eight hours', 'about three days' (numbers in words)."""
+    en = lang == "en"
+    if h < 1.5:
+        return "about an hour" if en else "aproximadamente una hora"
+    if h < 22:
+        n = int(round(h))
+        return f"about {words(n, lang)} hours" if en else f"unas {words(n, lang, fem=True)} horas"
+    if h < 36:
+        return "about a day" if en else "aproximadamente un día"
+    d = int(round(h / 24))
+    return f"about {words(d, lang)} days" if en else f"unos {words(d, lang)} días"
+
+
+def hours_show(h: float, lang: str) -> str:
+    """The outage length as a figure for the big number: '1 day', '8 hours', '3 days'."""
+    en = lang == "en"
+    if h < 1.5:
+        return "1 hour" if en else "1 hora"
+    if h < 22:
+        n = int(round(h))
+        return f"{n} hours" if en else f"{n} horas"
+    if h < 36:
+        return "1 day" if en else "1 día"
+    d = int(round(h / 24))
+    return f"{d} days" if en else f"{d} días"
+
+
+def s_toll(w: Writer, lv: Level) -> dict:
+    """The lead: what it is expected to cost and how long people are without power. The cost is the high end
+    of the range (we guess on the higher side); the outage length is estimated from the incident's size."""
+    c = w.r.get("cost") or {}
+    high = float(c.get("blackout_high_usd") or c.get("blackout_usd") or 0)
+    low = float((c.get("ranges") or {}).get("blackout_usd", [0, 0])[0] or 0) if c.get("ranges", {}).get("blackout_usd") else high
+    hours = float(c.get("duration_h_assumed") or 0)
+    out = {"kind": "toll", "headline": {}, "lines": {}, "narr": {}}
+    for lang in LANGS:
+        _, scaled = usd_say(high, lang)
+        if scaled is not None:
+            w.add("deck.toll.cost_high.scaled", "Expected blackout cost, high end, scaled", scaled, "USD (scaled)", True)
+    if hours:
+        w.add("deck.toll.outage_hours", "Estimated hours without power (from the incident's size)", round(hours, 1), "hours", True)
+    for lang in LANGS:
+        en = lang == "en"
+        rn = w.region_name if en else w.region_es
+        usd, _ = usd_say(high, lang)
+        parts: list[tuple[str, bool | int]] = [
+            (f"The expected cost is about {usd}." if en else f"El costo esperado es de unos {usd}.", False),
+            (f"People would be without power for {hours_say(hours, lang)}." if en else f"La gente estaría sin luz {hours_say(hours, lang)}.", False),
+            ((f"That is {people_say(w.people, lang)} without power (estimate)." if en
+              else f"Son {people_say(w.people, lang)} sin luz (estimación)."), 1),
+        ]
+        out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang] - len(OPEN[lang].format(region=rn)) - 1),
+                                  prefix=OPEN[lang].format(region=rn))]
+        lab = c.get("outage_label", {}).get(lang) or hours_say(hours, lang)
+        out["headline"][lang] = (f"Expected cost {usd_show(high)}, {lab} without power" if en
+                                 else f"Costo esperado {usd_show(high)}, {lab} sin luz")
+        lines = []
+        if low and low < high:
+            lines.append(f"Range: {usd_show(low)} to {usd_show(high)} (estimate)" if en else f"Rango: de {usd_show(low)} a {usd_show(high)} (estimación)")
+        if w.people:
+            lines.append(f"People without power: {w.people:,} (estimate)" if en else f"Personas sin luz: {w.people:,} (estimación)")
+        lines.append("Outage time is estimated from the incident's size, not forecast" if en
+                     else "El tiempo sin luz se estima según el tamaño del incidente; no es un pronóstico")
+        out["lines"][lang] = [ln[:LINE_MAX] for ln in lines[:3]]
+    out["big"] = {"value": high, "display": {"en": usd_show(high), "es": usd_show(high)},
+                  "label": {"en": "expected cost, high end of typical estimates", "es": "costo esperado, extremo alto de las estimaciones típicas"},
+                  "fact_key": "deck.toll.cost_high.scaled", "tone": "alert"}
+    out["big2"] = {"value": hours, "display": {"en": hours_show(hours, "en"), "es": hours_show(hours, "es")},
+                   "label": {"en": "average time without power (estimate)", "es": "tiempo medio sin luz (estimación)"},
+                   "fact_key": "deck.toll.outage_hours", "tone": "alert"}
+    out["camera"] = region_cam(w) if not w.areas else cam("areas", [a.get("center") for a in w.areas[:4]])
+    out["map"] = mapspec("final", w.steps, w.steps)
+    out["facts_used"] = w.keys("event.people_out", "deck.toll.cost_high.scaled", "deck.toll.outage_hours")
+    return out
+
+
 def s_event(w: Writer, lv: Level) -> dict:
     out = {"kind": "event", "headline": {}, "lines": {}, "narr": {}}
     pct_lf = int(round(w.lf * 100))
@@ -760,8 +839,11 @@ def s_event(w: Writer, lv: Level) -> dict:
         if w.ev.get("capped"):
             parts.append((("It is still spreading when the model stops." if en else "Sigue propagándose cuando el modelo se detiene."), True))
         rn = w.region_name if en else w.region_es
-        body = sentences(parts, lv, PRESENTER_MAX[lang] - len(OPEN[lang].format(region=rn)) - 1)
-        out["narr"][lang] = [_seg("presenter", body, prefix=OPEN[lang].format(region=rn))]
+        if w.lead == "event":
+            body = sentences(parts, lv, PRESENTER_MAX[lang] - len(OPEN[lang].format(region=rn)) - 1)
+            out["narr"][lang] = [_seg("presenter", body, prefix=OPEN[lang].format(region=rn))]
+        else:  # the toll slide opened the deck (and said it is a simulation)
+            out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang]))]
 
         # headline + lines (visual)
         pr = people_round(w.people, lang)
@@ -1656,14 +1738,16 @@ def s_bottom(w: Writer, lv: Level) -> dict:
     return out
 
 
-BUILDERS = {"event": s_event, "chain": s_chain, "areas": s_areas, "hospitals": s_hospitals, "cost": s_cost,
+BUILDERS = {"toll": s_toll, "event": s_event, "chain": s_chain, "areas": s_areas, "hospitals": s_hospitals, "cost": s_cost,
             "cause": s_cause, "fix": s_fix, "no_fix": s_no_fix, "recovery": s_recovery, "bottom_line": s_bottom}
 
 
 def slide_ids(w: Writer, length: str) -> list[str]:
     r = w.r
     rc = r.get("root_cause") or {}
+    cost = r.get("cost") or {}
     has = {
+        "toll": bool(cost.get("blackout_usd")) and w.people > 0,  # only when something is lost: else the event slide says it holds
         "event": True,
         "chain": w.steps > 0 or w.storm > 0,
         "areas": w.people > 0 and bool(w.areas),
@@ -1703,6 +1787,7 @@ def compose(report: dict, length: str = "full", ai: dict | None = None) -> dict:
     replaces template bodies; any that break the budget go back to their template, longest first."""
     w = Writer(report)
     ids = slide_ids(w, length)
+    w.lead = ids[0] if ids else "event"
     budget = BUDGET[length]
     ai = {k: v for k, v in (ai or {}).items() if k[0] not in AI_KEEP_TEMPLATE}  # e.g. an older pinned cache
     slides: list[dict] = []
@@ -2013,7 +2098,7 @@ def _clean_ai(text) -> str:
 # scenario's core facts right after the fixed SIMULATION sentence; in review, flash-lite rewrote it as
 # "a 1,500 megawatt data center ... leaves room for only 557 megawatts", which passes the number check
 # but inverts what the numbers mean. The first thing a listener hears stays deterministic.
-AI_KEEP_TEMPLATE = ("event",)
+AI_KEEP_TEMPLATE = ("event", "toll")
 
 
 def ai_slots(composed: dict) -> list[dict]:
