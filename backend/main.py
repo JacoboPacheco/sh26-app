@@ -26,6 +26,7 @@ for _name in ("uvicorn", "uvicorn.access"):
     logging.getLogger(_name).addHandler(_log_file)
 
 import auth
+import briefing
 import bulletin
 import catalog
 import costs
@@ -39,6 +40,7 @@ import planner
 import scenarios
 import towns
 import uploads
+import voice
 from database import Base, add_missing_columns, engine
 from limiter import limiter
 
@@ -98,6 +100,8 @@ app.include_router(planner.router)
 app.include_router(catalog.router)
 app.include_router(costs.router)
 app.include_router(hospitals.router)
+app.include_router(briefing.router)
+app.include_router(voice.router)
 
 
 @app.get("/api/health")
