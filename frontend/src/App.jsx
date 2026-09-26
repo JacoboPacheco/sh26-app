@@ -22,6 +22,7 @@ import CampusPanel from './shell/CampusPanel'
 import TopBar from './shell/TopBar'
 import CascadeFX from './shell/CascadeFX'
 import CascadeCue from './shell/CascadeCue'
+import ComponentPanel from './features/component3d'
 import ImpactPanel from './shell/ImpactPanel'
 import ScenarioBar from './shell/ScenarioBar'
 import Timeline from './shell/Timeline'
@@ -256,6 +257,8 @@ function MissionControl() {
             <ImpactPanel />
           </aside>
 
+          {/* the failing line or transformer in 3D while the cascade replays (features/component3d) */}
+          <ComponentPanel />
           <footer className="mc-bottom glass">
             <Timeline />
           </footer>
