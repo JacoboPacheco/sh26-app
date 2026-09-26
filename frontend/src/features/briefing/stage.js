@@ -43,6 +43,19 @@ export function applyBase(body, report) {
   return (base.trip || []).length > MAX_TRIPS ? null : base
 }
 
+// Make `full` (a CaseIn) the map's case through the store's setters. A "don't build it here" fix
+// (lat: null) removes the campus.
+export function setStoreCase(O, full, delta = {}) {
+  if (full.mw != null) O.setMw(full.mw)
+  if (full.lat != null && full.lon != null) O.place(full.lat, full.lon)
+  else if ('lat' in delta && delta.lat == null) O.clearSite()
+  O.setLoadFactor(full.load_factor ?? 1)
+  O.setTrip(full.trip || [])
+  O.setUpgrades(full.upgrades || {})
+  O.setExtraSites((full.sites || []).map((s, i) => ({ id: `brief-${i}`, ...s })))
+  O.setFirm(!!full.firm)
+}
+
 // the deck's banner / credit / disclaimer in this language (the writer puts the Spanish ones in deck.local)
 export const loc = (deck, key, lang) => deck?.local?.[lang]?.[key] || deck?.[key] || ''
 

@@ -11,7 +11,7 @@ import Progress from './Progress'
 import Slide from './Slide'
 import './briefing.css'
 import { cleanBody, notLive } from './briefingApi'
-import { applyBase, loc, stepIndexOf, transcriptText } from './stage'
+import { applyBase, loc, setStoreCase, stepIndexOf, transcriptText } from './stage'
 import { T } from './text'
 import useDeck from './useDeck'
 import useNarration, { reducedMotion } from './useNarration'
@@ -159,14 +159,17 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
     const key = JSON.stringify(cleanBody(body))
     if (replayKey.current === key) return
     const O = oRef.current
-    if (report?.replay) {
-      replayKey.current = key
-      O.startCascade({}, Promise.resolve(report.replay)).then(() => oRef.current.setStep(0))
-    } else if ((report || deck) && !body.preset) {
+    if (!body.preset) {
+      // a plain case: its cascade runs on the map, paused (the store's case is left alone: the app
+      // shell follows a changed case to the workspace, which would close a briefing page)
       replayKey.current = key
       O.startCascade(cleanBody(body)).then(() => oRef.current.setStep(0))
+    } else if (report?.replay) {
+      // a catastrophe: the engine's cascade, as computed (more storm lines than the grid API takes)
+      replayKey.current = key
+      O.startCascade({}, Promise.resolve(report.replay)).then(() => oRef.current.setStep(0))
     }
-  }, [loadReplay, body, report, deck])
+  }, [loadReplay, body, report])
 
   // ------------------------------------------------------------------ chrome
   useEffect(() => {
@@ -200,14 +203,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
       const O = oRef.current
       const full = { ...base, ...delta }
       // the map's case becomes the reviewed case with the fix, then its cascade runs (and stays calm)
-      if (full.mw != null) O.setMw(full.mw)
-      if (full.lat != null && full.lon != null) O.place(full.lat, full.lon)
-      else if ('lat' in delta && delta.lat == null) O.clearSite() // "don't build it here"
-      O.setLoadFactor(full.load_factor ?? 1)
-      O.setTrip(full.trip || [])
-      O.setUpgrades(full.upgrades || {})
-      O.setExtraSites((full.sites || []).map((s, i) => ({ id: `brief-${i}`, ...s })))
-      O.setFirm(!!full.firm)
+      setStoreCase(O, full, delta)
       onClose()
       O.startCascade(full)
     },
@@ -282,6 +278,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
 
   const voiceBadge = (() => {
     const p = narr.provider
+    if (narr.muted) return null // the Sound button says so
     if (p === 'timer') return <Badge tone="warn">{narr.muted ? t.voiceMuted : t.voiceNone}</Badge>
     if (p === 'browser' || narr.segFellBack) return <Badge tone="warn">{t.voiceBrowser}</Badge>
     if (p === 'elevenlabs' || narr.voice?.configured) return <Badge>{narr.voice?.attribution || t.voiceEleven}</Badge>

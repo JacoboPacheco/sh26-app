@@ -25,6 +25,7 @@ export default function BriefRoute({ id: idProp, onClose }) {
   const body = useMemo(() => {
     if (id === 'hero') return HERO
     if (id.startsWith('preset:')) return { region: 'FL', preset: id.slice(7) }
+    if (scenario?.case) return scenario.case // the library's saved case (every ingredient)
     if (scenario) return { region: scenario.region || 'FL', lat: scenario.lat, lon: scenario.lon, mw: scenario.mw }
     return null
   }, [id, scenario])

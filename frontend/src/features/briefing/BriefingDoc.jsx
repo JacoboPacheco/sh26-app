@@ -69,7 +69,7 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
                         : row.lines?.map((l) => `${capital(l.label)}${l.pct_before ? ` trips at ${Math.round(l.pct_before)}%` : ''}`).join('; ')}
                       {row.action === 'shed' && ' (customers cut to hold a line)'}
                     </span>
-                    {row.newly_dark?.length > 0 && <span className="rs-tl__dark">Power lost: {darkList(row.newly_dark)}</span>}
+                    {row.newly_dark?.length > 0 && <span className="rs-tl__dark">Power lost (estimates): {darkList(row.newly_dark)}</span>}
                     <span className="rs-tl__cum">{num(row.people_cum)} people out (estimate)</span>
                   </button>
                 </li>
