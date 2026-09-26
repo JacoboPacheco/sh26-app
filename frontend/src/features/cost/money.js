@@ -27,6 +27,13 @@ export function money(x) {
   return cents(v)
 }
 
+// a big figure set in two sizes: {figure: '$1.27', unit: 'billion'} ('' when the amount has no unit word)
+export function moneyParts(x) {
+  const s = money(x)
+  const m = s.match(/^(\S+) (billion|million)$/)
+  return m ? { figure: m[1], unit: m[2] } : { figure: s, unit: '' }
+}
+
 // a low–high range; when both ends share a unit it is written once, at the high end's precision:
 // "$102–276 million", "$96–200 million", "$18.3–64 million"
 export function moneyRange(lo, hi) {
@@ -42,6 +49,8 @@ export function moneyRange(lo, hi) {
     const y = num(b / ub[0], d)
     return x === y ? mb : `$${x}–${y} ${ub[1]}`
   }
+  // per-household cents from zero: "up to 4¢", not "$0–4¢"
+  if (a <= 0 && b < 1) return `up to ${mb}`
   const ma = money(a)
   // "under 1¢ to 4¢" reads better than a dash next to words
   return /^under/.test(ma) ? `${ma} to ${mb}` : `${ma}–${mb}`

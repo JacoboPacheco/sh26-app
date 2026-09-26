@@ -129,6 +129,19 @@
   color: var(--ink-2);
 }
 
+/* the footer: the simulation note, and where to read how the answer is made */
+.ask__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+}
+
+.ask__foot .aihow__open {
+  font-size: 0.75rem;
+}
+
 /* the answer */
 .ask-answer {
   display: grid;

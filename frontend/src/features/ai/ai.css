@@ -26,6 +26,13 @@
 .aib__check {
   color: var(--hr-ok);
 }
+.aib__note {
+  color: var(--ink-2);
+}
+/* in a narrow column the label may wrap rather than push past its edge */
+.aib--wrap {
+  white-space: normal;
+}
 
 .aihow__open {
   appearance: none;
@@ -62,11 +69,18 @@
   overflow: auto;
   max-height: calc(100vh - 2 * var(--gutter));
 }
+/* the title and Close stay in view while the list scrolls (it opens scrolled to the feature it came from) */
 .aihow__head {
+  position: sticky;
+  top: calc(-1 * var(--space-4));
+  z-index: 1;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
+  margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-4)) 0;
+  padding: var(--space-4) var(--space-4) var(--space-2);
+  background: var(--surface);
 }
 .aihow__head h2 {
   margin: 0;
@@ -112,6 +126,28 @@
 .aihow__served {
   color: var(--hr-ok);
   font-size: 0.8rem;
+}
+/* the entry for the feature the panel was opened from */
+.aihow__list li.aihow__item--here {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--accent);
+}
+.aihow__here {
+  margin-left: var(--space-2);
+  color: var(--ink-2);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+.aihow__none {
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--glass-edge);
+  color: var(--ink-2);
+  font-size: 0.88rem;
+}
+.aihow__none em {
+  font-style: normal;
+  color: var(--ink);
 }
 .aihow__foot {
   margin: 0;

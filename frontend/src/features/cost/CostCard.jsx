@@ -2,17 +2,25 @@
 // Contract: default export CostCard({ title?, bare? }) — reads the case through useOverload() and prices it
 // with backend/costs.py: four labeled estimates (the blackout, the upgrades to prevent it, the campus's
 // power bill, who pays per household), each with its formula, assumption and sources, a total, and a
-// Gemini estimate per line that falls back to the formula (warn badge) when Gemini isn't used.
+// Gemini estimate per line that falls back to the formula when Gemini isn't used. The AI column carries
+// the shared AI label (features/ai/AiBadge: "Gemini", or "Plain version" when the formula stands in),
+// and the footer opens "How AI is used" at this card's entry.
 // Mount it anywhere (an inspector, the Brief); it needs no props. `bare` drops the card's own border and
 // padding, for a panel that already has them.
 import { useEffect, useRef, useState } from 'react'
 import { useOverload } from '../../store'
-import { Badge, EmptyState, ErrorBanner, Field, Loading } from '../../ui'
+import { EmptyState, ErrorBanner, Field, Loading } from '../../ui'
+import AiBadge from '../ai/AiBadge'
+import HowAiIsUsed from '../ai/HowAiIsUsed'
 import './cost.css'
 import { getCost, getCostAi } from './costApi'
 import { PER, moneyRange } from './money'
 
 const AI_SETTLE_MS = 900
+
+// a line the formula prices above zero; the engine zeroes the rest whatever Gemini says (costs.py _clean_ai),
+// so those lines are never Gemini's
+const priced = (line) => line.high > 0
 
 // "NORTH FORT MYERS 6" -> "North Fort Myers 6" (the synthetic substation names are all caps)
 const nameCase = (s) => String(s || '').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
@@ -62,6 +70,7 @@ export default function CostCard({ title = 'What it costs', bare = false }) {
         setDet(d)
         setAi(null)
         setStatus('done')
+        if (!d.lines.some(priced)) return // every line is $0: nothing for Gemini to estimate, don't spend the quota
       } catch (err) {
         if (id !== req.current) return
         setError(err)
@@ -135,7 +144,7 @@ function CostBody({ det, ai, aiStatus, updating }) {
         </ul>
       )}
       <div className="row cost__ai-state" aria-live="polite">
-        <AiBadge ai={ai} aiStatus={aiStatus} />
+        <AiState det={det} ai={ai} aiStatus={aiStatus} />
       </div>
       <ol className="cost__lines">
         {det.lines.map((ln) => (
@@ -156,21 +165,59 @@ function CostBody({ det, ai, aiStatus, updating }) {
           ))}
         </ul>
       )}
+      <div className="cost__foot">
+        <HowAiIsUsed surface="cost" />
+      </div>
     </div>
   )
 }
 
-function AiBadge({ ai, aiStatus }) {
+// what Gemini's column is doing, for the whole card. "Gemini" only when at least one line with something to
+// price carries Gemini's own range: the engine's $0 lines and formula stand-ins never count as Gemini's.
+const GEMINI_TIP = "Gemini estimates each line from the case facts; an answer far outside the formula's range is rejected and that line repeats the formula"
+const NOTHING_TIP = 'Every line is $0 for this case, so there is nothing for Gemini to estimate. Computed by the engine, no AI.'
+const NOTHING_LINE_TIP = 'This line is $0 for this case. Computed by the engine, no AI.'
+const RANGE_WHY = "Gemini's answer failed the range check"
+function AiState({ det, ai, aiStatus }) {
+  if (!det.lines.some(priced))
+    return (
+      <AiBadge by="engine" className="aib--wrap" title={NOTHING_TIP}>
+        nothing to price, so no AI estimate
+      </AiBadge>
+    )
   if (aiStatus === 'loading') return <span className="muted cost__ai-wait">Gemini is estimating each line…</span>
-  if (aiStatus === 'error') return <Badge tone="warn">AI estimate unavailable, showing the formula only</Badge>
+  if (aiStatus === 'error') return <AiBadge by="fallback" className="aib--wrap">showing the formula only</AiBadge>
   if (!ai) return null
-  return ai.fallback ? <Badge tone="warn">AI offline: the AI column repeats the formula</Badge> : <Badge>AI estimate by Gemini, next to the formula</Badge>
+  const fromGemini = !ai.fallback && det.lines.some((ln) => priced(ln) && ai.items?.[ln.key] && !ai.items[ln.key].fallback)
+  if (fromGemini)
+    return (
+      <AiBadge by="gemini" className="aib--wrap" title={GEMINI_TIP}>
+        an estimate next to the formula
+      </AiBadge>
+    )
+  // Gemini unavailable (the server says so), or it answered but none of its priced lines passed the range check
+  return (
+    <AiBadge by="fallback" why={ai.fallback ? undefined : RANGE_WHY} className="aib--wrap">
+      the AI column repeats the formula
+    </AiBadge>
+  )
+}
+
+// the AI column's own label, per line: Gemini's range, the plain version (the formula repeated), or the
+// engine's zero (nothing to price, so no AI)
+function AiColumnLabel({ none, aiOk, aiMiss, aiStatus, hasAi }) {
+  if (none) return <AiBadge by="engine" title={NOTHING_LINE_TIP}>nothing to price</AiBadge>
+  if (aiOk || aiStatus === 'loading') return <AiBadge by="gemini" title={GEMINI_TIP} />
+  if (aiMiss) return <AiBadge by="fallback" compact why="Gemini's answer for this line failed the range check" className="aib--wrap" />
+  if (hasAi || aiStatus === 'error') return <AiBadge by="fallback" compact className="aib--wrap" />
+  return 'AI estimate'
 }
 
 function CostLine({ line, ai, aiFallback, aiStatus }) {
   const per = PER[line.per] || line.per
-  const aiOk = !!ai && !aiFallback && !ai.fallback // Gemini's own range for this line
-  const aiMiss = !!ai && !aiFallback && ai.fallback // Gemini answered, but not usably for this line
+  const none = !priced(line) // the engine's zero: nothing to price, whatever Gemini said
+  const aiOk = !none && !!ai && !aiFallback && !ai.fallback // Gemini's own range for this line
+  const aiMiss = !none && !!ai && !aiFallback && ai.fallback // Gemini answered, but not usably for this line
   return (
     <li className="cost__line">
       <div className="cost__line-head">
@@ -183,10 +230,12 @@ function CostLine({ line, ai, aiFallback, aiStatus }) {
           <strong className="cost__fig-value">{moneyRange(line.low, line.high)}</strong>
         </div>
         <div className="cost__fig cost__fig--ai">
-          <span className="cost__fig-name">AI estimate</span>
+          <span className="cost__fig-name">
+            <AiColumnLabel none={none} aiOk={aiOk} aiMiss={aiMiss} aiStatus={aiStatus} hasAi={!!ai} />
+          </span>
           {aiOk ? (
             <strong className="cost__fig-value">{moneyRange(ai.low, ai.high)}</strong>
-          ) : aiStatus === 'loading' ? (
+          ) : aiStatus === 'loading' && !none ? (
             <span className="muted cost__fig-pending">…</span>
           ) : (
             <span className="muted cost__fig-pending">same as the formula</span>

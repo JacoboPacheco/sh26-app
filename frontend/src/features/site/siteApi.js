@@ -51,6 +51,7 @@ export function reportToMarkdown(r) {
   const out = []
   out.push(`# Site report: ${fmtMw(s.mw)} near ${s.nearest_town}, ${s.region_name}`)
   out.push(`*Synthetic grid model (Breakthrough Energy / Texas A&M, CC-BY 4.0). A screening estimate, not an interconnection study and not any utility's network.*`)
+  out.push(`*Every figure is computed by the power-flow engine. No AI wrote or proposed anything in this report.*`)
   out.push('')
   out.push(`Point: ${s.lat}, ${s.lon} · load level ${Math.round(s.load_factor * 100)} % of the model's snapshot · ${s.firm ? 'firm' : 'flexible'} service`)
   out.push('')

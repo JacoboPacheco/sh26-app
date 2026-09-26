@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Button, ErrorBanner, Loading } from '../../ui'
+import AiBadge from '../ai/AiBadge'
 import { moneyRange } from '../cost/money'
 import './site.css'
 import { cost, downloadText, fmtMw, fmtRoom, getSiteReport, n1Result, reportBody, reportKey, reportToMarkdown, rowVerdict } from './siteApi'
@@ -109,7 +110,13 @@ function ReportDialog({ onClose, returnTo }) {
         <header className="site-head">
           <div className="site-head__title">
             <p className="site-eyebrow">Synthetic grid model · screening estimate · not an interconnection study</p>
-            <h2 id="site-h">Site report</h2>
+            <div className="site-head__name">
+              <h2 id="site-h">Site report</h2>
+              {/* the contrast with the AI surfaces: nothing in this report is written or proposed by Gemini */}
+              <AiBadge by="engine" title="Every figure in this report is computed by the power-flow engine on the synthetic grid model. No AI.">
+                no AI in this report
+              </AiBadge>
+            </div>
           </div>
           <div className="site-actions no-print">
             <Button variant="secondary" disabled={!data} onClick={() => window.print()}>

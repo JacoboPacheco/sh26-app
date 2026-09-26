@@ -141,6 +141,18 @@
   color: var(--accent);
 }
 
+/* the shared AI label inside a step's "who" line takes the line's own type */
+.planner-step__who .aib {
+  font-size: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+}
+
+.planner-how {
+  justify-self: start;
+  font-size: 0.75rem;
+}
+
 .planner-step__thought {
   font-style: italic;
   color: var(--ink);
@@ -259,16 +271,14 @@ p.planner-verdict--bad {
   font-size: 0.8125rem;
 }
 
+/* the site's order: a plain tabular figure (no circled number badges) */
 .planner-site__n {
-  display: inline-grid;
-  place-items: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
-  border: 1.5px solid var(--accent);
-  color: var(--accent);
-  font-size: 0.75rem;
-  font-weight: 700;
+  min-width: 1.1rem;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .planner-site__name {

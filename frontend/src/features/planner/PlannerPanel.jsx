@@ -10,6 +10,8 @@ import { useEffect, useId, useMemo, useRef } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Badge, Button, ErrorBanner, Field } from '../../ui'
+import AiBadge from '../ai/AiBadge'
+import HowAiIsUsed from '../ai/HowAiIsUsed'
 import { peakPhrase } from '../heat/presets'
 import './planner.css'
 import { EXAMPLES, GOAL_MAX, SITES_MAX, TOTAL_MAX, TOTAL_MIN, fmtMw, loadIntoWorkspace, readGoal } from './plannerApi'
@@ -84,6 +86,8 @@ export default function PlannerPanel() {
           <p className="planner-lede">
             Give it a goal. Gemini works the grid engine one step at a time, and the engine checks the plan it hands back.
           </p>
+          {/* not inside the <p>: the panel's <dialog> can't sit in a paragraph */}
+          <HowAiIsUsed surface="planner" className="planner-how" />
         </div>
         <form className="stack planner-form" onSubmit={submit} noValidate>
           <Field
@@ -172,12 +176,14 @@ function readText(got, regions) {
 }
 
 // ------------------------------------------------------------------ the steps
-const WHO = { gemini: 'Gemini', planner: 'Built-in planner' }
-
+// Who took each step, with the shared AI label: Gemini proposes, the engine checks, the built-in planner
+// (no AI) runs the engine itself.
 function who(step) {
-  if (step.tool === 'check') return 'Engine check'
+  if (step.tool === 'check') return <AiBadge by="engine">check</AiBadge>
   if (step.tool === 'note') return 'Note'
-  return WHO[step.by] || 'Planner'
+  if (step.by === 'gemini') return <AiBadge by="gemini" title="Gemini chose this step; the engine ran it" />
+  if (step.by === 'planner') return <AiBadge by="engine" title="The built-in planner (no AI) ran this step on the engine">built-in planner</AiBadge>
+  return 'Planner'
 }
 
 // keep the newest step (then the verdict) in view as the list grows
@@ -244,12 +250,31 @@ function pendingLabel(p) {
 }
 
 // ------------------------------------------------------------------ the plan
-// why the built-in planner made the plan when Gemini was asked (result.ai.status)
-const FALLBACK_BADGE = {
-  slow: 'Gemini too slow: built-in planner',
-  rejected: "Gemini's plan failed the check: built-in planner",
-  out_of_calls: "Gemini's plan failed the check: built-in planner",
-  supply: 'Handed to the built-in planner',
+// why the built-in planner made the plan when Gemini was asked (result.ai.status); the fallback label's reason
+const FALLBACK_WHY = {
+  slow: 'Gemini too slow',
+  rejected: "Gemini's plan failed the engine check",
+  out_of_calls: "Gemini's plan failed the engine check",
+  supply: 'Gemini handed it over',
+  not_configured: 'Gemini not configured',
+}
+// who made the plan, with the shared AI label (features/ai/AiBadge)
+function PlanBy({ r }) {
+  if (r.by === 'gemini') {
+    return (
+      <AiBadge by="gemini" verified title="Gemini chose each step; the engine ran every step and re-checked the finished plan">
+        {r.cached ? 'earlier run' : null}
+      </AiBadge>
+    )
+  }
+  if (r.fallback) {
+    return (
+      <AiBadge by="fallback" why={FALLBACK_WHY[r.ai?.status]} className="aib--wrap">
+        built-in planner
+      </AiBadge>
+    )
+  }
+  return <AiBadge by="engine">built-in planner</AiBadge>
 }
 function PlanResult({ p }) {
   const o = useOverload()
@@ -301,13 +326,7 @@ function PlanResult({ p }) {
         </span>
       </div>
       <div className="row planner-badges">
-        {r.by === 'gemini' ? (
-          <Badge>Planned by Gemini{r.cached ? ' · earlier run' : ''}</Badge>
-        ) : r.fallback ? (
-          <Badge tone="warn">{FALLBACK_BADGE[r.ai?.status] || 'Gemini unavailable: built-in planner'}</Badge>
-        ) : (
-          <Badge>Built-in planner</Badge>
-        )}
+        <PlanBy r={r} />
         <Badge>Synthetic grid model</Badge>
       </div>
 

@@ -63,6 +63,13 @@
   font-size: 0.78rem;
   color: var(--ink-2);
 }
+/* the title and its provenance label ("Engine · no AI in this report") on one line */
+.site-head__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
 .site-actions {
   display: flex;
   flex-wrap: wrap;

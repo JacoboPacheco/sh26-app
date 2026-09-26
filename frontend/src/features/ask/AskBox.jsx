@@ -2,6 +2,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useOverload } from '../../store'
 import { readMuted } from '../briefing/useNarration'
 import { Badge, Button, ErrorBanner, Loading } from '../../ui'
+import AiBadge from '../ai/AiBadge'
+import HowAiIsUsed from '../ai/HowAiIsUsed'
 import './ask.css'
 import { askQuestion, askSuggestions, audioUrl, caseForCascade, voiceConfigured, voiceSegment } from './askApi'
 import { factLabel, factValue } from './factText'
@@ -24,8 +26,11 @@ const T = {
     noCase: 'Place a data center, pick a scenario or run a storm first — then ask about it.',
     ranEngine: 'Engine run',
     used: 'Facts used',
-    gemini: (n) => `Gemini · ${n} ${n === 1 ? 'figure' : 'figures'} checked by the engine`,
-    pattern: 'Answered from the fact sheet (AI offline)',
+    checked: (n) => `${n} ${n === 1 ? 'figure' : 'figures'} checked`,
+    geminiTip: (n) =>
+      `Gemini chose the facts and wrote the answer; ${n ? `all ${n} ${n === 1 ? 'figure' : 'figures'} in it were` : 'every figure is'} checked against the engine's fact sheet`,
+    factSheet: 'answered from the fact sheet',
+    how: 'How AI is used',
     declined: 'Off topic',
     read: 'Read aloud',
     stop: 'Stop',
@@ -44,8 +49,11 @@ const T = {
     noCase: 'Coloca un centro de datos, elige un escenario o lanza una tormenta, y luego pregunta.',
     ranEngine: 'Motor ejecutado',
     used: 'Datos usados',
-    gemini: (n) => `Gemini · ${n} ${n === 1 ? 'cifra comprobada' : 'cifras comprobadas'} por el motor`,
-    pattern: 'Respondido con la hoja de datos (IA sin conexión)',
+    checked: (n) => `${n} ${n === 1 ? 'cifra comprobada' : 'cifras comprobadas'}`,
+    geminiTip: (n) =>
+      `Gemini eligió los datos y escribió la respuesta; ${n ? `${n === 1 ? 'la cifra' : `las ${n} cifras`} se comprobaron` : 'toda cifra se comprueba'} con la hoja de datos del motor`,
+    factSheet: 'respondido con la hoja de datos',
+    how: 'Cómo se usa la IA',
     declined: 'Fuera de tema',
     read: 'Leer en voz alta',
     stop: 'Detener',
@@ -192,7 +200,10 @@ export default function AskBox({ caseBody: caseProp, lang: langProp, onLangChang
         {res && <Answer key={`${res.report_key}|${res.question}|${res.lang}`} res={res} t={t} speech={speech} />}
       </div>
 
-      <p className="ask__note">{t.note}</p>
+      <div className="ask__foot">
+        <p className="ask__note">{t.note}</p>
+        <HowAiIsUsed surface="ask" label={t.how} />
+      </div>
     </section>
   )
 }
@@ -248,9 +259,20 @@ function Answer({ res, t, speech }) {
         {res.declined ? (
           <Badge>{t.declined}</Badge>
         ) : res.source === 'gemini' ? (
-          <Badge>{t.gemini(res.numbers_checked || 0)}</Badge>
+          // Gemini wrote it; every figure in it was checked against the engine's fact sheet
+          <AiBadge by="gemini" verified lang={res.lang} className="aib--wrap" title={t.geminiTip(res.numbers_checked || 0)}>
+            {res.numbers_checked ? t.checked(res.numbers_checked) : null}
+          </AiBadge>
+        ) : res.fallback ? (
+          // Gemini was asked but not used (no key, quota, time, or its answer failed the check)
+          <AiBadge by="fallback" lang={res.lang} className="aib--wrap">
+            {t.factSheet}
+          </AiBadge>
         ) : (
-          <Badge tone="warn">{t.pattern}</Badge>
+          // a fixed answer by design (e.g. the question names a real storm or utility): no AI was asked
+          <AiBadge by="engine" lang={res.lang} className="aib--wrap">
+            {t.factSheet}
+          </AiBadge>
         )}
         {speech.available && !readMuted() && ( // sound is off until this viewer turns it on (the review stage's Sound button)
           <Button
