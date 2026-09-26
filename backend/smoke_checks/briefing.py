@@ -48,6 +48,8 @@ def register(ctx):
         assert r["event"]["steps"] == 14, r["event"]["steps"]
         assert r["root_cause"]["cause"] == "last_straw", r["root_cause"]["cause"]
         assert "Jacksonville" in r["root_cause"]["line"]["label"], r["root_cause"]["line"]
+        shrink = next(f for f in r["fixes"] if f["family"] == "shrink")
+        assert shrink["verdict"] == "holds" and shrink["apply"]["mw"] <= 240, shrink
 
     def calm_case():
         r = ctx.request("POST", "/api/briefing", {**case, "mw": hero["calm_mw"]})
@@ -68,7 +70,44 @@ def register(ctx):
             assert p["hypothetical"] is True and p["region"] == "FL" and p["tracks"], p["id"]
             assert "hurricane " not in p["name"].lower(), p["name"]
 
+    def hero_fixes_are_verified():
+        r = got.get("hero") or ctx.request("POST", "/api/briefing", case)
+        fixes = r["fixes"]
+        fams = [f["family"] for f in fixes]
+        assert fams[:5] == ["shrink", "move", "flexible", "time_of_day", "upgrade"], fams
+        holds = [f for f in fixes if f["verdict"] == "holds"]
+        assert holds and holds[0]["family"] == "shrink" and holds[0]["apply"] == {"mw": 550.0}, holds[:1]
+        assert r["verdict"] == "preventable" and fixes[r["best_fix"]]["family"] == "shrink", (r["verdict"], r["best_fix"])
+        tod = next(f for f in fixes if f["family"] == "time_of_day")
+        assert tod["verdict"] == "fails", tod
+        for f in fixes:
+            if f["family"] in r["unchecked"]:
+                assert f["verdict"] == "not_checked", f
+        # every fix that "holds" really holds: post the case with its apply delta to the plain cascade
+        for f in holds:
+            body = {**case, **f["apply"]}
+            body = {k: v for k, v in body.items() if v is not None}
+            c = ctx.request("POST", "/api/grid/cascade", body)
+            assert c["total_steps"] == 0, f"{f['family']} holds in the briefing but cascades {c['total_steps']} steps: {f['apply']}"
+        assert r["firm_note"] and r["firm_note"]["shed_mw"] > 0, r["firm_note"]
+        assert r["bound"]["people"] == 0 and r["split"]["campus"] == r["event"]["people"], (r["bound"], r["split"])
+
+    def storm_has_no_fix():
+        track = ctx.request("GET", "/api/hurricane/presets")["presets"]
+        gulf = next(p for p in track if p["id"] == "gulf-fort-myers")
+        trip = ctx.request("POST", "/api/hurricane/track", {"points": gulf["points"], "radius_km": gulf["radius_km"]})["trip"]
+        r = ctx.request("POST", "/api/briefing", {**case, "trip": trip})
+        assert r["kind"] == "storm" and r["verdict"] == "no_fix", (r["kind"], r["verdict"])
+        assert r["bound"]["share_pct"] >= 85, r["bound"]
+        for f in r["fixes"]:
+            if f["family"] in ("shrink", "move", "flexible", "time_of_day", "onsite", "combo"):
+                assert f["verdict"] == "not_needed", f
+        assert r["no_fix"] and r["no_fix"]["people"] == r["bound"]["people"] and r["no_fix"]["proof"], r["no_fix"]
+        assert r["timeline"][0]["action"] == "storm" and r["timeline"][0]["storm_lines"]["count"] == len(trip)
+
     ctx.check("briefing: hero report — timeline, root cause, areas (briefing.py)", hero_report)
+    ctx.check("briefing: hero fixes verified — shrink to 550 MW first; every 'holds' re-runs calm", hero_fixes_are_verified)
+    ctx.check("briefing: Gulf storm + campus — no fix exists, campus families not needed", storm_has_no_fix)
     ctx.check("briefing: fact sheet has <= 160 unique facts, people marked estimates", facts_are_well_formed)
     ctx.check("briefing: heat wave + 500 MW is the last straw on a Jacksonville transformer", heat_is_last_straw)
     ctx.check("briefing: calm case says nothing happened", calm_case)

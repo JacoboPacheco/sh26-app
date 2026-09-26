@@ -717,9 +717,15 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
             F.append(_fact(f"harden.{h['k']}.people_kept_on", f"Hardening {h['k']} lines keeps this many on", int(h["people_kept_on"]), "people", True))
     cost = rep.get("cost")
     if cost:
-        for k in ("blackout_usd", "upgrade_usd", "campus_bill_usd_per_year"):
+        names = {"blackout_usd": "Cost of the blackout", "upgrade_usd": "Cost of the upgrades that prevent it", "campus_bill_usd_per_year": "The campus's yearly power bill"}
+        for k, name in names.items():
             if cost.get(k):
-                F.append(_fact(f"cost.{k}", k.replace("_", " "), float(cost[k]), "USD", True, cost.get("source", "engine-estimate")))
+                F.append(_fact(f"cost.{k}", f"{name} (midpoint)", float(cost[k]), "USD", True, cost.get("source", "costs.py")))
+                rng = (cost.get("ranges") or {}).get(k)
+                if rng:
+                    F.append(_fact(f"cost.{k}_range", f"{name} (low to high)", float(rng[1]), "USD", True, cost.get("source", "costs.py"), text=f"${rng[0]:,.0f} to ${rng[1]:,.0f} (estimate)"))
+        if cost.get("who_pays"):
+            F.append(_fact("cost.who_pays", "Who pays", cost["who_pays"], source=cost.get("source", "costs.py")))
         if cost.get("duration_h_assumed"):
             F.append(_fact("cost.duration_h_assumed", "Assumed outage length for the cost estimate", float(cost["duration_h_assumed"]), "hours", True, "assumption"))
     # steps last, as many as fit
@@ -889,6 +895,529 @@ def check_text(text: str, report: dict, lang: str = "en", extra_facts: list | No
     return True, None, n
 
 
+# ----------------------------------------------------------------------------- fixes (verified)
+FAMILY_ORDER = ["shrink", "move", "flexible", "time_of_day", "upgrade", "onsite", "combo", "remove"]
+CAMPUS_FAMILIES = {"shrink", "move", "flexible", "time_of_day", "onsite", "combo"}
+FAMILY_LABEL = {
+    "shrink": "Build it smaller",
+    "move": "Build it elsewhere",
+    "flexible": "Make it flexible",
+    "time_of_day": "Change the hour",
+    "upgrade": "Upgrade the lines",
+    "onsite": "Generate on site",
+    "combo": "Smaller, plus upgrades",
+    "remove": "Don't build it here",
+}
+MOVE_POOL = 40  # the roomiest towns (level 1.0) tried for a move
+MOVE_KEEP = 3
+BISECT_STEPS = 8
+# rough wall cost of each family (ms) — a family starts only when this much budget is left
+FAMILY_COST = {"shrink": 60, "move": 200, "flexible": 120, "time_of_day": 60, "upgrade": 150, "onsite": 0, "combo": 150, "remove": 0}
+
+
+@dataclass
+class _Judge:
+    event_people: int
+    event_steps: int
+    bound_people: int
+    bound_lost: float
+
+    def verdict(self, oc: dict) -> str:
+        """holds: no line trips and nobody beyond the physical bound loses power; partly: saves at
+        least 10 %; fails otherwise. Always from a run, never inferred (the cascade is non-monotone)."""
+        if oc["steps"] == 0 and oc["people"] <= self.bound_people + max(1000, 0.01 * self.event_people):
+            return "holds"
+        if self.event_people > 0:
+            return "partly" if (self.event_people - oc["people"]) >= 0.10 * self.event_people else "fails"
+        return "partly" if oc["steps"] < self.event_steps else "fails"
+
+
+def _floor10(x: float) -> float:
+    return float(math.floor(max(x, 0.0) / 10.0) * 10.0)
+
+
+def _site_mws(c: _Case, s: float) -> list[float]:
+    """Every campus scaled by s; a single campus is rounded down to 10 MW."""
+    if len(c.sites) == 1:
+        return [_floor10(c.sites[0].mw * s)]
+    return [round(site.mw * s, 1) for site in c.sites]
+
+
+def _extra_for(g: Grid, buses: list[int], mws: list[float]) -> np.ndarray:
+    return g.extra_load([(b, m) for b, m in zip(buses, mws) if m > 0])
+
+
+def _fits(c: _Case, g: Grid, extra: np.ndarray, rate=None) -> tuple[bool, object]:
+    st = _solve(c, g, c.active, extra, c.rate if rate is None else rate)
+    return (not len(_over(st))), st
+
+
+def _verify(c: _Case, J: _Judge, g: Grid, extra: np.ndarray, upgrades: dict | None = None) -> tuple[dict, str, str]:
+    """One what-if solve; a cascade only when a line is over (then the solve is not the end state).
+    Returns (outcome, verdict, how it was checked)."""
+    upgrades = c.upgrades if upgrades is None else upgrades
+    rate = g.rates_with(upgrades)
+    ok, st = _fits(c, g, extra, rate)
+    if ok:
+        lost = float(st.lost_existing_mw)
+        oc = {"steps": 0, "people": _people(g, lost, c.code), "lost_mw": round(lost, 1)}
+        how = "solve"
+    else:
+        r = _cascade(c, g, extra, upgrades=upgrades)
+        oc = {"steps": int(r["total_steps"]), "people": int(r["people"]), "lost_mw": float(r["lost_mw"])}
+        how = "cascade"
+    return oc, J.verdict(oc), how
+
+
+def _max_scale(c: _Case, g: Grid, s_hi: float, rate=None) -> tuple[float, int]:
+    """The largest scale s in [0, s_hi] of every campus with no line over (a solve per try; bisection
+    — a single injection's flows are linear in MW between dispatch regimes). Returns (s, solves)."""
+    n = 0
+    s_hi = max(min(s_hi, 1.0), 0.0)
+    ok, _ = _fits(c, g, _extra_for(g, c.buses, _site_mws(c, s_hi)), rate)
+    n += 1
+    if ok:
+        return s_hi, n
+    lo, hi = 0.0, s_hi
+    ok0, _ = _fits(c, g, np.zeros(g.n), rate)
+    n += 1
+    if not ok0:
+        return 0.0, n
+    for _ in range(BISECT_STEPS):
+        mid = (lo + hi) / 2
+        ok, _ = _fits(c, g, _extra_for(g, c.buses, _site_mws(c, mid)), rate)
+        n += 1
+        lo, hi = (mid, hi) if ok else (lo, mid)
+    return lo, n
+
+
+def _size_apply(c: _Case, mws: list[float]) -> dict:
+    ap = {"mw": mws[0]}
+    if len(c.sites) > 1:
+        ap["sites"] = [{"lat": s.lat, "lon": s.lon, "mw": m} for s, m in zip(c.sites[1:], mws[1:])]
+    return ap
+
+
+def _fix(family: str, action: str, verdict: str, outcome: dict | None, tradeoff: str, detail: dict, apply: dict | None, ms: int) -> dict:
+    return {
+        "family": family,
+        "label": FAMILY_LABEL[family],
+        "action": action,
+        "verdict": verdict,
+        "outcome": outcome,
+        "tradeoff": tradeoff,
+        "detail": detail,
+        "apply": apply,
+        "ms": ms,
+    }
+
+
+def _upgrade_list(g: Grid, rate0: np.ndarray, rate: np.ndarray, chosen: list[int]) -> tuple[list[dict], float, float]:
+    lines, mva, km = [], 0.0, 0.0
+    for i in chosen:
+        add = float(rate[i] - rate0[i])
+        k = _line_km(g, i)
+        mva += add
+        km += k
+        info = _line(g, i)
+        lines.append({"id": info["id"], "label": info["label"], "transformer": info["transformer"], "old_mva": round(float(rate0[i]), 1), "new_mva": round(float(rate[i]), 1), "added_mva": round(add, 1), "km": round(k, 1)})
+    return lines, round(mva, 1), round(km, 1)
+
+
+def _what_upgraded(lines: list[dict]) -> str:
+    nt = sum(1 for x in lines if x["transformer"])
+    nl = len(lines) - nt
+    parts = []
+    if nl:
+        parts.append(f"{nl} line{'s' if nl != 1 else ''}")
+    if nt:
+        parts.append(f"{nt} transformer{'s' if nt != 1 else ''}")
+    return " and ".join(parts) or "nothing"
+
+
+def _greedy(c: _Case, g: Grid, extra: np.ndarray):
+    """fixit.greedy_fix on the step-0 network (after the storm) with the case's upgrades."""
+    import fixit  # imported late: another track owns it
+
+    existing = frozenset(g.br_index[int(b)] for b in c.upgrades)
+    room = grid.MAX_UPGRADES - len(existing)
+    first, final, rate, chosen, rounds, maxed, limited = fixit.greedy_fix(g, c.active, extra, c.rate, room=room, resolve=False, existing=existing)
+    new_upg = dict(c.upgrades)
+    for i in chosen:
+        new_upg[int(g.br_ids[i])] = float(rate[i])
+    return new_upg, rate, chosen, maxed, limited
+
+
+def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[list[dict], list[str], dict]:
+    g = c.g
+    fixes: list[dict] = []
+    unchecked: list[str] = []
+    notes: dict = {}
+    total = float(sum(s.mw for s in c.sites))
+    main_area = c.header.get("sub_area") or "the site"
+    word = load_word(g.load_factor)
+    shortcut = bool(c.sites) and inc["people"] > 0 and floor["people"] >= 0.95 * inc["people"]
+    floor_oc = {"steps": int(floor["total_steps"]), "people": int(floor["people"]), "lost_mw": float(floor["lost_mw"])}
+    families = [f for f in FAMILY_ORDER if c.sites or f in ("upgrade",) or (f == "time_of_day" and g.load_factor > 1.0 + 1e-9)]
+    shrink_res: dict = {}
+
+    def skip(fam: str) -> None:
+        unchecked.append(fam)
+        fixes.append(_fix(fam, FAMILY_LABEL[fam], "not_checked", None, "Not checked in the time budget.", {}, None, 0))
+
+    for fam in families:
+        t0 = time.perf_counter()
+        if shortcut and fam in CAMPUS_FAMILIES:
+            fixes.append(
+                _fix(
+                    fam,
+                    FAMILY_LABEL[fam],
+                    "not_needed",
+                    floor_oc,
+                    f"Without the data center the same {_big(floor['people'])} people lose power (verified), so changing the campus does not help.",
+                    {},
+                    None,
+                    0,
+                )
+            )
+            continue
+        if B.left() < FAMILY_COST[fam] and fam not in ("onsite", "remove"):
+            skip(fam)
+            continue
+        try:
+            if fam == "shrink":
+                s_hi = 1.0
+                if len(c.sites) == 1:
+                    room = float(c.header.get("headroom_mw") or 0.0)
+                    s_hi = min(1.0, max(room, 0.0) / total) if total else 0.0
+                s, solves = _max_scale(c, g, s_hi)
+                mws = _site_mws(c, s)
+                new_total = float(sum(mws))
+                if new_total < 1.0:
+                    oc, v = floor_oc, J.verdict(floor_oc)
+                    fixes.append(_fix(fam, "Shrink the data center", "fails" if v == "holds" else v, oc, "No size of the campus fits here without an overload.", {"mw": 0.0, "from_mw": total, "solves": solves}, None, _ms(t0)))
+                    shrink_res = {"ok": False}
+                    continue
+                oc, v, how = _verify(c, J, g, _extra_for(g, c.buses, mws))
+                pct = round(100 * new_total / total) if total else 0
+                action = f"Shrink the data center to {new_total:,.0f} MW" if len(c.sites) == 1 else f"Shrink every campus to {pct}% of its size ({new_total:,.0f} MW in total)"
+                detail = {"mw": new_total, "from_mw": total, "kept_pct": pct, "room_mw": c.header.get("headroom_mw"), "solves": solves, "checked_by": how}
+                fixes.append(_fix(fam, action, v, oc, f"Keeps {new_total:,.0f} of the planned {total:,.0f} MW ({pct}%).", detail, _size_apply(c, mws), _ms(t0)))
+                shrink_res = {"ok": True, "mws": mws, "total": new_total, "s": s, "oc": oc, "v": v}
+            elif fam == "move":
+                g1 = grid_at(1.0, c.code)
+                if g1._headroom_bus is None and B.left() < 900:
+                    skip(fam)
+                    continue
+                import fixit
+
+                cur_town = area_of(c.header.get("sub_name") or "")
+                found, tried, first_try = [], 0, None
+                for h, i, town in list(fixit._towns_by_headroom(g1))[:MOVE_POOL]:
+                    if town == cur_town:
+                        continue
+                    if B.left() < 20:
+                        break
+                    bus = g.connect_bus(i)
+                    buses = [bus] + list(c.buses[1:])
+                    extra = _extra_for(g, buses, [s.mw for s in c.sites])
+                    ok, st = _fits(c, g, extra)
+                    tried += 1
+                    if first_try is None:
+                        first_try = (i, town, extra)
+                    if ok and float(st.lost_existing_mw) <= J.bound_lost + 0.5:
+                        found.append(
+                            {
+                                "town": town,
+                                "sub": int(g.sub_ids[i]),
+                                "name": g.sub_name[i],
+                                "lat": round(float(g.sub_lat[i]), 4),
+                                "lon": round(float(g.sub_lon[i]), 4),
+                                "headroom_mw": round(min(h, 1e6), 1),
+                                "max_pct": round(float(st.loading_pct[st.active].max()), 1) if st.active.any() else 0.0,
+                                "people": _people(g, float(st.lost_existing_mw), c.code),
+                                "label": f"substations named after {town} in a synthetic model",
+                            }
+                        )
+                        if len(found) >= MOVE_KEEP:
+                            break
+                if found:
+                    top = found[0]
+                    oc = {"steps": 0, "people": top["people"], "lost_mw": 0.0}
+                    others = ", ".join(x["town"] for x in found[1:])
+                    trade = "Sites are substations named after towns in a synthetic model, not real addresses." + (f" Also fits: {others}." if others else "")
+                    fixes.append(_fix(fam, f"Build it at {top['town']} instead", J.verdict(oc), oc, trade, {"sites": found, "tried": tried, "checked_by": "solve"}, {"lat": top["lat"], "lon": top["lon"]}, _ms(t0)))
+                elif first_try is not None:
+                    i, town, extra = first_try
+                    oc, v, how = _verify(c, J, g, extra)
+                    fixes.append(
+                        _fix(fam, f"Build it at {town} instead", v, oc, f"None of the {tried} roomiest towns takes {total:,.0f} MW {word} without an overload.", {"sites": [], "tried": tried, "checked_by": how, "town": town}, None, _ms(t0))
+                    )
+                else:
+                    skip(fam)
+            elif fam == "flexible":
+                if not shrink_res.get("ok"):
+                    fixes.append(_fix(fam, "Curtail at the peak", "fails", inc_oc(inc), "No size fits at this hour, so curtailing cannot hold it.", {}, None, _ms(t0)))
+                    continue
+                levels = []
+                for lf in sorted(set(DAY_LEVELS) | {round(g.load_factor, 2)}):
+                    if abs(lf - g.load_factor) < 0.005:
+                        mws = shrink_res["mws"]
+                    else:
+                        gl = grid_at(lf, c.code)
+                        s_hi = 1.0
+                        if len(c.sites) == 1:
+                            s_hi = min(1.0, site_headroom(gl, c.buses[0]) / total) if total else 0.0
+                        s, _ = _max_scale(c, gl, s_hi, gl.rates_with(c.upgrades))
+                        mws = _site_mws(c, s)
+                    run = float(sum(mws))
+                    levels.append({"level": lf, "name": level_name(lf), "word": load_word(lf), "runs_mw": run, "full": run >= total - 0.5})
+                at_case = shrink_res["total"]
+                full_at = [x["name"] for x in levels if x["full"]]
+                partial = [f"{x['runs_mw']:,.0f} MW {x['word']}" for x in levels if not x["full"] and abs(x["level"] - g.load_factor) >= 0.005]
+                bits = []
+                if full_at:
+                    bits.append(f"runs the full {total:,.0f} MW at {', '.join(full_at)}")
+                if partial:
+                    bits.append("; ".join(partial))
+                trade = (f"Gives up {total - at_case:,.0f} MW {word}; " + "; ".join(bits) + ".") if bits else f"Gives up {total - at_case:,.0f} MW {word}."
+                fixes.append(
+                    _fix(
+                        fam,
+                        f"Curtail to {at_case:,.0f} MW {word}",
+                        shrink_res["v"],
+                        shrink_res["oc"],
+                        trade,
+                        {"mw": at_case, "peak_cut_mw": round(total - at_case, 1), "levels": levels, "checked_by": "solve per level"},
+                        _size_apply(c, shrink_res["mws"]),
+                        _ms(t0),
+                    )
+                )
+            elif fam == "time_of_day":
+                levels = []
+                for lf in DAY_LEVELS:
+                    gl = grid_at(lf, c.code)
+                    extra = _extra_for(gl, c.buses, [s.mw for s in c.sites]) if c.sites else np.zeros(gl.n)
+                    ok, st = _fits(c, gl, extra, gl.rates_with(c.upgrades))
+                    levels.append({"level": lf, "name": level_name(lf), "over_lines": int(len(_over(st))), "holds": bool(ok)})
+                holds_at = [x for x in levels if x["holds"] and x["level"] <= g.load_factor + 1e-9]
+                fails_at = [x["name"] for x in levels if not x["holds"]]
+                what = f"the full {total:,.0f} MW" if c.sites else "the grid"
+                if holds_at:
+                    trade = f"{what[0].upper() + what[1:]} holds at {', '.join(x['name'] for x in holds_at)} but not {word}" + (" — a data center runs around the clock." if c.sites else "; the heat itself can't be moved.")
+                else:
+                    trade = f"{what[0].upper() + what[1:]} overloads at every hour checked ({', '.join(fails_at)})."
+                best_lf = max((x["level"] for x in holds_at), default=None)
+                fixes.append(
+                    _fix(
+                        fam,
+                        f"Run {what} only at hours with room" if c.sites else "Wait for a cooler hour",
+                        "fails",
+                        inc_oc(inc),
+                        trade,
+                        {"levels": levels, "checked_by": "solve per level"},
+                        {"load_factor": best_lf} if best_lf is not None else None,
+                        _ms(t0),
+                    )
+                )
+            elif fam == "upgrade":
+                new_upg, rate, chosen, maxed, limited = _greedy(c, g, c.extra)
+                new = list(chosen)
+                if not new:
+                    oc = inc_oc(inc)
+                    fixes.append(_fix(fam, "Upgrade lines", J.verdict(oc) if oc["steps"] == 0 and oc["people"] == 0 else "fails", oc, "No line is over its limit, so an upgrade has nothing to relieve; it cannot reconnect areas cut off from supply.", {"lines": 0}, None, _ms(t0)))
+                    continue
+                oc, v, how = _verify(c, J, g, c.extra, new_upg)
+                lst, mva, km = _upgrade_list(g, c.rate, rate, new)
+                what = _what_upgraded(lst)
+                detail = {"lines": len(lst), "mva": mva, "km": km, "list": lst[:20], "capped": len(maxed), "limited": bool(limited), "checked_by": how}
+                trade = f"New equipment on {what}" + (f" ({km:,.1f} km of line)" if km else "") + ("; the campus keeps its full size." if c.sites else ".")
+                fixes.append(_fix(fam, f"Upgrade {what} (+{mva:,.0f} MVA)", v, oc, trade, detail, {"upgrades": {str(k): float(v_) for k, v_ in new_upg.items()}}, _ms(t0)))
+                notes["upgrade"] = {"mva": mva, "km": km, "lines": len(lst)}
+            elif fam == "onsite":
+                if not shrink_res.get("ok"):
+                    fixes.append(_fix(fam, "Generate on site", "fails", inc_oc(inc), "No grid draw fits at this hour, so on-site generation would have to carry the whole campus.", {}, None, _ms(t0)))
+                    continue
+                net = shrink_res["total"]
+                onsite = round(total - net, 1)
+                fixes.append(
+                    _fix(
+                        fam,
+                        f"Add {onsite:,.0f} MW of on-site generation",
+                        shrink_res["v"],
+                        shrink_res["oc"],
+                        f"The grid supplies {net:,.0f} MW and the campus makes the rest itself (the same verified run as the smaller size).",
+                        {"onsite_mw": onsite, "net_mw": net, "checked_by": "the shrink run"},
+                        _size_apply(c, shrink_res["mws"]),
+                        _ms(t0),
+                    )
+                )
+            elif fam == "combo":
+                s_fit = shrink_res.get("s", 0.0) if shrink_res.get("ok") else 0.0
+                s_mid = (s_fit + 1.0) / 2.0
+                mws = _site_mws(c, s_mid)
+                extra = _extra_for(g, c.buses, mws)
+                new_upg, rate, chosen, maxed, limited = _greedy(c, g, extra)
+                oc, v, how = _verify(c, J, g, extra, new_upg)
+                lst, mva, km = _upgrade_list(g, c.rate, rate, chosen)
+                mid_total = float(sum(mws))
+                what = _what_upgraded(lst)
+                ap = {**_size_apply(c, mws), "upgrades": {str(k): float(v_) for k, v_ in new_upg.items()}}
+                action = f"Shrink to {mid_total:,.0f} MW and upgrade {what} (+{mva:,.0f} MVA)" if lst else f"Shrink to {mid_total:,.0f} MW"
+                fixes.append(_fix(fam, action, v, oc, f"Keeps {mid_total:,.0f} MW with fewer upgrades than the full size needs.", {"mw": mid_total, "lines": len(lst), "mva": mva, "km": km, "list": lst[:20], "checked_by": how}, ap, _ms(t0)))
+            elif fam == "remove":
+                v = J.verdict(floor_oc)
+                trade = "No campus at this site." if v == "holds" else f"Even with no data center, {_big(floor['people'])} people lose power (verified)."
+                fixes.append(_fix(fam, "Don't build the data center here", v, floor_oc, trade, {"checked_by": "the no-campus run"}, {"lat": None, "lon": None, "mw": None, "sites": []}, _ms(t0)))
+        except EngineGap:
+            raise
+        except Exception as e:  # noqa: BLE001 — a family that breaks is reported unchecked, never claimed
+            log.exception("briefing: fix family %s failed: %s", fam, e)
+            skip(fam)
+    return fixes, unchecked, notes
+
+
+def inc_oc(inc: dict) -> dict:
+    return {"steps": int(inc["total_steps"]), "people": int(inc["people"]), "lost_mw": float(inc["lost_mw"])}
+
+
+def _best_fix(fixes: list[dict]) -> int | None:
+    for i, f in enumerate(fixes):
+        if f["verdict"] == "holds" and f["family"] != "remove":
+            return i
+    part = [(f["outcome"]["people"], i) for i, f in enumerate(fixes) if f["verdict"] == "partly" and f["family"] != "remove" and f.get("outcome")]
+    if part:
+        return min(part)[1]
+    return None
+
+
+def _firm_note(c: _Case, inc: dict) -> dict | None:
+    if not c.sites or c.firm:
+        return None
+    r = _cascade(c, c.g, c.extra, firm_buses=list(c.buses))
+    if not r:
+        return None
+    return {"shed_mw": float(r.get("shed_mw", 0.0)), "steps": int(r["total_steps"]), "people": int(r["people"]), "campus_kept_on": r.get("firm_held")}
+
+
+# ----------------------------------------------------------------------------- cost + hospitals adapters
+def _cost(c: _Case, rep: dict, B: _Budget) -> dict | None:
+    """costs.py's sourced estimate (LBNL value of lost load, Black & Veatch line costs, EIA prices):
+    briefing_costs(report) when it exists, else its cached_estimate on this case (<= 400 trips), else
+    just the blackout from its VoLL for a catastrophe. Midpoints of costs.py's low-high ranges, with
+    the ranges alongside. Never zeros: a figure that can't be sourced is None; nothing -> None."""
+    try:
+        import costs
+    except Exception:  # noqa: BLE001
+        return None
+    fn = getattr(costs, "briefing_costs", None)
+    try:
+        if fn is not None:
+            out = fn(rep)
+            if isinstance(out, dict) and any(out.get(k) for k in ("blackout_usd", "upgrade_usd", "campus_bill_usd_per_year")):
+                return {**out, "source": "costs.py"}
+            return None
+        hours = float(getattr(costs, "DEFAULT_HOURS", 6.0))
+        lines: dict[str, dict] = {}
+        if len(c.trip) <= grid.MAX_TRIPS and hasattr(costs, "cached_estimate") and B.left() > 150:
+            body = {k: v for k, v in c.body.items() if k != "preset"}
+            if c.preset:
+                body["trip"] = list(c.trip)
+            est = costs.cached_estimate(costs.CostIn(**body, hours_out=hours))
+            lines = {ln["key"]: ln for ln in est.get("lines", [])}
+        elif hasattr(costs, "voll_per_mwh"):
+            v_lo, v_hi = costs.voll_per_mwh(hours)
+            mwh = float(rep["event"]["lost_mw"]) * hours
+            lines = {
+                "blackout": {
+                    "low": round(mwh * v_lo),
+                    "high": round(mwh * v_hi),
+                    "assumption": f"{rep['event']['lost_mw']:,.0f} MW dark for {hours:g} hours at costs.py's value of lost load.",
+                    "sources": getattr(costs, "SOURCES", {}).get("lbnl_voll") and [costs.SOURCES["lbnl_voll"]] or [],
+                }
+            }
+        else:
+            return None
+    except HTTPException:
+        return None
+    except Exception as e:  # noqa: BLE001
+        log.warning("briefing: costs adapter failed: %s", e)
+        return None
+
+    def mid(key):
+        ln = lines.get(key)
+        if not ln or not ln.get("high"):
+            return None, None
+        lo, hi = float(ln.get("low") or 0), float(ln["high"])
+        return round((lo + hi) / 2), [round(lo), round(hi)]
+
+    blackout, r_b = mid("blackout")
+    upgrade, r_u = mid("upgrades")
+    bill, r_c = mid("power_bill")
+    if not any((blackout, upgrade, bill)):
+        return None
+    who = lines.get("who_pays")
+    who_txt = None
+    if who and who.get("high"):
+        who_txt = f"${float(who.get('low') or 0):,.2f} to ${float(who['high']):,.2f} per household per month (illustrative)"
+    assumptions = [{"key": "hours_out", "value": hours, "unit": "hours", "note": "How long the lost load stays dark (an assumption)."}]
+    sources = []
+    for key in ("blackout", "upgrades", "power_bill", "who_pays"):
+        ln = lines.get(key)
+        if ln:
+            assumptions.append({"key": key, "value": [ln.get("low"), ln.get("high")], "unit": "USD", "note": ln.get("assumption") or ""})
+            for src in ln.get("sources") or []:
+                if src not in sources:
+                    sources.append(src)
+    return {
+        "source": "costs.py",
+        "duration_h_assumed": hours,
+        "blackout_usd": blackout,
+        "upgrade_usd": upgrade,
+        "campus_bill_usd_per_year": bill,
+        "ranges": {"blackout_usd": r_b, "upgrade_usd": r_u, "campus_bill_usd_per_year": r_c},
+        "who_pays": who_txt,
+        "assumptions": assumptions,
+        "sources": sources,
+    }
+
+
+def _hospitals(c: _Case, inc: dict) -> dict | None:
+    """How many hospitals sit where the model's substations went dark (counts per area, never names),
+    from hospitals.status_for when it exists."""
+    try:
+        import hospitals
+    except Exception:  # noqa: BLE001
+        return None
+    fn = getattr(hospitals, "status_for", None)
+    if fn is None:
+        return None
+    try:
+        affected = {int(k): float(v) for k, v in (inc.get("affected") or {}).items()}
+        if not affected:
+            return None
+        res = fn(c.code, c.g, affected)
+        per: dict[str, int] = {}
+        for row in res.get("backup", []):
+            i = c.g.sub_index.get(int(row.get("sub", -1)))
+            if i is not None:
+                a = area_of(c.g.sub_name[i])
+                per[a] = per.get(a, 0) + 1
+        n = int(res.get("counts", {}).get("backup", sum(per.values())))
+        if not n:
+            return None
+        return {
+            "count": n,
+            "strained": int(res.get("counts", {}).get("strained", 0)),
+            "areas": [{"area": a, "count": k} for a, k in sorted(per.items(), key=lambda x: (-x[1], x[0]))],
+            "source": getattr(hospitals, "SOURCE", "OpenStreetMap contributors (ODbL)"),
+            "assumption": getattr(hospitals, "ASSUMPTION", ""),
+        }
+    except Exception as e:  # noqa: BLE001
+        log.warning("briefing: hospitals adapter failed: %s", e)
+        return None
+
+
 # ----------------------------------------------------------------------------- the report
 _cache: "OrderedDict[str, dict]" = OrderedDict()
 _ctx: "OrderedDict[str, _Case]" = OrderedDict()
@@ -956,7 +1485,9 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     floor = _cascade(c, g, np.zeros(g.n)) if c.sites else inc
     timing["floor"] = _ms(t0)
 
+    t0 = time.perf_counter()
     rows, first = _timeline(c, inc)
+    timing["timeline"] = _ms(t0)
     peak = max([int(inc["people"])] + [int(s.get("people", 0)) for s in inc["steps"]])
     pop = _population(c.code)
     event = {
@@ -972,7 +1503,60 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     }
     kind = _kind(c, inc, floor)
     areas = _areas(c, inc, rows)
+    t0 = time.perf_counter()
     root = _root_cause(c, first, inc, floor)
+
+    # the no-fix bound: infinite ratings, no campus, the storm's damage only
+    bst = _solve(c, g, c.active, None, c.rate * 1e9)
+    b_lost = float(bst.lost_existing_mw)
+    b_people = min(_people(g, b_lost, c.code), event["people"]) if event["people"] else _people(g, b_lost, c.code)
+    bound = {
+        "people": int(b_people),
+        "lost_mw": round(b_lost, 1),
+        "share_pct": round(100.0 * b_people / event["people"], 1) if event["people"] else 0.0,
+    }
+    physical = min(bound["people"], event["people"])
+    campus_ppl = min(int(root["people_due_to_campus"]), event["people"] - physical)
+    split = {"physical": int(physical), "cascade": int(max(event["people"] - physical - campus_ppl, 0)), "campus": int(max(campus_ppl, 0))}
+    J = _Judge(event["people"], event["steps"], bound["people"], b_lost)
+    timing["cause_bound"] = _ms(t0)
+
+    t0 = time.perf_counter()
+    nothing = event["steps"] == 0 and event["people"] == 0
+    fixes, unchecked, _notes = ([], [], {}) if nothing else _fixes(c, B, J, inc, floor)
+    firm_note = None
+    if not nothing and B.left() > 60:
+        try:
+            firm_note = _firm_note(c, inc)
+        except EngineGap:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("briefing: firm note failed: %s", e)
+    timing["fixes"] = _ms(t0)
+    best = _best_fix(fixes)
+    if nothing:
+        verdict = "nothing_happened"
+    elif bound["people"] > 0.05 * event["people"]:
+        verdict = "no_fix"
+    elif best is not None and fixes[best]["verdict"] == "holds":
+        verdict = "preventable"
+    else:
+        verdict = "partly"
+    no_fix = None
+    if verdict == "no_fix":
+        tried = [f for f in fixes if f["verdict"] != "not_checked"]
+        saved = max([event["people"] - f["outcome"]["people"] for f in tried if f.get("outcome")] + [0])
+        saved_pct = round(100.0 * saved / event["people"]) if event["people"] else 0
+        no_fix = {
+            "people": bound["people"],
+            "share_pct": bound["share_pct"],
+            "fixes_save_at_most_pct": saved_pct,
+            "proof": [{"family": f["family"], "verdict": f["verdict"], "people": (f.get("outcome") or {}).get("people")} for f in fixes],
+            "sentence": (
+                f"No fix exists for about {_big(bound['people'])} people: every fix family was tried, and even with unlimited line ratings and no data center "
+                f"they stay cut off; the best fix saves at most {saved_pct}% — only rebuilding lines brings them back."
+            ),
+        }
 
     case_out = {
         **c.header,
@@ -989,7 +1573,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
         "region_name": REGIONS[c.code]["name"],
         "banner": _banner(c.code),
         "kind": kind,
-        "verdict": "nothing_happened" if (event["steps"] == 0 and event["people"] == 0) else "partly",
+        "verdict": verdict,
         "case": case_out,
         "headline": {"text": _headline(c, kind, inc, areas)},
         "event": event,
@@ -998,18 +1582,24 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
         "areas": areas,
         "hospitals": None,
         "cost": None,
-        "fixes": [],
-        "best_fix": None,
-        "firm_note": None,
-        "bound": None,
-        "split": None,
-        "no_fix": None,
+        "fixes": fixes,
+        "best_fix": best,
+        "firm_note": firm_note,
+        "bound": bound,
+        "split": split,
+        "no_fix": no_fix,
         "recovery": None,
         "replay": {**c.header, "region": c.code, **inc},
         "facts": [],
         "timing_ms": {},
-        "unchecked": [],
+        "unchecked": unchecked,
     }
+    t0 = time.perf_counter()
+    rep["hospitals"] = _hospitals(c, inc)
+    timing["hospitals"] = _ms(t0)
+    t0 = time.perf_counter()
+    rep["cost"] = _cost(c, rep, B)
+    timing["cost"] = _ms(t0)
     rep["facts"] = _facts(c, rep)
     timing["total"] = _ms(t_all)
     rep["timing_ms"] = timing
