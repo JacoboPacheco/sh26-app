@@ -45,11 +45,14 @@ export default function ScenarioBar() {
           ))}
         </ul>
       )}
-      <span className="scenario-bar__sep" aria-hidden="true" />
-      <HeatClock compact />
-      <button type="button" className="scenario-bar__reset" onClick={resetAll} disabled={!busy}>
-        Start over
-      </button>
+      {/* the time of day and Start over wrap together: Start over never sits on a row by itself (index.css) */}
+      <div className="scenario-bar__end">
+        <span className="scenario-bar__sep" aria-hidden="true" />
+        <HeatClock compact />
+        <button type="button" className="scenario-bar__reset" onClick={resetAll} disabled={!busy}>
+          Start over
+        </button>
+      </div>
     </div>
   )
 }
