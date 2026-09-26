@@ -23,7 +23,9 @@ with sync_playwright() as p:
     try:
         # 1 — open: signed in as the demo account, the grid drawn, the synthetic-model pill visible.
         page.goto(URL, wait_until="load", timeout=30000)
-        expect(page.get_by_text("Signed in as")).to_be_visible(timeout=15000)
+        # signed in as the demo account: the token is stored (the page no longer prints "Signed in as")
+        page.wait_for_function("() => !!localStorage.getItem('token')", timeout=15000)
+        expect(page.locator(".appbar")).to_be_visible()
         expect(page.locator(".pill", has_text="Synthetic grid model")).to_be_visible()
         expect(page.locator("line.ln").first).to_be_attached(timeout=15000)
 
