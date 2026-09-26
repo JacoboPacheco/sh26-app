@@ -1,0 +1,294 @@
+/* Heat-wave clock (features/heat): the time-of-day control in the top bar, and the light that
+   falls over the map at each hour. Every color comes from the tokens in index.css. */
+
+/* ------------------------------------------------------------------ the control */
+/* a fixed width: the caption's length changes with the hour, and the segment just clicked must
+   not slide out from under the pointer */
+.heat {
+  display: grid;
+  gap: 0.3rem;
+  width: 19.5rem;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  box-shadow: 0 10px 40px color-mix(in srgb, var(--blackout) 45%, transparent);
+}
+
+/* Pin the clock to the top-right corner with "Signed in as" beneath it. Without this, the top bar's
+   right group wraps on and off as the scenario bar grows and shrinks with the case, and the clock
+   jumps ~200 px sideways on the click that picks an hour — the judge's next click lands on the wrong
+   segment. (Requested for index.css's .mc-top__right; harmless duplicate once it lands there.) */
+.mc-top__right:has(> .heat) {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  flex: none;
+  gap: var(--space-1);
+}
+
+.heat__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.heat__seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--glass-hi);
+}
+
+.heat__opt {
+  position: relative;
+  flex: 1 1 auto;
+}
+
+/* the native radio stays on top (clickable, keyboard arrows) but invisible; the span is the look */
+.heat__opt input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.heat__opt span {
+  display: block;
+  padding: 0.3rem 0.65rem;
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: center;
+  white-space: nowrap;
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+
+/* touch screens: a taller target */
+@media (pointer: coarse) {
+  .heat__opt span {
+    padding-block: 0.5rem;
+  }
+}
+
+.heat__opt:hover span {
+  color: var(--ink);
+}
+
+.heat__opt input:checked + span {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+/* the heat wave reads as danger before and after it's picked */
+.heat__opt--wave span {
+  color: var(--strain);
+}
+
+.heat__opt--wave input:checked + span {
+  background: var(--overload);
+  color: var(--accent-text);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--overload) 45%, transparent);
+}
+
+.heat__opt input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* how close to the model's summer peak (the tick) the hour runs; past it burns red */
+.heat__meter {
+  position: relative;
+  height: 3px;
+  margin: 0.15rem 2px 0;
+  border-radius: 2px;
+  background: var(--glass-edge);
+}
+
+.heat__fill,
+.heat__over {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 2px;
+  transition: width 0.7s cubic-bezier(0.2, 0.7, 0.2, 1), left 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.heat__fill {
+  left: 0;
+  background: var(--accent);
+}
+
+.heat__over {
+  background: var(--overload);
+  box-shadow: 0 0 6px var(--overload);
+}
+
+.heat__tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--ink);
+  opacity: 0.7;
+}
+
+.heat__load {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.heat__load strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.heat--wave .heat__load strong {
+  color: var(--overload);
+}
+
+.heat--wave .heat__peak {
+  color: var(--warn-text);
+}
+
+.heat__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ the light over the map
+   A layer between the map and everything floating on it: .map's ::before is positioned, so it
+   paints after the map's SVG and before the flow canvas, the map buttons and the glass panels;
+   on phones it is clipped to the map card. It never extends past .map (a transform or negative
+   inset would make the fixed shell scrollable). Its colors are registered properties so an hour
+   change fades instead of snapping, and it sits on its own compositing layer, so the fade and the
+   heat-wave shimmer (opacity only) never repaint the 4,600-element SVG under it. */
+@property --heat-wash {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --heat-edge {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --heat-west {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --heat-east {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+@property --heat-rise {
+  syntax: '<color>';
+  inherits: false;
+  initial-value: transparent;
+}
+
+html[data-heat] .map::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    /* heat coming up off the land */
+    radial-gradient(130% 70% at 50% 106%, var(--heat-rise), transparent 70%),
+    /* low sun over the Gulf (afternoon) or the Atlantic (morning) */
+    linear-gradient(95deg, var(--heat-west), transparent 55%),
+    linear-gradient(265deg, var(--heat-east), transparent 50%),
+    /* the edges of the night */
+    radial-gradient(75% 70% at 50% 46%, transparent 55%, var(--heat-edge)),
+    var(--heat-wash);
+  transition:
+    opacity 0.6s ease,
+    --heat-wash 1.2s ease,
+    --heat-edge 1.2s ease,
+    --heat-west 1.2s ease,
+    --heat-east 1.2s ease,
+    --heat-rise 1.2s ease;
+  will-change: opacity;
+}
+
+/* 3 AM: deeper and colder — the lights dim toward the night blue, the edges fall away */
+html[data-heat='night'] .map::before {
+  --heat-wash: color-mix(in srgb, var(--night) 34%, transparent);
+  --heat-edge: color-mix(in srgb, var(--night) 70%, transparent);
+  --heat-east: color-mix(in srgb, var(--current) 5%, transparent);
+}
+
+/* 9 AM: neutral, a whisper of light from the east */
+html[data-heat='morning'] .map::before {
+  --heat-east: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+
+/* 4 PM: a faint warm cast from the low western sun */
+html[data-heat='afternoon'] .map::before {
+  --heat-wash: color-mix(in srgb, var(--strain) 2%, transparent);
+  --heat-west: color-mix(in srgb, var(--strain) 10%, transparent);
+}
+
+/* heat wave: a warm haze rising off the land and closing in from the edges, breathing slowly;
+   the middle of the map stays clean so red lines still read as red */
+html[data-heat='wave'] .map::before {
+  --heat-wash: color-mix(in srgb, var(--strain) 3%, transparent);
+  --heat-rise: color-mix(in srgb, color-mix(in srgb, var(--strain) 60%, var(--overload)) 24%, transparent);
+  --heat-west: color-mix(in srgb, var(--strain) 9%, transparent);
+  --heat-edge: color-mix(in srgb, var(--overload) 16%, transparent);
+  animation: heat-shimmer 9s ease-in-out infinite alternate;
+}
+
+/* the headroom heatmap is data: while it's on, the hour's light steps back and holds still */
+html[data-heat] .map:has(.map-svg--headroom)::before {
+  animation: none;
+  opacity: 0.4;
+}
+
+@keyframes heat-shimmer {
+  0% {
+    opacity: 0.62;
+  }
+
+  45% {
+    opacity: 1;
+  }
+
+  70% {
+    opacity: 0.8;
+  }
+
+  100% {
+    opacity: 0.95;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-heat] .map::before {
+    animation: none;
+    transition: none;
+  }
+
+  .heat__opt span,
+  .heat__fill,
+  .heat__over {
+    transition: none;
+  }
+}
