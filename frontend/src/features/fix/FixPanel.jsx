@@ -8,7 +8,10 @@ import { useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Badge, Button, EmptyState, ErrorBanner, Loading } from '../../ui'
+import { useLossRate } from '../impact/caseCost'
 import './fix.css'
+import './flip.css'
+import { describeFix, flipKey, flipSide, plantsOut, runWithFix, showWith, useBestFix, useFlip, withFix } from './flipCase'
 import { isApplied, prettyName, runFix, setHoverSite, shownSites, useBestSites, useFix, useHoverSite } from './fixStore'
 
 export default function FixPanel() {
@@ -23,9 +26,14 @@ export default function FixPanel() {
 // ------------------------------------------------------------------ (1) Fix it
 function FixSection() {
   const o = useOverload()
-  const { site, extraSites, trip, loadFactor, caseBody, result, solving, whatifError, upgrades, setUpgrades, setMode, focus, subPos } = o
+  const { site, extraSites, trip, loadFactor, caseBody, result, solving, whatifError, upgrades, setUpgrades, setMode, focus, subPos, cascade, cascading } = o
+  const flip = useFlip()
+  const rate = useLossRate() // the cost of the outage the results column shows, for the before/after line
+  // the briefing report of this case (cached; Florida's is warm, elsewhere only once a cascade ran): the same
+  // upgrades are one of its verified fixes, with their cost (the high end)
   const hasCase = !!(site || extraSites.length || trip.length || loadFactor !== 1.0)
   const fix = useFix(caseBody)
+  const { report } = useBestFix(caseBody, !!fix.data && (!!cascade || o.region === 'FL'))
   const nUp = Object.keys(upgrades).length
   // the what-if on screen was solved with the upgrades we have now (the header echoes them)
   const fresh = !!result && sameUpgrades(result.upgrades, upgrades)
@@ -62,7 +70,30 @@ function FixSection() {
     body = <ErrorBanner error={whatifError} />
   } else if (fix.status === 'done') {
     // stays on screen while the what-if re-solves with (or without) the upgrades
-    body = <FixResult fix={fix.data} applied={applied} over={over} solving={solving} onApply={() => setUpgrades(fix.data.apply)} onRemove={() => setUpgrades({})} />
+    // one click: the same case runs again with these upgrades and the results column shows the before/after
+    // (features/fix/flip.js, the same path as the panel's "Run it again with the fix")
+    const up = { upgrades: fix.data.apply }
+    const target = flipKey(withFix(caseBody, up))
+    const same = (report?.fixes || []).find((f) => f.apply && f.verdict === 'holds' && flipKey(withFix(caseBody, f.apply)) === target)
+    const runIt = () => {
+      if (flip.fix && flipSide(flip, caseBody) === 'base' && target === flip.fix.key) return showWith(o)
+      const described = same && describeFix(same, Number(report?.case?.mw) || 0)
+      runWithFix(o, { ...(described || {}), apply: up, words: described?.words || fixWords(fix.data), by: 'engine', verdict: fix.data.calm ? 'holds' : 'partly', upgrades: fix.data.upgrades.map((u) => u.id) }, { base: caseBody, rate, report })
+    }
+    body = (
+      <FixResult
+        fix={fix.data}
+        applied={applied}
+        over={over}
+        solving={solving}
+        ran={!!cascade}
+        running={cascading && flip.status === 'running'}
+        plantCase={plantsOut(cascade)}
+        onRun={runIt}
+        onApply={() => setUpgrades(fix.data.apply)}
+        onRemove={() => setUpgrades({})}
+      />
+    )
   } else if (!over) {
     body = <Loading label={nUp ? 'Re-solving with the upgrades…' : 'Solving the grid…'} />
   } else if (over.length === 0) {
@@ -142,7 +173,21 @@ function CaseLine() {
 
 const SHOW_UPS = 6 // a big case can need dozens of upgrades; list the first few, the rest on request
 
-function FixResult({ fix, applied, over, solving, onApply, onRemove }) {
+// "Raise the North Fort Myers 6 transformer and 1 line" (the Fix it search's upgrades, biggest first)
+function fixWords(fix) {
+  const ups = [...(fix.upgrades || [])].sort((a, b) => (b.new_mva - b.old_mva) - (a.new_mva - a.old_mva))
+  if (!ups.length) return 'The smallest fix'
+  const name = (u) => (u.transformer ? `the ${prettyName(u.from_name)} transformer` : `the ${prettyName(u.from_name)} to ${prettyName(u.to_name)} line`)
+  const rest = ups.slice(1)
+  const nx = rest.filter((u) => u.transformer).length
+  const nl = rest.length - nx
+  const more = []
+  if (nx) more.push(`${nx} ${ups[0].transformer ? 'more ' : ''}${nx === 1 ? 'transformer' : 'transformers'}`)
+  if (nl) more.push(`${nl} ${ups[0].transformer ? '' : 'more '}${nl === 1 ? 'line' : 'lines'}`)
+  return `Raise ${name(ups[0])}${more.length ? ` and ${more.join(' and ')}` : ''}`
+}
+
+function FixResult({ fix, applied, over, solving, ran, running, plantCase, onRun, onApply, onRemove }) {
   const [all, setAll] = useState(false)
   const n = fix.upgrades.length
   if (n === 0) {
@@ -205,11 +250,27 @@ function FixResult({ fix, applied, over, solving, onApply, onRemove }) {
         </>
       ) : (
         <>
-          <p className="muted">Ratings only: no new lines, no cost model. Applying them re-solves the grid.</p>
+          {plantCase ? (
+            // a plant outage is on the map (Plants tab): these upgrades are for the case with every plant running,
+            // so running them here would compare a different case
+            <p className="muted">
+              Ratings only: no new lines. They are for the case with every plant running: bring the plant back in the Plants tab to run it
+              again with them.
+            </p>
+          ) : (
+            <>
+              <p className="muted">Ratings only: no new lines. One click runs the same case again with them.</p>
+              <div className="flip">
+                <Button busy={running || solving} onClick={onRun}>
+                  {ran ? 'Run it again with this fix' : 'Run the cascade with this fix'}
+                </Button>
+              </div>
+            </>
+          )}
           <div className="row">
-            <Button busy={solving} onClick={onApply}>
-              Apply upgrades
-            </Button>
+            <button type="button" className="fix-link" onClick={onApply}>
+              Apply the upgrades without running it
+            </button>
           </div>
         </>
       )}

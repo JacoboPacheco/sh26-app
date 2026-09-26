@@ -3,8 +3,9 @@ import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import AgentTrace, { AgentTraceToggle } from '../ai/AgentTrace'
 import AiBadge from '../ai/AiBadge'
+import { reportPeople } from '../cost/figures'
 import { Kicker } from './ShowBits'
-import { AI_BEAT, SOL, agenticOf, aiBeatMs, aiItemsOf, aiTraceOf, greenAt, haveTo, mustRows, optionBeatMs, optionSay, usdCompact } from './showDeck'
+import { AI_BEAT, SOL, agenticOf, aiBeatMs, aiItemsOf, aiTraceOf, greenAt, haveTo, mustRows, optionBeatMs, optionSay, usdCompact, usdShort } from './showDeck'
 import { S } from './showText'
 import { clamp01, easeInOut, useElapsed } from './useShowClock'
 
@@ -34,7 +35,8 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
   // with a voice the options follow its cues, so the clock keeps running long enough for the AI beat after them
   const clock = useElapsed(animate, total + (live.optionCues ? 90000 : 4000))
   const trouble = useMemo(() => troubleLines(report, o.result), [report, o.result])
-  const before = Number(report?.event?.people) || 0
+  // the re-run counts down from the results panel's headline figure (people hit) to what the fix leaves
+  const before = reportPeople(report).hit
   const headline = haveTo(report, lang)
 
   // which option is on: the narration's option cues when it has them, else the show's own clock
@@ -236,7 +238,7 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
           </ul>
 
           <div className={`sh-rerun${local >= tg - 250 ? ' sh-rerun--go' : ''}${runDone ? ' sh-rerun--done' : ''}`} style={{ '--g': g }}>
-            <p className="sh-rerun__label">{local >= tg - 250 && !runDone ? t.rerun : t.peopleOut}</p>
+            <p className="sh-rerun__label">{runDone ? t.peopleOut : local >= tg - 250 ? t.rerun : t.scPeople}</p>
             <p className="sh-rerun__n" aria-hidden="true">
               {fmt(people)}
             </p>
@@ -256,7 +258,7 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
               <p className="sh-cost">
                 {opt.cost?.high ? (
                   <>
-                    {t.costHigh(usdCompact(opt.cost.high))} <span>({t.costHighNote})</span>
+                    {t.costHigh(usdCompact(opt.cost.high, lang))} <span>({t.costHighNote})</span>
                   </>
                 ) : (
                   t.costNone
@@ -328,9 +330,9 @@ function OptionRow({ o, lang, best, delay, animate, maxCost }) {
         <span className="sh-orow__bar sh-orow__bar--cost">
           <i />
         </span>
-        <b>{high ? usdCompact(high) : '–'}</b>
+        <b>{high ? usdShort(high) : '–'}</b>
       </div>
-      <span className="sh-sr">{`${fmt(o.kept_mw)} MW, ${Math.round(o.kept_pct)}% ${t.kept}; ${high ? t.costHigh(usdCompact(high)) : t.costNone}`}</span>
+      <span className="sh-sr">{`${fmt(o.kept_mw)} MW, ${Math.round(o.kept_pct)}% ${t.kept}; ${high ? t.costHigh(usdCompact(high, lang)) : t.costNone}`}</span>
     </li>
   )
 }

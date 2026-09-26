@@ -215,6 +215,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* "$1.08 billion": the unit word smaller, as the results panel sets it */
+.sh-mega__u {
+  font-size: 0.45em;
+  font-weight: 700;
+  font-stretch: 80%;
+  letter-spacing: 0;
+}
+
+/* "about 22 hours": the words small, the number big (costs.outage_label's words) */
+.sh-clock .sh-clock__u--pre {
+  margin-left: 0;
+  margin-right: 0.5rem;
+}
+
 .sh-clock {
   margin: 0;
   display: flex;
@@ -1602,6 +1616,19 @@
   stroke-dashoffset: 1;
   stroke-opacity: 0.95;
   animation: sh-draw 1200ms ease-out forwards;
+}
+
+/* a transformer's ring fades in whole: Chrome draws a scaled dash on a circle short of a full turn (a gap) */
+.rs-map__xf--fix {
+  stroke-dasharray: none;
+  stroke-dashoffset: 0;
+  animation: sh-xf-in 700ms ease-out both;
+}
+
+@keyframes sh-xf-in {
+  from {
+    stroke-opacity: 0;
+  }
 }
 
 .rs-map__pulse {

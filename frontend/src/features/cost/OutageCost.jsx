@@ -9,13 +9,19 @@
 // them here after the replay.
 import { useOverload } from '../../store'
 import { Loading } from '../../ui'
-import { useCaseCost } from '../impact/caseCost'
+import { outageText } from './figures'
 import './outage.css'
-import { moneyParts, moneyRange } from './money'
+import { money, moneyParts, moneyRange } from './money'
+import { useSteadyCaseCost, useSteadyLossRate } from './steady'
+
+// a person's share, in whole dollars ("$849", "$42"; under a dollar in cents)
+const perPerson = (v) => (v >= 1 ? `$${Math.round(v).toLocaleString('en-US')}` : money(v))
 
 export default function OutageCost() {
   const { cascade, step, playing, fx } = useOverload()
-  const { det, status, lazy, hasCase, key, retry } = useCaseCost()
+  // (steady: after a flip, switching back shows this case's own estimate at once, not the other case's)
+  const { det, status, lazy, hasCase, key, retry } = useSteadyCaseCost()
+  const rate = useSteadyLossRate()
   const n = cascade?.steps?.length || 0
   const played = !!cascade && step >= n && !(fx && playing)
 
@@ -48,7 +54,8 @@ export default function OutageCost() {
         <>
           <div className="loss__row">
             <span className="loss__k">Time without power</span>
-            <span className="loss__time">{h.outage_label}</span>
+            {/* one format everywhere: "about 22 hours" (backend/costs.py outage_label; the same rule here) */}
+            <span className="loss__time">{h.outage_hours > 0 ? outageText(h.outage_hours) : h.outage_label}</span>
           </div>
           {!onToll && (
             <>
@@ -69,6 +76,12 @@ export default function OutageCost() {
             <p>{h.outage_basis}</p>
             {blackout && <p>{blackout.assumption}</p>}
             {onToll && <p>High end of typical estimates ({moneyRange(h.cost_low, h.cost_high)}). Estimates on a synthetic grid model.</p>}
+            {onToll && rate && (
+              <p>
+                The toll&apos;s money: the blackout&apos;s cost (lost power × hours without it × the value of lost load, high end)
+                {rate.basis === 'hit' ? ' shared out by the people hit' : ' per person who loses power'}, about {perPerson(rate.high)} a person.
+              </p>
+            )}
           </details>
         </>
       )}

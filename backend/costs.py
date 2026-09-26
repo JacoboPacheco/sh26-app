@@ -185,18 +185,17 @@ def outage_hours(people: float) -> float:
 
 
 def outage_label(h: float, lang: str = "en") -> str:
-    """'about 8 hours', 'about a day', 'about 3 days' (or the Spanish)."""
+    """The one way every screen writes the outage length: 'about 8 hours', 'about 22 hours' (whole hours up to
+    two days), then 'about 3 days' (or the Spanish). bulletin.hours_say speaks the same value in words."""
     en = lang == "en"
     if h <= 0:
         return "no outage" if en else "sin apagón"
     if h < 1.5:
         return "about an hour" if en else "aproximadamente una hora"
-    if h < 22:
-        n = int(round(h))
+    if h < 47.5:
+        n = int(h + 0.5)  # half up, like the frontend's Math.round
         return f"about {n} hours" if en else f"unas {n} horas"
-    if h < 36:
-        return "about a day" if en else "aproximadamente un día"
-    d = int(round(h / 24))
+    d = int(h / 24 + 0.5)
     return f"about {d} days" if en else f"unos {d} días"
 
 
@@ -351,13 +350,13 @@ def estimate(body: CostIn) -> dict:
         "low": round(mwh * v_low),
         "high": round(mwh * v_high),
         "formula": (
-            f"{lost_mw:,.0f} MW of customers dark (about {int(casc.get('people') or 0):,} people, estimate) × {hours:g} h "
+            f"{lost_mw:,.0f} MW of customers dark ({int(casc.get('people') or 0):,} people still without power when it settles, estimate) × {hours:g} h "
             f"= {mwh:,.0f} MWh unserved × {_rng(v_low, v_high)} per MWh"
             if lost_mw > 0
             else "No customer loses power in this case."
         ),
         "assumption": (
-            f"The lights stay off for {hours:g} hours ({'as chosen' if given else 'estimated from the incident' + chr(39) + 's size: ' + OUTAGE_BASIS}). Value of lost load from LBNL's interruption costs by customer class "
+            f"The lights stay off for {outage_label(hours)} ({hours:g} h in the formula; {'as chosen' if given else 'estimated from the incident' + chr(39) + 's size: ' + OUTAGE_BASIS}). Value of lost load from LBNL's interruption costs by customer class "
             f"({'at the 16-hour rate, the longest LBNL estimates' if hours > 16 else 'interpolated by outage length'}), weighted "
             f"by 2024 U.S. sales: {RES_SHARE:.1%} homes, the rest businesses. Low: every business at the large-business rate. "
             f"High: one business MWh in ten at the small-business rate (our assumption). 2013 dollars raised to 2024 by CPI-U."
@@ -381,7 +380,7 @@ def estimate(body: CostIn) -> dict:
         what.append(f"{n_xf} {'transformer' if n_xf == 1 else 'transformers'}")
     formula = f"{' and '.join(what)} raised above their limits, priced by voltage class and length" if items else "No line goes over its limit, so nothing needs upgrading."
     if not prevents:
-        formula += (
+        formula += ("." if items else "") + (
             f" {'Even with them' if items else 'Still'}, about {lost_after:,.0f} MW ({people_after:,} people, estimate) stay dark."
             if partial_helps or not items
             else " Even with them the cascade still ends in a blackout."
@@ -480,9 +479,9 @@ def estimate(body: CostIn) -> dict:
     elif items:
         pct = _mid(upgrades_line) / max(_mid(blackout), 1.0) * 100
         if pct < 95:
-            insights.append(f"Preventing it costs about {'under 1' if pct < 1 else f'{pct:.0f}'}% of what one {hours:g}-hour blackout costs.")
+            insights.append(f"Preventing it costs about {'under 1' if pct < 1 else f'{pct:.0f}'}% of what one blackout of {outage_label(hours)} costs.")
         else:
-            insights.append(f"Preventing it costs about {pct / 100:.1f} times what one {hours:g}-hour blackout costs.")
+            insights.append(f"Preventing it costs about {pct / 100:.1f} times what one blackout of {outage_label(hours)} costs.")
     if items and mw > 0:
         pct = _mid(upgrades_line) / max(_mid(bill), 1.0) * 100
         insights.append(f"The upgrades equal about {'under 1' if pct < 1 else f'{pct:.0f}'}% of one year of the campus's power bill.")

@@ -6,6 +6,7 @@ import ShowSolutions, { Frame, OptionRows } from './ShowSolutions'
 import ShowToll from './ShowToll'
 import { S } from './showText'
 import { bestApply, linesOf } from './stage'
+import { reportPeople } from '../cost/figures'
 import { FAMILY, T, VERDICT, compact, num, people, splitVerdict } from './text'
 import { useElapsed } from './useShowClock'
 
@@ -250,7 +251,8 @@ function Takeaway({ report, lang }) {
     rows.push([t.bestFix, `${name(best)} · ${t.rerun(best.outcome.steps, people(best.outcome.people, lang))}`])
     const others = fixes.filter((f, i) => i !== report.best_fix && f.verdict === 'holds' && f.family !== 'remove').slice(0, 2)
     if (others.length) rows.push([t.alsoHolds, others.map(name).join(' · ')])
-    if (ev.people > 0) rows.push([t.ifNothing, t.peopleOut(people(ev.people, lang))])
+    const { hit, stillOut } = reportPeople(report)
+    if (ev.people > 0) rows.push([t.ifNothing, t.ifNothingV(num(hit), num(stillOut))])
   }
   if (!rows.length) return null
   return (

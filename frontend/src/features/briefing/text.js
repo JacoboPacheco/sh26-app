@@ -1,4 +1,5 @@
 import { fmt } from '../../geo'
+import { money } from '../cost/money'
 
 // The stage's own words in both languages (the slides' words come from the deck), and number formats.
 export const T = {
@@ -56,6 +57,8 @@ export const T = {
     alsoHolds: 'Also verified to hold',
     ifNothing: 'If nothing changes',
     peopleOut: (ppl) => `${ppl} people without power (estimate)`,
+    // the results panel's two figures, with its words (features/cost/figures.js)
+    ifNothingV: (hit, out) => (out && out !== hit ? `${hit} people hit · ${out} still without power when it settled (estimates)` : `${hit} people hit (estimate)`),
     unreachable: 'Beyond any fix',
     unreachableV: (ppl) => `${ppl} people (estimate): only rebuilding lines reconnects them`,
     rebuildFirst: 'Rebuild first',
@@ -118,6 +121,7 @@ export const T = {
     alsoHolds: 'También funcionan',
     ifNothing: 'Si nada cambia',
     peopleOut: (ppl) => `${ppl} personas sin electricidad (estimación)`,
+    ifNothingV: (hit, out) => (out && out !== hit ? `${hit} personas afectadas · ${out} aún sin luz al estabilizarse (estimaciones)` : `${hit} personas afectadas (estimación)`),
     unreachable: 'Fuera del alcance de cualquier solución',
     unreachableV: (ppl) => `${ppl} personas (estimación): solo reconstruir líneas las reconecta`,
     rebuildFirst: 'Reconstruir primero',
@@ -207,10 +211,10 @@ export function compact(n) {
   return fmt(v)
 }
 
+// a cost as the results panel writes it ("$1.08 billion", "$64 million"; features/cost/money.js)
 export const usd = (n) => {
   const v = Number(n) || 0
-  if (v >= 1e9) return `$${(v / 1e9).toFixed(1).replace(/\.0$/, '')} billion`
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(1).replace(/\.0$/, '')} million`
   if (v > 0 && v < 1) return v < 0.01 ? 'under 1 cent' : `${Math.round(v * 100)} cents` // a per-household share
+  if (v >= 1e6) return money(v)
   return `$${fmt(v)}`
 }

@@ -1,7 +1,8 @@
 import { useOverload } from '../../store'
 import { Badge, Button } from '../../ui'
+import { LABEL, outageText, reportPeople } from '../cost/figures'
 import { SplitBar } from './Slide'
-import { linesOf, loc } from './stage'
+import { headlineOf, linesOf, loc } from './stage'
 import { FAMILY, T, VERDICT, num, people, usd } from './text'
 
 // The full written briefing: the report laid out as a document, top to bottom. The timeline is synced
@@ -19,6 +20,10 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
   const rec = report.recovery
   const nf = report.no_fix
   const best = report.best_fix
+  // the results panel's two figures (one set of numbers, features/cost/figures.js), and the event slide's headline,
+  // which names them; the engine's own headline counts only the second
+  const { hit, stillOut } = reportPeople(report)
+  const title = headlineOf(report, deck)
 
   return (
     <article className="rs-doc" aria-labelledby="rs-doc-title">
@@ -26,7 +31,7 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
       {lang === 'es' && <p className="muted">El informe escrito está en inglés; las diapositivas, los subtítulos y la narración están en español.</p>}
       <header className="rs-doc__head">
         <p className="rs-doc__kicker">{deck?.title?.[lang] || `${t.sim} · Incident briefing`}</p>
-        <h2 id="rs-doc-title">{report.headline?.text}</h2>
+        <h2 id="rs-doc-title">{title}</h2>
         <div className="row">
           <Badge tone={report.verdict === 'preventable' ? 'neutral' : 'warn'}>{VERDICT_LABEL[report.verdict] || report.verdict}</Badge>
           {fixture && <Badge tone="warn">{t.fixture}</Badge>}
@@ -39,8 +44,9 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
       <section aria-labelledby="rs-doc-sum">
         <h3 id="rs-doc-sum">Summary</h3>
         <dl className="rs-facts">
-          <Fact k="People without power at the end" v={`${num(ev.people)} (estimate)`} />
-          {ev.peak_people > ev.people && <Fact k="At the worst step" v={`${num(ev.peak_people)} (estimate)`} />}
+          <Fact k={LABEL.en.hit.replace(' (estimate)', '')} v={`${num(hit)} (estimate)`} />
+          <Fact k={LABEL.en.stillOutK.replace(' (estimate)', '')} v={`${num(stillOut)} (estimate)`} />
+          {report.cost?.duration_h_assumed > 0 && <Fact k="Time without power" v={`${outageText(report.cost.duration_h_assumed)} (estimate)`} />}
           {ev.people_share_pct != null && <Fact k={`Share of ${report.region_name || 'the state'}`} v={`${ev.people_share_pct}% (estimate)`} />}
           <Fact k="Existing load lost" v={`${num(ev.lost_mw)} MW`} />
           <Fact k="Cascade steps" v={`${num(ev.steps)}${ev.capped ? ' (still spreading when the model stopped)' : ''}`} />
@@ -136,14 +142,17 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
         <section aria-labelledby="rs-doc-cost">
           <h3 id="rs-doc-cost">What it costs (estimate)</h3>
           <dl className="rs-facts">
+            {/* every cost at the high end of its range, as the results panel and the deck say it */}
             {report.cost.blackout_usd != null && (
               <Fact
-                k={`The blackout, if it lasts ${report.cost.duration_h_assumed} hours (assumed)`}
-                v={`${usd(report.cost.blackout_usd)} (estimate${report.cost.ranges?.blackout_usd ? `; range ${range(report.cost.ranges.blackout_usd, 'USD')}` : ''})`}
+                k={`The blackout, if it lasts ${outageText(report.cost.duration_h_assumed)} (assumed)`}
+                v={`${usd(report.cost.blackout_high_usd ?? report.cost.ranges?.blackout_usd?.[1] ?? report.cost.blackout_usd)} (high end${report.cost.ranges?.blackout_usd ? `; range ${range(report.cost.ranges.blackout_usd, 'USD')}` : ''}; estimate)`}
               />
             )}
-            {report.cost.upgrade_usd != null && <Fact k="The upgrades that prevent it" v={`${usd(report.cost.upgrade_usd)} (estimate)`} />}
-            {report.cost.campus_bill_usd_per_year != null && <Fact k="The data center's power bill per year" v={`${usd(report.cost.campus_bill_usd_per_year)} (estimate)`} />}
+            {report.cost.upgrade_usd != null && <Fact k="The upgrades that prevent it" v={`up to ${usd(report.cost.ranges?.upgrade_usd?.[1] ?? report.cost.upgrade_usd)} (estimate)`} />}
+            {report.cost.campus_bill_usd_per_year != null && (
+              <Fact k="The data center's power bill per year" v={`up to ${usd(report.cost.ranges?.campus_bill_usd_per_year?.[1] ?? report.cost.campus_bill_usd_per_year)} (estimate)`} />
+            )}
             {report.cost.who_pays && <Fact k="Who pays" v={report.cost.who_pays} />}
           </dl>
           {report.cost.assumptions?.length > 0 && (

@@ -1,5 +1,6 @@
 import { compactItems, groupTrace } from '../ai/trace'
 import { fmt } from '../../geo'
+import { LABEL, moneyIn, outageText, reportPeople } from '../cost/figures'
 import { MUST, OPTION_NAME, S } from './showText'
 import { people as peopleText } from './text'
 
@@ -10,14 +11,15 @@ import { people as peopleText } from './text'
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const bare = (label) => String(label || '').replace(/^the\s+/i, '')
 
-// 1,075,251,158 → "$1.1B" · 381,210,556 → "$381M" · 18,337,534 → "$18M" · 41,000 → "$41K"
-export function usdCompact(v) {
-  const x = Number(v) || 0
-  if (x >= 1e9) return `$${(x / 1e9).toFixed(1).replace(/\.0$/, '')}B`
-  if (x >= 1e7) return `$${Math.round(x / 1e6)}M`
-  if (x >= 1e6) return `$${(x / 1e6).toFixed(1).replace(/\.0$/, '')}M`
-  if (x >= 1e3) return `$${Math.round(x / 1e3)}K`
-  return `$${Math.round(x)}`
+// A cost as the results panel writes it (one set of numbers, features/cost/figures.js): 1,075,251,158 →
+// "$1.08 billion" · 63,952,218 → "$64 million" · 41,000 → "$41,000". `lang` 'es': "$1.08 mil millones".
+export function usdCompact(v, lang = 'en') {
+  return moneyIn(Number(v) || 0, lang)
+}
+
+// the same figure in a narrow cell: "$64M", "$1.08B" (the panel's precision, the unit as a letter)
+export function usdShort(v) {
+  return moneyIn(Number(v) || 0, 'en').replace(/ billion$/, 'B').replace(/ million$/, 'M')
 }
 
 // hours → {h, m}
@@ -32,12 +34,17 @@ export function tollOf(deck, report) {
   const cost = slide?.big?.value ?? report?.cost?.blackout_high_usd ?? null
   const hours = slide?.big2?.value ?? report?.cost?.duration_h_assumed ?? null
   const range = report?.cost?.ranges?.blackout_usd || null
-  const ev = report?.event || {}
+  // the panel's two people figures: the backend's own (slide.people) when the deck carries them, else the report's
+  const rp = reportPeople(report)
+  const hit = Number(slide?.people?.hit) || rp.hit
+  const stillOut = Number(slide?.people?.still_out ?? rp.stillOut) || 0
   return {
     cost: cost != null ? Number(cost) : null,
     hours: hours != null ? Number(hours) : null,
     range: range ? { low: Number(range[0]), high: Number(range[1]) } : null,
-    people: Number(ev.people) || null,
+    people: stillOut || null,
+    hit: hit || null,
+    stillOut: stillOut || null,
     label: slide?.big2?.display || null,
   }
 }
@@ -397,9 +404,11 @@ export function tickerItems(report, deck, lang) {
   const es = lang === 'es'
   const ev = report?.event || {}
   const items = [s.simTicker]
-  const p = (n) => peopleText(n, lang)
-  if (ev.people) items.push(es ? `${p(ev.people)} personas sin luz al final (estimación)` : `${p(ev.people)} people without power at the end (estimate)`)
-  if (ev.peak_people && ev.peak_people > ev.people) items.push(es ? `Pico: ${p(ev.peak_people)} personas en el peor paso (estimación)` : `Peak: ${p(ev.peak_people)} people at the worst step (estimate)`)
+  const L = LABEL[lang] || LABEL.en
+  // the panel's two figures, with the panel's labels (the peak is not one of them: it is not shown)
+  const { hit, stillOut } = reportPeople(report)
+  if (hit) items.push(`${L.hit.replace(/ \((estimate|estimación)\)$/, '')}: ${fmt(hit)} (${es ? 'estimación' : 'estimate'})`)
+  if (stillOut && stillOut < hit) items.push(`${L.stillOutK.replace(/ \((estimate|estimación)\)$/, '')}: ${fmt(stillOut)} (${es ? 'estimación' : 'estimate'})`)
   if (ev.lost_mw) items.push(es ? `${fmt(ev.lost_mw)} MW de carga perdidos (estimación)` : `${fmt(ev.lost_mw)} MW of load lost (estimate)`)
   if (ev.steps) items.push(es ? `${ev.steps} pasos de cascada` : `${ev.steps} cascade steps`)
   const rc = report?.root_cause
@@ -408,14 +417,20 @@ export function tickerItems(report, deck, lang) {
   const hos = report?.hospitals
   if (hos?.count) items.push(es ? `${hos.count} hospitales en zonas sin luz (estimación, energía de respaldo)` : `${hos.count} hospitals in the dark areas (estimate; on backup power)`)
   const areas = (report?.areas || []).slice(0, 3)
-  if (areas.length) items.push(areas.map((a) => `${a.area} ${fmt(a.people)}`).join(' · ') + (es ? ' personas (estimación)' : ' people (estimate)'))
+  // the areas' figures are the people still without power (not the people hit): say so, or they read as a third number
+  if (areas.length) items.push((es ? 'Aún sin luz: ' : 'Still without power: ') + areas.map((a) => `${a.area} ${fmt(a.people)}`).join(' · ') + (es ? ' personas (estimación)' : ' people (estimate)'))
   const c = report?.cost
-  if (c?.ranges?.blackout_usd) items.push(es ? `Costo esperado: ${usdCompact(c.ranges.blackout_usd[0])} a ${usdCompact(c.ranges.blackout_usd[1])} (estimación)` : `Expected cost: ${usdCompact(c.ranges.blackout_usd[0])} to ${usdCompact(c.ranges.blackout_usd[1])} (estimate)`)
-  if (c?.outage_label?.[lang]) items.push(es ? `Tiempo sin luz: ${c.outage_label.es} (estimación)` : `Time without power: ${c.outage_label.en} (estimate)`)
+  const hi = Number(c?.blackout_high_usd) || Number(c?.ranges?.blackout_usd?.[1]) || 0
+  if (hi) {
+    const lo = Number(c?.ranges?.blackout_usd?.[0]) || 0
+    const range = lo && lo < hi ? (es ? `; rango ${usdCompact(lo, lang)} a ${usdCompact(hi, lang)}` : `; range ${usdCompact(lo, lang)} to ${usdCompact(hi, lang)}`) : ''
+    items.push(es ? `Costo esperado: ${usdCompact(hi, lang)} (extremo alto${range}; estimación)` : `Expected cost: ${usdCompact(hi, lang)} (high end${range}; estimate)`)
+  }
+  if (c?.duration_h_assumed > 0) items.push(es ? `Tiempo sin luz: ${outageText(c.duration_h_assumed, 'es')} (estimación)` : `Time without power: ${outageText(c.duration_h_assumed, 'en')} (estimate)`)
   const fixSlide = (deck?.slides || []).find((x) => (x.kind || x.id) === 'fix')
   for (const o of report?.no_fix ? [] : optionsOf(report, fixSlide).slice(0, 4)) {
     const tag = o.by === 'gemini' ? s.verifiedAI : s.verifiedEngine
-    const cost = o.cost?.high ? ` · ${es ? 'hasta' : 'up to'} ${usdCompact(o.cost.high)}` : ''
+    const cost = o.cost?.high ? ` · ${es ? 'hasta' : 'up to'} ${usdCompact(o.cost.high, lang)}` : ''
     items.push(`${o.name[lang]} · ${o.kept_pct >= 99.5 ? s.fullSize.toLowerCase() : `${Math.round(o.kept_pct)}% ${s.kept}`}${cost} · ${tag}`)
   }
   const ag = deck?.agentic
@@ -442,7 +457,7 @@ export function optionSay(o, k, n, lang = 'en', done = false) {
   const s = S[lang]
   const keep = o.kept_pct >= 99.5 ? s.sayKeepAll(fmt(o.kept_mw)) : s.sayKeep(fmt(o.kept_mw), fmt(o.from_mw))
   if (!done) return s.sayPlan(k + 1, n, o.name[lang], keep)
-  const cost = o.cost?.high ? `${s.costHigh(usdCompact(o.cost.high))}.` : ''
+  const cost = o.cost?.high ? `${s.costHigh(usdCompact(o.cost.high, lang))}.` : ''
   const after = Number(o.outcome?.people) || 0
   const result = after === 0 ? s.sayResult0 : s.sayResultN(fmt(after))
   return `${result} ${cost} ${o.by === 'gemini' ? s.verifiedAI : s.verifiedEngine}.`.replace(/\s+/g, ' ')

@@ -92,6 +92,32 @@ def register(ctx):
         c = ctx.request("POST", "/api/grid/cascade", {**case, **apply})
         assert c["total_steps"] == 0, f"the deck's best fix still cascades: {c['total_steps']} steps"
 
+    def test_one_set_of_numbers():
+        # ONE SET OF NUMBERS (the results panel, the deck, its ticker and the brief say the same figures):
+        # people hit = the cascade's people_hit (the panel's counter), still without power when it settles =
+        # its people; the outage length as costs.outage_label writes it; the cost at the high end; no peak figure;
+        # and the deck's "Apply the best fix" is the report's best fix (the panel's "Run it again with the fix")
+        d = state["deck"]
+        c = ctx.request("POST", "/api/grid/cascade", case)
+        panel = ctx.request("POST", "/api/cost", case)["headline"]
+        toll, event = d["slides"][0], next(s for s in d["slides"] if s["id"] == "event")
+        hit, still = int(c.get("people_hit") or c["people"]), int(c["people"])
+        assert toll["people"] == {"hit": hit, "still_out": still}, (toll.get("people"), hit, still)
+        assert event["big"]["value"] == hit and "hit" in event["big"]["label"]["en"], event["big"]
+        assert f"{hit:,} people hit" in event["headline"]["en"], event["headline"]["en"]
+        assert f"{hit:,}" in " ".join(toll["lines"]["en"]) and f"still without power when it settled: {still:,}" in " ".join(toll["lines"]["en"]), toll["lines"]["en"]
+        assert toll["big2"]["display"]["en"] == panel["outage_label"] and re.fullmatch(r"about \d+ (hours|days)|about an hour", panel["outage_label"]), (toll["big2"]["display"], panel["outage_label"])
+        assert toll["headline"]["en"].endswith(f"{panel['outage_label']} without power"), toll["headline"]["en"]
+        blob = " ".join(" ".join([s["headline"]["en"], *s["lines"]["en"], *(g["text"] for g in s["narration"]["en"])]) for s in d["slides"])
+        assert "worst step" not in blob and "Peak:" not in blob, "a peak figure is back in the deck"
+        assert not re.search(r"\b\d+\.\d hours\b", blob), "an outage length with decimals (the panel says 'about N hours')"
+        rep = ctx.request("POST", "/api/briefing", case)
+        best = rep["fixes"][rep["best_fix"]]
+        bottom = d["slides"][-1]
+        assert (bottom.get("cta") or {}).get("apply") == best["apply"], (bottom.get("cta"), best["apply"])
+        if best.get("cost"):  # the bottom line names the fix's cost at the high end, as the panel's flip does
+            assert "$" in bottom["narration"]["en"][0]["text"], bottom["narration"]["en"][0]["text"][:160]
+
     def test_short_deck():
         d = ctx.request("POST", "/api/briefing/deck", {**case, "ai": False, "length": "short"})
         ids = [s["id"] for s in d["slides"]]
@@ -175,6 +201,7 @@ def register(ctx):
     ctx.check("briefing deck (hero, templates): slide order, SIMULATION open/close EN+ES, budgets, cues for every step", test_hero_deck)
     ctx.check("briefing deck: several verified solutions, full size first, each with what you have to do; the play-by-play has its plays", test_solutions_and_play_by_play)
     ctx.check("briefing deck: the hero is preventable and the deck's best fix really stops the cascade", test_hero_fix_holds)
+    ctx.check("briefing deck: one set of numbers (people hit / still without power, 'about N hours', high-end cost) and the best fix the panel flips to", test_one_set_of_numbers)
     ctx.check("briefing deck (short): the <= 60 s demo version", test_short_deck)
     ctx.check("briefing deck with AI: complete with or without a key, fixed opening kept", test_ai_deck)
     ctx.check("legacy /api/bulletin: a paragraph from the deck, with the engine's facts", test_legacy_bulletin)

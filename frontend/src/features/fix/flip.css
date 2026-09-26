@@ -1,0 +1,93 @@
+/* THE FLIP (features/fix/Flip.jsx): after the cascade, "Run it again with the fix" in the solution green, and the
+   same case with the fix in place. Incident-room look: plain figures, no glow, no bounce; green only for what the
+   fix holds (the button, the zero, the upgraded lines on the map). */
+
+.flip {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.flip .btn {
+  width: 100%;
+  background: var(--hr-ok);
+  border-color: var(--hr-ok);
+  color: #04130b;
+  font-weight: 700;
+}
+
+.flip__what,
+.flip-res__what {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.flip__wait {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------------ with the fix */
+.flip-res {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.flip-res__k {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hr-ok);
+}
+
+.flip-res .toll__n--people.flip-res__zero,
+.flip-res .toll__n--money.flip-res__zero {
+  color: var(--hr-ok);
+}
+
+.flip-res__head {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.flip-res__strain {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.flip-res__strain b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the before/after in one line: the old toll in the loss red, struck through by nothing but the words */
+.flip-res__vs {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  border-left: 3px solid var(--hr-ok);
+  background: color-mix(in srgb, var(--hr-ok) 7%, transparent);
+  border-radius: 0 6px 6px 0;
+}
+
+.flip-res__was {
+  color: var(--ink-2);
+}
+
+.flip-res__is {
+  font-weight: 650;
+}
+
+.flip-res__back .btn {
+  width: 100%;
+}

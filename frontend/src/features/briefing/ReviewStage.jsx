@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { assetUrl } from '../../api'
 import { useOverload } from '../../store'
 import { Badge, ErrorBanner, Loading } from '../../ui'
+import { describeFix, plantsOut, runWithFix } from '../fix/flipCase'
 import AskSlot from './AskSlot'
 import BriefingDoc from './BriefingDoc'
 import Captions from './Captions'
@@ -333,11 +334,19 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     (delta) => {
       if (!delta || !base) return
       const O = oRef.current
-      const full = { ...base, ...delta }
-      // the map's case becomes the reviewed case with the fix, then its cascade runs (and stays calm)
-      setStoreCase(O, full, delta)
+      const r = reportRef.current
+      // "Don't build it here" removes the campus: nothing to run again
+      if ('lat' in delta && delta.lat == null) {
+        setStoreCase(O, { ...base, ...delta }, delta)
+        onClose()
+        return
+      }
+      // the same path as the results panel's "Run it again with the fix" (features/fix/flip.js): the map's case
+      // becomes the reviewed case with the fix, its cascade runs (and stays calm), the panel shows the before/after
+      const f = (r?.fixes || []).find((x) => x?.apply && JSON.stringify(x.apply) === JSON.stringify(delta))
+      const fix = (f && describeFix(f, Number(r?.case?.mw) || 0)) || { apply: delta, words: 'The fix', by: 'engine', upgrades: Object.keys(delta.upgrades || {}).map(Number) }
       onClose()
-      O.startCascade(full)
+      runWithFix(O, fix, { base, report: r })
     },
     [base, onClose],
   )
@@ -347,7 +356,9 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     if (O.cascade) O.setStep(O.cascade.steps.length)
     onClose()
   }, [onClose])
-  const onApply = base ? apply : null // a catastrophe's fixes are listed, not applied (too many lines out for the map)
+  // a catastrophe's fixes are listed, not applied (too many lines out for the map); so are they while a plant
+  // outage is on the map (Plants tab): this deck's case has every plant running, so "apply" would run another case
+  const onApply = base && !plantsOut(o.cascade) ? apply : null
 
   const askInput = useRef(null)
   const askBody = useMemo(() => cleanBody(body), [body])

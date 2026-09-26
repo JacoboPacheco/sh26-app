@@ -14,6 +14,7 @@ import AiBadge from '../ai/AiBadge'
 import HowAiIsUsed from '../ai/HowAiIsUsed'
 import './cost.css'
 import { getCost, getCostAi } from './costApi'
+import { outageText } from './figures'
 import { PER, moneyRange } from './money'
 
 const AI_SETTLE_MS = 900
@@ -25,7 +26,10 @@ const priced = (line) => line.high > 0
 // "NORTH FORT MYERS 6" -> "North Fort Myers 6" (the synthetic substation names are all caps)
 const nameCase = (s) => String(s || '').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
 
+// 0 = the outage length the results panel and the presentation use: estimated from the incident's size
+// (backend/costs.py outage_hours), so the breakdown opens on the same blackout cost as the toll; the rest are what-ifs
 const HOURS = [
+  { value: 0, label: 'As estimated' },
   { value: 1, label: '1 hour' },
   { value: 6, label: '6 hours' },
   { value: 16, label: '16 hours' },
@@ -34,7 +38,7 @@ const HOURS = [
 
 export default function CostCard({ title = 'What it costs', bare = false }) {
   const { caseBody, region, grid, site, extraSites, trip, loadFactor } = useOverload()
-  const [hours, setHours] = useState(6)
+  const [hours, setHours] = useState(0)
   const [det, setDet] = useState(null) // /api/cost
   const [ai, setAi] = useState(null) // /api/cost/ai → {ai, fallback}
   const [status, setStatus] = useState('idle') // idle | loading | done | error
@@ -65,7 +69,7 @@ export default function CostCard({ title = 'What it costs', bare = false }) {
       setAiStatus('idle')
       setError(null)
       try {
-        const d = await getCost(body, hours)
+        const d = await getCost(body, hours || undefined)
         if (id !== req.current) return
         setDet(d)
         setAi(null)
@@ -82,7 +86,7 @@ export default function CostCard({ title = 'What it costs', bare = false }) {
       await new Promise((resolve) => setTimeout(resolve, AI_SETTLE_MS))
       if (id !== req.current) return
       try {
-        const a = await getCostAi(body, hours)
+        const a = await getCostAi(body, hours || undefined)
         if (id !== req.current) return
         setAi({ items: a.ai, fallback: a.fallback })
         setAiStatus('done')
@@ -104,7 +108,7 @@ export default function CostCard({ title = 'What it costs', bare = false }) {
         <Field as="select" label="Lights out for" value={hours} onChange={(e) => setHours(Number(e.target.value))}>
           {HOURS.map((h) => (
             <option key={h.value} value={h.value}>
-              {h.label}
+              {h.value === 0 && det?.headline?.outage_estimated && det.hours_out > 0 ? `As estimated: ${outageText(det.hours_out)}` : h.label}
             </option>
           ))}
         </Field>

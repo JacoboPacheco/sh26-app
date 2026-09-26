@@ -4,13 +4,16 @@ import MapLegend from '../features/flow/MapLegend'
 import PresentDamage from '../features/briefing/PresentDamage'
 import CostCard from '../features/cost/CostCard'
 import OutageCost from '../features/cost/OutageCost'
+import { LABEL, cascadePeople, homesOf } from '../features/cost/figures'
 import { money, moneyParts, moneyRange } from '../features/cost/money'
+import { FlipOffer, FlipResult } from '../features/fix/Flip'
+import { flipSide, plantsOut, useFixFollowsCase, useFlip } from '../features/fix/flipCase'
 import TownsFeed from '../features/impact/TownsFeed'
-import { useLossRate } from '../features/impact/caseCost'
+import { useSteadyLossRate } from '../features/cost/steady'
 import { byIntensity, leapIntensity } from '../features/impact/intensity'
 import { hitTowns, roundPeople, useHitEvents, useReducedMotion } from '../features/impact/towns'
 import { fmt } from '../geo'
-import { useOverload } from '../store'
+import { townOf, useOverload } from '../store'
 import './bomb.css'
 import { leapIndexAt, titleCase } from './cascadeSchedule'
 import SiteVerdict from './SiteVerdict'
@@ -21,19 +24,29 @@ import SiteVerdict from './SiteVerdict'
 // blast front reaches a town (estimates, from the engine: backend powerflow.hits, and the case's cost:
 // backend/costs.py). Incident-room look: no pops, no glow, one short hard jolt per leap.
 export default function ImpactPanel() {
-  const { view, cascade, step, site, result, fx, playing, mode } = useOverload()
-  const rate = useLossRate()
+  const O = useOverload()
+  const { view, cascade, cascading, cascadeError, step, site, result, fx, playing, mode, caseBody } = O
+  const rate = useSteadyLossRate() // (after a flip, switching back keeps this case's own money on the toll)
   const n = cascade?.steps.length || 0
   const live = !!(fx && playing)
   const done = !!cascade && n > 0 && step >= n && !live
+  const settled = !!cascade && step >= n && !live
   // nobody lost power in the end (the grid rerouted around every failure): the toll stays neutral
   const calm = !!cascade && (cascade.people_zone ?? cascade.people ?? 0) === 0
+  // the flip: the map's case is the one run again with the fix (features/fix/flip.js)
+  // (a plant outage run on top of it from the Plants tab is a different case: its own toll, not "with the fix";
+  // while one computes, the flip's view stays only if the flip itself started the run)
+  const flip = useFlip()
+  const fixed = flipSide(flip, caseBody) === 'fixed' && !plantsOut(cascade) && (!cascading || flip.status === 'running' || !cascade)
+  useFixFollowsCase(O) // a fix belongs to its case: moving the campus takes the flip's upgrades off
   // the rest (full cost breakdown, towns going dark, the map key) sits behind one closed fold, mounted only once opened
   const [more, setMore] = useState(false)
   return (
     <div className="stack panel-body impact">
-      {!site && !cascade && mode === 'campus' ? (
+      {!site && !cascade && mode === 'campus' && !fixed ? (
         <StartHere />
+      ) : fixed && !live && (settled || cascading || (!cascade && !!cascadeError)) ? (
+        <FlipResult />
       ) : site && !cascade ? (
         <>
           <SiteVerdict />
@@ -44,7 +57,7 @@ export default function ImpactPanel() {
       ) : (
         <Counter view={view} done={done} ran={!!cascade} calm={calm} rate={calm ? null : rate} />
       )}
-      {done && (
+      {done && !fixed && (
         <p className={cascade.outcome === 'islanded' ? 'verdict verdict--bad' : 'verdict'}>
           {cascade.outcome === 'islanded'
             ? `The grid split after ${n} ${n === 1 ? 'step' : 'steps'}: ${fmt(cascade.lost_mw)} MW of load lost.`
@@ -54,10 +67,12 @@ export default function ImpactPanel() {
             ` ${(cascade.sites?.length || 1) === 1 ? "The data center's" : "The data centers'"} own ${fmt(cascade.site_dark_mw)} MW lost power too.`}
         </p>
       )}
-      {/* under the toll: how long the lights are out (and, before a run, what it would cost), then one click to present it */}
-      {result && <OutageCost />}
+      {/* under the toll: how long the lights are out (and, before a run, what it would cost), then the flip (the
+          same case again with the best verified fix), then one click to present it */}
+      {result && !fixed && <OutageCost />}
+      {done && !calm && !fixed && <FlipOffer rate={rate} />}
       {result && <PresentDamage />}
-      {done && <ToStrengthen />}
+      {(done || (fixed && settled)) && <ToStrengthen />}
       <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>
         <summary>More: incident briefing, cost breakdown, towns, map key</summary>
         {more && (
@@ -105,9 +120,9 @@ function ToStrengthen() {
 }
 
 // ------------------------------------------------------------------ the toll
-const LABEL = 'People hit (estimate)'
-const MONEY_LABEL = 'Cost of the outage (estimate)'
-const WHY = 'Everyone whose power ran through a failed line or went out, each person counted once.'
+const HIT_LABEL = LABEL.en.hit
+const MONEY_LABEL = LABEL.en.cost
+const WHY = LABEL.en.hitWhy
 
 // nobody hit yet (the first line is still failing, or the replay is scrubbed back to its start): the outage
 // is not priced yet, so a dash holds the figure's place, never "$0" during a real outage
@@ -121,19 +136,6 @@ function moneyAt(hit, rate) {
   return { ...moneyParts(hi), range: `${moneyRange(lo, hi)} · estimate`, pending: false }
 }
 
-// a person's share, in whole dollars ("$849", "$42"; under a dollar in cents)
-const perPerson = (v) => (v >= 1 ? `$${Math.round(v).toLocaleString('en-US')}` : money(v))
-
-// One line on how the money is found (the rule of thumb and its source live in the cost panel's "How we got this").
-function HowMoney({ rate }) {
-  return (
-    <p className="toll__how">
-      How this is estimated: the blackout&apos;s cost (lost power × hours without it × the value of lost load, high end)
-      {rate.basis === 'hit' ? ' shared out by the people hit' : ' per person who loses power'}, about {perPerson(rate.high)} a person.
-    </p>
-  )
-}
-
 // The toll's figures: the people-hit number and, once the case is priced, the cost beside it. Rendered the
 // same way live and paused so the end of a replay changes nothing but the numbers (the live loop finds the
 // figures by these class names and writes them directly).
@@ -143,7 +145,7 @@ function Toll({ hit, rate, calm, children }) {
     <div className={`toll${calm ? ' toll--calm' : ''}${hit > 0 ? '' : ' toll--zero'}`}>
       <div className="toll__figs">
         <div className="toll__fig">
-          <span className="toll__k">{LABEL}</span>
+          <span className="toll__k">{HIT_LABEL}</span>
           <span className="toll__n toll__n--people">{fmt(hit)}</span>
         </div>
         <div className={`toll__fig toll__fig--money${m?.pending ? ' toll__fig--pending' : ''}`} hidden={!m}>
@@ -160,14 +162,44 @@ function Toll({ hit, rate, calm, children }) {
   )
 }
 
+// A storm's step lands its far tail as one group ("127 more towns", backend powerflow.hits): split it back into
+// its towns, the group's people shared by each town's load (how the engine counts people), so "Hardest hit"
+// names a town and a town inside the tail can still be the hardest hit.
+const TAIL = /^\d[\d,]* more towns?$/
+function splitTail(list, subById) {
+  const out = []
+  for (const e of list) {
+    if (!e || !TAIL.test(e.area || '')) {
+      out.push(e)
+      continue
+    }
+    const by = new Map()
+    let total = 0
+    for (const id of e.subs || []) {
+      const s = subById.get(id)
+      if (!s) continue
+      const w = Math.max(Number(s.load_mw) || 0, 0)
+      const name = townOf(s.name)
+      const t = by.get(name) || { w: 0, subs: [] }
+      t.w += w
+      t.subs.push(id)
+      by.set(name, t)
+      total += w
+    }
+    if (total > 0) by.forEach((t, name) => out.push({ ...e, area: name, subs: t.subs, people: Math.round((e.people * t.w) / total) }))
+  }
+  return out
+}
+
 // Paused, scrubbed, or done: the exact value at the step on screen, no animation.
 function Counter({ view, done, ran, calm, rate }) {
-  const { step, subById } = useOverload()
+  const { step, subById, cascade } = useOverload()
   const events = useHitEvents()
   const hit = Math.max(0, view?.peopleHit || 0)
-  const zone = view?.peopleZone || 0
+  // once it settles: the second figure, a part of the people hit (never read as a rival count)
+  const stillOut = done ? cascadePeople(cascade).stillOut : 0
   // once the replay is under way: the town hit hardest so far, with its share of the cost
-  const worst = useMemo(() => (ran && step > 0 ? hitTowns(events.slice(0, step).flat(), subById)[0] : null), [ran, step, events, subById])
+  const worst = useMemo(() => (ran && step > 0 ? hitTowns(splitTail(events.slice(0, step).flat(), subById), subById)[0] || null : null), [ran, step, events, subById])
   return (
     <section className="toll-wrap" aria-label="People hit and the cost of the outage" aria-live="polite">
       <Toll hit={hit} rate={rate} calm={calm}>
@@ -179,18 +211,12 @@ function Counter({ view, done, ran, calm, rate }) {
           </p>
         )}
         {done && calm && hit > 0 && <p className="toll__line">No one lost power: the grid rerouted around every failure.</p>}
-        {zone > 0 && (
+        {stillOut > 0 && (
           <p className="toll__line">
-            <b>{fmt(zone)}</b> in the areas that lost power
-            {done && view.homesZone > 0 && (
-              <>
-                {' '}
-                · <b>{fmt(view.homesZone)}</b> homes <span className="muted">(2.5 people per home)</span>
-              </>
-            )}
+            Of them, <b>{fmt(stillOut)}</b> {LABEL.en.stillOut} · <b>{fmt(homesOf(stillOut))}</b> homes{' '}
+            <span className="muted">(estimates, 2.5 people per home)</span>
           </p>
         )}
-        {rate && <HowMoney rate={rate} />}
       </Toll>
     </section>
   )
@@ -233,19 +259,15 @@ const LiveCounter = memo(function LiveCounter({ fx, calm, rate }) {
     const wrap = root.querySelector('.toll')
     const figs = root.querySelector('.toll__figs')
     const num = root.querySelector('.toll__n--people')
-    const zoneLine = root.querySelector('.toll__zone')
-    const zoneNum = zoneLine.querySelector('b')
     const leaps = fx.schedule.leaps
-    const paint = (hit, zone) => {
+    const paint = (hit) => {
       hitRef.current = hit
       num.textContent = fmt(hit)
       wrap.classList.toggle('toll--zero', !(hit > 0))
       paintMoney(root, hit, rateRef.current)
-      zoneNum.textContent = fmt(zone)
-      zoneLine.hidden = !(zone > 0)
     }
     const land = (l, animate) => {
-      paint(l.hit, l.zone)
+      paint(l.hit)
       if (!animate || reduced || calm || !(l.delta > 0)) return
       // how hard this leap hits against its own incident (0.3..1; the biggest leap of a big incident is 1)
       const I = l.intensity ?? leapIntensity(l.delta, final)
@@ -262,7 +284,7 @@ const LiveCounter = memo(function LiveCounter({ fx, calm, rate }) {
       if (l.big || (l.share ?? 0) >= 0.2) window.dispatchEvent(new CustomEvent('overload:leap', { detail: { delta: l.delta, total: l.hit, intensity: I, big: !!l.big } }))
     }
 
-    paint(start.hit, start.zone)
+    paint(start.hit)
     let i = leapIndexAt(fx.schedule, performance.now() - fx.startedAt)
     if (i >= 0) land(leaps[i], false)
     let raf = 0
@@ -280,12 +302,7 @@ const LiveCounter = memo(function LiveCounter({ fx, calm, rate }) {
 
   return (
     <section className="toll-wrap" aria-label="People hit and the cost of the outage" aria-live="off" ref={rootRef}>
-      <Toll hit={start.hit} rate={rate} calm={calm}>
-        <p className="toll__line toll__zone" hidden={!(start.zone > 0)}>
-          <b>{fmt(start.zone)}</b> in the areas that lost power
-        </p>
-        {rate && <HowMoney rate={rate} />}
-      </Toll>
+      <Toll hit={start.hit} rate={rate} calm={calm} />
     </section>
   )
 })
