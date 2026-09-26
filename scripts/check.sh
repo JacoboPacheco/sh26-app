@@ -74,9 +74,10 @@ for _ in $(seq 1 20); do
 done
 
 if [ "$up" -eq 1 ]; then
-  (cd "$ROOT/backend" && SMOKE_BASE_URL="http://localhost:$PORT" "$PY" smoke_test.py) || failed+=("backend smoke test")
+  # 127.0.0.1, not localhost: on Windows, Python tries ::1 first and waits ~2 s per request before falling back
+  (cd "$ROOT/backend" && SMOKE_BASE_URL="http://127.0.0.1:$PORT" "$PY" smoke_test.py) || failed+=("backend smoke test")
   # the built app may auto-login as the demo account (VITE_DEMO_EMAIL); make it exist
-  (cd "$ROOT/backend" && "$PY" seed.py "http://localhost:$PORT" >/dev/null) || failed+=("seed demo account")
+  (cd "$ROOT/backend" && "$PY" seed.py "http://127.0.0.1:$PORT" >/dev/null) || failed+=("seed demo account")
 else
   echo "backend never came up — last server output:"
   tail -20 "$ROOT/backend/check-server.log"
