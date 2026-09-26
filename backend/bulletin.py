@@ -1331,6 +1331,15 @@ def s_cause(w: Writer, lv: Level) -> dict:
                               else ("Demand alone is the cause." if en else "La causa es solo la demanda."), False))
             elif pw is not None:
                 parts.append(((f"It ran at {pct_say(pw, lang)} of its rating." if en else f"Llegó al {pct_say(pw, lang)} de su capacidad."), False))
+        sw = ((w.r.get("strain") or {}).get("with_campus") or {}) if w.sites and cause != "storm" else {}
+        if int(sw.get("over") or 0) > 0:  # grid strain (user, Sat 07:43): how many lines the new load left over their rating
+            n_over, mw_over = int(sw["over"]), float(sw.get("over_mw") or 0)
+            if en:
+                parts.append((f"In all, {dc_en} left {words(n_over, 'en')} {'line' if n_over == 1 else 'lines'} over {'its' if n_over == 1 else 'their'} rating, "
+                              f"{num(mw_over, 'en')} megawatts more than they can carry.", True))
+            else:
+                parts.append((f"En total, {dc_es} dejó {words(n_over, 'es', before_noun=True)} {'línea' if n_over == 1 else 'líneas'} por encima de su capacidad, "
+                              f"{num(mw_over, 'es')} megavatios más de lo que pueden llevar.", True))
         out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang]))]
         lines = []
         if cause == "storm":
@@ -1355,6 +1364,10 @@ def s_cause(w: Writer, lv: Level) -> dict:
                 lines.append((f"Without {dc_en}: {round(po)}%" if en else f"Sin {dc_es}: {round(po)}%"))
             if share is not None and w.sites:
                 lines.append((f"Share of its flow from {dc_en}: {round(share)}%" if en else f"Parte de su flujo que viene de{'l' if not w.multi else ''} {dc_es[3:] if not w.multi else dc_es}: {round(share)}%"))
+        if int(sw.get("over") or 0) > 0:
+            n_over = int(sw["over"])
+            lines.insert(0, (f"Grid strain: {n_over} {'line' if n_over == 1 else 'lines'} over {'its' if n_over == 1 else 'their'} rating, busiest at {round(float(sw.get('peak_pct') or 0))}%" if en
+                             else f"Tensión en la red: {n_over} {'línea' if n_over == 1 else 'líneas'} sobre su capacidad, la más cargada al {round(float(sw.get('peak_pct') or 0))}%"))
         out["headline"][lang] = cap(h)
         out["lines"][lang] = [x[:LINE_MAX] for x in lines[:3]]
     if cause == "storm" and w.storm:
