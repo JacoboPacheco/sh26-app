@@ -31,6 +31,7 @@ import analyst
 import agreement
 import ask
 import auth
+import baked
 import briefing
 import bulletin
 import catalog
@@ -60,6 +61,7 @@ from limiter import limiter
 
 Base.metadata.create_all(bind=engine)
 add_missing_columns()
+baked.load()  # precomputed Strengthen studies (backend/demo/strengthen): a deploy opens with answers
 
 app = FastAPI()
 
