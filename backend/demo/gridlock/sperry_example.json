@@ -1,0 +1,230 @@
+{
+  "source": "Sperry Tech, ShellHacks 2026 GridLock starter package: Projects_Overlaps.xlsx (their worked example)",
+  "method": "center point = midpoint of the two located endpoints (or the one located endpoint); haversine distance between centers; overlap if under 25 miles; time gap = days between in-service dates",
+  "note": "Values exactly as the sheet stores them. in_service_date_raw mixes text dates and Excel serial numbers (45809 = 2025-06-01, 45778 = 2025-05-01).",
+  "projects": [
+    {
+      "project_id": "DESC_1",
+      "utility": "Dominion Energy South Carolina",
+      "state": "SC",
+      "project_name": "Stevens Creek - Hooks 115 kV / LR Plumb Branch 46 kV Rebuilds",
+      "name_a": "Stevens Creek Sub",
+      "lat_a": 33.562599,
+      "lon_a": -82.051362,
+      "name_b": "Hooks Sub",
+      "lat_b": null,
+      "lon_b": null,
+      "lat_center": 33.562599,
+      "lon_center": -82.051362,
+      "in_service_date_raw": "12/31/2024",
+      "overlaps": [
+        "GPC_1"
+      ]
+    },
+    {
+      "project_id": "DESC_2",
+      "utility": "Dominion Energy South Carolina",
+      "state": "SC",
+      "project_name": "Hooks - Thurmond 115 kV Tie: Rebuild",
+      "name_a": "Hooks Sub",
+      "lat_a": null,
+      "lon_a": null,
+      "name_b": "Thurmond Sub",
+      "lat_b": 33.660127,
+      "lon_b": -82.195931,
+      "lat_center": 33.660127,
+      "lon_center": -82.195931,
+      "in_service_date_raw": "12/31/2024",
+      "overlaps": [
+        "GPC_1"
+      ]
+    },
+    {
+      "project_id": "DESC_3",
+      "utility": "Dominion Energy South Carolina",
+      "state": "SC",
+      "project_name": "Jasper - Okatie 230 kV #2: Construct",
+      "name_a": "Jasper Sub",
+      "lat_a": 32.35912,
+      "lon_a": -81.1246,
+      "name_b": "Okatie Sub",
+      "lat_b": 32.333758,
+      "lon_b": -81.032495,
+      "lat_center": 32.346439000000004,
+      "lon_center": -81.0785475,
+      "in_service_date_raw": "12/31/2025",
+      "overlaps": [
+        "GPC_2",
+        "GPC_3"
+      ]
+    },
+    {
+      "project_id": "DESC_4",
+      "utility": "Dominion Energy South Carolina",
+      "state": "SC",
+      "project_name": "Queensboro - Ft Johnson 115 kV & Queensboro-Bayfront 115 kV (Queensboro-James Island Sect)",
+      "name_a": "Queensboro Sub",
+      "lat_a": 32.722793,
+      "lon_a": -79.967332,
+      "name_b": "Ft Johnson Sub",
+      "lat_b": null,
+      "lon_b": null,
+      "lat_center": 32.722793,
+      "lon_center": -79.967332,
+      "in_service_date_raw": "12/31/2023",
+      "overlaps": []
+    },
+    {
+      "project_id": "DESC_5",
+      "utility": "Dominion Energy South Carolina",
+      "state": "SC",
+      "project_name": "Okatie-Bluffton 115 kV: Rebuild",
+      "name_a": "Okatie Sub",
+      "lat_a": 32.333758,
+      "lon_a": -81.032495,
+      "name_b": "Bluffton Sub",
+      "lat_b": 32.235027,
+      "lon_b": -80.853384,
+      "lat_center": 32.2843925,
+      "lon_center": -80.9429395,
+      "in_service_date_raw": "45809",
+      "overlaps": [
+        "GPC_2",
+        "GPC_3"
+      ]
+    },
+    {
+      "project_id": "GPC_1",
+      "utility": "Georgia Power",
+      "state": "GA",
+      "project_name": "EVANS PRIMARY - THURMOND DAM (USA) #5 115KV REBUILD",
+      "name_a": "EVANS PRIMARY",
+      "lat_a": 33.543994,
+      "lon_a": -82.168648,
+      "name_b": "THURMOND DAM #5",
+      "lat_b": 33.660127,
+      "lon_b": -82.195931,
+      "lat_center": 33.6020605,
+      "lon_center": -82.1822895,
+      "in_service_date_raw": "6/1/2033",
+      "overlaps": [
+        "DESC_2",
+        "DESC_1"
+      ]
+    },
+    {
+      "project_id": "GPC_2",
+      "utility": "Georgia Power",
+      "state": "GA",
+      "project_name": "SAV: MCINTOSH - PURRYSBURG 230KV REACTORS",
+      "name_a": "MCINTOSH",
+      "lat_a": 32.352116,
+      "lon_a": -81.175112,
+      "name_b": "PURRYSBURG",
+      "lat_b": null,
+      "lon_b": null,
+      "lat_center": 32.352116,
+      "lon_center": -81.175112,
+      "in_service_date_raw": "6/1/2026",
+      "overlaps": [
+        "DESC_3",
+        "DESC_5"
+      ]
+    },
+    {
+      "project_id": "GPC_3",
+      "utility": "Georgia Power",
+      "state": "GA",
+      "project_name": "SAV: GOSHEN (SAV) - MCINTOSH 115KV LINE REBUILD",
+      "name_a": "GOSHEN",
+      "lat_a": 32.248701,
+      "lon_a": -81.209472,
+      "name_b": "MCINTOSH",
+      "lat_b": 32.352116,
+      "lon_b": -81.182105,
+      "lat_center": 32.3004085,
+      "lon_center": -81.1957885,
+      "in_service_date_raw": "6/1/2027",
+      "overlaps": [
+        "DESC_3",
+        "DESC_5"
+      ]
+    },
+    {
+      "project_id": "GPC_4",
+      "utility": "Georgia Power",
+      "state": "GA",
+      "project_name": "MITCHELL - NORTH TIFTON 230KV RECONDUCTOR",
+      "name_a": "Mitchell Substation",
+      "lat_a": 31.447121,
+      "lon_a": -84.133843,
+      "name_b": "North Tifton Substation",
+      "lat_b": 31.478089,
+      "lon_b": -83.54913,
+      "lat_center": 31.462605,
+      "lon_center": -83.8414865,
+      "in_service_date_raw": "45778",
+      "overlaps": []
+    },
+    {
+      "project_id": "GPC_5",
+      "utility": "Georgia Power",
+      "state": "GA",
+      "project_name": "JESUP - LUDOWICI PRIMARY 115KV REBUILD",
+      "name_a": "JESUP",
+      "lat_a": 31.603106,
+      "lon_a": -81.924947,
+      "name_b": "LUDOWICI PRIMARY",
+      "lat_b": 31.721597,
+      "lon_b": -81.743703,
+      "lat_center": 31.6623515,
+      "lon_center": -81.834325,
+      "in_service_date_raw": "6/1/2025",
+      "overlaps": []
+    }
+  ],
+  "overlaps": [
+    {
+      "overlap_id": "OVL_1",
+      "distance_mi": 4.09,
+      "time_gap_days": 3074,
+      "project_id_a": "DESC_2",
+      "project_id_b": "GPC_1"
+    },
+    {
+      "overlap_id": "OVL_2",
+      "distance_mi": 5.65,
+      "time_gap_days": 152,
+      "project_id_a": "DESC_3",
+      "project_id_b": "GPC_2"
+    },
+    {
+      "overlap_id": "OVL_3",
+      "distance_mi": 7.55,
+      "time_gap_days": 517,
+      "project_id_a": "DESC_3",
+      "project_id_b": "GPC_3"
+    },
+    {
+      "overlap_id": "OVL_4",
+      "distance_mi": 8.01,
+      "time_gap_days": 3074,
+      "project_id_a": "DESC_1",
+      "project_id_b": "GPC_1"
+    },
+    {
+      "overlap_id": "OVL_5",
+      "distance_mi": 14.34,
+      "time_gap_days": 365,
+      "project_id_a": "DESC_5",
+      "project_id_b": "GPC_2"
+    },
+    {
+      "overlap_id": "OVL_6",
+      "distance_mi": 14.81,
+      "time_gap_days": 730,
+      "project_id_a": "DESC_5",
+      "project_id_b": "GPC_3"
+    }
+  ]
+}

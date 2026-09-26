@@ -35,6 +35,7 @@ import costs
 import fixit
 import forecast
 import grid
+import gridlock
 import hospitals
 import hurricane
 import llm
@@ -117,6 +118,7 @@ app.include_router(briefing.router)
 app.include_router(voice.router)
 app.include_router(plants.router)
 app.include_router(ask.router)
+app.include_router(gridlock.router)
 
 
 @app.get("/api/health")

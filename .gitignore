@@ -25,3 +25,7 @@ backend/scratch-*.out
 scratch_*.db
 backend/scratch_*.db
 backend/.voice_cache/
+
+# GridLock source documents (public filings; the build reads them from here, the extracted data is committed)
+backend/demo/gridlock/sources/
+backend/demo/gridlock/raw/

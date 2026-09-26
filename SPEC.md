@@ -49,6 +49,15 @@ Feature tracks (built in parallel by the workflow `overload-feature-tracks`, eac
 7. **AI-boom mode** — several gigawatt campuses at once (preset: five 1 GW near the biggest metros); where does Florida break first.
 Later: ElevenLabs voice (needs a key), hospitals layer (needs the download OK), dark basemap tiles.
 
+## Build plans — Sperry GridLock (user, Sat 02:57)
+
+A module inside Overload: where neighboring utilities could build together. Real, public planned transmission projects from two utilities that share the Savannah River border — Dominion Energy South Carolina (2024–2028 planned projects $2M and above, 44 projects, from the SCRTP posting) and the Georgia Integrated Transmission System 10-year plan (Georgia Power 2025 IRP Vol. 3, public disclosure; Georgia Power plus GTC, MEAG and Dalton Utilities) — located, validated and compared.
+- Pipeline (offline, one command, `backend/demo/gridlock/build.py`): extract every project from the PDFs with provenance (file, page) → locate each endpoint substation on OpenStreetMap (Overpass, bulk per operator; name matching with a confidence and the reason) → checks that quarantine bad records with reasons (dates, names, coordinates in the right state, endpoint spacing, duplicates, redacted fields never used) → committed `projects.json` + a run report. It must reproduce Sperry's worked example (`sperry_example.json`: 6 overlaps, distances and day gaps) exactly.
+- Overlaps: geographic first (closest points between the two projects' straight-line geometries; tiers: touching → must coordinate · < 1.6 km share the land · < 8 km share site logistics · < 40 km (≈ 25 mi) share crews and equipment) and the center-to-center distance of Sperry's method; timeline second (build windows, time gap in days). Most pairs won't overlap.
+- API (`backend/gridlock.py`): projects, overlaps (with the distance and window settable), the ranked opportunities, one opportunity's savings estimate (shared right-of-way acres, laydown yards, mobilization, crews — assumptions and sources listed), the pipeline report.
+- UI (`features/gridlock`, a "Build plans" mode): the SC–GA map (pan, zoom, click) with both utilities' projects and the overlaps highlighted by tier; the ranked list; an opportunity card with the estimate; the pipeline panel (stages, counts, checks, quarantined records with reasons); "where this came from" per project (PDF page, OpenStreetMap feature, confidence).
+- Acceptance: both utilities' projects on the map, the top opportunity near Savannah or Augusta ranked with distance tier and day gap, the Sperry example reproduced (a smoke check), the estimate shown with its assumptions, the pipeline panel lists the quarantined records.
+
 ## Explicitly out of scope
 
 AC power flow, voltages, frequency or dynamics; real utility data, real-time data, or any claim about a real network; user-uploaded grids; cost or market modeling; N-2 contingency screening; a login screen or multi-user features; report export; a native mobile layout (the page must not overflow at 375 px and the map scales, but the demo is the laptop).
@@ -58,7 +67,8 @@ AC power flow, voltages, frequency or dynamics; real utility data, real-time dat
 - **Best Overall** — automatic. The whole spec serves it.
 - **MLH — Best Use of Gemini API** — only if nice-to-have 3 ships and is in the demo. It is the one extra integration; the key is already in `backend/.env`.
 - **Best First-Time Hacker** — eligibility only, judged separately, cannot affect Best Overall; opt in at `/ship-check` if the user confirms eligibility (user: only if it can't cost the top prize).
-- **Not claimed:** Sperry GridLock (requires comparing two utilities' construction plans, which the demo doesn't show), Waymo, Microsoft, Assurant, Blackstone, State Farm, INIT, DigitalOcean (Render is the tested deploy path; switching hosts for a track costs hours), Tiger Data, Snowflake, MongoDB, Solana, ElevenLabs, GoDaddy (a domain is a Phase 5 nicety, not a target).
+- **Sperry Tech — GridLock** — claimed (Sat 02:57): the Build plans module compares two utilities' public construction plans (section above).
+- **Not claimed:** Waymo, Microsoft, Assurant, Blackstone, State Farm, INIT, DigitalOcean (Render is the tested deploy path; switching hosts for a track costs hours), Tiger Data, Snowflake, MongoDB, Solana, ElevenLabs, GoDaddy (a domain is a Phase 5 nicety, not a target).
 
 ## Data and honesty
 
