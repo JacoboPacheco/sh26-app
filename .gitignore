@@ -15,3 +15,6 @@ check-app.log*
 .claude/tmp/
 .claude/settings.local.json
 scratch/
+
+# raw public data pulled by backend/demo/build_grid.py (the built JSON is committed, the sources are not)
+backend/demo/raw/

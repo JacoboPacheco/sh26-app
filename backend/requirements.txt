@@ -8,3 +8,5 @@ python-jose[cryptography]
 python-multipart
 slowapi
 psycopg[binary]
+numpy
+scipy

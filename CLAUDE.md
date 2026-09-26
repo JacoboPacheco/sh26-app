@@ -125,5 +125,8 @@ Map: no map library — SVG with a simple projection over a committed Florida ou
 ## Current status
 PHASE: 2 — spec done, skeleton not started
 deployed: no
-DO FIRST: milestone 0 — `backend/demo/build_grid.py` → `florida_grid.json`, then `backend/demo/validate.py`; pass/fail rules in SPEC.md → Milestone 0; kill switch 3:00 AM Sat (K+4).
+DO FIRST: milestone 0 — run `backend/venv/Scripts/python backend/demo/build_grid.py` (downloads six public CSVs into `backend/demo/raw/`, writes `florida_grid.json`), then `backend/venv/Scripts/python backend/demo/validate.py`; pass/fail rules in SPEC.md → Milestone 0; kill switch 3:00 AM Sat (K+4).
+WAITING ON YOU: okay to download the six public CSVs (~25 MB total, raw.githubusercontent.com, Breakthrough Energy PowerSimData, CC-BY 4.0) — the build script does it.
+working: `backend/powerflow.py` (DC power flow, what-if, headroom, cascade, drawable payload) passes `scratch/test_powerflow.py` on a 4-bus case: KCL, dense-solve agreement, headroom equals bisection, cascade islands and terminates.
+in progress: milestone 0 — `build_grid.py` and `validate.py` written, not yet run on real data. Acceptance: `validate.py` prints `MILESTONE 0: PASS` and writes `backend/demo/expected_whatif.json`.
 [Line 1 is always `PHASE: n — reason`, line 2 `deployed: yes/no`; then, when they apply, one per line: `DO FIRST: …`, `BLOCKED: …`, `WAITING ON YOU: …`, `LATER: …` (Workflow and PLAYBOOK say when); then working / broken / in progress + its acceptance check.]
