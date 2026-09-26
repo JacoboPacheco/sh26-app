@@ -1,0 +1,245 @@
+/* Hospitals track: the crosses on the map and the list in the panel. Tokens only (index.css):
+   pale and quiet when fine, amber (--strain) for partial outages, red (--overload) on backup power. */
+
+/* ------------------------------------------------------------------ map */
+.hx-layer {
+  pointer-events: none;
+}
+
+.hx-cross,
+.hx-under {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.hx-under {
+  stroke: var(--night);
+  opacity: 0.85;
+}
+
+.hx--ok .hx-cross {
+  stroke: var(--lit);
+  opacity: 0.42;
+}
+
+.hx--strained .hx-cross {
+  stroke: var(--strain);
+  opacity: 0.95;
+}
+
+.hx--backup .hx-cross {
+  stroke: var(--overload);
+}
+
+.hx-glow {
+  fill: var(--overload);
+  opacity: 0.22;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hx-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes hx-glow {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.1);
+  }
+}
+
+.hx-pick__card {
+  fill: var(--glass);
+  stroke: var(--glass-edge);
+}
+
+.hx-pick__ring {
+  fill: none;
+  stroke: var(--ink);
+}
+
+.hx-pick--backup .hx-pick__ring {
+  stroke: var(--overload);
+}
+
+.hx-pick--strained .hx-pick__ring {
+  stroke: var(--strain);
+}
+
+.hx-pick__name,
+.hx-pick__status {
+  paint-order: stroke;
+  stroke: var(--night);
+  stroke-width: var(--halo, 3px);
+  stroke-linejoin: round;
+}
+
+.hx-pick__name {
+  fill: var(--ink);
+  font-weight: 650;
+  font-stretch: 88%;
+}
+
+.hx-pick__status {
+  fill: var(--ink-2);
+  font-weight: 500;
+}
+
+.hx-pick--backup .hx-pick__status {
+  fill: var(--warn-text);
+}
+
+/* ------------------------------------------------------------------ list */
+.hx-list {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.hx-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.hx-count {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.hx-summary {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.hx-headline {
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.hx-n {
+  font-size: 1.35rem;
+  font-weight: 750;
+  font-stretch: 82%;
+  font-variant-numeric: tabular-nums;
+}
+
+.hx-n--bad {
+  color: var(--overload);
+}
+
+.hx-peak {
+  font-weight: 400;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.hx-sub,
+.hx-calm {
+  font-size: 0.8125rem;
+}
+
+.hx-calm {
+  color: var(--ink-2);
+}
+
+.hx-rows {
+  list-style: none;
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.hx-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0.3rem var(--space-2);
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hx-row:hover {
+  background: var(--glass-hi);
+}
+
+.hx-row--on {
+  background: var(--glass-hi);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.hx-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.hx-row__meta {
+  color: var(--ink-2);
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.hx-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  align-self: center;
+}
+
+.hx-dot--backup {
+  background: var(--overload);
+}
+
+.hx-dot--strained {
+  background: var(--strain);
+}
+
+.hx-more {
+  justify-self: start;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.15rem 0;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.hx-more:hover {
+  text-decoration: underline;
+}
+
+.hx-note,
+.hx-credit {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+.hx-credit a {
+  color: var(--ink-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hx-glow {
+    animation: none;
+  }
+}
