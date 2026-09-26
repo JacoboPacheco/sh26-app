@@ -44,6 +44,7 @@ import gridlock
 import hospitals
 import hurricane
 import llm
+import narrate
 import negotiate
 import planner
 import plants
@@ -141,6 +142,7 @@ app.include_router(unlock.router)
 app.include_router(views.router)
 app.include_router(sitereport.router)
 app.include_router(sources.router)
+app.include_router(narrate.router)
 
 
 @app.get("/api/health")

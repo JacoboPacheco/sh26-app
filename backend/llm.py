@@ -649,7 +649,7 @@ SURFACES = [
      "fallback": "The two parsers alone (the reader is advisory)"},
     {"id": "strengthen_narration", "name": "Strengthen the grid: the narrated build-up",
      "gemini": "Writes what the presenter voice says as each campus goes in on the map: where it connects, what stopped it, the upgrade that lets it in and what it costs, in English and Spanish.",
-     "check": "Every number in a line must be one of that step's facts from the engine's study (and the place and the cost must be said); a line that fails is replaced by its template line.",
+     "check": "Every number in a line must be one of that step's facts from the engine's study, said the way the plan prints it (and every place and the cost must be said); the lines that fail go back to Gemini once with the reasons and are checked again, and a line that still fails is replaced by its template line.",
      "fallback": "Template lines from the same study"},
 ]
 
