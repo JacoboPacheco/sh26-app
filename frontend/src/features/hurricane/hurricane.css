@@ -1,0 +1,184 @@
+/* Hurricane mode. The storm is weather over the night map: pale cloud (--ink, very translucent)
+   for its reach, a white glyph for the eye; lines it knocks out flash white, then burn --overload
+   until the grid's own layer takes them over as tripped. */
+
+/* ------------------------------------------------------------------ panel */
+.hz-lede {
+  color: var(--ink);
+}
+
+.hz-presets {
+  gap: var(--space-2);
+}
+
+.hz-desc {
+  font-size: 0.8125rem;
+}
+
+.hz-actions .btn:first-child {
+  font-size: 1rem;
+  padding: 0.55rem 1.1rem;
+}
+
+.hz-result {
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--glass-edge);
+}
+
+.hz-result__h {
+  font-weight: 700;
+  color: var(--overload);
+}
+
+.hz-result__n {
+  color: var(--ink-2);
+}
+
+.hz-count {
+  font-size: 2.25rem;
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 66%;
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ map layer */
+.hz-layer {
+  pointer-events: none;
+}
+
+.hz-layer--quiet {
+  opacity: 0.5;
+}
+
+/* the storm's reach: every line inside this band goes down */
+.hz-band {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.06;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hz-band--swept,
+.hz-band--done {
+  stroke-opacity: 0.1;
+}
+
+.hz-band--swept {
+  animation-name: hz-sweep;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+
+@keyframes hz-sweep {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.hz-track {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.hz-track--draft {
+  stroke-opacity: 0.95;
+}
+
+.hz-arrow {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.8;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* a line the storm reaches: invisible until its delay, a white flash, then burning red */
+.hz-hit {
+  stroke: var(--overload);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  animation: hz-hit 1.2s ease-out both;
+}
+
+@keyframes hz-hit {
+  0% {
+    opacity: 0;
+    stroke: var(--ink);
+    stroke-width: 7;
+  }
+  10% {
+    opacity: 1;
+    stroke: var(--ink);
+    stroke-width: 6;
+  }
+  45% {
+    stroke: var(--overload);
+    stroke-width: 3.5;
+  }
+  100% {
+    opacity: 1;
+    stroke: var(--overload);
+    stroke-width: 2.5;
+  }
+}
+
+/* the eye */
+.hz-wind {
+  fill: var(--ink);
+  fill-opacity: 0.07;
+  stroke: var(--ink);
+  stroke-opacity: 0.45;
+}
+
+.hz-glow {
+  fill: var(--ink);
+  opacity: 0.12;
+}
+
+.hz-ring,
+.hz-arm {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.8;
+  stroke-linecap: round;
+}
+
+.hz-glyph {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* counterclockwise, like a northern-hemisphere storm */
+.hz-glyph--spin {
+  animation: hz-spin 0.9s linear infinite;
+}
+
+@keyframes hz-spin {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hz-band--swept,
+  .hz-glyph--spin {
+    animation: none;
+  }
+
+  .hz-hit {
+    animation: none;
+    opacity: 1;
+  }
+}
