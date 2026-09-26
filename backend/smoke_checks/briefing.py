@@ -91,6 +91,10 @@ def register(ctx):
         assert r["verdict"] == "preventable" and best["verdict"] == "holds" and best["family"] != "shrink", (r["verdict"], r["best_fix"], best["family"])
         assert (best.get("kept_pct") or 0) >= 90, best
         assert len(r["solutions"]) >= 2, r["solutions"]  # always more than one way
+        # grid strain (user, Sat 07:43): the campus pushes lines over their rating; the best fix takes that strain away
+        st = r["strain"]
+        assert st["with_campus"]["over"] > 0 and st["with_campus"]["peak_pct"] > 100 and st["grid_alone"]["over"] == 0, st
+        assert best["strain"]["over"] == 0 and best["strain"]["peak_pct"] < st["with_campus"]["peak_pct"], best["strain"]
         tod = next(f for f in fixes if f["family"] == "time_of_day")
         assert tod["verdict"] == "fails", tod
         for f in fixes:

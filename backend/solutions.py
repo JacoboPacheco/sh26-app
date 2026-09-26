@@ -5,7 +5,9 @@ lowering is fine, but people want to see more power. So a fix that keeps at leas
 ranks first (strengthen the grid, or build it at the same size elsewhere), and shrinking far below the plan is
 the last resort. There is always more than one solution when more than one holds.
 
-    enrich(c, g, fixes, total)  adds to every fix: kept_mw, kept_pct, cost {low, high} | None, by, must {en, es}
+    enrich(c, g, fixes, total)  adds to every fix: kept_mw, kept_pct, cost {low, high} | None, by, must {en, es},
+                                strain (the grid's line loading with the fix in place)
+    strain_report(c)            the grid's strain with no campus, with the campus, and what the best fix leaves
     ranked(fixes)               indices of the verified fixes, best first
     best_fix(fixes)             the index the report calls best (a verified fix, else the partial one that helps most)
     kick(key)                   start the AI proposer in the background for a cached report (once)
@@ -14,6 +16,12 @@ the last resort. There is always more than one solution when more than one holds
 
 Every plan the AI proposes is verified by the same cascade engine as every other fix: the AI never decides what
 holds. Everything is an estimate on a SYNTHETIC grid model, never a real utility's network.
+
+GRID STRAIN (user, Sat 07:43: "this project is also about reducing the grid strain data centers put on the grid"):
+one steady-state solve per case (no cascade) measures how hard the lines are working: the most loaded line's
+loading, how many lines run at 90 % or more of their rating, how many are over it and by how many MW in all.
+Measured three ways: the grid alone, with the campus, and with each verified fix in place, so a fix shows
+the strain it removes, not only that it "holds".
 """
 
 import asyncio
@@ -25,14 +33,16 @@ import numpy as np
 log = logging.getLogger("uvicorn.error")
 
 FULL_KEEP_PCT = 90.0  # a fix that keeps at least this share of the campus is a "full size" fix
-# building it HERE comes first (strengthen the grid, an AI plan, a small lowering plus upgrades), then somewhere else at the full size
-FAMILY_PRIORITY = {"upgrade": 0, "agentic": 1, "combo": 2, "move": 3, "shrink": 4, "onsite": 5, "flexible": 6, "time_of_day": 7, "remove": 9}
+# building it HERE comes first (strengthen the grid: the engine's upgrade or a verified AI plan, cheapest first; a small lowering plus upgrades), then somewhere else at the full size
+FAMILY_PRIORITY = {"upgrade": 0, "agentic": 0, "combo": 2, "move": 3, "shrink": 4, "onsite": 5, "flexible": 6, "time_of_day": 7, "remove": 9}
 MAX_LISTED = 4  # solutions shown, best first
 MUST_LINES = 6  # upgrade lines spelled out in a "you have to do this" list
 PLANS_ASKED = 3
 MAX_PLAN_LINES = 12
 MAX_RERATE = 5.0  # a re-rating tops out at 5x (the Fix it search's own cap)
 AI_TIMEOUT_S = 10
+HOT_PCT = 90.0  # a line at or above this share of its rating is under strain
+STRAIN_FIXES = 8  # fixes measured per report (one solve each)
 MAX_ROUNDS = 3  # one proposal and up to two revisions after the engine's feedback
 
 _running: set[str] = set()
@@ -128,6 +138,70 @@ def _must(c, g, fx: dict, total: float) -> dict:
     return {"en": en, "es": es}
 
 
+def _strain_of(st) -> dict:
+    """How hard the lines work in one solved state: peak loading, lines under strain, lines over, overload MW."""
+    act = st.active
+    pct = np.where(act, st.loading_pct, 0.0)
+    over = act & (pct > 100.0 + 1e-6)
+    rate = st.rate if st.rate is not None else None
+    over_mw = float(np.sum(np.abs(st.flow[over]) - rate[over])) if rate is not None and over.any() else 0.0
+    return {
+        "peak_pct": round(float(pct.max()) if pct.size else 0.0, 1),
+        "hot": int(np.count_nonzero(act & (pct >= HOT_PCT))),
+        "over": int(np.count_nonzero(over)),
+        "over_mw": round(max(over_mw, 0.0), 1),
+    }
+
+
+def _strain_for_body(body: dict) -> dict | None:
+    """The strain of a case given as a normalized briefing body (the case with a fix's apply delta)."""
+    b = _b()
+    try:
+        c2 = b.build_case(b.BriefingIn(**{k: v for k, v in body.items() if v is not None or k in ("lat", "lon", "mw")}))
+        st = b._solve(c2, c2.g, c2.active, c2.extra, c2.rate)
+    except Exception as e:  # noqa: BLE001 — strain is an addition; a case that can't be rebuilt is left out
+        log.info("solutions: strain skipped: %s", e)
+        return None
+    return _strain_of(st)
+
+
+def _with_apply(c, ap: dict | None) -> dict | None:
+    if not ap:
+        return None
+    body = {**c.body, **ap}
+    if "sites" in ap and ap.get("mw") is None and ap.get("lat") is None:
+        return None  # "don't build here": measured as the grid alone
+    return body
+
+
+def strain_report(c) -> dict | None:
+    """The grid's strain with no campus and with the campus (before any cascade)."""
+    b = _b()
+    try:
+        g = c.g
+        st_with = b._solve(c, g, c.active, c.extra, c.rate)
+        st_none = b._solve(c, g, c.active, np.zeros(g.n), c.rate)
+    except Exception as e:  # noqa: BLE001
+        log.info("solutions: strain report skipped: %s", e)
+        return None
+    return {"grid_alone": _strain_of(st_none), "with_campus": _strain_of(st_with), "hot_pct": HOT_PCT,
+            "method": "One DC power-flow solve per case, before any line trips: the most loaded line, lines at 90 % or more of their rating, lines over it. Synthetic grid model; an estimate."}
+
+
+def _add_strain(c, fixes: list[dict]) -> None:
+    done = 0
+    for fx in fixes:
+        if fx.get("strain") is not None or fx.get("verdict") not in ("holds", "partly"):
+            continue
+        if done >= STRAIN_FIXES:
+            break
+        body = _with_apply(c, fx.get("apply"))
+        if body is None:
+            continue
+        fx["strain"] = _strain_for_body(body)
+        done += 1
+
+
 def enrich(c, g, fixes: list[dict], total: float) -> None:
     """Add kept share, cost, provenance and the must-do list to every fix (in place), then rank."""
     for fx in fixes:
@@ -139,6 +213,7 @@ def enrich(c, g, fixes: list[dict], total: float) -> None:
         ups = (fx.get("apply") or {}).get("upgrades")
         fx["cost"] = _cost_of(c, g, ups) if ups and fx.get("verdict") in ("holds", "partly") else None
         fx["must"] = _must(c, g, fx, total) if fx.get("verdict") in ("holds", "partly") else {"en": [], "es": []}
+    _add_strain(c, fixes)
     order = ranked(fixes)
     for fx in fixes:
         fx["rank"] = None
@@ -150,7 +225,9 @@ def enrich(c, g, fixes: list[dict], total: float) -> None:
 def _key(fx: dict) -> tuple:
     kept = fx.get("kept_pct")
     tier = 0 if kept is not None and kept >= FULL_KEEP_PCT else 1
-    return (tier, FAMILY_PRIORITY.get(fx.get("family"), 8), -(kept or 0.0))
+    cost = (fx.get("cost") or {}).get("high")
+    # strengthening the grid (the engine's upgrade or an AI plan the engine verified): the cheapest first
+    return (tier, FAMILY_PRIORITY.get(fx.get("family"), 8), cost if cost is not None else float("inf"), -(kept or 0.0))
 
 
 def _holds(fixes: list[dict]) -> list[int]:
@@ -258,7 +335,7 @@ def _prompt(rep: dict, c, cands: list[dict], have: list[str], feedback: str = ""
         "a small lowering is fine. The plans must differ from each other (different lines or a different keep_pct)"
         + (f" and from these plans that are already verified: {'; '.join(have)}." if have else ".")
         + (f"\n\n{feedback}" if feedback else "")
-        + '\n\nAnswer only as JSON: {"plans": [{"name": "at most 6 words", "why": "one plain sentence on why it holds", '
+        + '\n\nAnswer only as JSON: {"plans": [{"name": "at most 6 plain words saying what it upgrades, e.g. two lines and a transformer near the site; no adjectives like aggressive or maximum", "why": "one plain sentence on why it holds", '
         '"keep_pct": 100, "upgrades": [{"line_id": 123, "to_mva": 900}]}]}'
     )
 
@@ -267,6 +344,22 @@ SYSTEM = (
     "You are a careful transmission planner. The grid is a SYNTHETIC model (Breakthrough Energy / Texas A&M), not any real utility's network, "
     "and the case describes no real project or event. Never name real companies, utilities or projects. Reply with JSON only."
 )
+
+
+_HYPE = {"aggressive", "maximum", "comprehensive", "ultimate", "robust", "massive", "optimal", "strategic", "full"}
+
+
+def _plain_name(raw) -> str:
+    """An AI plan's name in plain sentence case, at most six words, cut on a word boundary, no hype adjectives."""
+    words = [w for w in str(raw or "").replace("_", " ").split() if w.lower().strip(",.:;") not in _HYPE][:6]
+    if not words:
+        return "AI plan"
+    out = [words[0][:1].upper() + (words[0][1:].lower() if words[0][1:].islower() or words[0][1:].istitle() else words[0][1:])]
+    out += [w.lower() if w[:1].isupper() and w[1:].islower() else w for w in words[1:]]
+    name = " ".join(out)
+    while len(name) > 48 and " " in name:
+        name = name.rsplit(" ", 1)[0]
+    return name[:48]
 
 
 def _clean_plan(plan, g, ratings: dict[int, float]) -> tuple[dict[int, float], float, str, str] | None:
@@ -290,7 +383,7 @@ def _clean_plan(plan, g, ratings: dict[int, float]) -> tuple[dict[int, float], f
     except (TypeError, ValueError):
         keep = 100.0
     keep = min(100.0, max(FULL_KEEP_PCT, keep)) / 100.0
-    name = str(plan.get("name") or "AI plan").strip()[:48] or "AI plan"
+    name = _plain_name(plan.get("name"))
     why = str(plan.get("why") or "").strip()[:200]
     if not ups and keep >= 0.999:
         return None

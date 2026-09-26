@@ -382,6 +382,18 @@ def pct_say(p: float, lang: str) -> str:
     return f"{int(round(float(p)))} " + ("percent" if lang == "en" else "por ciento")
 
 
+def _relief_say(before: dict | None, after: dict | None, lang: str) -> str:
+    """'It brings the busiest line from 141 to 95 percent of its rating.' Only when the fix clearly relieves it."""
+    if not before or not after:
+        return ""
+    b, a = float(before.get("peak_pct") or 0), float(after.get("peak_pct") or 0)
+    if b <= 100.0 or a >= b - 1.0:
+        return ""
+    if lang == "en":
+        return f"It brings the busiest line from {int(round(b))} to {pct_say(a, 'en')} of its rating."
+    return f"Lleva la línea más cargada del {int(round(b))} al {pct_say(a, 'es')} de su capacidad."
+
+
 def share_say(p: float | None, lang: str) -> str | None:
     """A share of the state's residents: '3.5 percent', 'less than one percent'."""
     if p is None:
@@ -1423,6 +1435,12 @@ def _fix_phrase(w: Writer, fx: dict, lang: str) -> str:
         return "run it only at quieter hours" if en else "operarlo solo en las horas de menos demanda"
     if fam == "upgrade":
         return f"upgrade {_upgrade_what(fx, 'en')}" if en else f"reforzar {_upgrade_what(fx, 'es')}"
+    if fam == "agentic":
+        size = (fx.get("detail") or {}).get("mw")
+        if size is not None and w.mw and float(size) < float(w.mw) - 0.5:
+            return (f"build {mw_say(size, lang)} and upgrade {_upgrade_what(fx, 'en')}" if en
+                    else f"construir {mw_say(size, lang)} y reforzar {_upgrade_what(fx, 'es')}")
+        return f"upgrade {_upgrade_what(fx, 'en')}" if en else f"reforzar {_upgrade_what(fx, 'es')}"
     if fam == "combo":
         if size is not None:
             return (f"build {mw_say(size, lang)} and upgrade {_upgrade_what(fx, 'en')}" if en
@@ -1506,6 +1524,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
     listed = [f for f in ordered if f.get("verdict") in ("holds", "partly", "fails") and f.get("family") != "remove"][:5]
     n_opts = len(sol) if len(sol) <= 2 else max(2, min(len(sol), 1 + lv.checks))  # always more than one when more than one holds
     opts = sol[:n_opts]
+    strain0 = (w.r.get("strain") or {}).get("with_campus")  # the grid's strain with the campus and no fix
     for lang in LANGS:
         en = lang == "en"
         where = w.where(lang) or w.place or ""
@@ -1516,6 +1535,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
         else:
             intro = (f"How to fix it. If you want to build {size} here" + (f" at {where}" if where else "") + ", this is what you have to do." if en
                      else f"Cómo evitarlo. Si quieres construir {size} aquí" + (f", en {where}" if where else "") + ", esto es lo que tienes que hacer.")
+        said_relief = ""
         segs = [_seg("presenter", sentences([(intro, False), (("There is more than one way, and the engine re-ran every one." if en else "Hay más de una manera, y el motor probó cada una."), 2)], lv, PRESENTER_MAX[lang]))]
         for k, fx in enumerate(opts):
             o = fx.get("outcome") or {}
@@ -1534,9 +1554,16 @@ def s_fix(w: Writer, lv: Level) -> dict:
             works = ("With it, no line trips." if en else "Con ella, ninguna línea se dispara.") if int(o.get("steps") or 0) == 0 else (
                 f"With it, {people_say(o.get('people') or 0, 'en')} still lose power." if en else f"Con ella, {people_say(o.get('people') or 0, 'es')} siguen sin luz.")
             by = (" The AI proposed this one, and the engine checked it." if en else " La IA propuso esta, y el motor la comprobó.") if fx.get("by") == "gemini" else ""
-            text = (f"Option {words(k + 1, 'en')}: {ph}. {keeps} {money} {works}{by}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {money} {works}{by}")
+            relief = _relief_say(strain0, fx.get("strain"), lang)  # the grid strain it removes (user, Sat 07:43)
+            if relief and relief == said_relief:
+                relief = ("It relieves the same lines." if en else "Alivia las mismas líneas.")
+            elif relief:
+                said_relief = relief
+            text = (f"Option {words(k + 1, 'en')}: {ph}. {keeps} {relief} {money} {works}{by}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {relief} {money} {works}{by}")
             text = " ".join(text.split())
-            if plain_len(text) > ANALYST_MAX[lang]:  # too long: drop the money and the provenance
+            if plain_len(text) > ANALYST_MAX[lang]:  # too long: drop the money and the provenance, keep the strain relief
+                text = " ".join((f"Option {words(k + 1, 'en')}: {ph}. {keeps} {relief} {works}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {relief} {works}").split())
+            if plain_len(text) > ANALYST_MAX[lang]:
                 text = " ".join((f"Option {words(k + 1, 'en')}: {ph}. {keeps} {works}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {works}").split())
             segs.append(_seg("analyst", cue("option", k) + text))
         out["narr"][lang] = segs
@@ -1566,7 +1593,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
         "fix": w.fixes.index(f), "family": f.get("family"),
         "name": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
         "kept_mw": f.get("kept_mw"), "kept_pct": f.get("kept_pct"), "must": f.get("must") or {"en": [], "es": []},
-        "cost": f.get("cost"), "by": f.get("by") or "engine", "verdict": f.get("verdict"), "outcome": f.get("outcome"),
+        "cost": f.get("cost"), "by": f.get("by") or "engine", "verdict": f.get("verdict"), "outcome": f.get("outcome"), "strain": f.get("strain"),
         "lines": [{"id": x["id"], "label": x.get("label"), "old_mva": x.get("old_mva"), "new_mva": x.get("new_mva")} for x in ((f.get("detail") or {}).get("list") or [])[:20]],
         "apply": f.get("apply"),
     } for f in opts]
@@ -1580,6 +1607,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
     else:
         site = w.site_pt()
         out["camera"] = cam("site", [site], center=site) if site else region_cam(w)
+    out["strain"] = w.r.get("strain")  # {grid_alone, with_campus}: the before; each option has its own after
     out["map"] = mapspec("fix", 0, 0, highlight=up_ids, apply=ap or None)
     out["facts_used"] = [k for k in w.facts if k.startswith("fix.")][:20]
     return out

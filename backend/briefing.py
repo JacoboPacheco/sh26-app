@@ -2069,6 +2069,14 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
             solutions.enrich(c, g, fixes, float(sum(s.mw for s in c.sites)))
         except Exception as e:  # noqa: BLE001 — the ranking is an addition; the fixes stand without it
             log.warning("briefing: solutions.enrich failed: %s", e)
+    strain = None
+    if c.sites:
+        try:
+            import solutions
+
+            strain = solutions.strain_report(c)
+        except Exception as e:  # noqa: BLE001
+            log.warning("briefing: strain report failed: %s", e)
     best = _best_fix(fixes)
     if nothing:
         verdict = "nothing_happened"
@@ -2145,6 +2153,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
         "best_fix": best,
         "solutions": sorted((i for i, f in enumerate(fixes) if f.get("rank")), key=lambda i: fixes[i]["rank"]),  # verified fixes, best first
         "agentic": None,
+        "strain": strain,  # the lines' loading: grid alone, with the campus (each fix carries its own)
         "firm_note": firm_note,
         "bound": bound,
         "split": split,

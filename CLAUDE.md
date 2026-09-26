@@ -176,6 +176,8 @@ AI SURFACES (ASSUMED, Sat 07:12): every AI feature follows one rule — Gemini w
 
 DROPPED (user, Sat 07:38): "Blackstone and parked visuals etc is out of the question" — no Blackstone investor view, no electricity spark, no cracked-screen moment. ASSUMED: "etc" also drops the other pure stretch ideas from the challenge brainstorm (Assurant "Mindful AI", Waymo layer, Tiger Data, MongoDB); COLLAB stays (the user's own idea, ties into Sperry GridLock) as the LAST queued item, built only if the rest is green by Sat ~21:00.
 
+STRAIN (user, Sat 07:43 — "to add more emphasis: this project is also about reducing the grid strain that data centers have, which is a big problem to solve"): grid strain is a measured headline, not a claim. Every report carries `strain` {grid_alone, with_campus: peak line loading %, lines at 90 %+ of their rating, lines over, overload MW} from one steady-state solve, and every verified fix carries its own `strain` after the fix; the presentation says "It brings the busiest line from 141 to 95 percent of its rating" (hero). Full-size fixes (the engine's upgrade or a verified AI plan) rank cheapest first, so a cheaper AI plan leads (hero: Gemini's $56.1M plan vs the engine's $64M). ASSUMED: the on-screen pitch line and the Strengthen/Views/site panels say "strain" in the same measured way (wave 2).
+
 ## Current status
 PHASE: 3 — AWAY SESSION 1 (started Sat 07:05, K+8:05): wave 1 building, Gemini hardening, competitor benchmark logged
 deployed: no
