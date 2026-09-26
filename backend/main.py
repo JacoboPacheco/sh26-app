@@ -46,6 +46,7 @@ import plants
 import scenarios
 import towns
 import uploads
+import vote
 import voice
 from database import Base, add_missing_columns, engine
 from limiter import limiter
@@ -123,6 +124,7 @@ app.include_router(plants.router)
 app.include_router(ask.router)
 app.include_router(gridlock.router)
 app.include_router(danger.router)
+app.include_router(vote.router)
 
 
 @app.get("/api/health")
