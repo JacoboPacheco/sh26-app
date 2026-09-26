@@ -20,14 +20,40 @@ export function bestApply(report) {
 }
 
 // every word of the deck as text: the accessible version of the captions, and the .txt download
+// The case a fix is applied to: the body itself, or for a preset the case the engine expanded it into
+// (its replay). null when the map can't run it (a catastrophe knocks out more lines than the grid API takes).
+const MAX_TRIPS = 400 // backend/grid.py
+export function applyBase(body, report) {
+  let base
+  if (!body?.preset) base = { ...body }
+  else {
+    const r = report?.replay
+    if (!r) return null
+    const [main, ...more] = r.sites || []
+    base = {
+      region: r.region || body.region,
+      load_factor: r.load_factor ?? 1,
+      trip: r.trip || [],
+      upgrades: r.upgrades || {},
+      sites: more.map((s) => ({ lat: s.sub_lat, lon: s.sub_lon, mw: s.mw })),
+      ...(main ? { lat: main.sub_lat, lon: main.sub_lon, mw: main.mw } : {}),
+    }
+  }
+  delete base.preset
+  return (base.trip || []).length > MAX_TRIPS ? null : base
+}
+
+// the deck's banner / credit / disclaimer in this language (the writer puts the Spanish ones in deck.local)
+export const loc = (deck, key, lang) => deck?.local?.[lang]?.[key] || deck?.[key] || ''
+
 export function transcriptText(deck, lang) {
-  const out = [deck.banner, '', deck.title?.[lang] || '', '']
+  const out = [loc(deck, 'banner', lang), '', deck.title?.[lang] || '', '']
   deck.slides.forEach((s, i) => {
     out.push(`${i + 1}. ${s.headline?.[lang] || ''}`)
     ;(s.narration?.[lang] || []).forEach((g) => out.push(`${g.role === 'analyst' ? T[lang].analyst : T[lang].presenter}: ${g.text}`))
     out.push('')
   })
-  out.push(deck.credit || '', deck.disclaimer || '')
+  out.push(loc(deck, 'credit', lang), loc(deck, 'disclaimer', lang))
   return out.join('\n')
 }
 

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { assetUrl } from '../../api'
 import { useOverload } from '../../store'
 import { Badge, ErrorBanner, Loading } from '../../ui'
+import AskSlot from './AskSlot'
 import BriefingDoc from './BriefingDoc'
 import Captions from './Captions'
 import MapOverlay from './MapOverlay'
@@ -10,15 +11,11 @@ import Progress from './Progress'
 import Slide from './Slide'
 import './briefing.css'
 import { cleanBody, notLive } from './briefingApi'
-import { stepIndexOf, transcriptText } from './stage'
+import { applyBase, loc, stepIndexOf, transcriptText } from './stage'
 import { T } from './text'
 import useDeck from './useDeck'
 import useNarration, { reducedMotion } from './useNarration'
 import { getDownload } from './voiceApi'
-
-// The Ask box (features/ask), when that track has shipped it; a short note until then.
-const ASK_MOD = import.meta.glob('../ask/index.js', { eager: true })['../ask/index.js']
-const AskBox = ASK_MOD?.AskBox || null
 
 // THE REVIEW STAGE: a full-screen, slide-by-slide presentation of what happened, over the live map.
 // The presenter voice drives it: slides advance when their narration ends, the analyst calls each
@@ -184,17 +181,24 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
   }, [])
 
   const t = T[lang]
-  // the slide writer isn't live but the engine is: the written briefing alone
-  const docOnly = !deck && !!report && !!error && notLive(error)
+  // the slides failed (the writer isn't live, or it errored) but the engine answered: the written briefing alone
+  const docOnly = !deck && !!report && !!error
   const slides = deck?.slides || []
+  // the written briefing alone: the map shows where the incident ended, the whole region in view
+  useEffect(() => {
+    const O = oRef.current
+    if (!docOnly || !cascadeNow) return
+    O.setStep(cascadeNow.steps.length)
+    O.mapRef.current?.reset()
+  }, [docOnly, cascadeNow])
   const slide = slides[Math.min(idx, slides.length - 1)]
 
+  const base = useMemo(() => applyBase(cleanBody(body), report), [body, report])
   const apply = useCallback(
     (delta) => {
-      if (!delta) return
+      if (!delta || !base) return
       const O = oRef.current
-      const full = { ...cleanBody(body), ...delta }
-      delete full.preset
+      const full = { ...base, ...delta }
       // the map's case becomes the reviewed case with the fix, then its cascade runs (and stays calm)
       if (full.mw != null) O.setMw(full.mw)
       if (full.lat != null && full.lon != null) O.place(full.lat, full.lon)
@@ -207,12 +211,15 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
       onClose()
       O.startCascade(full)
     },
-    [body, onClose],
+    [base, onClose],
   )
+  const onApply = base ? apply : null // a catastrophe's fixes are listed, not applied (too many lines out for the map)
 
+  const askInput = useRef(null)
+  const askBody = useMemo(() => cleanBody(body), [body])
   const openAsk = useCallback(() => {
     setAskOpen(true)
-    setTimeout(() => rootRef.current?.querySelector('.rs-ask input, .rs-ask textarea')?.focus(), 0)
+    setTimeout(() => (askInput.current || rootRef.current?.querySelector('.rs-ask input, .rs-ask textarea'))?.focus(), 0)
   }, [])
 
   // keyboard: → / PageDown next · ← / PageUp previous · Space play/pause · Esc close · C captions · L language · / ask
@@ -325,20 +332,23 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
           </div>
         </div>
         {slides.length > 0 && <Progress slides={slides} idx={idx} progress={narr.progress} lang={lang} onJump={narr.goto} />}
-        <p className="rs-banner">{deck?.banner || report?.banner || 'SIMULATION · synthetic grid model · every people and cost number is an estimate.'}</p>
+        <p className="rs-banner">{loc(deck, 'banner', lang) || report?.banner || 'SIMULATION · synthetic grid model · every people and cost number is an estimate.'}</p>
       </header>
 
       <main className={view === 'document' || docOnly ? 'rs-panel rs-panel--doc' : 'rs-panel'}>
         {docOnly ? (
-          <BriefingDoc report={report} deck={null} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={apply} fixture={fixture} />
+          <>
+            {!notLive(error) && <ErrorBanner error={new Error('The slides could not be prepared; here is the written briefing.')} onRetry={retry} />}
+            <BriefingDoc report={report} deck={null} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={onApply} fixture={fixture} />
+          </>
         ) : error ? (
           <ErrorBanner error={error} onRetry={retry} />
         ) : !deck ? (
           <Loading label={t.preparing} />
         ) : view === 'document' ? (
-          <BriefingDoc report={report} deck={deck} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={apply} fixture={fixture} />
+          <BriefingDoc report={report} deck={deck} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={onApply} fixture={fixture} />
         ) : (
-          slide && <Slide key={`${slide.id}-${lang}`} slide={slide} report={report} deck={deck} lang={lang} wave={fx.wave} onApply={apply} fixture={fixture} />
+          slide && <Slide key={`${slide.id}-${lang}`} slide={slide} report={report} deck={deck} lang={lang} wave={fx.wave} onApply={onApply} fixture={fixture} />
         )}
       </main>
 
@@ -370,7 +380,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
               ×
             </button>
           </div>
-          {AskBox ? <AskBox case={cleanBody(body)} body={cleanBody(body)} lang={lang} reportKey={report?.key} /> : <p className="muted">{t.askSoon}</p>}
+          <AskSlot caseBody={askBody} lang={lang} onLangChange={setLang} inputRef={askInput} note={t.askSoon} />
         </aside>
       )}
 
@@ -412,7 +422,7 @@ function Transcript({ deck, lang, onClose }) {
           ×
         </button>
       </div>
-      <p className="rs-transcript__banner">{deck.banner}</p>
+      <p className="rs-transcript__banner">{loc(deck, 'banner', lang)}</p>
       <ol>
         {deck.slides.map((s) => (
           <li key={s.id}>

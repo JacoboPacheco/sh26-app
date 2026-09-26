@@ -1,6 +1,7 @@
 import { useOverload } from '../../store'
 import { Badge, Button } from '../../ui'
 import { SplitBar } from './Slide'
+import { loc } from './stage'
 import { FAMILY, T, VERDICT, num, people, usd } from './text'
 
 // The full written briefing: the report laid out as a document, top to bottom. The timeline is synced
@@ -64,13 +65,11 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
                     <span className="rs-tl__n">{row.action === 'storm' ? 'Storm' : `Step ${row.n}`}</span>
                     <span className="rs-tl__what">
                       {row.action === 'storm'
-                        ? `${num(row.storm_lines ?? row.lines?.length)} lines knocked out`
+                        ? `${num(row.storm_lines?.count ?? row.storm_lines ?? row.lines?.length)} lines knocked out by the storm`
                         : row.lines?.map((l) => `${capital(l.label)}${l.pct_before ? ` trips at ${Math.round(l.pct_before)}%` : ''}`).join('; ')}
                       {row.action === 'shed' && ' (customers cut to hold a line)'}
                     </span>
-                    {row.newly_dark?.length > 0 && (
-                      <span className="rs-tl__dark">Power lost: {row.newly_dark.map((d) => `${d.area} (${num(d.people)})`).join(', ')}</span>
-                    )}
+                    {row.newly_dark?.length > 0 && <span className="rs-tl__dark">Power lost: {darkList(row.newly_dark)}</span>}
                     <span className="rs-tl__cum">{num(row.people_cum)} people out (estimate)</span>
                   </button>
                 </li>
@@ -167,7 +166,7 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
                   )}
                   {f.tradeoff && ` · ${f.tradeoff}`}
                 </p>
-                {f.apply && f.verdict === 'holds' && (
+                {onApply && f.apply && f.verdict === 'holds' && (
                   <Button variant="secondary" onClick={() => onApply(f.apply)}>
                     {t.apply}
                   </Button>
@@ -254,6 +253,13 @@ function Fact({ k, v }) {
   )
 }
 
+// the areas that lost power at a step, the largest first (a storm darkens a hundred at once)
+function darkList(list) {
+  const top = [...list].sort((a, b) => (b.people || 0) - (a.people || 0))
+  const shown = top.slice(0, 6).map((d) => `${d.area} (${num(d.people)})`)
+  return top.length > 6 ? `${shown.join(', ')} and ${top.length - 6} more areas` : shown.join(', ')
+}
+
 const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '')
 const titleCase = (s) => String(s).toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase())
 
@@ -263,7 +269,7 @@ function DeckDoc({ deck, lang, fixture }) {
   if (!deck) return null
   return (
     <article className="rs-doc" aria-labelledby="rs-doc-title">
-      <p className="rs-doc__banner">{deck.banner}</p>
+      <p className="rs-doc__banner">{loc(deck, 'banner', lang)}</p>
       <header className="rs-doc__head">
         <p className="rs-doc__kicker">{t.sim}</p>
         <h2 id="rs-doc-title">{deck.title?.[lang]}</h2>
@@ -280,8 +286,8 @@ function DeckDoc({ deck, lang, fixture }) {
         </section>
       ))}
       <footer className="rs-doc__foot">
-        <p>{deck.credit}</p>
-        <p>{deck.disclaimer}</p>
+        <p>{loc(deck, 'credit', lang)}</p>
+        <p>{loc(deck, 'disclaimer', lang)}</p>
       </footer>
     </article>
   )

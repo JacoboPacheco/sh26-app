@@ -12,7 +12,7 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
   const lines = slide.lines?.[lang] || slide.lines?.en || []
   const headline = slide.headline?.[lang] || slide.headline?.en || ''
   const big = slide.big
-  const apply = kind === 'bottom_line' ? slide.map?.apply || bestApply(report) : null
+  const apply = kind === 'bottom_line' && onApply ? slide.map?.apply || bestApply(report) : null
   const written = slide.written_by?.[lang]
   const checked = deck?.ai?.numbers_checked || 0
 
@@ -39,7 +39,7 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
       {kind === 'no_fix' && report?.no_fix && <ProofTable report={report} lang={lang} />}
       {kind === 'no_fix' && report?.split && <SplitBar split={report.split} lang={lang} />}
 
-      {lines.length > 0 && (
+      {lines.length > 0 && !(kind === 'no_fix' && report?.no_fix?.proof?.length) && (
         <ul className="rs-lines">
           {lines.map((line, i) => {
             const { text, verdict } = kind === 'fix' ? splitVerdict(line, lang) : { text: line, verdict: null }

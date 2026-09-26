@@ -13,6 +13,9 @@ import { HERO } from './stage'
 const CASES = [
   { id: 'hero', label: 'Fort Myers · 1,500 MW', body: HERO },
   { id: 'heat', label: 'Heat wave (x1.04) · 500 MW', body: { ...HERO, mw: 500, load_factor: 1.04 } },
+]
+// until the engine serves its presets: the contract's catastrophes, and a Gulf storm drawn by hurricane mode
+const FALLBACK_PRESETS = [
   { id: 'gulf', label: 'Gulf storm + the campus', storm: 'gulf-fort-myers' },
   { id: 'fl-cat5-statewide', label: 'A Category 5 crosses all of Florida', preset: true },
   { id: 'fl-season-20', label: 'Twenty Category 5 storms in one season', preset: true },
@@ -25,7 +28,7 @@ export default function Preview() {
   const [last, setLast] = useState(null) // the stage to reopen
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
-  const [names, setNames] = useState({})
+  const [presets, setPresets] = useState(null) // the engine's catastrophes
   const oRef = useRef(o)
   useEffect(() => {
     oRef.current = o
@@ -33,7 +36,7 @@ export default function Preview() {
 
   useEffect(() => {
     getPresets('FL')
-      .then((r) => setNames(Object.fromEntries((r.presets || []).map((p) => [p.id, p.name]))))
+      .then((r) => r.presets?.length && setPresets(r.presets.map((p) => ({ id: p.id, label: p.name, preset: true }))))
       .catch(() => {})
   }, [])
 
@@ -87,9 +90,9 @@ export default function Preview() {
     <div className="stack">
       <p className="muted">Pick a case: the review stage opens over the map. Esc closes it.</p>
       <div className="row">
-        {CASES.map((c) => (
+        {[...CASES, ...(presets || FALLBACK_PRESETS)].map((c) => (
           <Button key={c.id} variant="secondary" busy={busy === c.id} disabled={!ready} onClick={() => pick(c)}>
-            {names[c.id] || c.label}
+            {c.label}
           </Button>
         ))}
       </div>
