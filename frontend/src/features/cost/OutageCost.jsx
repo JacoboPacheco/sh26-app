@@ -1,67 +1,34 @@
-// FEATURE: the two numbers under the hit counter (owned by the cost track): how long the lights are out
-// and what it costs. The outage length is estimated from the incident's size and the cost is the high end
-// of the range (backend/costs.py → headline). No AI, no controls: the full breakdown stays in CostCard.
+// FEATURE: the figures under the toll (owned by the cost track): how long the lights are out and, before a run,
+// what it would cost. The outage length is estimated from the incident's size and the cost is the high end of
+// the range (backend/costs.py → headline). No AI, no controls: the full breakdown stays in CostCard.
 //
-// Florida (the demo state) is eager: the case is priced as soon as it settles, so the numbers wait under the
-// counter before the cascade runs. Every other state is lazy (user, Sat 06:24: only calculate during the
-// cascade, nothing else): nothing is asked of the server until the cascade has played, and then only the
-// arithmetic on that cascade's own lost load and people (POST /api/cost/quick, no engine run).
-import { useEffect, useRef, useState } from 'react'
+// Once a cascade is on screen the cost of the blackout is the toll's own second figure (shell/ImpactPanel), so
+// this block keeps only the time without power (an upgrades-only case, where nobody loses power, keeps its cost
+// here). The estimate is fetched once for everyone (features/impact/caseCost.js): Florida (the demo state) is
+// eager, every other state asks only for the arithmetic on its cascade's own numbers once it exists, and shows
+// them here after the replay.
 import { useOverload } from '../../store'
 import { Loading } from '../../ui'
+import { useCaseCost } from '../impact/caseCost'
 import './outage.css'
-import { getCost, getQuickCost } from './costApi'
-import { money, moneyRange } from './money'
+import { moneyParts, moneyRange } from './money'
 
 export default function OutageCost() {
-  const { caseBody, region, grid, site, extraSites, trip, loadFactor, cascade, step, playing, fx } = useOverload()
-  const [det, setDet] = useState(null)
-  const [status, setStatus] = useState('idle') // idle | loading | done | error
-  const [retry, setRetry] = useState(0)
-  const req = useRef(0)
-
-  const lazy = region !== 'FL'
-  const ready = region !== 'US' && (grid?.meta?.region || 'FL') === region
-  const hasCase = ready && !!(site || extraSites.length || trip.length || loadFactor !== 1.0)
+  const { cascade, step, playing, fx } = useOverload()
+  const { det, status, lazy, hasCase, key, retry } = useCaseCost()
   const n = cascade?.steps?.length || 0
   const played = !!cascade && step >= n && !(fx && playing)
-  // what is asked for: the whole case (eager) or the finished cascade's own numbers (lazy)
-  const key = !hasCase ? '' : lazy ? (played ? JSON.stringify({ region, lost_mw: cascade.lost_mw, people: cascade.people }) : '') : JSON.stringify(caseBody)
-
-  useEffect(() => {
-    const id = ++req.current
-    if (!key) {
-      const t = setTimeout(() => {
-        setDet(null)
-        setStatus('idle')
-      }, 0)
-      return () => clearTimeout(t)
-    }
-    const t = setTimeout(
-      () => {
-        setStatus('loading')
-        ;(lazy ? getQuickCost(JSON.parse(key)) : getCost(JSON.parse(key)))
-          .then((d) => {
-            if (id !== req.current) return
-            setDet(d)
-            setStatus('done')
-          })
-          .catch(() => id === req.current && setStatus('error'))
-      },
-      lazy ? 0 : 250,
-    )
-    return () => clearTimeout(t)
-  }, [key, retry, lazy])
 
   if (!hasCase) return null
-  if (!key)
-    // lazy and the cascade has not finished: one quiet line, nothing computed
+  if (lazy && !played)
+    // lazy and the cascade has not finished: one quiet line before it runs, nothing during the replay
     return cascade ? null : <p className="loss loss--wait">Run the cascade to see the time without power and the cost.</p>
+  if (!key) return null
   if (status === 'error')
     return (
       <p className="loss loss--wait" role="alert">
         The cost estimate didn&apos;t load.{' '}
-        <button type="button" className="loss__retry" onClick={() => setRetry((r) => r + 1)}>
+        <button type="button" className="loss__retry" onClick={retry}>
           Try again
         </button>
       </p>
@@ -71,6 +38,8 @@ export default function OutageCost() {
   const h = det.headline
   const blackout = det.lines?.find((l) => l.key === 'blackout')
   const stale = status === 'loading'
+  // the toll above already shows the blackout's cost, leaping with the replay
+  const onToll = !!cascade && h.kind === 'blackout'
   return (
     <section className={`loss${stale ? ' loss--stale' : ''}`} aria-label="Estimated outage time and cost" aria-busy={stale || undefined}>
       {h.kind === 'none' ? (
@@ -81,17 +50,25 @@ export default function OutageCost() {
             <span className="loss__k">Time without power</span>
             <span className="loss__time">{h.outage_label}</span>
           </div>
-          <div className="loss__row loss__row--money">
-            <span className="loss__k">{h.kind === 'upgrades' ? 'Upgrades to stop the overloads' : 'Expected cost'}</span>
-            <span className="loss__money">{money(h.cost_high)}</span>
-          </div>
-          <p className="loss__note">
-            High end of typical estimates ({moneyRange(h.cost_low, h.cost_high)}). Estimates on a synthetic grid model.
-          </p>
+          {!onToll && (
+            <>
+              <div className="loss__row loss__row--money">
+                <span className="loss__k">{h.kind === 'upgrades' ? 'Upgrades to stop the overloads' : 'Expected cost'}</span>
+                <span className="loss__money">
+                  {moneyParts(h.cost_high).figure}
+                  {moneyParts(h.cost_high).unit && <span className="loss__unit"> {moneyParts(h.cost_high).unit}</span>}
+                </span>
+              </div>
+              <p className="loss__note">
+                High end of typical estimates ({moneyRange(h.cost_low, h.cost_high)}). Estimates on a synthetic grid model.
+              </p>
+            </>
+          )}
           <details className="loss__how">
             <summary>How we got this</summary>
             <p>{h.outage_basis}</p>
             {blackout && <p>{blackout.assumption}</p>}
+            {onToll && <p>High end of typical estimates ({moneyRange(h.cost_low, h.cost_high)}). Estimates on a synthetic grid model.</p>}
           </details>
         </>
       )}

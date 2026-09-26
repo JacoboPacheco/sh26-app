@@ -4,35 +4,39 @@ import MapLegend from '../features/flow/MapLegend'
 import PresentDamage from '../features/briefing/PresentDamage'
 import CostCard from '../features/cost/CostCard'
 import OutageCost from '../features/cost/OutageCost'
+import { money, moneyParts, moneyRange } from '../features/cost/money'
 import TownsFeed from '../features/impact/TownsFeed'
-import { REF_FLASH, REF_POP, REF_SHAKE_PX, byIntensity, leapIntensity, lookX } from '../features/impact/intensity'
+import { useLossRate } from '../features/impact/caseCost'
+import { byIntensity, leapIntensity } from '../features/impact/intensity'
 import { hitTowns, roundPeople, useHitEvents, useReducedMotion } from '../features/impact/towns'
 import { fmt } from '../geo'
 import { useOverload } from '../store'
 import './bomb.css'
 import { leapIndexAt, titleCase } from './cascadeSchedule'
 
-// The right-hand column: who is affected. Before the cascade runs, "Where the people are": the
-// overloaded lines and how many people their power reaches. Once it runs, the counter — the one
-// loud thing on the screen: it only LEAPS, each time the blast front reaches a town, bigger and
-// redder the more people it has hit (estimates, from the engine: backend powerflow.hits).
+// The right-hand column: who is affected and what it costs. Before the cascade runs, "Where the people
+// are": how hard the grid is strained, the overloaded lines and the people their power reaches. Once it
+// runs, the toll: people hit and the cost of the outage, two plain figures that only LEAP, each time the
+// blast front reaches a town (estimates, from the engine: backend powerflow.hits, and the case's cost:
+// backend/costs.py). Incident-room look: no pops, no glow, one short hard jolt per leap.
 export default function ImpactPanel() {
   const { view, cascade, step, result, fx, playing } = useOverload()
+  const rate = useLossRate()
   const n = cascade?.steps.length || 0
   const live = !!(fx && playing)
   const done = !!cascade && n > 0 && step >= n && !live
-  // nobody lost power in the end (the grid rerouted around every failure): the counter stays pale
+  // nobody lost power in the end (the grid rerouted around every failure): the toll stays neutral
   const calm = !!cascade && (cascade.people_zone ?? cascade.people ?? 0) === 0
   // the rest (full cost breakdown, towns going dark, the map key) sits behind one closed fold, mounted only once opened
   const [more, setMore] = useState(false)
   return (
     <div className="stack panel-body impact">
       {result && !cascade ? (
-        <WhereThePeopleAre />
+        <WhereThePeopleAre rate={rate} />
       ) : live ? (
-        <LiveCounter key={fx.startedAt} fx={fx} calm={calm} />
+        <LiveCounter key={fx.startedAt} fx={fx} calm={calm} rate={calm ? null : rate} />
       ) : (
-        <Counter view={view} done={done} ran={!!cascade} calm={calm} />
+        <Counter view={view} done={done} ran={!!cascade} calm={calm} rate={calm ? null : rate} />
       )}
       {done && (
         <p className={cascade.outcome === 'islanded' ? 'verdict verdict--bad' : 'verdict'}>
@@ -44,7 +48,7 @@ export default function ImpactPanel() {
             ` ${(cascade.sites?.length || 1) === 1 ? "The data center's" : "The data centers'"} own ${fmt(cascade.site_dark_mw)} MW lost power too.`}
         </p>
       )}
-      {/* under the counter: how long the lights are out and what it costs (the high end), then one click to present it */}
+      {/* under the toll: how long the lights are out (and, before a run, what it would cost), then one click to present it */}
       {result && <OutageCost />}
       {result && <PresentDamage />}
       <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>
@@ -62,168 +66,162 @@ export default function ImpactPanel() {
   )
 }
 
-// ------------------------------------------------------------------ how a number looks
-// Color by the running total: pale -> amber -> red -> hot red (with a glow from a million up).
-// Stops mirror the tokens in index.css (--lit, --strain, --overload) and bomb.css (--hot).
-const STOPS = [
-  [3, [214, 226, 241]], // under ~1,000: pale (--lit)
-  [4.3, [255, 176, 58]], // ~20,000: amber (--strain)
-  [5.3, [255, 61, 94]], // ~200,000: red (--overload)
-  [6, [255, 26, 60]], // a million: hot red (--hot)
-]
-function heat(x) {
-  if (x <= STOPS[0][0]) return STOPS[0][1]
-  for (let i = 1; i < STOPS.length; i++) {
-    const [x1, c1] = STOPS[i]
-    if (x <= x1) {
-      const [x0, c0] = STOPS[i - 1]
-      const f = (x - x0) / (x1 - x0)
-      return c0.map((v, j) => Math.round(v + (c1[j] - v) * f))
-    }
-  }
-  return STOPS.at(-1)[1]
-}
-// {--c, --mag (font size 0..1, by log10), --glow, --fit (so the widest number still fits)}
-// `final` = where this incident ends (people hit): the number is sized and colored against its own
-// incident as well as the absolute count (features/impact/intensity.js lookX, never below the absolute
-// look), so a cascade of a few thousand people ends orange-red and big, not pale.
-function look(total, calm = false, final = 0) {
-  const { size: x, heat: hx } = lookX(total, final)
-  const [r, g, b] = calm ? STOPS[0][1] : heat(hx)
-  const chars = fmt(total).length
-  return {
-    '--c': total > 0 ? `rgb(${r}, ${g}, ${b})` : 'var(--ink)',
-    '--mag': Math.min(1, Math.max(0, (x - 3) / 3.2)).toFixed(3),
-    '--glow': calm ? '0' : Math.min(1, Math.max(0, (x - 5.5) / 0.5)).toFixed(3),
-    '--red': calm ? '0' : '1',
-    '--fit': (1 / (chars * 0.44)).toFixed(4),
-  }
-}
-
+// ------------------------------------------------------------------ the toll
 const LABEL = 'People hit (estimate)'
+const MONEY_LABEL = 'Cost of the outage (estimate)'
 const WHY = 'Everyone whose power ran through a failed line or went out, each person counted once.'
 
-// Paused, scrubbed, or done: the exact value at the step on screen, no animation.
-function Counter({ view, done, ran, calm }) {
-  const { step, subById, cascade } = useOverload()
-  const events = useHitEvents()
-  const hit = Math.max(0, view?.peopleHit || 0)
-  const zone = view?.peopleZone || 0
-  // the chips' row, once the replay is over: the town hit hardest so far
-  const worst = useMemo(() => (ran && step > 0 ? hitTowns(events.slice(0, step).flat(), subById)[0] : null), [ran, step, events, subById])
+// nobody hit yet (the first line is still failing, or the replay is scrubbed back to its start): the outage
+// is not priced yet, so a dash holds the figure's place, never "$0" during a real outage
+const PENDING = { figure: '—', unit: '', range: 'estimate', pending: true }
+
+// the money for `hit` people at `rate` ($ per person, high and low): figure, unit word and its range
+function moneyAt(hit, rate) {
+  if (!(hit > 0)) return PENDING
+  const hi = hit * rate.high
+  const lo = hit * rate.low
+  return { ...moneyParts(hi), range: `${moneyRange(lo, hi)} · estimate`, pending: false }
+}
+
+// a person's share, in whole dollars ("$849", "$42"; under a dollar in cents)
+const perPerson = (v) => (v >= 1 ? `$${Math.round(v).toLocaleString('en-US')}` : money(v))
+
+// One line on how the money is found (the rule of thumb and its source live in the cost panel's "How we got this").
+function HowMoney({ rate }) {
   return (
-    <div className="bomb" style={look(hit, calm, cascade?.people_hit ?? 0)}>
-      <span className="bomb__n" aria-live="polite">
-        {fmt(hit)}
-      </span>
-      {ran && (
-        <span className="bomb__chips">
-          {worst && (
-            <span className="bomb__worst">
-              Hardest hit: <b>{worst.name}</b> · ~{fmt(roundPeople(worst.people))} people
-            </span>
-          )}
-        </span>
-      )}
-      <span className="bomb__label">{LABEL}</span>
-      <span className="bomb__why">{WHY}</span>
-      {done && calm && hit > 0 && <p className="bomb__zone">No one lost power: the grid rerouted around every failure.</p>}
-      {zone > 0 && (
-        <p className="bomb__zone">
-          <strong>{fmt(zone)}</strong> in the areas that lost power
-          {done && view.homesZone > 0 && (
-            <>
-              {' '}
-              · <strong>{fmt(view.homesZone)}</strong> homes <span className="muted">(2.5 people per home)</span>
-            </>
-          )}
-        </p>
-      )}
+    <p className="toll__how">
+      How this is estimated: the blackout&apos;s cost (lost power × hours without it × the value of lost load, high end)
+      {rate.basis === 'hit' ? ' shared out by the people hit' : ' per person who loses power'}, about {perPerson(rate.high)} a person.
+    </p>
+  )
+}
+
+// The toll's figures: the people-hit number and, once the case is priced, the cost beside it. Rendered the
+// same way live and paused so the end of a replay changes nothing but the numbers (the live loop finds the
+// figures by these class names and writes them directly).
+function Toll({ hit, rate, calm, children }) {
+  const m = rate ? moneyAt(hit, rate) : null
+  return (
+    <div className={`toll${calm ? ' toll--calm' : ''}${hit > 0 ? '' : ' toll--zero'}`}>
+      <div className="toll__figs">
+        <div className="toll__fig">
+          <span className="toll__k">{LABEL}</span>
+          <span className="toll__n toll__n--people">{fmt(hit)}</span>
+        </div>
+        <div className={`toll__fig toll__fig--money${m?.pending ? ' toll__fig--pending' : ''}`} hidden={!m}>
+          <span className="toll__k">{MONEY_LABEL}</span>
+          <span className="toll__n toll__n--money">
+            <span className="toll__fig-n">{m?.figure ?? ''}</span> <span className="toll__unit">{m?.unit ?? ''}</span>
+          </span>
+          <span className="toll__range">{m?.range ?? ''}</span>
+        </div>
+      </div>
+      <p className="toll__why">{WHY}</p>
+      {children}
     </div>
   )
 }
 
-// While the replay plays: a rAF loop reads the schedule's clock and writes the number through refs
-// (no per-frame React render). Each leap snaps to its new value with a pop, a shake, a heat-colored
-// glow and a "+people · town" chip; big leaps shake the map too (App listens for overload:leap).
-// Memoized on fx: React never re-renders it mid-replay, so nothing overwrites what the loop wrote.
-const LiveCounter = memo(function LiveCounter({ fx, calm }) {
+// Paused, scrubbed, or done: the exact value at the step on screen, no animation.
+function Counter({ view, done, ran, calm, rate }) {
+  const { step, subById } = useOverload()
+  const events = useHitEvents()
+  const hit = Math.max(0, view?.peopleHit || 0)
+  const zone = view?.peopleZone || 0
+  // once the replay is under way: the town hit hardest so far, with its share of the cost
+  const worst = useMemo(() => (ran && step > 0 ? hitTowns(events.slice(0, step).flat(), subById)[0] : null), [ran, step, events, subById])
+  return (
+    <section className="toll-wrap" aria-label="People hit and the cost of the outage" aria-live="polite">
+      <Toll hit={hit} rate={rate} calm={calm}>
+        {worst && (
+          <p className="toll__line">
+            {/* rounded up (the higher end), never past the toll above it: 11,045 hit, not "~12,000" in one town */}
+            Hardest hit: <b>{worst.name}</b>, ~{fmt(Math.max(worst.people, Math.min(roundPeople(worst.people), hit)))} people
+            {rate && <>, {money(worst.people * rate.high)}</>}
+          </p>
+        )}
+        {done && calm && hit > 0 && <p className="toll__line">No one lost power: the grid rerouted around every failure.</p>}
+        {zone > 0 && (
+          <p className="toll__line">
+            <b>{fmt(zone)}</b> in the areas that lost power
+            {done && view.homesZone > 0 && (
+              <>
+                {' '}
+                · <b>{fmt(view.homesZone)}</b> homes <span className="muted">(2.5 people per home)</span>
+              </>
+            )}
+          </p>
+        )}
+        {rate && <HowMoney rate={rate} />}
+      </Toll>
+    </section>
+  )
+}
+
+// While the replay plays: a rAF loop reads the schedule's clock and writes both figures through refs (no
+// per-frame React render). Each leap snaps the numbers to their new values with one short hard jolt (a
+// translate, sized by the leap's weight in its incident); big leaps jolt the map too (App listens for
+// overload:leap). Memoized: React re-renders it only when the cost estimate lands mid-replay, and then
+// writes the same props, so nothing overwrites what the loop wrote.
+// the money for `hit` people, written straight into a toll's DOM (the live loop's no-render path)
+function paintMoney(root, hit, rate) {
+  const box = root?.querySelector('.toll__fig--money')
+  if (!box) return
+  box.hidden = !rate
+  if (!rate) return
+  const m = moneyAt(hit, rate)
+  box.classList.toggle('toll__fig--pending', m.pending)
+  box.querySelector('.toll__fig-n').textContent = m.figure
+  box.querySelector('.toll__unit').textContent = m.unit
+  box.querySelector('.toll__range').textContent = m.range
+}
+
+const LiveCounter = memo(function LiveCounter({ fx, calm, rate }) {
   const reduced = useReducedMotion()
-  const boxRef = useRef(null)
-  const numRef = useRef(null)
-  const zoneRef = useRef(null)
-  const zoneNumRef = useRef(null)
-  const chipsRef = useRef(null)
-  const flashRef = useRef(null)
+  const rootRef = useRef(null)
+  const rateRef = useRef(rate)
+  const hitRef = useRef(fx.schedule.start.hit)
   const start = fx.schedule.start
-  const final = fx.schedule.incident?.hit ?? 0 // where this incident ends: the number's size and color are relative to it
+  const final = fx.schedule.incident?.hit ?? 0 // where this incident ends: each jolt is sized against it
+
+  // a new estimate is written at once (it may land mid-replay); the loop reads the ref from then on
+  useLayoutEffect(() => {
+    rateRef.current = rate
+    paintMoney(rootRef.current, hitRef.current, rate)
+  }, [rate])
 
   useLayoutEffect(() => {
-    const box = boxRef.current
-    const num = numRef.current
+    const root = rootRef.current
+    const wrap = root.querySelector('.toll')
+    const figs = root.querySelector('.toll__figs')
+    const num = root.querySelector('.toll__n--people')
+    const zoneLine = root.querySelector('.toll__zone')
+    const zoneNum = zoneLine.querySelector('b')
     const leaps = fx.schedule.leaps
     const paint = (hit, zone) => {
-      Object.entries(look(hit, calm, final)).forEach(([k, v]) => box.style.setProperty(k, v))
+      hitRef.current = hit
       num.textContent = fmt(hit)
-      zoneNumRef.current.textContent = fmt(zone)
-      zoneRef.current.hidden = !(zone > 0)
+      wrap.classList.toggle('toll--zero', !(hit > 0))
+      paintMoney(root, hit, rateRef.current)
+      zoneNum.textContent = fmt(zone)
+      zoneLine.hidden = !(zone > 0)
     }
     const land = (l, animate) => {
       paint(l.hit, l.zone)
-      if (!animate || reduced) return
-      if (l.delta > 0) {
-        const lg = Math.log10(l.delta)
-        // how hard this leap hits against its own incident (0.3..1; the biggest leap of a big incident is 1)
-        const I = l.intensity ?? leapIntensity(l.delta, final)
-        // the pop: bigger for bigger leaps, capped so the number stays inside the panel — by the people in it or
-        // by its weight in the incident, whichever is more (a small incident's leap pops at about half a big one's)
-        const room = (box.clientWidth + 14) / Math.max(num.offsetWidth, 1)
-        const s = Math.max(1.04, Math.min(Math.max(1 + Math.max(0.06, (lg - 3) * 0.13), 1 + REF_POP * I), room))
-        // transform only: the compositor runs it without repainting the glowing number
-        num.animate(
-          [
-            { transform: `scale(${s})` },
-            { transform: 'scale(0.97)', offset: 0.45 },
-            { transform: 'scale(1.015)', offset: 0.75 },
-            { transform: 'scale(1)' },
-          ],
-          { duration: 480 + lg * 30, easing: 'cubic-bezier(0.2, 0.9, 0.3, 1)' },
-        )
-        const a = calm ? 0 : Math.min(14, Math.max(1.5, (lg - 2.6) * 3.2, byIntensity(I, 0, REF_SHAKE_PX))) // shake amplitude (px), by log10(delta) or the leap's weight; none when nobody lost power
-        if (a) box.animate(
-          [0, 1, -0.85, 0.65, -0.45, 0.25, -0.1, 0].map((f, i) => ({
-            transform: `translate(${(f * a).toFixed(2)}px, ${((i % 2 ? -0.35 : 0.3) * f * a).toFixed(2)}px) rotate(${(f * a * 0.12).toFixed(2)}deg)`,
-          })),
-          { duration: 420 + lg * 20, easing: 'ease-out' },
-        )
-        const flash = Math.max(l.delta >= 20000 ? Math.min(0.9, (lg - 3.8) * 0.4) : 0, byIntensity(I, 0, REF_FLASH))
-        if (!calm && flash > 0.12) flashRef.current.animate([{ opacity: flash }, { opacity: 0 }], { duration: 650, easing: 'ease-out' })
-        chip(l, lg, I)
-        // the map shakes for a leap of 100,000+ people, or one that is a fifth or more of its incident
-        if ((l.big || (l.share ?? 0) >= 0.2) && !calm) window.dispatchEvent(new CustomEvent('overload:leap', { detail: { delta: l.delta, total: l.hit, intensity: I, big: !!l.big } }))
-      } else if (l.zoneDelta > 0) {
-        zoneNumRef.current.animate([{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'ease-out' })
-      }
-    }
-    const chip = (l, lg, I) => {
-      const el = document.createElement('span')
-      el.className = 'bomb__chip'
-      const b = document.createElement('b')
-      b.textContent = `+${fmt(l.delta)}`
-      el.append(b)
-      if (l.label) el.append(` · ${l.label}`)
-      el.style.fontSize = `${Math.min(1.2, Math.max(0.8 + Math.max(0, lg - 3.5) * 0.18, byIntensity(I, 0.8, 1.2))).toFixed(2)}rem`
-      chipsRef.current.append(el)
-      const x = (Math.random() * 18).toFixed(1)
-      el.animate(
+      if (!animate || reduced || calm || !(l.delta > 0)) return
+      // how hard this leap hits against its own incident (0.3..1; the biggest leap of a big incident is 1)
+      const I = l.intensity ?? leapIntensity(l.delta, final)
+      const a = byIntensity(I, 2, 8) // px: one hard jolt, down and a little left, then settle — no scale
+      figs.animate(
         [
-          { transform: `translate(${x}px, 12px) scale(0.7)`, opacity: 0 },
-          { transform: `translate(${x}px, 0) scale(1.1)`, opacity: 1, offset: 0.12 },
-          { transform: `translate(${x}px, -2px) scale(1)`, opacity: 1, offset: 0.62 },
-          { transform: `translate(${x}px, -16px) scale(0.97)`, opacity: 0 },
+          { transform: `translate3d(${(-a * 0.3).toFixed(2)}px, ${a.toFixed(2)}px, 0)` },
+          { transform: `translate3d(${(a * 0.12).toFixed(2)}px, ${(-a * 0.22).toFixed(2)}px, 0)`, offset: 0.45 },
+          { transform: 'translate3d(0, 0, 0)' },
         ],
-        { duration: 1600, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' },
-      ).onfinish = () => el.remove()
+        { duration: 110 + Math.round(30 * I), easing: 'ease-out' },
+      )
+      // the map jolts for a leap of 100,000+ people, or one that is a fifth or more of its incident
+      if (l.big || (l.share ?? 0) >= 0.2) window.dispatchEvent(new CustomEvent('overload:leap', { detail: { delta: l.delta, total: l.hit, intensity: I, big: !!l.big } }))
     }
 
     paint(start.hit, start.zone)
@@ -233,7 +231,7 @@ const LiveCounter = memo(function LiveCounter({ fx, calm }) {
     const tick = () => {
       const j = leapIndexAt(fx.schedule, performance.now() - fx.startedAt)
       if (j > i) {
-        for (let q = i + 1; q <= j; q++) land(leaps[q], q === j) // a frame late (a hidden tab): only the last one animates
+        for (let q = i + 1; q <= j; q++) land(leaps[q], q === j) // a frame late (a hidden tab): only the last one jolts
         i = j
       }
       if (i < leaps.length - 1) raf = requestAnimationFrame(tick)
@@ -243,18 +241,14 @@ const LiveCounter = memo(function LiveCounter({ fx, calm }) {
   }, [fx, start, final, reduced, calm])
 
   return (
-    <div className="bomb bomb--live" ref={boxRef} style={look(start.hit, calm, final)} aria-live="off">
-      <span className="bomb__flash" ref={flashRef} aria-hidden="true" />
-      <span className="bomb__n" ref={numRef}>
-        {fmt(start.hit)}
-      </span>
-      <span className="bomb__chips" ref={chipsRef} aria-hidden="true" />
-      <span className="bomb__label">{LABEL}</span>
-      <span className="bomb__why">{WHY}</span>
-      <p className="bomb__zone" ref={zoneRef} hidden={!(start.zone > 0)}>
-        <strong ref={zoneNumRef}>{fmt(start.zone)}</strong> in the areas that lost power
-      </p>
-    </div>
+    <section className="toll-wrap" aria-label="People hit and the cost of the outage" aria-live="off" ref={rootRef}>
+      <Toll hit={start.hit} rate={rate} calm={calm}>
+        <p className="toll__line toll__zone" hidden={!(start.zone > 0)}>
+          <b>{fmt(start.zone)}</b> in the areas that lost power
+        </p>
+        {rate && <HowMoney rate={rate} />}
+      </Toll>
+    </section>
   )
 })
 
@@ -265,12 +259,22 @@ const approx = (n) => {
   return fmt(Math.ceil(n / p) * p)
 }
 
-// The overloaded lines and transformers of the what-if, each with the people its power flows on to
-// (the engine's at_risk: the counter's own rule, so the first line to fail hits exactly its number),
-// and everyone in the path, each counted once. Click one to fly the map to it; pointing at one
-// lights it on the map (CascadeFX listens for overload:aim-line).
-function WhereThePeopleAre() {
-  const { result, subName, subPos, focus, branchById } = useOverload()
+// the most loaded line of the what-if, in % of its rating
+function busiest(result) {
+  let max = 0
+  for (const o of result?.overloaded || []) if (o.pct > max) max = o.pct
+  const all = result?.loading_pct || []
+  for (let i = 0; i < all.length; i++) if (all[i] > max) max = all[i]
+  return max
+}
+
+// How hard the grid is strained, then the overloaded lines and transformers of the what-if, each with the
+// people its power flows on to (the engine's at_risk: the counter's own rule, so the first line to fail hits
+// exactly its number) and, where the case is priced, the cost at stake; everyone in the path, each counted
+// once. Click one to fly the map to it; pointing at one lights it on the map (CascadeFX listens for
+// overload:aim-line).
+function WhereThePeopleAre({ rate }) {
+  const { result, subName, subPos, focus, branchById, region } = useOverload()
   const rows = useMemo(() => {
     const pct = new Map((result?.overloaded || []).map((o) => [o.id, o.pct]))
     return (result?.at_risk || [])
@@ -286,28 +290,38 @@ function WhereThePeopleAre() {
       .sort((a, b) => b.people - a.people)
       .slice(0, 6)
   }, [result, branchById, subName])
+  const peak = useMemo(() => busiest(result), [result])
   const aim = (id) => window.dispatchEvent(new CustomEvent('overload:aim-line', { detail: { id } }))
   // the highlight must not outlive the list
   useLayoutEffect(() => () => aim(null), [])
 
   const inPath = result.at_risk_people ?? 0
+  const over = peak > 100
   return (
     <section className="risk" aria-label="Where the people are">
       <h2 className="panel-h">Where the people are</h2>
+      {peak > 0 && (
+        <p className="risk__strain">
+          The busiest line runs at <span className={over ? 'risk__pct risk__pct--over' : 'risk__pct'}>{Math.round(peak)} %</span> of its rating
+          {over ? ': past its limit, it can trip.' : '.'}
+        </p>
+      )}
       {result.people > 0 && (
         <p className="risk__already">
           <strong>{approx(result.people)}</strong> people already without power <span className="muted">(estimate)</span>
+          {rate && <>, {money(Math.min(result.people * rate.high, rate.total.high))}</>}
         </p>
       )}
       {rows.length ? (
         <>
-          <p className="risk__lead">
+          <div className="risk__lead">
             <span className="risk__big">{fmt(inPath)}</span>
-            <span>
-              Up to {fmt(inPath)} people are in the path (each counted once): the power on these overloaded lines flows on to
-              them. If one trips, everyone its power reaches is hit — and the next line takes the strain.
-            </span>
-          </p>
+            <span className="risk__k">people in the path (estimate)</span>
+            <p className="risk__text">
+              The power on these overloaded lines flows on to them, each counted once. If one trips, everyone its power reaches is hit, and
+              the next line takes the strain.
+            </p>
+          </div>
           <ol className="risk__list">
             {rows.map((r) => (
               <li key={r.id}>
@@ -322,26 +336,27 @@ function WhereThePeopleAre() {
                     const b = branchById.get(r.id)
                     if (b) focus([subPos(b.from_sub), subPos(b.to_sub)])
                   }}
-                  aria-label={`${r.name}: ${r.pct != null ? `${Math.round(r.pct)} % of its limit, ` : ''}${fmt(r.mw)} MW, carries power for about ${approx(r.people)} people. Show it on the map.`}
+                  aria-label={`${r.name}: ${r.pct != null ? `${Math.round(r.pct)} % of its rating, ` : ''}${fmt(r.mw)} MW, carries power for about ${approx(r.people)} people. Show it on the map.`}
                 >
                   <span className="risk__name">{r.name}</span>
-                  <span className="risk__people">
-                    <small>carries power for</small>~{approx(r.people)}
-                    <small>people</small>
-                  </span>
                   <span className="risk__meta">
                     {r.pct != null && (
                       <>
-                        <span className="risk__pct">{Math.round(r.pct)} %</span> of its limit ·{' '}
+                        <span className={r.pct > 100 ? 'risk__pct risk__pct--over' : 'risk__pct'}>{Math.round(r.pct)} %</span> of its rating ·{' '}
                       </>
                     )}
                     {fmt(r.mw)} MW
                   </span>
+                  <span className="risk__people">~{approx(r.people)} people</span>
                 </button>
               </li>
             ))}
           </ol>
-          <p className="risk__note">People: everyone served where each line&apos;s power flows on to, from the state&apos;s population over its model load (estimates).</p>
+          <p className="risk__note">
+            People: everyone served where each line&apos;s power flows on to, from the state&apos;s population over its model load. The
+            lines share people and a cascade rarely reaches all of them, so the cost is priced for the whole case
+            {region !== 'FL' ? ' once the cascade runs' : ', below'}. Estimates on a synthetic grid model.
+          </p>
         </>
       ) : (
         <p className="risk__calm">No line is over its limit, so nothing trips: nobody is hit by this load.</p>

@@ -2,12 +2,15 @@ import { useMemo } from 'react'
 import { useMapView } from '../../GridMap'
 import { CITIES } from '../../geo'
 import { useOverload } from '../../store'
+import { money } from '../cost/money'
+import { useLossRate } from './caseCost'
 import './impact.css'
 import { peopleText, textWidth, useTowns } from './towns'
 
 // Who is hit, on the map (paused, scrubbed or done): the towns with the most people hit named where their people are (the
-// load-weighted centre of their substations; before a cascade, the towns without power), in small condensed type with a dark
-// halo so they read over the lights. They appear as the cascade reaches them. Sizes are screen
+// load-weighted centre of their substations; before a cascade, the towns without power), in small condensed type over a
+// soft dark scrim (no outline, no box), with their people and, once the case is priced, their share of the cost
+// (features/impact/caseCost.js). They appear as the cascade reaches them. Sizes are screen
 // pixels (divided by the zoom), and labels never overlap each other, the map's city names, or a
 // data-center marker — a town whose label can't fit is skipped. A town the map already names
 // (Fort Myers, Miami…) gets just its people, on the same line after the city's name.
@@ -22,13 +25,14 @@ const GAP = 7 // px from a town's centre to its label
 const PAD = 3 // px kept clear around every label
 const SITE_R = 14 // px kept clear around a data-center marker
 const FAR_GAP = SITE_R + PAD + 6 // the second ring of spots, for a town under a marker
+const MONEY_GAP = 6 // px between the people and the money
 const CITY_BY_NAME = new Map(CITIES.map((c) => [c.name, c]))
 
 // a line of text's box around its baseline, in px
 const lineBox = (x, baseline, w, px) => ({ x0: x, y0: baseline - px * 0.8, x1: x + w, y1: baseline + px * 0.25 })
 const hits = (a, b, pad) => a.x0 - pad < b.x1 && b.x0 - pad < a.x1 && a.y0 - pad < b.y1 && b.y0 - pad < a.y1
 
-function placeLabels(towns, k, project, sites, unit) {
+function placeLabels(towns, k, project, sites, unit, rate) {
   const u = 1 / k // map units per screen px
   const taken = []
   CITIES.forEach((c) => {
@@ -45,7 +49,8 @@ function placeLabels(towns, k, project, sites, unit) {
   for (const t of towns.slice(0, LOOK_AT)) {
     if (labels.length >= MAX_LABELS) break
     const homes = peopleText(t.people, unit)
-    const wHomes = textWidth(homes, HOMES_PX, 650, 'condensed')
+    const cost = rate ? money(t.people * rate.high) : ''
+    const wHomes = textWidth(homes, HOMES_PX, 700, 'condensed') + (cost ? MONEY_GAP + textWidth(cost, HOMES_PX, 700, 'condensed') : 0)
     let label = null
 
     const city = CITY_BY_NAME.get(t.name)
@@ -99,6 +104,8 @@ function placeLabels(towns, k, project, sites, unit) {
       key: t.name,
       name: t.name,
       homes,
+      cost,
+      box: { x0: label.box.x0 * u, y0: label.box.y0 * u, x1: label.box.x1 * u, y1: label.box.y1 * u },
       tail: label.tail,
       anchor: label.anchor,
       x: label.x * u,
@@ -112,7 +119,8 @@ function placeLabels(towns, k, project, sites, unit) {
 export default function ImpactLayer() {
   const { k, project } = useMapView()
   const { site, result, extraSites, headroomOn, headroom, fx, playing } = useOverload()
-  const { towns, hit } = useTowns()
+  const { towns } = useTowns()
+  const rate = useLossRate()
 
   // the data-center markers, where App draws them
   const sites = useMemo(
@@ -122,25 +130,50 @@ export default function ImpactLayer() {
     ],
     [site, result, extraSites],
   )
-  const labels = useMemo(() => (towns.length ? placeLabels(towns, k, project, sites, hit ? 'hit' : 'people') : []), [towns, k, project, sites, hit])
+  const labels = useMemo(() => (towns.length ? placeLabels(towns, k, project, sites, 'people', rate) : []), [towns, k, project, sites, rate])
 
   // the heatmap asks a different question; keep the map to it. While the blast replays, each town
   // gets its floating "+people" as the front lands (shell/CascadeFX); these labels return at the end.
   if (!labels.length || (headroomOn && headroom) || (fx && playing)) return null
+  const u = 1 / k
   return (
-    <g className="impact-labels" aria-hidden="true" style={{ '--halo': `${3.2 / k}px` }}>
-      {labels.map((l, i) => (
-        <g key={l.key} className="impact-label" style={{ '--i': i }}>
-          {!l.tail && (
-            <text className="impact-label__name" x={l.x} y={l.nameY} textAnchor={l.anchor} fontSize={NAME_PX / k}>
-              {l.name}
+    <g className="impact-labels" aria-hidden="true">
+      <defs>
+        {/* the scrim behind each label: dark in the middle, gone at the edge */}
+        <radialGradient id="impact-scrim">
+          <stop offset="0" className="impact-scrim__core" />
+          <stop offset="0.72" className="impact-scrim__mid" />
+          <stop offset="1" className="impact-scrim__edge" />
+        </radialGradient>
+      </defs>
+      {labels.map((l, i) => {
+        const w = l.box.x1 - l.box.x0
+        const h = l.box.y1 - l.box.y0
+        return (
+          <g key={l.key} className="impact-label" style={{ '--i': i }}>
+            <ellipse
+              cx={(l.box.x0 + l.box.x1) / 2}
+              cy={(l.box.y0 + l.box.y1) / 2}
+              rx={w / 2 + Math.max(14 * u, w * 0.25)}
+              ry={h / 2 + 9 * u}
+              fill="url(#impact-scrim)"
+            />
+            {!l.tail && (
+              <text className="impact-label__name" x={l.x} y={l.nameY} textAnchor={l.anchor} fontSize={NAME_PX / k}>
+                {l.name}
+              </text>
+            )}
+            <text className="impact-label__homes" x={l.x} y={l.homesY} textAnchor={l.anchor} fontSize={HOMES_PX / k}>
+              {l.homes}
+              {l.cost && (
+                <tspan className="impact-label__money" dx={MONEY_GAP / k}>
+                  {l.cost}
+                </tspan>
+              )}
             </text>
-          )}
-          <text className="impact-label__homes" x={l.x} y={l.homesY} textAnchor={l.anchor} fontSize={HOMES_PX / k}>
-            {l.homes}
-          </text>
-        </g>
-      ))}
+          </g>
+        )
+      })}
     </g>
   )
 }

@@ -1,11 +1,11 @@
-/* The blast replay — "an atomic bomb in slow motion": the map's effects (shell/CascadeFX.jsx), the
-   people-hit counter and "Where the people are" (shell/ImpactPanel.jsx), the map shake (App.jsx
-   listens for overload:leap) and the hit substations on the map (store view: .sub--hit).
-   Colors read the index.css tokens; two are added here: --ember (a light the blast reached) and
-   --hot (the counter past a million). */
+/* The blast replay — "an atomic bomb in slow motion", in the incident-room look: the map's effects
+   (shell/CascadeFX.jsx), the toll (people hit and the cost of the outage) and "Where the people are"
+   (shell/ImpactPanel.jsx), the map jolt (App.jsx listens for overload:leap) and the hit lights on the map
+   (store view: .sub--hit). Sober and heavy: plain tabular figures, no glow, no outlines, no pops; red only
+   for what is lost. Colors read the index.css tokens; --loss is the red of the figures (a touch lighter than
+   --overload, for text on the dark panel). */
 :root {
-  --ember: #ff6b3d;
-  --hot: #ff1a3c;
+  --loss: #ff5470;
 }
 
 /* ------------------------------------------------------------------ map: the blast (CascadeFX) */
@@ -22,97 +22,74 @@
   0% {
     opacity: 0;
     stroke: #ffffff;
-    stroke-width: 10px;
+    stroke-width: 8px;
   }
   1% {
     opacity: 1;
     stroke: #ffffff;
-    stroke-width: 10px;
+    stroke-width: 8px;
   }
   20% {
     stroke: #ffd3db;
-    stroke-width: 6px;
+    stroke-width: 5px;
   }
   45% {
     stroke: var(--overload);
-    stroke-width: 4px;
+    stroke-width: 3px;
   }
   100% {
     opacity: 1;
     stroke: var(--tripped);
-    stroke-width: 2.5px;
+    stroke-width: 1.5px;
   }
 }
 
-/* a light the front passes: white-hot, then an ember that stays */
+/* a light the front passes: a white flash, then it stays red (the people there are counted) */
 .bx-hit {
   fill: #ffffff;
   opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: bx-hit 1200ms ease-out both;
+  animation: bx-hit 900ms ease-out both;
 }
 
 @keyframes bx-hit {
   0% {
     opacity: 0;
     fill: #ffffff;
-    transform: scale(2.8);
   }
   1% {
     opacity: 1;
     fill: #ffffff;
-    transform: scale(2.8);
-  }
-  25% {
-    fill: #ffd1a8;
-    transform: scale(1.4);
-  }
-  100% {
-    opacity: 0.95;
-    fill: var(--ember);
-    transform: scale(1);
-  }
-}
-
-.bx-hit__glow {
-  opacity: 0;
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: bx-hit-glow 1500ms ease-out both;
-}
-
-.bx-ember__core {
-  stop-color: var(--ember);
-  stop-opacity: 0.7;
-}
-
-.bx-ember__edge {
-  stop-color: var(--ember);
-  stop-opacity: 0;
-}
-
-@keyframes bx-hit-glow {
-  0% {
-    opacity: 0;
-    transform: scale(0.3);
-  }
-  1% {
-    opacity: 1;
-    transform: scale(0.4);
   }
   30% {
-    opacity: 0.95;
-    transform: scale(1.2);
+    fill: #ffc2cc;
   }
   100% {
-    opacity: 0.4;
-    transform: scale(1);
+    opacity: 0.95;
+    fill: var(--overload);
+  }
+}
+
+/* and a faint red disc on the land it serves: marks the hit area, no glow, no pulse */
+.bx-hit__mark {
+  fill: var(--overload);
+  opacity: 0;
+  animation: bx-hit-mark 700ms ease-out both;
+}
+
+@keyframes bx-hit-mark {
+  0% {
+    opacity: 0;
+  }
+  1% {
+    opacity: 0.32;
+  }
+  100% {
+    opacity: 0.12;
   }
 }
 
 /* the canvas over the map (CascadeFX BlastCanvas): the blast front, the flares, the sparks at the
-   head of the darkness, the floating "+people" */
+   head of the darkness, the fires, the labels */
 .bx-canvas {
   position: absolute;
   inset: 0;
@@ -121,39 +98,33 @@
   pointer-events: none;
 }
 
-/* while the blast plays, and through the fire's afterglow, overloaded lines stop throbbing: the
-   blast (then the fire) is the motion, and each throb repaints the whole map under its glow */
-.mc:has(.bx, .bxa) .ln--over {
-  animation-play-state: paused;
+/* the hatch for areas that lose power (CascadeFX's <pattern>): opaque inside, the group sets how faint,
+   so overlapping areas union cleanly instead of stacking darker */
+.bx-hatch__bg {
+  fill: #030205;
 }
 
-/* a light going out as the darkness arrives: the land around it goes black */
-.bx-black__core {
-  stop-color: #000000;
-  stop-opacity: 1;
+.bx-hatch__ln {
+  stroke: #b3263b;
 }
 
-.bx-black__mid {
-  stop-color: #000000;
-  stop-opacity: 0.85;
+.bx-darks {
+  opacity: 0.55;
 }
 
-.bx-black__edge {
-  stop-color: #000000;
-  stop-opacity: 0;
-}
-
+/* a light going out as the darkness arrives: the land around it is hatched */
 .bx-dark {
+  fill: url(#bx-hatch);
   opacity: 0;
   transform-box: fill-box;
   transform-origin: center;
-  animation: bx-dark 650ms ease-in both;
+  animation: bx-dark 600ms ease-in both;
 }
 
 @keyframes bx-dark {
   0% {
     opacity: 0;
-    transform: scale(0.2);
+    transform: scale(0.35);
   }
   100% {
     opacity: 1;
@@ -161,18 +132,32 @@
   }
 }
 
+/* while the blast plays, and through the fire's afterglow, nothing on the base map animates on its own:
+   the blast (then the fire) is the motion. While it plays the base map's dark areas step aside: the
+   replay draws every one of them (from where the replay started), so the hatch never stacks (with
+   reduced motion the replay's layer is off, index.css .fx, and the base map keeps them) */
+.mc:has(.bx, .bxa) .ln--over {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mc:has(.bx) .blackout {
+    visibility: hidden;
+  }
+}
+
 /* before the run: the line a "Where the people are" row points at */
-.bx-aim__glow {
-  stroke: var(--overload);
-  stroke-opacity: 0.35;
-  stroke-width: 12px;
+.bx-aim__under {
+  stroke: var(--night);
+  stroke-opacity: 0.8;
+  stroke-width: 6px;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
 
 .bx-aim__line {
   stroke: #ffffff;
-  stroke-width: 2.5px;
+  stroke-width: 2px;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
@@ -180,21 +165,21 @@
 .bx-aim__ring {
   fill: none;
   stroke: #ffffff;
-  stroke-width: 2px;
+  stroke-width: 1.5px;
   vector-effect: non-scaling-stroke;
 }
 
 /* the base map between replays: a light the blast reached (people there are counted) */
 .sub.sub--hit {
-  fill: var(--ember);
-  fill-opacity: 0.9;
+  fill: var(--overload);
+  fill-opacity: 0.85;
 }
 
 .halo.sub--hit {
-  opacity: 0.3;
+  opacity: 0.15;
 }
 
-/* a big leap shakes the whole map (App toggles .mc--quake; --quake = amplitude) */
+/* a big leap jolts the whole map (App toggles .mc--quake; --quake = amplitude) */
 .mc--quake .map {
   animation: bx-quake 480ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
@@ -226,119 +211,97 @@
   }
 }
 
-/* ------------------------------------------------------------------ the counter (ImpactPanel) */
-.bomb {
-  position: relative;
+/* ------------------------------------------------------------------ the toll (ImpactPanel) */
+.toll {
   display: grid;
-  gap: 0.2rem;
-  container-type: inline-size;
-  /* the pop and the shake may reach into the panel's padding, never make it scroll */
+  gap: var(--space-2);
+  /* a jolt may reach into the panel's padding, never make it scroll */
   overflow: clip;
-  overflow-clip-margin: 18px;
+  overflow-clip-margin: 12px;
 }
 
-.bomb__n {
-  position: relative;
-  display: block;
-  width: fit-content;
-  /* grows with log10 of the total, never wider than the panel (--fit: per character) */
-  font-size: min(calc(3rem + var(--mag, 0) * 3.1rem), calc(100cqi * var(--fit, 0.12)));
-  line-height: 0.86;
-  font-weight: 800;
-  font-stretch: 62%;
-  letter-spacing: -0.01em;
-  color: var(--c, var(--ink));
-  text-shadow:
-    0 0 calc(var(--glow, 0) * 36px) rgba(255, 26, 60, calc(var(--glow, 0) * 0.8)),
-    0 0 calc(4px + var(--mag, 0) * 18px) rgba(255, 61, 94, calc(var(--mag, 0) * 0.35 * var(--red, 1)));
-  transform-origin: 0 62%;
-  font-variant-numeric: tabular-nums;
+.toll__figs {
+  display: grid;
+  gap: var(--space-3);
   will-change: transform;
 }
 
-.bomb__label {
+.toll__fig {
+  display: grid;
+  gap: 0.15rem;
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.toll__fig[hidden] {
+  display: none;
+}
+
+.toll__k {
   font-size: 0.8125rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--ink);
-}
-
-.bomb__why {
-  font-size: 0.8125rem;
-  color: var(--ink-2);
-  line-height: 1.35;
-}
-
-.bomb__zone {
-  margin-top: 0.3rem;
-  font-size: 0.875rem;
-  color: var(--ink-2);
-}
-
-.bomb__zone strong {
-  display: inline-block;
-  color: var(--ink);
-  font-weight: 800;
-  font-stretch: 75%;
-  font-size: 1.05rem;
-  transform-origin: 0 60%;
-}
-
-/* the chips: "+329,740 · Naples" pop up in their own row under the number, then rise and fade
-   (created by the rAF loop; the row is kept after the replay so nothing below it jumps) */
-.bomb__chips {
-  position: relative;
-  display: block;
-  height: 1.75rem;
-  margin-top: 0.25rem;
-  z-index: 1;
-}
-
-.bomb__chip {
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  white-space: nowrap;
-  padding: 0.12rem 0.55rem 0.16rem;
-  border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--overload) 65%, transparent);
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55);
-  color: var(--ink);
   font-weight: 600;
-  font-stretch: 80%;
-  line-height: 1.25;
-  pointer-events: none;
-  opacity: 0;
-}
-
-.bomb__chip b {
-  color: #ff8095;
-  font-weight: 800;
-}
-
-/* after the replay the chips' row names the town hit hardest */
-.bomb__worst {
-  position: absolute;
-  left: 0;
-  bottom: 0.1rem;
-  font-size: 0.8125rem;
   color: var(--ink-2);
+}
+
+/* the figures: plain, heavy, tabular; the same size class for people and money */
+.toll__n {
+  display: block;
+  font-size: min(3.1rem, 17cqi);
+  line-height: 0.95;
+  font-weight: 700;
+  font-stretch: 75%;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.bomb__worst b {
+.toll__n--people {
+  color: var(--loss);
+}
+
+.toll--zero .toll__n--people,
+.toll--calm .toll__n--people {
   color: var(--ink);
 }
 
-/* a big leap flashes the counter's corner red */
-.bomb__flash {
-  position: absolute;
-  inset: -18px -18px auto -18px;
-  height: 130px;
-  background: radial-gradient(closest-side at 28% 50%, rgba(255, 40, 70, 0.55), rgba(255, 40, 70, 0) 100%);
-  opacity: 0;
-  pointer-events: none;
+.toll__n--money {
+  color: var(--ink);
+}
+
+/* nobody hit yet: a quiet dash holds the figure's place until the first leap prices it */
+.toll__fig--pending .toll__n--money {
+  color: var(--ink-2);
+}
+
+.toll__unit {
+  font-size: 0.56em;
+  font-weight: 650;
+  font-stretch: 85%;
+  letter-spacing: 0;
+}
+
+.toll__range {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.toll__why,
+.toll__how {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.toll__line {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.toll__line b {
+  color: var(--ink);
+  font-weight: 650;
 }
 
 /* ------------------------------------------------------------------ before the run (ImpactPanel) */
@@ -347,23 +310,56 @@
   gap: var(--space-2);
 }
 
-.risk__lead {
-  display: grid;
-  gap: 0.2rem;
+.risk__strain {
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.risk__pct {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.risk__pct--over {
+  color: var(--loss);
+}
+
+.risk__already {
   font-size: 0.8125rem;
   color: var(--ink-2);
 }
 
-.risk__big {
-  font-size: 2.4rem;
-  line-height: 0.9;
-  font-weight: 800;
-  font-stretch: 62%;
-  color: var(--strain);
+.risk__already strong {
+  color: var(--loss);
+  font-variant-numeric: tabular-nums;
 }
 
-.risk__already strong {
-  color: var(--overload);
+.risk__lead {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.risk__big {
+  font-size: 2.4rem;
+  line-height: 0.95;
+  font-weight: 700;
+  font-stretch: 75%;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.risk__k {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.risk__text {
+  margin-top: 0.2rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--ink-2);
 }
 
 .risk__list {
@@ -371,7 +367,10 @@
   margin: 0 calc(-1 * var(--space-2));
   padding: 0;
   display: grid;
-  gap: 1px;
+}
+
+.risk__list > li + li {
+  border-top: 1px solid var(--glass-hi);
 }
 
 .risk__row {
@@ -379,7 +378,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.05rem var(--space-3);
   width: 100%;
-  padding: 0.35rem var(--space-2);
+  padding: 0.4rem var(--space-2);
   font: inherit;
   color: var(--ink);
   text-align: left;
@@ -403,33 +402,24 @@
   font-stretch: 88%;
 }
 
-.risk__people {
-  grid-row: span 2;
-  align-self: center;
-  text-align: right;
-  font-size: 1.2rem;
-  line-height: 1;
-  font-weight: 800;
-  font-stretch: 70%;
-  color: var(--overload);
-}
-
-.risk__people small {
-  display: block;
-  font-size: 0.6875rem;
-  font-weight: 500;
-  font-stretch: 100%;
-  color: var(--ink-2);
-}
-
 .risk__meta {
+  grid-row: 2;
   font-size: 0.75rem;
   color: var(--ink-2);
 }
 
-.risk__pct {
-  color: var(--overload);
+/* people only: a line's people overlap the next line's, so no per-row money before the run (the whole
+   case is priced once, under the list) */
+.risk__people {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   font-weight: 700;
+  font-stretch: 80%;
+  color: var(--ink);
 }
 
 .risk__note,
@@ -445,9 +435,5 @@
 @media (prefers-reduced-motion: reduce) {
   .mc--quake .map {
     animation: none;
-  }
-
-  .bomb__chip {
-    display: none;
   }
 }

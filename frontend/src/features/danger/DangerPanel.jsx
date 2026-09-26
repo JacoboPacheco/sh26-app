@@ -121,11 +121,14 @@ function Body({ dz, where, level }) {
                   </span>
                   <span className="dz-row__text">
                     <strong>{z.area}</strong>
-                    <span className="dz-row__n">~{compact(z.people_hit)} people hit (estimate)</span>
                     <span className="dz-row__meta">
                       {z.steps} {z.steps === 1 ? 'step' : 'steps'}
                       {z.outcome === 'islanded' ? ' · ends in a blackout' : ' · the grid settles'}
                     </span>
+                  </span>
+                  <span className="dz-row__n">
+                    ~{compact(z.people_hit)}
+                    <small>people hit</small>
                   </span>
                 </button>
                 {placed && !cascade && (
@@ -149,7 +152,7 @@ function Body({ dz, where, level }) {
         </div>
       )}
       <p className="dz-note">
-        People hit: everyone whose power ran through a failed line or went out, each counted once. {d.note}.
+        People hit (estimates): everyone whose power ran through a failed line or went out, each counted once. {d.note}.
       </p>
     </div>
   )

@@ -509,6 +509,8 @@ def estimate(body: CostIn) -> dict:
             "outage_estimated": not given,
             "outage_basis": OUTAGE_BASIS if not given else f"Outage length chosen: {hours:g} hours.",
             "people": int(casc.get("people") or 0),
+            # everyone the case's cascade hits, each once (the replay's final count): the frontend's cost per person
+            "people_hit": int(casc.get("people_hit") or 0),
         }
     )
 

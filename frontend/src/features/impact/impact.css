@@ -36,9 +36,9 @@
 
 .towns__row {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: baseline;
-  justify-content: space-between;
   gap: var(--space-3);
   width: 100%;
   padding: 0.3rem var(--space-2) 0.45rem;
@@ -65,10 +65,20 @@
 }
 
 .towns__homes {
-  flex: none;
   font-weight: 700;
   font-stretch: 78%;
   font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* the town's share of the case's cost (people x the cost per person hit) */
+.towns__money {
+  min-width: 4.6rem;
+  font-weight: 650;
+  font-stretch: 78%;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--ink);
 }
 
 .towns__unit {
@@ -97,21 +107,20 @@
   animation-delay: calc(var(--i, 0) * 30ms);
 }
 
-/* a town already listed that lost more this step: its number flashes */
+/* a town already listed that lost more this step: its number turns red for a moment */
 .towns__item--grew .towns__homes {
   animation: towns-grew 0.55s ease-out;
 }
 
+/* sober: the row is simply there, on a faint red wash that fades (no slide, no bounce) */
 @keyframes towns-in {
   0% {
     opacity: 0;
-    transform: translateX(-16px);
-    background-color: color-mix(in srgb, var(--overload) 45%, transparent);
+    background-color: color-mix(in srgb, var(--overload) 22%, transparent);
   }
-  35% {
+  12% {
     opacity: 1;
-    transform: none;
-    background-color: color-mix(in srgb, var(--overload) 32%, transparent);
+    background-color: color-mix(in srgb, var(--overload) 22%, transparent);
   }
   100% {
     background-color: transparent;
@@ -150,26 +159,43 @@
 }
 
 /* ------------------------------------------------------------------ town labels on the map */
+/* quiet text over a soft dark scrim (ImpactLayer's radial gradient), no outline, no box */
 .impact-label text {
   font-family: var(--font);
-  paint-order: stroke;
-  stroke: var(--night);
-  stroke-opacity: 0.92;
-  stroke-width: var(--halo, 3px);
-  stroke-linejoin: round;
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
+}
+
+.impact-scrim__core {
+  stop-color: var(--night);
+  stop-opacity: 0.8;
+}
+
+.impact-scrim__mid {
+  stop-color: var(--night);
+  stop-opacity: 0.62;
+}
+
+.impact-scrim__edge {
+  stop-color: var(--night);
+  stop-opacity: 0;
 }
 
 .impact-label__name {
   fill: var(--ink);
-  font-weight: 700;
+  font-weight: 600;
   font-stretch: 75%;
 }
 
 .impact-label__homes {
-  fill: var(--overload);
-  font-weight: 650;
+  fill: var(--loss, var(--overload));
+  font-weight: 700;
   font-stretch: 75%;
+}
+
+.impact-label__money {
+  fill: var(--ink);
+  font-weight: 700;
 }
 
 .impact-label {

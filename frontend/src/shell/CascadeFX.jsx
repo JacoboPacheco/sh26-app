@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { money } from '../features/cost/money'
+import { useLossRate } from '../features/impact/caseCost'
 import { useHospitals } from '../features/hospitals/hospitalsApi'
 import { AFTERGLOW_MS, buildFires, drawFires } from '../features/impact/fireFx'
 import { byIntensity, leapIntensity } from '../features/impact/intensity'
-import { useReducedMotion } from '../features/impact/towns'
+import { textWidth, useReducedMotion } from '../features/impact/towns'
 import { useMapView } from '../GridMap'
 import { HEIGHT, WIDTH, fmt, muPerKm } from '../geo'
 import { useOverload } from '../store'
@@ -14,14 +16,16 @@ import { RING_POW, titleCase } from './cascadeSchedule'
 // shell/cascadeSchedule.js) is drawn without a React render per frame, in two layers:
 //   SVG, inside the map (below the labels): every effect laid down ONCE as a CSS animation whose
 //     delay is its time in the schedule — the failed line snaps white-hot and dies; every light the
-//     blast front passes flashes white-hot and settles to an ember; as the darkness arrives, the land
-//     around each light goes black over it. Kept few: each one repaints the heavy map under it.
+//     blast front passes flashes and settles to red; as the darkness arrives, the land around each light
+//     is cross-hatched red (the hatch is this layer's own <pattern>, also used by the base map's dark areas).
+//     Kept few: each one repaints the heavy map under it.
 //   Canvas, over the map (BlastCanvas): what moves across large areas — the blast front expanding in
 //     slow motion, the failure point's flare, the sparks running along the real lines at the head of
-//     the darkness, and the floating
-//     "+people" over each town the front lands on. Drawn per frame from the same clock as the
-//     counter; on a canvas they don't make the browser repaint the heavy map under them (an SVG
-//     front forced a re-raster of the ~1,300 lights and ~3,300 lines under it on every frame).
+//     the darkness, and the quiet labels: "Naples  329,740 people  $281 million" appears the moment the
+//     front reaches a town and stays until its step ends (the money is the town's people times the
+//     case's cost per person: features/impact/caseCost.js; people alone until the estimate lands).
+//     Drawn per frame from the same clock as the counter; on a canvas they don't make the browser
+//     repaint the heavy map under them.
 //   Fire (features/impact/fireFx.js, drawn by the same canvas): an arc, a white flash and sparks at the
 //     instant a line trips, then flames, embers and a smoke plume where it burns, sparks where the front
 //     passes a light, smoldering hot spots where the power goes out and a pulsing red cross at each
@@ -31,20 +35,33 @@ import { RING_POW, titleCase } from './cascadeSchedule'
 // Paused or scrubbed, both are off and the map shows the exact step (the store's view).
 // Sizes: SVG stroke widths are screen px (non-scaling strokes); radii and text are divided by the zoom.
 
-const CROWD_MIN = 5000 // a call-out under this many people is dropped when there's no room for it
-// bigger for bigger hits: by the people in it, and by its size against the whole incident (the larger of the two)
-const calloutPx = (p, I) => Math.min(30, Math.max(14 + 5.5 * Math.max(0, Math.log10(Math.max(p, 1)) - 3.7), byIntensity(I, 14, 25)))
-const HIT_LIFE = 1800 // a hit's call-out pops, drifts and fades over this…
-const KEEP = 3 // …except each tier's biggest few, which stay faintly until the tier ends
-const LINE_LIFE = 2400
-const WAVE_LIFE = 1400
+const CROWD_MIN = 5000 // a label under this many people is dropped when there's no room for it
+const LABELS_PER_TIER = 6 // the biggest hits of a step get a label; the rest are in the counter and the feed
+const LINE_LIFE = 2400 // a failed line's label, at most (it also goes when its step ends)
+const FADE_IN = 160
+const FADE_OUT = 450
+const HATCH_PX = 5 // the dark areas' hatch: screen px between lines at any zoom
 const nameOf = (s) => titleCase(s?.name || '')
+// GridMap's zoom buckets (GridLayers): its dark areas are 7 / sqrt(bucket) map units, the replay's match them
+const bucketOf = (k) => (k < 1.5 ? 1 : k < 2.5 ? 2 : k < 4 ? 3 : k < 6 ? 5 : 8)
+
+// label parts: the town (quiet), its people (red: what is lost) and their share of the cost
+const NAME_PX = 12
+const FIG_PX = 13
+const PART_GAP = 7
 
 export default function CascadeFX() {
-  const { fx: live, playing, subById, branchById, cascade, step, region } = useOverload()
+  const { fx: live, playing, subById, branchById, cascade, step, region, view } = useOverload()
   const { k, project } = useMapView()
   const [aim, setAim] = useState(null) // a line the impact panel points at before the run (hover)
   const reduced = useReducedMotion()
+  // $ per person hit (null until the case is priced): the labels read it through a ref, so the estimate
+  // can land mid-replay without rebuilding anything
+  const rate = useLossRate()
+  const rateRef = useRef(rate)
+  useEffect(() => {
+    rateRef.current = rate
+  }, [rate])
   // The replay that just ran to its end stays on screen for its afterglow: the fire dies back and the
   // hot spots smolder out (the store clears `fx` the moment the last step lands).
   const [last, setLast] = useState(null)
@@ -79,11 +96,19 @@ export default function CascadeFX() {
   // eslint-disable-next-line react/purity -- read once per run, on purpose
   const lag = useMemo(() => (fx ? performance.now() - fx.startedAt : 0), [fx])
 
+  // The areas already dark when this replay starts (a replay resumed mid-way, a storm that cut places off
+  // first): while the replay plays the base map's dark areas are hidden and this layer draws every one
+  // (bomb.css), so its hatch never stacks on the base map's. Read once per run, on purpose.
+  const darkAtStart = useMemo(
+    () => (fx && view ? Object.keys(view.subClasses).filter((id) => view.subClasses[id] === 'sub--dark').map(Number) : []),
+    [fx], // eslint-disable-line react-hooks/exhaustive-deps -- the view when this run started, not later steps
+  )
+
   // everything that burns, with its time (features/impact/fireFx.js) — once per run
   const fires = useMemo(() => (fx ? buildFires({ schedule: fx.schedule, subById, branchById, project, hospitals }) : null), [fx, subById, branchById, project, hospitals])
 
   // everything the replay will draw, positioned in map units, with its time — once per run
-  // (and again if the zoom changes: sizes and the call-outs' spots depend on it)
+  // (and again if the zoom changes: sizes and the labels' spots depend on it)
   const plan = useMemo(() => {
     if (!fx) return null
     const at = (t) => `${Math.round(t - lag)}ms`
@@ -92,30 +117,38 @@ export default function CascadeFX() {
       const s = subById.get(id)
       return s ? project(s.lon, s.lat) : null
     }
-    // Call-outs must not land on each other: each is nudged up or down from its spot until it's
-    // clear of the ones on screen at the same time. Sizes in real screen px: the map box fits the
-    // view (WIDTH x HEIGHT map units), then the zoom.
+    // Labels must not land on each other: each is nudged up or down from its spot until it's clear of
+    // the ones on screen at the same time. Sizes in real screen px: the map box fits the view
+    // (WIDTH x HEIGHT map units), then the zoom.
     const base = host ? Math.min(host.clientWidth / WIDTH, host.clientHeight / HEIGHT) || 1 : 1
     const upx = 1 / (k * base)
     const alive = []
-    const place = (c) => {
-      const w = Math.max(...c.lines.map((l) => l.text.length * l.px * 0.52)) * upx + 10 * upx
-      const h = c.lines.reduce((a, l) => a + l.px * 1.15, 0) * upx + 6 * upx
+    const place = (c, force) => {
+      const w = c.wPx * upx + 16 * upx
+      const h = 17 * upx
       const t0 = c.t
-      const t1 = Math.max(c.t + c.life, c.keep || 0)
-      const box = (y) => ({ x0: c.x - w / 2, x1: c.x + w / 2, y0: y - h - 22 * upx, y1: y + 4 * upx, t0, t1 })
+      const t1 = c.until + FADE_OUT
+      const box = (y) => ({ x0: c.x - w / 2, x1: c.x + w / 2, y0: y - h, y1: y + 5 * upx, t0, t1 })
       const free = (b) => !alive.some((a) => a.t0 < b.t1 && b.t0 < a.t1 && a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1)
       for (const n of [0, -1, 1, -2, 2, -3, 3, -4]) {
-        const y = c.y + n * (h + 4 * upx)
+        const y = c.y + n * (h + 3 * upx)
         const b = box(y)
         if (free(b)) {
           alive.push(b)
           return { ...c, y, lead: n !== 0 ? c.y : null }
         }
       }
-      if (c.people < CROWD_MIN) return null
+      // no room: a small hit waits for the counter and the feed; a step's biggest hit (and a failed line) is drawn anyway
+      if (!force || c.people < CROWD_MIN) return null
       alive.push(box(c.y))
       return c
+    }
+    // a hit's label: the town, its people and (once priced) their share of the cost — measured with room for the money
+    const hitLabel = (area, people, I) => {
+      const fig = byIntensity(I, FIG_PX, FIG_PX + 2)
+      const wPx =
+        textWidth(area, NAME_PX, 600, 'condensed') + textWidth(`${fmt(people)} people`, fig, 700, 'condensed') + textWidth('$888 million', fig, 700, 'condensed') + 2 * PART_GAP
+      return { kind: 'hit', area, people, fig, wPx }
     }
     const snaps = []
     const hits = []
@@ -123,36 +156,56 @@ export default function CascadeFX() {
     const rings = []
     const flares = []
     const sparks = []
-    const callouts = []
+    const labels = []
     const lineFlares = []
+    const rDark = 7 / Math.sqrt(bucketOf(k))
+    const seen = new Set()
+    darkAtStart.forEach((id) => {
+      const p = xy(id)
+      if (!p) return
+      seen.add(id)
+      darks.push({ key: `d0-${id}`, x: p[0], y: p[1], delay: '-2000ms', r: rDark })
+    })
+    const dark = (key, id, t) => {
+      if (seen.has(id)) return
+      const p = xy(id)
+      if (!p) return
+      seen.add(id)
+      darks.push({ key, x: p[0], y: p[1], delay: at(t), r: rDark })
+    }
+    const total = fx.schedule.incident?.hit ?? 0
     fx.schedule.tiers.forEach((tier) => {
       const key = `s${tier.step}`
       const st = cascade?.steps?.[tier.step - 1]
       const o = tier.origin && project(tier.origin.lon, tier.origin.lat)
-      // SNAP: the failed line flashes, with its call-out at its midpoint
+      // SNAP: the failed line flashes, with its label at its midpoint
       tier.lines.forEach((bid, i) => {
         const b = branchById.get(bid)
         const a = b && xy(b.from_sub)
         const z = b && xy(b.to_sub)
         if (!a || !z) return
         if (b.from_sub !== b.to_sub) snaps.push({ key: `${key}-${bid}`, x1: a[0], y1: a[1], x2: z[0], y2: z[1], delay: at(tier.t0) })
-        if (i > 0) return // a storm's many lines: one call-out
+        if (i > 0) return // a storm's many lines: one label
         const from = subById.get(b.from_sub)
         const what = b.from_sub === b.to_sub ? `${nameOf(from)} transformer` : `${nameOf(from)} → ${nameOf(subById.get(b.to_sub))}`
         const mw = st?.carried?.[0]?.mw
         const more = tier.lines.length > 1 ? ` + ${tier.lines.length - 1} more lines` : ''
-        const verb = tier.action === 'shed' ? 'held · customers cut' : tier.action === 'storm' ? 'knocked out' : 'failed'
-        const c = place({
-          x: (a[0] + z[0]) / 2,
-          y: (a[1] + z[1]) / 2 - 10 * upx,
-          t: tier.t0,
-          life: LINE_LIFE,
-          people: Infinity,
-          kind: 'line',
-          pop: 1.15,
-          lines: [{ text: `${what}${more} ${verb}${mw ? ` · ${fmt(mw)} MW` : ''}`, px: 12.5, weight: 700, color: 'line' }],
-        })
-        if (c) callouts.push(c)
+        const verb = tier.action === 'shed' ? 'held, customers cut' : tier.action === 'storm' ? 'knocked out' : 'failed'
+        const text = `${what}${more} ${verb}${mw ? ` · ${fmt(mw)} MW` : ''}`
+        const c = place(
+          {
+            kind: 'line',
+            text,
+            x: (a[0] + z[0]) / 2,
+            y: (a[1] + z[1]) / 2 - 10 * upx,
+            t: tier.t0,
+            until: Math.min(tier.t0 + LINE_LIFE, tier.t1),
+            people: Infinity,
+            wPx: textWidth(text, 12, 600, 'condensed'),
+          },
+          true,
+        )
+        if (c) labels.push(c)
       })
       if (o) {
         flares.push({ x: o[0], y: o[1], t: tier.t0, big: tier.kind === 'blast' || tier.kind === 'blackout' })
@@ -172,39 +225,25 @@ export default function CascadeFX() {
           lineFlares.push({ x1: a[0], y1: a[1], x2: z[0], y2: z[1], t: tier.ring.t0 + Math.pow(d / R, RING_POW) * tier.ring.dur })
         })
       }
-      // each town the front lands on: its lights go white-hot, then ember; its call-out pops at its
-      // biggest substation — the tier's biggest few stay, faintly, until the tier ends
-      const big = new Set([...tier.hits].sort((p, q) => q.people - p.people).slice(0, KEEP).map((h) => h.area))
-      const total = fx.schedule.incident?.hit ?? 0
+      // each town the front lands on: its lights flash and settle to red; the step's biggest few get a
+      // label at their biggest substation, from the moment the front lands until the step ends
+      const top = new Set([...tier.hits].sort((p, q) => q.people - p.people).slice(0, LABELS_PER_TIER).map((h) => h.area))
+      const biggest = tier.hits.reduce((m, h) => (!m || h.people > m.people ? h : m), null)
       tier.hits.forEach((h) => {
-        const I = leapIntensity(h.people, total)
-        let top = null
+        let spot = null
         h.subs.forEach((s) => {
           const p = xy(s.id)
           if (!p) return
           hits.push({ key: `${key}-h${s.id}`, x: p[0], y: p[1], delay: at(s.t) })
           const load = subById.get(s.id).load_mw || 0
-          if (!top || load > top.load) top = { p, load }
+          if (!spot || load > spot.load) spot = { p, load }
         })
-        if (!top || !(h.people > 0)) return
-        const c = place({
-          x: top.p[0],
-          y: top.p[1] - 8 * upx,
-          t: h.t,
-          life: HIT_LIFE,
-          keep: big.has(h.area) ? tier.t1 : 0,
-          people: h.people,
-          kind: 'hit',
-          pop: Math.max(1 + Math.min(0.5, 0.1 + Math.max(0, Math.log10(h.people) - 3.5) * 0.18), 1 + 0.45 * I),
-          lines: [
-            { text: h.area, px: 12, weight: 700, color: 'ink' },
-            { text: `−${fmt(h.people)} people`, px: calloutPx(h.people, I), weight: 800, color: 'hot' },
-          ],
-        })
-        if (c) callouts.push(c)
+        if (!spot || !(h.people > 0) || !top.has(h.area)) return
+        const c = place({ ...hitLabel(h.area, h.people, leapIntensity(h.people, total)), x: spot.p[0], y: spot.p[1] - 8 * upx, t: h.t, until: tier.t1 }, h === biggest)
+        if (c) labels.push(c)
       })
-      // the darkness: sparks run along the real lines, the land goes black as it arrives; a wave
-      // that takes power from more people gets a small call-out at its main substation
+      // the darkness: sparks run along the real lines, the land is hatched as it arrives; a wave that
+      // takes power from more people gets a label at its main substation
       tier.waves.forEach((wv) => {
         wv.paths.forEach((path) => {
           const pts = path.map(xy).filter(Boolean)
@@ -212,69 +251,67 @@ export default function CascadeFX() {
         })
         let main = null
         wv.subs.forEach((id) => {
+          dark(`${key}-k${id}`, id, wv.t1)
           const p = xy(id)
           if (!p) return
-          darks.push({ key: `${key}-k${id}`, x: p[0], y: p[1], delay: at(wv.t1) })
           const s = subById.get(id)
           if (!main || (s.load_mw || 0) > main.load) main = { p, load: s.load_mw || 0, area: s.area || nameOf(s).replace(/\s+\d+$/, '') }
         })
         const added = wv.hitDelta > 0 ? wv.hitDelta : wv.zoneDelta
         if (!main || !(added > 0)) return
-        const c = place({
-          x: main.p[0],
-          y: main.p[1] - 6 * upx,
-          t: wv.t1,
-          life: WAVE_LIFE,
-          people: added,
-          kind: 'wave',
-          pop: 1.15 + 0.25 * leapIntensity(added, total),
-          lines: [{ text: `+${fmt(added)} · ${main.area}`, px: byIntensity(leapIntensity(added, total), 13, 16), weight: 800, color: 'dark' }],
-        })
-        if (c) callouts.push(c)
+        const c = place({ ...hitLabel(main.area, added, leapIntensity(added, total)), x: main.p[0], y: main.p[1] - 6 * upx, t: wv.t1, until: tier.t1 })
+        if (c) labels.push(c)
       })
-      tier.darken.forEach((d) => {
-        const p = xy(d.id)
-        if (p) darks.push({ key: `${key}-k${d.id}`, x: p[0], y: p[1], delay: at(d.t) })
-      })
+      tier.darken.forEach((d) => dark(`${key}-k${d.id}`, d.id, d.t))
     })
-    return { snaps, hits, darks, canvas: { rings, flares, sparks, callouts, lineFlares } }
-  }, [fx, lag, subById, branchById, cascade, project, k, host])
+    return { snaps, hits, darks, canvas: { rings, flares, sparks, labels, lineFlares } }
+  }, [fx, lag, subById, branchById, cascade, project, k, host, darkAtStart])
 
-  if (!fx || !plan) return aim != null ? <Aim id={aim} k={k} /> : null
+  // the hatch for areas that lose power (always defined: the base map's dark areas use it too, index.css)
+  const hs = HATCH_PX / k
+  const defs = (
+    <defs>
+      <pattern id="bx-hatch" patternUnits="userSpaceOnUse" width={hs} height={hs} patternTransform="rotate(45)">
+        <rect className="bx-hatch__bg" width={hs} height={hs} />
+        <line className="bx-hatch__ln" x1={hs / 2} y1={0} x2={hs / 2} y2={hs} strokeWidth={1.1 / k} />
+      </pattern>
+    </defs>
+  )
+  if (!fx || !plan)
+    return (
+      <>
+        {defs}
+        {aim != null && <Aim id={aim} k={k} />}
+      </>
+    )
   const u = 1 / k // map units per screen px (roughly)
   // the same canvas carries on into the afterglow (no remount, so no gap): only the SVG effects stop
   return (
-    <g className={running ? 'fx bx' : 'fx bxa'} pointerEvents="none" aria-hidden="true" ref={attach}>
-      {host && <BlastCanvas fx={fx} items={plan.canvas} fires={fires} anchor={anchor} host={host} still={reduced} />}
-      {running && <Sfx plan={plan} u={u} k={k} />}
-    </g>
+    <>
+      {defs}
+      <g className={running ? 'fx bx' : 'fx bxa'} pointerEvents="none" aria-hidden="true" ref={attach}>
+        {host && <BlastCanvas fx={fx} items={plan.canvas} fires={fires} anchor={anchor} host={host} still={reduced} rateRef={rateRef} />}
+        {running && <Sfx plan={plan} u={u} />}
+      </g>
+    </>
   )
 }
 
 // The replay's SVG effects: laid down once, each a CSS animation whose delay is its time in the schedule.
-function Sfx({ plan, u, k }) {
+function Sfx({ plan, u }) {
   return (
     <>
-      <defs>
-        <radialGradient id="bx-black">
-          <stop offset="0" className="bx-black__core" />
-          <stop offset="0.45" className="bx-black__mid" />
-          <stop offset="1" className="bx-black__edge" />
-        </radialGradient>
-        <radialGradient id="bx-ember">
-          <stop offset="0" className="bx-ember__core" />
-          <stop offset="1" className="bx-ember__edge" />
-        </radialGradient>
-      </defs>
+      {/* the darkness arrives: the land around each light is hatched red (one group, so overlaps don't stack) */}
+      <g className="bx-darks">
+        {plan.darks.map((d) => (
+          <circle key={d.key} className="bx-dark" cx={d.x} cy={d.y} r={d.r} style={{ animationDelay: d.delay }} />
+        ))}
+      </g>
       {plan.hits.map((h) => (
         <g key={h.key} transform={`translate(${h.x} ${h.y})`}>
-          <circle className="bx-hit__glow" r={11 * u} fill="url(#bx-ember)" style={{ animationDelay: h.delay }} />
-          <circle className="bx-hit" r={2.4 * u} style={{ animationDelay: h.delay }} />
+          <circle className="bx-hit__mark" r={7 * u} style={{ animationDelay: h.delay }} />
+          <circle className="bx-hit" r={2.2 * u} style={{ animationDelay: h.delay }} />
         </g>
-      ))}
-      {/* the darkness arrives: the land around the light goes black, over its ember */}
-      {plan.darks.map((d) => (
-        <circle key={d.key} className="bx-dark" cx={d.x} cy={d.y} r={12 / Math.sqrt(k)} fill="url(#bx-black)" style={{ animationDelay: d.delay }} />
       ))}
       {plan.snaps.map((l) => (
         <line key={l.key} className="bx-snap" x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} style={{ animationDelay: l.delay }} />
@@ -291,10 +328,13 @@ const easeOut = (f) => 1 - (1 - f) ** 3
 const LINE_FLARE_MS = 700
 const FLARE_MS = 1000
 const FONT = '"Archivo Variable", system-ui, sans-serif'
+const INK = '#dfe6f0'
+const INK_2 = '#a9b6c8'
+const LOSS = '#ff4d68'
 
 // A <canvas> over the map (portaled into GridMap's .map box, under the side panels), drawn per
 // frame in map units: the frame's transform is the camera's screen matrix, read from the FX group.
-function BlastCanvas({ fx, items, fires, anchor, host, still }) {
+function BlastCanvas({ fx, items, fires, anchor, host, still, rateRef }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -310,7 +350,7 @@ function BlastCanvas({ fx, items, fires, anchor, host, still }) {
     })
     // with fire the canvas carries on past the replay: the flames die back and the hot spots smolder out
     const end = fx.schedule.total + (fires?.any ? AFTERGLOW_MS : LINE_LIFE)
-    const o = { total: fx.schedule.total, end, reduced: !!still, cw: 0, ch: 0, cull: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0, w: 0, h: 0 } }
+    const o = { total: fx.schedule.total, end, reduced: !!still, cw: 0, ch: 0, dpr: 1, cull: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0, w: 0, h: 0 }, rateRef, bitmaps: new Map() }
     let raf = 0
     const frame = () => {
       const ms = performance.now() - fx.startedAt
@@ -329,6 +369,7 @@ function BlastCanvas({ fx, items, fires, anchor, host, still }) {
         ctx.setTransform(dpr * m.a, dpr * m.b, dpr * m.c, dpr * m.d, dpr * (m.e - box.left), dpr * (m.f - box.top))
         o.cw = w
         o.ch = h
+        o.dpr = dpr
         Object.assign(o.cull, { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e - box.left, f: m.f - box.top, w: host.clientWidth, h: host.clientHeight })
         // reduced motion: static fire markers only, no moving layers
         const px = 1 / (Math.hypot(m.a, m.b) || 1)
@@ -339,7 +380,7 @@ function BlastCanvas({ fx, items, fires, anchor, host, still }) {
     }
     raf = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(raf)
-  }, [fx, items, fires, host, anchor, still])
+  }, [fx, items, fires, host, anchor, still, rateRef])
 
   return createPortal(<canvas ref={ref} className="bx-canvas" aria-hidden="true" />, host)
 }
@@ -353,8 +394,66 @@ function along(s, f) {
   return [lerp(s.pts[i - 1][0], s.pts[i][0], q), lerp(s.pts[i - 1][1], s.pts[i][1], q)]
 }
 
+// A label drawn once into its own small canvas (text over a soft dark scrim, no outline, no box) and then
+// just copied each frame. `parts` = [{text, px, weight, color}] on one line.
+function labelBitmap(parts, dpr) {
+  const PAD_X = 14
+  const PAD_Y = 11
+  const c0 = document.createElement('canvas').getContext('2d')
+  if ('fontStretch' in c0) c0.fontStretch = 'condensed'
+  const widths = parts.map((p) => {
+    c0.font = `${p.weight} ${p.px}px ${FONT}`
+    return c0.measureText(p.text).width
+  })
+  const tw = widths.reduce((a, b) => a + b, 0) + PART_GAP * (parts.length - 1)
+  const th = Math.max(...parts.map((p) => p.px))
+  const W = tw + PAD_X * 2
+  const H = th + PAD_Y * 2
+  const cv = document.createElement('canvas')
+  cv.width = Math.ceil(W * dpr)
+  cv.height = Math.ceil(H * dpr)
+  const c = cv.getContext('2d')
+  c.scale(dpr, dpr)
+  // the scrim: a rounded dark shape blurred to nothing at its edges (drawn off-canvas, only its shadow lands)
+  const OFF = 10000
+  c.shadowColor = 'rgba(3, 7, 14, 0.72)'
+  c.shadowBlur = 9 * dpr
+  c.shadowOffsetX = OFF * dpr
+  c.fillStyle = '#000'
+  c.beginPath()
+  c.roundRect?.(PAD_X - 5 - OFF, PAD_Y - 3, tw + 10, th + 6, (th + 6) / 2)
+  if (!c.roundRect) c.rect(PAD_X - 5 - OFF, PAD_Y - 3, tw + 10, th + 6)
+  c.fill()
+  c.fill() // twice: a denser middle, the same soft edge
+  c.shadowColor = 'transparent'
+  c.shadowOffsetX = 0
+  c.shadowBlur = 0
+  if ('fontStretch' in c) c.fontStretch = 'condensed'
+  c.textBaseline = 'alphabetic'
+  let x = PAD_X
+  const base = PAD_Y + th * 0.82
+  parts.forEach((p, i) => {
+    c.font = `${p.weight} ${p.px}px ${FONT}`
+    c.fillStyle = p.color
+    c.fillText(p.text, x, base)
+    x += widths[i] + PART_GAP
+  })
+  return { cv, w: W, h: H, base }
+}
+
+// the parts of a label, with the money when the case is priced
+function labelParts(l, rate) {
+  if (l.kind === 'line') return [{ text: l.text, px: 12, weight: 600, color: INK_2 }]
+  const parts = [
+    { text: l.area, px: NAME_PX, weight: 600, color: INK },
+    { text: `${fmt(l.people)} people`, px: l.fig, weight: 700, color: LOSS },
+  ]
+  if (rate) parts.push({ text: money(l.people * rate.high), px: l.fig, weight: 700, color: INK })
+  return parts
+}
+
 // One frame, in map units (`px` = map units per screen px).
-function draw(ctx, ms, px, { rings, flares, callouts, lineFlares }, sparks, fires, o) {
+function draw(ctx, ms, px, { rings, flares, labels, lineFlares }, sparks, fires, o) {
   // the blast fronts: r = R * u^(1 / RING_POW), the schedule's own law, so each town lands as it's reached
   for (const r of rings) {
     const e = ms - r.t0
@@ -365,7 +464,7 @@ function draw(ctx, ms, px, { rings, flares, callouts, lineFlares }, sparks, fire
     if (!r.faint && R > 0.5) {
       const grad = ctx.createRadialGradient(r.x, r.y, R * 0.62, r.x, r.y, R)
       grad.addColorStop(0, 'rgba(255, 61, 94, 0)')
-      grad.addColorStop(0.88, `rgba(255, 61, 94, ${0.2 * a})`)
+      grad.addColorStop(0.88, `rgba(255, 61, 94, ${0.16 * a})`)
       grad.addColorStop(1, 'rgba(255, 61, 94, 0)')
       ctx.fillStyle = grad
       ctx.beginPath()
@@ -374,11 +473,11 @@ function draw(ctx, ms, px, { rings, flares, callouts, lineFlares }, sparks, fire
     }
     ctx.beginPath()
     ctx.arc(r.x, r.y, R, 0, TAU)
-    ctx.lineWidth = (r.faint ? 8 : 16) * px
-    ctx.strokeStyle = r.faint ? `rgba(255, 176, 58, ${0.12 * a})` : `rgba(255, 61, 94, ${0.24 * a})`
+    ctx.lineWidth = (r.faint ? 8 : 14) * px
+    ctx.strokeStyle = r.faint ? `rgba(255, 176, 58, ${0.1 * a})` : `rgba(255, 61, 94, ${0.2 * a})`
     ctx.stroke()
-    ctx.lineWidth = (r.faint ? 1.2 : 2.4) * px
-    ctx.strokeStyle = r.faint ? `rgba(255, 176, 58, ${0.55 * a})` : `rgba(255, 228, 233, ${0.92 * a})`
+    ctx.lineWidth = (r.faint ? 1 : 1.8) * px
+    ctx.strokeStyle = r.faint ? `rgba(255, 176, 58, ${0.5 * a})` : `rgba(255, 222, 228, ${0.85 * a})`
     ctx.stroke()
   }
   // the failure point flares white
@@ -443,55 +542,47 @@ function draw(ctx, ms, px, { rings, flares, callouts, lineFlares }, sparks, fire
     ctx.strokeStyle = `rgba(255, 220, 226, ${0.9 * a})`
     ctx.stroke()
   }
-  // fire, sparks, smoke and hot spots (features/impact/fireFx.js), under the call-outs
+  // fire, sparks, smoke and hot spots (features/impact/fireFx.js), under the labels
   drawFires(ctx, ms, px, fires, o)
-  // call-outs: what the blast hit, where it hit it — pop in (bigger for bigger hits), drift, fade
-  ctx.textAlign = 'center'
-  ctx.lineJoin = 'round'
-  if ('fontStretch' in ctx) ctx.fontStretch = 'condensed'
-  for (const c of callouts) {
-    const e = ms - c.t
-    if (e < 0) continue
-    const kept = c.keep > c.t + c.life && ms < c.keep + 350
-    if (e > c.life && !kept) continue
-    const q = Math.min(1, e / c.life)
-    const pop = e < 110 ? lerp(0.45, c.pop, e / 110) : e < 330 ? lerp(c.pop, 1, (e - 110) / 220) : 1
-    const faint = c.keep > c.t + c.life ? 0.38 : 0
-    let alpha = q < 0.65 ? 1 : lerp(1, faint, (q - 0.65) / 0.35)
-    if (e >= c.life) alpha = ms < c.keep ? faint : faint * (1 - (ms - c.keep) / 350)
+  drawLabels(ctx, ms, px, labels, o)
+}
+
+// The labels: quiet text on a soft scrim, in screen px. Each appears as the front reaches its town, stays
+// until its step ends, then fades; a label nudged off its town keeps a hairline back to it.
+function drawLabels(ctx, ms, px, labels, o) {
+  const rate = o.rateRef?.current || null
+  const m = o.cull
+  const dpr = o.dpr
+  const toScreen = (x, y) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]
+  for (const l of labels) {
+    const e = ms - l.t
+    // the last step's labels hand over to the map's own town labels (ImpactLayer) the moment the replay ends
+    const last = l.until >= o.total - 1
+    if (e < 0 || ms > l.until + (last ? 0 : FADE_OUT)) continue
+    const alpha = e < FADE_IN ? e / FADE_IN : ms > l.until ? 1 - (ms - l.until) / FADE_OUT : 1
     if (alpha <= 0.01) continue
-    const heat = clamp01((e - 90) / 700)
-    if (c.lead != null) {
-      ctx.globalAlpha = alpha * 0.6
+    const [sx, sy] = toScreen(l.x, l.y)
+    if (sx < -300 || sy < -60 || sx > m.w + 300 || sy > m.h + 60) continue
+    const parts = labelParts(l, rate)
+    const id = `${parts.map((p) => p.text).join('|')}@${dpr}`
+    let bm = o.bitmaps.get(id)
+    if (!bm) {
+      bm = labelBitmap(parts, dpr)
+      o.bitmaps.set(id, bm)
+    }
+    if (l.lead != null) {
+      ctx.globalAlpha = alpha * 0.45
       ctx.beginPath()
-      ctx.moveTo(c.x, c.lead + 8 * px)
-      ctx.lineTo(c.x, c.y)
+      ctx.moveTo(l.x, l.lead + 3 * px)
+      ctx.lineTo(l.x, l.y + 2 * px)
       ctx.lineWidth = 1 * px
-      ctx.strokeStyle = '#e6edf7'
+      ctx.strokeStyle = INK_2
       ctx.stroke()
     }
     ctx.save()
-    ctx.translate(c.x, c.y - 18 * px * easeOut(q))
-    ctx.scale(pop, pop)
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.globalAlpha = alpha
-    let y = 0
-    for (let i = c.lines.length - 1; i >= 0; i--) {
-      const l = c.lines[i]
-      ctx.font = `${l.weight} ${l.px * px}px ${FONT}`
-      ctx.lineWidth = (l.px > 16 ? 4.2 : 3.4) * px
-      ctx.strokeStyle = 'rgba(5, 10, 20, 0.95)'
-      ctx.strokeText(l.text, 0, y)
-      ctx.fillStyle =
-        l.color === 'hot'
-          ? `rgb(255, ${Math.round(lerp(255, 61, heat))}, ${Math.round(lerp(255, 94, heat))})`
-          : l.color === 'line'
-            ? `rgb(255, ${Math.round(lerp(255, 150, heat))}, ${Math.round(lerp(255, 160, heat))})`
-            : l.color === 'dark'
-              ? '#ff8a9b'
-              : '#e6edf7'
-      ctx.fillText(l.text, 0, y)
-      y -= l.px * 1.1 * px
-    }
+    ctx.drawImage(bm.cv, sx - bm.w / 2, sy - bm.base, bm.w, bm.h)
     ctx.restore()
   }
   ctx.globalAlpha = 1
@@ -513,7 +604,7 @@ function Aim({ id, k }) {
         <circle className="bx-aim__ring" cx={x1} cy={y1} r={9 / k} />
       ) : (
         <>
-          <line className="bx-aim__glow" x1={x1} y1={y1} x2={x2} y2={y2} />
+          <line className="bx-aim__under" x1={x1} y1={y1} x2={x2} y2={y2} />
           <line className="bx-aim__line" x1={x1} y1={y1} x2={x2} y2={y2} />
         </>
       )}

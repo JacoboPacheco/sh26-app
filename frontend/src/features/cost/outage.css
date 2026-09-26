@@ -1,4 +1,5 @@
-/* The outage-and-cost block under the hit counter: plain figures, no outlines, red only for what is lost. */
+/* The outage-and-cost block under the toll: plain figures, no outlines; money in the toll's style (ink, a
+   smaller unit word), red only for the people who are hit. */
 .loss {
   display: grid;
   gap: var(--space-2);
@@ -28,13 +29,20 @@
   align-items: flex-end;
 }
 .loss__money {
-  font-size: 2.6rem;
+  font-size: 2.3rem;
   line-height: 1;
-  font-weight: 800;
-  font-stretch: 62%;
+  font-weight: 700;
+  font-stretch: 75%;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
-  color: var(--overload);
+  white-space: nowrap;
+  color: var(--ink);
+}
+.loss__unit {
+  font-size: 0.56em;
+  font-weight: 650;
+  font-stretch: 85%;
+  letter-spacing: 0;
 }
 .loss__note {
   margin: 0;

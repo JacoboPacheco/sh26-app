@@ -1,9 +1,9 @@
 // FEATURE: danger zones on the map (owned by the danger track).
 // Contract: default export DangerLayer({view?}) — SVG inside the map camera (a GridMap child).
 //
-// While the danger toggle is on: a soft red circle on each zone's substation, its size growing with
-// the people hit (square-root scale, so area follows people), the top few labeled with the town and
-// a compact count. A click drops the campus there (at the size the zones were found for) so the
+// While the danger toggle is on: a flat translucent red circle with a hairline edge on each zone's
+// substation (no glow, no pulse), its size growing with the people hit (square-root scale, so area
+// follows people), the top few labeled with the town and a compact count in quiet text over a soft scrim. A click drops the campus there (at the size the zones were found for) so the
 // cascade can be run and watched. Sizes are in map units divided by the zoom, like the other layers,
 // so the zones stay the same size on screen. While a cascade plays the zones step back.
 // `view` = {k, project} when rendered outside GridMap (the preview portals it into the camera).
@@ -18,7 +18,6 @@ import { usePlaceZone } from './usePlaceZone'
 const LABELS = 8 // the top zones carry a label (the hovered one too)
 const R_MIN = 7 // map units at zoom 1 (the fix pins are 10, the campus ring 16)
 const R_MAX = 30
-const PULSE = 3 // the top zones breathe (not under reduced motion)
 
 export default function DangerLayer({ view }) {
   const mapView = useMapView()
@@ -58,20 +57,20 @@ export default function DangerLayer({ view }) {
   return (
     <g className={`dz-layer${quiet ? ' dz-layer--quiet' : ''}${dz.stale ? ' dz-layer--stale' : ''}`} aria-hidden="true">
       <defs>
-        <radialGradient id="dz-glow">
-          <stop offset="0" className="dz-glow-core" />
-          <stop offset="0.55" className="dz-glow-mid" />
-          <stop offset="1" className="dz-glow-edge" />
+        {/* the labels' scrim: dark in the middle, gone at the edge */}
+        <radialGradient id="dz-scrim">
+          <stop offset="0" className="dz-scrim__core" />
+          <stop offset="0.72" className="dz-scrim__mid" />
+          <stop offset="1" className="dz-scrim__edge" />
         </radialGradient>
       </defs>
-      {/* the glows, biggest underneath; then every zone's center on top, so each stays clickable */}
-      {drawn.map(({ z, i, x, y, rMap }) => {
+      {/* the zones, biggest underneath; then every zone's center on top, so each stays clickable */}
+      {drawn.map(({ z, x, y, rMap }) => {
         const r = rMap / k
         return (
           <g key={z.id} className={zoneClass(z)} transform={`translate(${x} ${y})`} {...handlers(z)}>
             <title>{`${z.area}: ~${compact(z.people_hit)} people hit (estimate). Click to put the campus here.`}</title>
-            <circle className="dz-glow" r={r} fill="url(#dz-glow)" />
-            {i < PULSE && !quiet && <circle className="dz-pulse" r={r} />}
+            <circle className="dz-glow" r={r} />
             <circle className="dz-ring" r={r} />
           </g>
         )
@@ -85,12 +84,15 @@ export default function DangerLayer({ view }) {
       {!quiet && (
         <g className="dz-labels">
           {labels.map((l) => (
-            <text key={l.id} className="dz-label" x={l.x} y={l.y} fontSize={11 / k} strokeWidth={3 / k} textAnchor={l.anchor}>
-              <tspan className="dz-label__area">{l.area}</tspan>
-              <tspan className="dz-label__n" dx={4 / k}>
-                {l.n}
-              </tspan>
-            </text>
+            <g key={l.id}>
+              <ellipse className="dz-scrim" cx={l.cx} cy={l.y - 4 / k} rx={l.w / 2 / k + 14 / k} ry={13 / k} fill="url(#dz-scrim)" />
+              <text className="dz-label" x={l.x} y={l.y} fontSize={11 / k} textAnchor={l.anchor}>
+                <tspan className="dz-label__area">{l.area}</tspan>
+                <tspan className="dz-label__n" dx={4 / k}>
+                  {l.n}
+                </tspan>
+              </text>
+            </g>
           ))}
         </g>
       )}
@@ -125,7 +127,7 @@ function placeLabels(drawn, k, hover, grid, project) {
     const spot = tries.map((t) => ({ ...t, y0: t.y - LINE_H + 2, y1: t.y + 3 })).find((t) => !hits(t))
     if (!spot) continue
     boxes.push(spot)
-    out.push({ id: d.z.id, area: d.z.area, n, anchor: spot.anchor, x: spot.x / k, y: spot.y / k })
+    out.push({ id: d.z.id, area: d.z.area, n, anchor: spot.anchor, x: spot.x / k, y: spot.y / k, cx: (spot.x0 + spot.x1) / 2 / k, w })
   }
   return out
 }

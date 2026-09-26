@@ -1405,3 +1405,110 @@ a {
   color: var(--accent);
   text-align: right;
 }
+
+/* ================================================================== incident room: the map look
+   (look track: shell/CascadeFX, shell/bomb.css). Near-monochrome and quiet, so color only means trouble:
+   calm lines a faint blue-gray, lights small and pale gray, a strained line a hairline of amber, an
+   overloaded line plain red (no glow, no throb), a tripped line dashed dim red, and the areas that lose
+   power cross-hatched red (CascadeFX's <pattern id="bx-hatch">, the same hatch the replay lays down).
+   A slightly darker vignette. Scoped to the main app (.mc); the time-of-day moods keep their order. */
+.mc {
+  --lit: #c3cad5;
+  --line: #8796ab;
+}
+
+.mc .ln--calm {
+  stroke-opacity: 0.14;
+}
+
+.mc.mc--night .ln--calm {
+  stroke-opacity: 0.09;
+}
+
+.mc.mc--morning .ln--calm {
+  stroke-opacity: 0.12;
+}
+
+.mc.mc--heat .ln--calm {
+  stroke-opacity: 0.26;
+}
+
+.mc .ln--warm {
+  stroke-opacity: 0.34;
+}
+
+.mc.mc--heat .ln--warm {
+  stroke-opacity: 0.6;
+}
+
+.mc .ln--hot {
+  stroke-width: 1;
+  stroke-opacity: 0.9;
+}
+
+.mc .ln--over {
+  stroke-width: 2;
+  filter: none;
+  animation: none;
+}
+
+.mc .ln--tripped {
+  stroke: var(--overload);
+  stroke-opacity: 0.5;
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+  animation: look-trip 0.7s ease-out;
+}
+
+/* a line trips: a short white flash, then it is dead and dashed */
+@keyframes look-trip {
+  from {
+    stroke: #ffffff;
+    stroke-opacity: 1;
+    stroke-width: 3.5;
+    stroke-dasharray: none;
+  }
+}
+
+.mc .map-svg--headroom .ln {
+  stroke-opacity: 0.08;
+}
+
+/* the lights: pale gray points with the faintest halo */
+.mc .light-core {
+  stop-opacity: 0.06;
+}
+
+.mc .sub--dark {
+  stroke: #6b1d2a;
+}
+
+/* the areas that lost power: hatched red over a faint dark fill; the group sets how faint, so the
+   areas union cleanly where they overlap (the pattern itself is opaque: bomb.css .bx-hatch__*) */
+.mc .blackout {
+  opacity: 0.55;
+}
+
+.mc .blackout circle {
+  fill: url(#bx-hatch);
+}
+
+/* the vignette: the edges of the map fall a little further into the night (its own layer: the animated
+   map under it never repaints it); the map's buttons stay above it */
+.mc .map::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(125% 100% at 50% 45%, transparent 55%, rgba(1, 3, 8, 0.55) 100%);
+  will-change: opacity;
+}
+
+.mc .map-controls {
+  z-index: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mc .ln--tripped {
+    animation: none;
+  }
+}

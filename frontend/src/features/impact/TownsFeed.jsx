@@ -1,6 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
+import { money } from '../cost/money'
+import { useLossRate } from './caseCost'
 import './impact.css'
 import { groupTowns, hitTowns, peopleText, roundPeople, useFlip, useHitEvents, useReducedMotion } from './towns'
 
@@ -10,9 +12,12 @@ const MAX_ROWS = 8
 // latest at the top. While the replay plays, a town appears the moment the blast front lands on it
 // (the same schedule as the counter's leap), with a red flash; a town hit again climbs back to the
 // top and its number grows. Paused or scrubbed: the towns hit up to that step. Before the cascade
-// (a storm that already cut lines): the towns without power. Click a town to fly the map there.
+// (a storm that already cut lines): the towns without power. Each row carries its people and their share of
+// the case's cost (features/impact/caseCost.js; people alone until the estimate lands). Click a town to fly
+// the map there.
 export default function TownsFeed() {
   const { cascade, step, fx, playing, focus, subPos, subById, view, peoplePerMw } = useOverload()
+  const rate = useLossRate()
   const events = useHitEvents()
   const reduced = useReducedMotion()
   const live = !!(fx && playing)
@@ -70,12 +75,13 @@ export default function TownsFeed() {
                 type="button"
                 className="towns__row"
                 onClick={() => focus(t.subs.map(subPos))}
-                aria-label={`${t.name}: about ${peopleText(t.people)} ${hit ? 'hit' : 'without power'} (estimate). Show it on the map.`}
+                aria-label={`${t.name}: about ${peopleText(t.people)} ${hit ? 'hit' : 'without power'}${rate ? `, ${money(t.people * rate.high)}` : ''} (estimate). Show it on the map.`}
               >
                 <span className="towns__name">{t.name}</span>
                 <span className="towns__homes">
                   {fmt(roundPeople(t.people))} <span className="towns__unit">people</span>
                 </span>
+                {rate && <span className="towns__money">{money(t.people * rate.high)}</span>}
                 <span className="towns__bar" style={{ transform: `scaleX(${Math.max(t.people / top, 0.02)})` }} aria-hidden="true" />
               </button>
             </li>

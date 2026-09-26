@@ -79,6 +79,7 @@ def register(ctx):
         h = q["headline"]
         assert h["kind"] == "blackout" and h["outage_estimated"] is True, h
         assert h["outage_hours"] == full["outage_hours"] and h["cost_high"] == full["cost_high"], (h, full)  # the light path prices the same blackout
+        assert full["people_hit"] == c["people_hit"], (full["people_hit"], c["people_hit"])  # the replay's final count: one cost per person before and after the run
         none = ctx.request("POST", "/api/cost/quick", {"region": "TX", "lost_mw": 0, "people": 0})["headline"]
         assert none["kind"] == "none" and none["outage_hours"] == 0 and none["cost_high"] == 0, none
         ctx.request("POST", "/api/cost/quick", {"region": "ZZ", "lost_mw": 1, "people": 1}, expect=422)
