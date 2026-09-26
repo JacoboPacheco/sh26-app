@@ -44,17 +44,28 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
   useImperativeHandle(
     ref,
     () => ({
-      focus(points) {
-        if (!points.length) return
+      // Fit `points`; with `center` ([lon, lat]) the camera ends exactly on that place and zooms
+      // just enough for every point to stay on screen around it.
+      focus(points, center) {
+        if (!points.length && !center) return
         const xy = points.map(([lon, lat]) => project(lon, lat))
-        const xs = xy.map((p) => p[0])
-        const ys = xy.map((p) => p[1])
-        const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
-        const bw = Math.max(x1 - x0 + 40, FOCUS_MIN_BOX)
-        const bh = Math.max(y1 - y0 + 40, FOCUS_MIN_BOX)
+        let cx, cy, bw, bh
+        if (center) {
+          ;[cx, cy] = project(center[0], center[1])
+          const dx = Math.max(0, ...xy.map((p) => Math.abs(p[0] - cx)))
+          const dy = Math.max(0, ...xy.map((p) => Math.abs(p[1] - cy)))
+          bw = Math.max(2 * dx + 40, FOCUS_MIN_BOX)
+          bh = Math.max(2 * dy + 40, FOCUS_MIN_BOX)
+        } else {
+          const xs = xy.map((p) => p[0])
+          const ys = xy.map((p) => p[1])
+          const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+          bw = Math.max(x1 - x0 + 40, FOCUS_MIN_BOX)
+          bh = Math.max(y1 - y0 + 40, FOCUS_MIN_BOX)
+          cx = (x0 + x1) / 2
+          cy = (y0 + y1) / 2
+        }
         const k = Math.min(FOCUS_MAX_ZOOM, Math.max(1, Math.min(WIDTH / bw, HEIGHT / bh)))
-        const cx = (x0 + x1) / 2
-        const cy = (y0 + y1) / 2
         easeTo({ k, tx: WIDTH / 2 - cx * k, ty: HEIGHT / 2 - cy * k })
       },
       reset() {

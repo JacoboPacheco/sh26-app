@@ -78,7 +78,7 @@ export function OverloadProvider({ user, children }) {
     const s = subById.get(id)
     return s ? [s.lon, s.lat] : null
   }, [subById])
-  const focus = useCallback((points) => mapRef.current?.focus(points.filter(Boolean)), [])
+  const focus = useCallback((points, center) => mapRef.current?.focus(points.filter(Boolean), center), [])
 
   // ------------------------------------------------------------------ loading
   const loadGrid = useCallback(
@@ -139,8 +139,8 @@ export function OverloadProvider({ user, children }) {
           setWhatifError(null)
           if (site && focusedSite.current !== site) {
             focusedSite.current = site
-            // fly to the site and the lines it pushes over their limit
-            focus([[r.sub_lon, r.sub_lat], ...r.overloaded.flatMap((o) => [subPos(o.from), subPos(o.to)])])
+            // fly to the substation the campus plugs into, keeping its overloaded lines on screen
+            focus(r.overloaded.flatMap((o) => [subPos(o.from), subPos(o.to)]), [r.sub_lon, r.sub_lat])
           }
         })
         .catch((err) => {
@@ -222,7 +222,8 @@ export function OverloadProvider({ user, children }) {
           st.dark_subs.forEach((sid) => pts.push(subPos(sid)))
           st.newly_affected.forEach(([sid]) => pts.push(subPos(sid)))
         })
-        if (pts.length) focus(pts)
+        // centered on the main site when there is one; the zoom fits everything the cascade touches
+        if (pts.length) focus(pts, c.sub_lat != null ? [c.sub_lon, c.sub_lat] : undefined)
         return c
       } catch (err) {
         if (id === cascadeReq.current) setCascadeError(err)
