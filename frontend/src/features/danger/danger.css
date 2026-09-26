@@ -1,0 +1,313 @@
+/* Danger zones (owned by the danger track). Tokens only (index.css). Red means danger here: the zones
+   use --overload, the color of a line past its limit, softened into a glow so the grid shows through. */
+
+/* ------------------------------------------------------------------ panel */
+.dz {
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.dz-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.dz-head .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.dz-toggle__dot {
+  flex: none;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  border: 1.5px solid var(--overload);
+}
+
+.dz-head .btn[aria-pressed='true'] {
+  border-color: var(--overload);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--overload) 14%, transparent);
+}
+
+.dz-head .btn[aria-pressed='true'] .dz-toggle__dot {
+  background: var(--overload);
+  box-shadow: 0 0 8px var(--overload);
+}
+
+.dz-lede {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.dz-lede strong {
+  color: var(--ink);
+}
+
+.dz-size-note {
+  color: var(--warn-text);
+}
+
+.dz-body {
+  gap: var(--space-2);
+}
+
+.dz-body--stale .dz-list {
+  opacity: 0.55;
+}
+
+.dz-sum {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.dz-warn {
+  font-size: 0.8125rem;
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+.dz-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.dz-item {
+  border-radius: var(--radius);
+}
+
+.dz-row {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+  padding: 0.35rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  cursor: pointer;
+}
+
+.dz-row:hover,
+.dz-item--hover .dz-row {
+  background: var(--glass-hi);
+  border-color: var(--glass-edge);
+}
+
+.dz-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.dz-item--placed .dz-row {
+  border-color: var(--overload);
+  background: color-mix(in srgb, var(--overload) 10%, transparent);
+}
+
+.dz-rank {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--night);
+  background: var(--overload);
+}
+
+.dz-row__text {
+  display: grid;
+  gap: 0.05rem;
+  min-width: 0;
+  font-size: 0.8125rem;
+}
+
+.dz-row__text strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.dz-row__n {
+  color: var(--warn-text);
+  font-weight: 600;
+}
+
+.dz-row__meta {
+  color: var(--ink-2);
+  font-size: 0.75rem;
+}
+
+.dz-run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: 0.3rem 0.4rem 0.4rem 2.3rem;
+}
+
+.dz-run__label {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.dz-link {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--current);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.dz-note {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+/* #/preview/danger: a narrow preview, so the zones in the middle of the map stay visible (phones stack) */
+@media (min-width: 861px) {
+  .preview-host:has(.dz-preview) {
+    right: auto;
+    width: 340px;
+  }
+}
+
+/* ------------------------------------------------------------------ map */
+.dz-glow-core {
+  stop-color: var(--overload);
+  stop-opacity: 0.6;
+}
+
+.dz-glow-mid {
+  stop-color: var(--overload);
+  stop-opacity: 0.26;
+}
+
+.dz-glow-edge {
+  stop-color: var(--overload);
+  stop-opacity: 0;
+}
+
+.dz-zone {
+  cursor: pointer;
+}
+
+.dz-glow {
+  pointer-events: all;
+  transition: opacity 0.3s;
+}
+
+.dz-ring {
+  fill: none;
+  stroke: var(--overload);
+  stroke-width: 1.2;
+  stroke-opacity: 0.75;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.dz-core {
+  fill: var(--overload);
+  pointer-events: none;
+}
+
+.dz-hit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.dz-pulse {
+  fill: none;
+  stroke: var(--overload);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: dz-breathe 3.6s ease-out infinite;
+}
+
+.dz-zone--hover .dz-ring,
+.dz-zone--placed .dz-ring {
+  stroke-width: 2.2;
+  stroke-opacity: 1;
+}
+
+.dz-zone--hover .dz-glow {
+  filter: brightness(1.4);
+}
+
+.dz-labels {
+  pointer-events: none;
+}
+
+.dz-label {
+  fill: var(--ink);
+  stroke: var(--night);
+  paint-order: stroke;
+  stroke-linejoin: round;
+  font-family: var(--font);
+  font-weight: 700;
+}
+
+.dz-label__n {
+  fill: var(--warn-text);
+  font-weight: 800;
+}
+
+.dz-layer--stale {
+  opacity: 0.5;
+}
+
+/* a cascade is playing: the zones step back, the placed one keeps its ring */
+.dz-layer--quiet .dz-glow {
+  opacity: 0;
+}
+
+.dz-layer--quiet .dz-zone:not(.dz-zone--placed) .dz-ring {
+  stroke-opacity: 0.2;
+}
+
+.dz-layer--quiet .dz-core {
+  opacity: 0.3;
+}
+
+@keyframes dz-breathe {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.55;
+  }
+  70% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dz-pulse {
+    display: none;
+    animation: none;
+  }
+}

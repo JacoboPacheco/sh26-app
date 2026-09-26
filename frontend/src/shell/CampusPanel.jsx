@@ -3,6 +3,7 @@ import floridaFive from '../data/florida_five.json'
 import { fmt } from '../geo'
 import { SEED_MARK, useOverload } from '../store'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../ui'
+import DangerPanel from '../features/danger/DangerPanel'
 import './campus.css'
 
 // The slider covers the usual campus sizes; the custom box goes past it (the backend takes 1–50,000 MW).
@@ -60,6 +61,7 @@ export default function CampusPanel() {
         hint={custom ? `Custom size ${fmt(mw)} MW: about ${people}` : `About ${people}`}
       />
       <CustomSize />
+      <DangerPanel />
 
       <RealProposals />
       <Scenarios />

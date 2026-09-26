@@ -1,5 +1,6 @@
 import BoomLayer from './features/boom/BoomLayer'
 import BoomPanel from './features/boom/BoomPanel'
+import DangerLayer from './features/danger/DangerLayer'
 import BestSitesLayer from './features/fix/BestSitesLayer'
 import FixPanel from './features/fix/FixPanel'
 import FlowCanvas from './features/flow/FlowCanvas'
@@ -109,6 +110,7 @@ function MissionControl({ user }) {
           tool={mapTool}
           overlay={(refs) => <FlowCanvas {...refs} />}
         >
+          <DangerLayer />
           <CascadeFX />
           <ImpactLayer />
           <HurricaneLayer />
