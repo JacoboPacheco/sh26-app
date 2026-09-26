@@ -22,7 +22,8 @@ export default function ImpactPanel() {
   // a continuous count, not the model's step-by-step jumps. Paused or scrubbed: the exact value.
   const worst = n ? Math.max(...cascade.steps.map((s) => s[key] ?? 0)) : 0
   const target = playing && n ? Math.max(peak, Math.round((worst * Math.min(step + 1, n)) / n)) : peak
-  const homes = useCountUp(target, playing ? STEP_MS : 500, { linear: playing })
+  // never below zero: an island can end with slightly more supply than load (a tiny negative loss)
+  const homes = Math.max(0, useCountUp(Math.max(0, target), playing ? STEP_MS : 500, { linear: playing }))
   return (
     <div className="stack panel-body impact">
       <div className="counter" aria-live="polite">
