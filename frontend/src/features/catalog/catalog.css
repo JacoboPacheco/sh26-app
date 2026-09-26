@@ -1,0 +1,582 @@
+/* The data-center catalog (features/catalog). Tokens from index.css only. Color only where the model
+   shows trouble: amber = over limit, red = people without power; a campus that fits stays quiet. */
+
+.cat-view {
+  display: grid;
+  gap: var(--space-4);
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.cat-view__body {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* narrow: the picked campus sits above the list */
+.cat-view__card {
+  order: -1;
+  min-width: 0;
+}
+
+@container (min-width: 760px) {
+  .cat-view__body--open {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+    align-items: start;
+  }
+
+  .cat-view__card {
+    order: 0;
+    position: sticky;
+    top: 0;
+    max-height: calc(100vh - 260px);
+    overflow: auto;
+  }
+}
+
+.cat-h {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.cat-note {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------------ chips */
+.cat-chip {
+  display: inline-block;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--glass-edge);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.7;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.cat-chip--fits {
+  color: var(--ink);
+}
+
+.cat-chip--overloads {
+  color: var(--strain);
+  border-color: color-mix(in srgb, var(--strain) 55%, transparent);
+}
+
+.cat-chip--outage {
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-color: color-mix(in srgb, var(--overload) 60%, transparent);
+}
+
+.cat-chip--untested,
+.cat-chip--pending {
+  border-style: dashed;
+}
+
+/* ------------------------------------------------------------------ national stats */
+.cat-stats {
+  min-width: 0;
+}
+
+.cat-hero {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.cat-hero__value {
+  font-size: clamp(2.5rem, 6vw, 3.5rem);
+  font-weight: 800;
+  font-stretch: 72%;
+  line-height: 1;
+  font-variant-numeric: proportional-nums;
+}
+
+.cat-hero__of {
+  font-size: 0.45em;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.cat-hero__label {
+  max-width: 36rem;
+  color: var(--ink);
+}
+
+.cat-progress {
+  width: min(100%, 22rem);
+  height: 6px;
+  accent-color: var(--accent);
+}
+
+.cat-tiles {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-2);
+}
+
+.cat-tile {
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  background: var(--glass-hi);
+  min-width: 0;
+}
+
+.cat-tile dt {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.cat-tile dd {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-variant-numeric: proportional-nums;
+}
+
+.cat-tile__sub {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.cat-states {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+.cat-states > .btn {
+  justify-self: start;
+}
+
+.cat-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+/* narrow: name + value on top, the bar and its counts under them */
+.cat-bar {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name value'
+    'track track'
+    'sub sub';
+  column-gap: var(--space-2);
+  row-gap: 2px;
+  align-items: center;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+
+/* wide: one line per state */
+@container (min-width: 520px) {
+  .cat-bar {
+    grid-template-columns: 8.5rem minmax(0, 1fr) 4rem 8rem;
+    grid-template-areas: 'name track value sub';
+  }
+
+  .cat-bar__value {
+    text-align: right;
+  }
+}
+
+.cat-bar:hover {
+  background: var(--glass-hi);
+}
+
+.cat-bar--on {
+  border-color: var(--accent);
+}
+
+.cat-bar__name {
+  grid-area: name;
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cat-bar__track {
+  grid-area: track;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--line) 14%, transparent);
+  overflow: hidden;
+}
+
+.cat-bar__fill {
+  display: block;
+  width: var(--w, 0%);
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--line);
+}
+
+.cat-bar--on .cat-bar__fill {
+  background: var(--accent);
+}
+
+.cat-bar__value {
+  grid-area: value;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cat-bar__sub {
+  grid-area: sub;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ list */
+.cat-list {
+  min-width: 0;
+}
+
+.cat-list__controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-2);
+}
+
+.cat-list__controls .field:first-child {
+  grid-column: 1 / -1;
+}
+
+.cat-list__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: 0.8125rem;
+}
+
+.cat-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.cat-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name mw'
+    'meta chip';
+  gap: 2px var(--space-2);
+  align-items: center;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: var(--glass-hi);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  padding: 0.45rem 0.65rem;
+  cursor: pointer;
+}
+
+.cat-row:hover {
+  border-color: var(--border);
+}
+
+.cat-row--on {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.cat-row__name {
+  grid-area: name;
+  font-weight: 600;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.cat-row__mw {
+  grid-area: mw;
+  font-weight: 600;
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.cat-row__meta {
+  grid-area: meta;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.cat-row .cat-chip {
+  grid-area: chip;
+  justify-self: end;
+}
+
+/* ------------------------------------------------------------------ card */
+.cat-card {
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cat-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.cat-card__name {
+  font-size: 1.125rem;
+  line-height: 1.2;
+}
+
+.cat-card__head .btn {
+  flex: none;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.cat-card__head .muted {
+  font-size: 0.8125rem;
+  margin-top: 0.15rem;
+}
+
+.cat-facts,
+.cat-nums {
+  margin: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.cat-facts > div,
+.cat-nums > div {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.cat-facts dt,
+.cat-nums dt {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.cat-facts dd,
+.cat-nums dd {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.cat-facts__basis {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  margin-top: 0.15rem;
+}
+
+.cat-details {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.cat-details summary {
+  cursor: pointer;
+  color: var(--current);
+}
+
+.cat-details p {
+  margin-top: 0.25rem;
+}
+
+.cat-sources__list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: var(--space-1);
+  font-size: 0.8125rem;
+}
+
+.cat-test {
+  border-top: 1px solid var(--glass-edge);
+  padding-top: var(--space-3);
+}
+
+.cat-sentence {
+  font-size: 0.9rem;
+}
+
+.cat-sentence .cat-chip {
+  margin-right: 0.25rem;
+  vertical-align: 1px;
+}
+
+.cat-untested {
+  font-size: 0.875rem;
+  color: var(--warn-text);
+}
+
+.cat-runs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-2);
+}
+
+.cat-run {
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  display: grid;
+  gap: 0.2rem;
+  align-content: start;
+}
+
+.cat-run__title {
+  font-size: 0.8125rem;
+}
+
+.cat-run__people {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: proportional-nums;
+}
+
+.cat-run__unit {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.cat-run__meta {
+  font-size: 0.75rem;
+}
+
+.cat-areas {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 0.8125rem;
+}
+
+.cat-areas > li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.cat-why {
+  font-size: 0.8125rem;
+  color: var(--ink);
+  border-left: 2px solid var(--accent);
+  padding-left: var(--space-2);
+}
+
+.cat-go {
+  gap: var(--space-2);
+}
+
+.cat-go__done {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cat-row,
+  .cat-bar {
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+}
+
+@media (max-width: 480px) {
+  .cat-facts > div,
+  .cat-nums > div {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ map layer (CatalogLayer) */
+.cat-dot {
+  cursor: pointer;
+}
+
+.cat-dot__hit {
+  fill: transparent;
+}
+
+.cat-dot__mark {
+  fill: color-mix(in srgb, var(--lit) 18%, transparent);
+  stroke: color-mix(in srgb, var(--lit) 75%, transparent);
+}
+
+.cat-dot--overloads .cat-dot__mark {
+  fill: color-mix(in srgb, var(--strain) 30%, transparent);
+  stroke: var(--strain);
+}
+
+.cat-dot--outage .cat-dot__mark {
+  fill: color-mix(in srgb, var(--overload) 35%, transparent);
+  stroke: var(--overload);
+}
+
+.cat-dot--untested .cat-dot__mark,
+.cat-dot--pending .cat-dot__mark {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-dasharray: 2 2;
+}
+
+.cat-dot:hover .cat-dot__mark {
+  stroke: var(--ink);
+}
+
+.cat-dot__ring {
+  fill: none;
+  stroke: var(--accent);
+}
+
+.cat-preview__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.cat-card__name:focus {
+  outline: none;
+}
+
+.cat-card__name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
