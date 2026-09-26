@@ -1,0 +1,1843 @@
+{
+ "regions": {
+  "AL": {
+   "code": "AL",
+   "name": "Alabama",
+   "file": "grids/AL.json",
+   "interconnect": "Eastern",
+   "zones": [
+    24
+   ],
+   "valid": true,
+   "buses": 1447,
+   "subs": 837,
+   "branches": 1991,
+   "load_mw": 18627,
+   "gen_mw": 30097,
+   "bbox": [
+    -88.41,
+    30.241,
+    -85.011,
+    35.044
+   ],
+   "center": [
+    -86.725,
+    33.26
+   ],
+   "corr": 0.999,
+   "base_over": 0,
+   "base_max_pct": 86.2,
+   "base_lost_mw": 0.0,
+   "overload_500": 17,
+   "headroom_p50": 146,
+   "headroom_max": 3125,
+   "notes": [
+    "6 disconnected islands dropped (257 MW)",
+    "368 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -7096 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "AR": {
+   "code": "AR",
+   "name": "Arkansas",
+   "file": "grids/AR.json",
+   "interconnect": "Eastern",
+   "zones": [
+    42
+   ],
+   "valid": true,
+   "buses": 1347,
+   "subs": 734,
+   "branches": 1543,
+   "load_mw": 10399,
+   "gen_mw": 13872,
+   "bbox": [
+    -94.532,
+    32.998,
+    -89.856,
+    36.592
+   ],
+   "center": [
+    -92.488,
+    35.146
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 77.6,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 187,
+   "headroom_max": 7252,
+   "notes": [
+    "4 disconnected islands dropped (31 MW)",
+    "353 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +689 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "AZ": {
+   "code": "AZ",
+   "name": "Arizona",
+   "file": "grids/AZ.json",
+   "interconnect": "Western",
+   "zones": [
+    209
+   ],
+   "valid": true,
+   "buses": 1013,
+   "subs": 498,
+   "branches": 1370,
+   "load_mw": 19167,
+   "gen_mw": 27142,
+   "bbox": [
+    -114.738,
+    31.363,
+    -108.977,
+    37.174
+   ],
+   "center": [
+    -111.876,
+    33.443
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.1,
+   "base_lost_mw": 0.0,
+   "overload_500": 12,
+   "headroom_p50": 213,
+   "headroom_max": 3349,
+   "notes": [
+    "1 disconnected islands dropped (31 MW)",
+    "231 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -2743 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "CA": {
+   "code": "CA",
+   "name": "California",
+   "file": "grids/CA.json",
+   "interconnect": "Western",
+   "zones": [
+    203,
+    204,
+    205,
+    206,
+    207
+   ],
+   "valid": true,
+   "buses": 4142,
+   "subs": 1982,
+   "branches": 5119,
+   "load_mw": 66797,
+   "gen_mw": 68698,
+   "bbox": [
+    -124.665,
+    32.508,
+    -114.14,
+    41.678
+   ],
+   "center": [
+    -118.846,
+    34.947
+   ],
+   "corr": 0.999,
+   "base_over": 0,
+   "base_max_pct": 77.5,
+   "base_lost_mw": 0.0,
+   "overload_500": 14,
+   "headroom_p50": 304,
+   "headroom_max": 9766,
+   "notes": [
+    "5 disconnected islands dropped (221 MW)",
+    "1016 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +8201 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "CO": {
+   "code": "CO",
+   "name": "Colorado",
+   "file": "grids/CO.json",
+   "interconnect": "Western",
+   "zones": [
+    212
+   ],
+   "valid": true,
+   "buses": 897,
+   "subs": 428,
+   "branches": 1237,
+   "load_mw": 13077,
+   "gen_mw": 14985,
+   "bbox": [
+    -108.941,
+    37.016,
+    -102.076,
+    40.988
+   ],
+   "center": [
+    -104.986,
+    39.631
+   ],
+   "corr": 0.989,
+   "base_over": 0,
+   "base_max_pct": 81.9,
+   "base_lost_mw": 0.0,
+   "overload_500": 17,
+   "headroom_p50": 204,
+   "headroom_max": 3955,
+   "notes": [
+    "0 disconnected islands dropped (0 MW)",
+    "232 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +1876 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "CT": {
+   "code": "CT",
+   "name": "Connecticut",
+   "file": "grids/CT.json",
+   "interconnect": "Eastern",
+   "zones": [
+    6
+   ],
+   "valid": true,
+   "buses": 932,
+   "subs": 407,
+   "branches": 1083,
+   "load_mw": 7035,
+   "gen_mw": 9830,
+   "bbox": [
+    -73.762,
+    41.009,
+    -71.748,
+    42.085
+   ],
+   "center": [
+    -72.849,
+    41.506
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.2,
+   "base_lost_mw": 0.0,
+   "overload_500": 16,
+   "headroom_p50": 226,
+   "headroom_max": 1648,
+   "notes": [
+    "11 disconnected islands dropped (149 MW)",
+    "272 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -813 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "DE": {
+   "code": "DE",
+   "name": "Delaware",
+   "file": "grids/DE.json",
+   "interconnect": "Eastern",
+   "zones": [
+    12
+   ],
+   "valid": true,
+   "buses": 139,
+   "subs": 73,
+   "branches": 155,
+   "load_mw": 1801,
+   "gen_mw": 3170,
+   "bbox": [
+    -75.738,
+    38.465,
+    -74.623,
+    39.791
+   ],
+   "center": [
+    -75.555,
+    39.173
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.3,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 252,
+   "headroom_max": 267,
+   "notes": [
+    "12 disconnected islands dropped (851 MW)",
+    "40 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -707 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "FL": {
+   "code": "FL",
+   "name": "Florida",
+   "file": "florida_grid.json",
+   "interconnect": "Eastern",
+   "zones": [
+    21,
+    22,
+    23
+   ],
+   "valid": true,
+   "buses": 2469,
+   "subs": 1329,
+   "branches": 3347,
+   "load_mw": 44808,
+   "gen_mw": 61858,
+   "bbox": [
+    -83.701,
+    24.477,
+    -79.57,
+    30.703
+   ],
+   "center": [
+    -81.574,
+    27.952
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 95.0,
+   "base_lost_mw": 0.0,
+   "overload_500": 16,
+   "headroom_p50": 222,
+   "headroom_max": 1144,
+   "notes": [
+    "1 disconnected islands dropped (3511 MW)",
+    "644 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -5420 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "GA": {
+   "code": "GA",
+   "name": "Georgia",
+   "file": "grids/GA.json",
+   "interconnect": "Eastern",
+   "zones": [
+    19,
+    20
+   ],
+   "valid": true,
+   "buses": 2012,
+   "subs": 1060,
+   "branches": 2747,
+   "load_mw": 30302,
+   "gen_mw": 34757,
+   "bbox": [
+    -85.512,
+    30.394,
+    -80.754,
+    35.038
+   ],
+   "center": [
+    -83.926,
+    33.311
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 88.0,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 140,
+   "headroom_max": 1971,
+   "notes": [
+    "4 disconnected islands dropped (68 MW)",
+    "554 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +1843 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "IA": {
+   "code": "IA",
+   "name": "Iowa",
+   "file": "grids/IA.json",
+   "interconnect": "Eastern",
+   "zones": [
+    39
+   ],
+   "valid": true,
+   "buses": 3141,
+   "subs": 1234,
+   "branches": 3719,
+   "load_mw": 9345,
+   "gen_mw": 18210,
+   "bbox": [
+    -96.571,
+    40.344,
+    -90.182,
+    43.522
+   ],
+   "center": [
+    -93.218,
+    42.016
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 77.4,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 103,
+   "headroom_max": 590,
+   "notes": [
+    "20 disconnected islands dropped (256 MW)",
+    "923 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -2594 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "ID": {
+   "code": "ID",
+   "name": "Idaho",
+   "file": "grids/ID.json",
+   "interconnect": "Western",
+   "zones": [
+    214
+   ],
+   "valid": true,
+   "buses": 258,
+   "subs": 129,
+   "branches": 292,
+   "load_mw": 2770,
+   "gen_mw": 2650,
+   "bbox": [
+    -117.397,
+    41.996,
+    -111.174,
+    45.851
+   ],
+   "center": [
+    -114.925,
+    43.444
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.0,
+   "base_lost_mw": 0.0,
+   "overload_500": 15,
+   "headroom_p50": 266,
+   "headroom_max": 552,
+   "notes": [
+    "5 disconnected islands dropped (709 MW)",
+    "61 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +566 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "IL": {
+   "code": "IL",
+   "name": "Illinois",
+   "file": "grids/IL.json",
+   "interconnect": "Eastern",
+   "zones": [
+    34,
+    35
+   ],
+   "valid": true,
+   "buses": 3642,
+   "subs": 1879,
+   "branches": 4691,
+   "load_mw": 35273,
+   "gen_mw": 46093,
+   "bbox": [
+    -91.423,
+    37.05,
+    -87.496,
+    42.523
+   ],
+   "center": [
+    -88.762,
+    40.72
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 86.5,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 156,
+   "headroom_max": 3709,
+   "notes": [
+    "15 disconnected islands dropped (274 MW)",
+    "1012 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -2682 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "IN": {
+   "code": "IN",
+   "name": "Indiana",
+   "file": "grids/IN.json",
+   "interconnect": "Eastern",
+   "zones": [
+    33
+   ],
+   "valid": true,
+   "buses": 1913,
+   "subs": 1012,
+   "branches": 2458,
+   "load_mw": 20565,
+   "gen_mw": 27665,
+   "bbox": [
+    -87.919,
+    37.857,
+    -84.802,
+    41.75
+   ],
+   "center": [
+    -86.193,
+    39.946
+   ],
+   "corr": 0.999,
+   "base_over": 0,
+   "base_max_pct": 87.2,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 131,
+   "headroom_max": 1700,
+   "notes": [
+    "10 disconnected islands dropped (389 MW)",
+    "535 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +2974 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "KS": {
+   "code": "KS",
+   "name": "Kansas",
+   "file": "grids/KS.json",
+   "interconnect": "Eastern",
+   "zones": [
+    48
+   ],
+   "valid": true,
+   "buses": 2359,
+   "subs": 948,
+   "branches": 2835,
+   "load_mw": 9500,
+   "gen_mw": 14649,
+   "bbox": [
+    -101.995,
+    36.962,
+    -94.574,
+    40.042
+   ],
+   "center": [
+    -97.005,
+    38.487
+   ],
+   "corr": 0.999,
+   "base_over": 0,
+   "base_max_pct": 76.2,
+   "base_lost_mw": 0.0,
+   "overload_500": 19,
+   "headroom_p50": 103,
+   "headroom_max": 1125,
+   "notes": [
+    "13 disconnected islands dropped (181 MW)",
+    "678 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -520 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "KY": {
+   "code": "KY",
+   "name": "Kentucky",
+   "file": "grids/KY.json",
+   "interconnect": "Eastern",
+   "zones": [
+    27
+   ],
+   "valid": true,
+   "buses": 1553,
+   "subs": 908,
+   "branches": 1837,
+   "load_mw": 16756,
+   "gen_mw": 21463,
+   "bbox": [
+    -89.023,
+    36.457,
+    -82.244,
+    39.202
+   ],
+   "center": [
+    -85.156,
+    37.726
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 85.0,
+   "base_lost_mw": 0.0,
+   "overload_500": 19,
+   "headroom_p50": 260,
+   "headroom_max": 362,
+   "notes": [
+    "26 disconnected islands dropped (692 MW)",
+    "417 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +2378 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "LA": {
+   "code": "LA",
+   "name": "Louisiana",
+   "file": "grids/LA.json",
+   "interconnect": "Eastern",
+   "zones": [
+    43
+   ],
+   "valid": true,
+   "buses": 1300,
+   "subs": 696,
+   "branches": 1726,
+   "load_mw": 18435,
+   "gen_mw": 26460,
+   "bbox": [
+    -93.997,
+    29.075,
+    -89.513,
+    33.004
+   ],
+   "center": [
+    -91.713,
+    30.46
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 79.2,
+   "base_lost_mw": 0.0,
+   "overload_500": 19,
+   "headroom_p50": 181,
+   "headroom_max": 2227,
+   "notes": [
+    "1 disconnected islands dropped (14 MW)",
+    "355 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -4023 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "MA": {
+   "code": "MA",
+   "name": "Massachusetts",
+   "file": "grids/MA.json",
+   "interconnect": "Eastern",
+   "zones": [
+    4
+   ],
+   "valid": true,
+   "buses": 1766,
+   "subs": 776,
+   "branches": 2041,
+   "load_mw": 12602,
+   "gen_mw": 14153,
+   "bbox": [
+    -73.455,
+    40.702,
+    -69.847,
+    42.852
+   ],
+   "center": [
+    -71.215,
+    42.28
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.7,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 234,
+   "headroom_max": 307,
+   "notes": [
+    "31 disconnected islands dropped (350 MW)",
+    "534 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +904 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "MD": {
+   "code": "MD",
+   "name": "Maryland",
+   "file": "grids/MD.json",
+   "interconnect": "Eastern",
+   "zones": [
+    13
+   ],
+   "valid": true,
+   "buses": 1125,
+   "subs": 651,
+   "branches": 1355,
+   "load_mw": 16661,
+   "gen_mw": 16145,
+   "bbox": [
+    -77.862,
+    37.974,
+    -74.62,
+    39.803
+   ],
+   "center": [
+    -76.747,
+    39.108
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 91.9,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 225,
+   "headroom_max": 2067,
+   "notes": [
+    "35 disconnected islands dropped (1123 MW)",
+    "314 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +6873 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "ME": {
+   "code": "ME",
+   "name": "Maine",
+   "file": "grids/ME.json",
+   "interconnect": "Eastern",
+   "zones": [
+    1
+   ],
+   "valid": true,
+   "buses": 1203,
+   "subs": 575,
+   "branches": 1392,
+   "load_mw": 2265,
+   "gen_mw": 4143,
+   "bbox": [
+    -71.127,
+    43.066,
+    -67.034,
+    47.357
+   ],
+   "center": [
+    -69.742,
+    44.437
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 77.4,
+   "base_lost_mw": 0.0,
+   "overload_500": 15,
+   "headroom_p50": 252,
+   "headroom_max": 1008,
+   "notes": [
+    "8 disconnected islands dropped (29 MW)",
+    "350 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -1074 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "MI": {
+   "code": "MI",
+   "name": "Michigan",
+   "file": "grids/MI.json",
+   "interconnect": "Eastern",
+   "zones": [
+    31,
+    32
+   ],
+   "valid": true,
+   "buses": 2699,
+   "subs": 1421,
+   "branches": 3375,
+   "load_mw": 22374,
+   "gen_mw": 28120,
+   "bbox": [
+    -90.132,
+    41.744,
+    -82.415,
+    47.42
+   ],
+   "center": [
+    -84.443,
+    42.995
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 88.7,
+   "base_lost_mw": 0.0,
+   "overload_500": 17,
+   "headroom_p50": 146,
+   "headroom_max": 3136,
+   "notes": [
+    "5 disconnected islands dropped (65 MW)",
+    "750 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -1332 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "MN": {
+   "code": "MN",
+   "name": "Minnesota",
+   "file": "grids/MN.json",
+   "interconnect": "Eastern",
+   "zones": [
+    37,
+    38
+   ],
+   "valid": true,
+   "buses": 3113,
+   "subs": 1246,
+   "branches": 3730,
+   "load_mw": 13926,
+   "gen_mw": 15587,
+   "bbox": [
+    -97.198,
+    43.512,
+    -89.72,
+    48.883
+   ],
+   "center": [
+    -93.59,
+    45.113
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.9,
+   "base_lost_mw": 0.0,
+   "overload_500": 16,
+   "headroom_p50": 101,
+   "headroom_max": 2348,
+   "notes": [
+    "11 disconnected islands dropped (146 MW)",
+    "910 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +1068 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "MO": {
+   "code": "MO",
+   "name": "Missouri",
+   "file": "grids/MO.json",
+   "interconnect": "Eastern",
+   "zones": [
+    40,
+    41
+   ],
+   "valid": true,
+   "buses": 3149,
+   "subs": 1317,
+   "branches": 3840,
+   "load_mw": 19126,
+   "gen_mw": 21085,
+   "bbox": [
+    -95.613,
+    36.047,
+    -89.213,
+    40.539
+   ],
+   "center": [
+    -92.567,
+    38.595
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.7,
+   "base_lost_mw": 0.0,
+   "overload_500": 17,
+   "headroom_p50": 99,
+   "headroom_max": 573,
+   "notes": [
+    "19 disconnected islands dropped (205 MW)",
+    "900 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +3640 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "MS": {
+   "code": "MS",
+   "name": "Mississippi",
+   "file": "grids/MS.json",
+   "interconnect": "Eastern",
+   "zones": [
+    25
+   ],
+   "valid": true,
+   "buses": 944,
+   "subs": 541,
+   "branches": 1242,
+   "load_mw": 10988,
+   "gen_mw": 15692,
+   "bbox": [
+    -91.433,
+    30.183,
+    -88.099,
+    35.082
+   ],
+   "center": [
+    -89.528,
+    32.403
+   ],
+   "corr": 0.999,
+   "base_over": 2,
+   "base_max_pct": 105.7,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 123,
+   "headroom_max": 1061,
+   "notes": [
+    "4 disconnected islands dropped (194 MW)",
+    "258 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "8 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -2511 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "MT": {
+   "code": "MT",
+   "name": "Montana",
+   "file": "grids/MT.json",
+   "interconnect": "Western",
+   "zones": [
+    215
+   ],
+   "valid": true,
+   "buses": 280,
+   "subs": 134,
+   "branches": 327,
+   "load_mw": 1845,
+   "gen_mw": 4858,
+   "bbox": [
+    -115.734,
+    44.762,
+    -106.412,
+    48.82
+   ],
+   "center": [
+    -111.469,
+    46.651
+   ],
+   "corr": 0.997,
+   "base_over": 0,
+   "base_max_pct": 73.8,
+   "base_lost_mw": 0.0,
+   "overload_500": 13,
+   "headroom_p50": 310,
+   "headroom_max": 2045,
+   "notes": [
+    "2 disconnected islands dropped (54 MW)",
+    "77 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -1588 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "NC": {
+   "code": "NC",
+   "name": "North Carolina",
+   "file": "grids/NC.json",
+   "interconnect": "Eastern",
+   "zones": [
+    16,
+    17
+   ],
+   "valid": true,
+   "buses": 2656,
+   "subs": 1185,
+   "branches": 3940,
+   "load_mw": 27900,
+   "gen_mw": 31153,
+   "bbox": [
+    -84.217,
+    33.336,
+    -75.126,
+    36.613
+   ],
+   "center": [
+    -79.551,
+    35.552
+   ],
+   "corr": 0.999,
+   "base_over": 0,
+   "base_max_pct": 85.3,
+   "base_lost_mw": 0.0,
+   "overload_500": 19,
+   "headroom_p50": 82,
+   "headroom_max": 2858,
+   "notes": [
+    "12 disconnected islands dropped (325 MW)",
+    "750 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +5355 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "ND": {
+   "code": "ND",
+   "name": "North Dakota",
+   "file": "grids/ND.json",
+   "interconnect": "Eastern",
+   "zones": [
+    51
+   ],
+   "valid": true,
+   "buses": 1011,
+   "subs": 463,
+   "branches": 1253,
+   "load_mw": 2246,
+   "gen_mw": 7209,
+   "bbox": [
+    -103.938,
+    45.745,
+    -96.668,
+    48.999
+   ],
+   "center": [
+    -99.889,
+    47.374
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 74.3,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 115,
+   "headroom_max": 1040,
+   "notes": [
+    "6 disconnected islands dropped (10 MW)",
+    "272 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -2012 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "NE": {
+   "code": "NE",
+   "name": "Nebraska",
+   "file": "grids/NE.json",
+   "interconnect": "Eastern",
+   "zones": [
+    49
+   ],
+   "valid": true,
+   "buses": 1870,
+   "subs": 763,
+   "branches": 2252,
+   "load_mw": 7004,
+   "gen_mw": 8617,
+   "bbox": [
+    -104.185,
+    39.974,
+    -95.503,
+    42.969
+   ],
+   "center": [
+    -97.402,
+    41.189
+   ],
+   "corr": 0.938,
+   "base_over": 0,
+   "base_max_pct": 80.1,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 100,
+   "headroom_max": 131,
+   "notes": [
+    "6 disconnected islands dropped (62 MW)",
+    "549 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +501 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "NH": {
+   "code": "NH",
+   "name": "New Hampshire",
+   "file": "grids/NH.json",
+   "interconnect": "Eastern",
+   "zones": [
+    2
+   ],
+   "valid": true,
+   "buses": 647,
+   "subs": 299,
+   "branches": 713,
+   "load_mw": 2262,
+   "gen_mw": 4456,
+   "bbox": [
+    -72.51,
+    42.675,
+    -70.451,
+    44.894
+   ],
+   "center": [
+    -71.499,
+    43.187
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.4,
+   "base_lost_mw": 0.0,
+   "overload_500": 17,
+   "headroom_p50": 225,
+   "headroom_max": 1499,
+   "notes": [
+    "27 disconnected islands dropped (199 MW)",
+    "187 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -1548 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "NJ": {
+   "code": "NJ",
+   "name": "New Jersey",
+   "file": "grids/NJ.json",
+   "interconnect": "Eastern",
+   "zones": [
+    9
+   ],
+   "valid": true,
+   "buses": 1723,
+   "subs": 844,
+   "branches": 1980,
+   "load_mw": 20396,
+   "gen_mw": 20231,
+   "bbox": [
+    -75.545,
+    38.936,
+    -73.862,
+    41.312
+   ],
+   "center": [
+    -74.407,
+    40.458
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.5,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 283,
+   "headroom_max": 287,
+   "notes": [
+    "33 disconnected islands dropped (793 MW)",
+    "496 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +3320 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "NM": {
+   "code": "NM",
+   "name": "New Mexico",
+   "file": "grids/NM.json",
+   "interconnect": "Western",
+   "zones": [
+    211
+   ],
+   "valid": true,
+   "buses": 303,
+   "subs": 149,
+   "branches": 360,
+   "load_mw": 2462,
+   "gen_mw": 6669,
+   "bbox": [
+    -108.869,
+    31.766,
+    -104.898,
+    36.908
+   ],
+   "center": [
+    -106.668,
+    35.083
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 78.2,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 181,
+   "headroom_max": 1115,
+   "notes": [
+    "3 disconnected islands dropped (18 MW)",
+    "89 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -1581 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "NV": {
+   "code": "NV",
+   "name": "Nevada",
+   "file": "grids/NV.json",
+   "interconnect": "Western",
+   "zones": [
+    208
+   ],
+   "valid": true,
+   "buses": 462,
+   "subs": 210,
+   "branches": 557,
+   "load_mw": 8040,
+   "gen_mw": 10613,
+   "bbox": [
+    -120.003,
+    35.184,
+    -114.12,
+    41.997
+   ],
+   "center": [
+    -115.241,
+    36.338
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 75.9,
+   "base_lost_mw": 0.0,
+   "overload_500": 19,
+   "headroom_p50": 295,
+   "headroom_max": 739,
+   "notes": [
+    "0 disconnected islands dropped (0 MW)",
+    "98 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +1054 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "NY": {
+   "code": "NY",
+   "name": "New York",
+   "file": "grids/NY.json",
+   "interconnect": "Eastern",
+   "zones": [
+    7,
+    8
+   ],
+   "valid": true,
+   "buses": 4461,
+   "subs": 2513,
+   "branches": 5083,
+   "load_mw": 32356,
+   "gen_mw": 39364,
+   "bbox": [
+    -79.656,
+    39.733,
+    -71.131,
+    45.008
+   ],
+   "center": [
+    -74.25,
+    42.408
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 88.1,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 365,
+   "headroom_max": 688,
+   "notes": [
+    "6 disconnected islands dropped (199 MW)",
+    "1255 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -955 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "OH": {
+   "code": "OH",
+   "name": "Ohio",
+   "file": "grids/OH.json",
+   "interconnect": "Eastern",
+   "zones": [
+    29,
+    30
+   ],
+   "valid": true,
+   "buses": 2861,
+   "subs": 1596,
+   "branches": 3600,
+   "load_mw": 31472,
+   "gen_mw": 31215,
+   "bbox": [
+    -84.814,
+    38.444,
+    -80.458,
+    41.962
+   ],
+   "center": [
+    -82.867,
+    40.412
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 85.1,
+   "base_lost_mw": 0.0,
+   "overload_500": 16,
+   "headroom_p50": 134,
+   "headroom_max": 4268,
+   "notes": [
+    "7 disconnected islands dropped (128 MW)",
+    "766 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +12300 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "OK": {
+   "code": "OK",
+   "name": "Oklahoma",
+   "file": "grids/OK.json",
+   "interconnect": "Eastern",
+   "zones": [
+    47
+   ],
+   "valid": true,
+   "buses": 1559,
+   "subs": 833,
+   "branches": 1808,
+   "load_mw": 13193,
+   "gen_mw": 26150,
+   "bbox": [
+    -100.521,
+    33.703,
+    -94.415,
+    36.971
+   ],
+   "center": [
+    -96.959,
+    35.543
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 77.8,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 193,
+   "headroom_max": 2147,
+   "notes": [
+    "5 disconnected islands dropped (125 MW)",
+    "413 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -6582 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "OR": {
+   "code": "OR",
+   "name": "Oregon",
+   "file": "grids/OR.json",
+   "interconnect": "Western",
+   "zones": [
+    202
+   ],
+   "valid": true,
+   "buses": 681,
+   "subs": 314,
+   "branches": 819,
+   "load_mw": 9014,
+   "gen_mw": 12534,
+   "bbox": [
+    -124.742,
+    42.013,
+    -116.946,
+    46.21
+   ],
+   "center": [
+    -122.742,
+    45.1
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 75.6,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 269,
+   "headroom_max": 3146,
+   "notes": [
+    "6 disconnected islands dropped (263 MW)",
+    "176 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -1569 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "PA": {
+   "code": "PA",
+   "name": "Pennsylvania",
+   "file": "grids/PA.json",
+   "interconnect": "Eastern",
+   "zones": [
+    10,
+    11
+   ],
+   "valid": true,
+   "buses": 4026,
+   "subs": 2211,
+   "branches": 4637,
+   "load_mw": 29163,
+   "gen_mw": 51016,
+   "bbox": [
+    -80.633,
+    39.454,
+    -74.74,
+    42.251
+   ],
+   "center": [
+    -77.478,
+    40.482
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.5,
+   "base_lost_mw": 0.0,
+   "overload_500": 17,
+   "headroom_p50": 301,
+   "headroom_max": 5034,
+   "notes": [
+    "55 disconnected islands dropped (1196 MW)",
+    "1075 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -5026 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "RI": {
+   "code": "RI",
+   "name": "Rhode Island",
+   "file": "grids/RI.json",
+   "interconnect": "Eastern",
+   "zones": [
+    5
+   ],
+   "valid": true,
+   "buses": 198,
+   "subs": 97,
+   "branches": 214,
+   "load_mw": 1428,
+   "gen_mw": 1465,
+   "bbox": [
+    -71.827,
+    40.985,
+    -71.131,
+    42.004
+   ],
+   "center": [
+    -71.446,
+    41.722
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 76.4,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 157,
+   "headroom_max": 275,
+   "notes": [
+    "11 disconnected islands dropped (127 MW)",
+    "60 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +167 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "SC": {
+   "code": "SC",
+   "name": "South Carolina",
+   "file": "grids/SC.json",
+   "interconnect": "Eastern",
+   "zones": [
+    18
+   ],
+   "valid": true,
+   "buses": 1442,
+   "subs": 618,
+   "branches": 2275,
+   "load_mw": 16806,
+   "gen_mw": 22793,
+   "bbox": [
+    -83.166,
+    32.125,
+    -78.507,
+    35.244
+   ],
+   "center": [
+    -81.041,
+    34.157
+   ],
+   "corr": 0.999,
+   "base_over": 1,
+   "base_max_pct": 102.0,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 97,
+   "headroom_max": 599,
+   "notes": [
+    "9 disconnected islands dropped (216 MW)",
+    "399 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -2447 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "SD": {
+   "code": "SD",
+   "name": "South Dakota",
+   "file": "grids/SD.json",
+   "interconnect": "Eastern",
+   "zones": [
+    50
+   ],
+   "valid": true,
+   "buses": 817,
+   "subs": 358,
+   "branches": 980,
+   "load_mw": 2222,
+   "gen_mw": 3263,
+   "bbox": [
+    -103.626,
+    42.813,
+    -96.489,
+    45.882
+   ],
+   "center": [
+    -97.983,
+    43.978
+   ],
+   "corr": 0.998,
+   "base_over": 0,
+   "base_max_pct": 47.2,
+   "base_lost_mw": 0.0,
+   "overload_500": 19,
+   "headroom_p50": 121,
+   "headroom_max": 1343,
+   "notes": [
+    "9 disconnected islands dropped (59 MW)",
+    "232 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +112 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "TN": {
+   "code": "TN",
+   "name": "Tennessee",
+   "file": "grids/TN.json",
+   "interconnect": "Eastern",
+   "zones": [
+    26
+   ],
+   "valid": true,
+   "buses": 1533,
+   "subs": 827,
+   "branches": 1944,
+   "load_mw": 21781,
+   "gen_mw": 21632,
+   "bbox": [
+    -90.182,
+    34.92,
+    -82.047,
+    36.639
+   ],
+   "center": [
+    -86.323,
+    35.889
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 88.7,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 229,
+   "headroom_max": 324,
+   "notes": [
+    "9 disconnected islands dropped (254 MW)",
+    "436 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +3538 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "TX": {
+   "code": "TX",
+   "name": "Texas",
+   "file": "grids/TX.json",
+   "interconnect": "Texas (ERCOT)",
+   "zones": "Texas interconnect",
+   "valid": true,
+   "buses": 2000,
+   "subs": 1250,
+   "branches": 3206,
+   "load_mw": 67109,
+   "gen_mw": 95570,
+   "bbox": [
+    -104.625,
+    25.913,
+    -94.367,
+    35.831
+   ],
+   "center": [
+    -97.27,
+    31.079
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 91.1,
+   "base_lost_mw": 0.0,
+   "overload_500": 14,
+   "headroom_p50": 318,
+   "headroom_max": 2440,
+   "notes": [
+    "0 disconnected islands dropped (0 MW)",
+    "0 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +0 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "UT": {
+   "code": "UT",
+   "name": "Utah",
+   "file": "grids/UT.json",
+   "interconnect": "Western",
+   "zones": [
+    210
+   ],
+   "valid": true,
+   "buses": 461,
+   "subs": 234,
+   "branches": 556,
+   "load_mw": 7216,
+   "gen_mw": 8047,
+   "bbox": [
+    -113.83,
+    36.966,
+    -109.181,
+    42.03
+   ],
+   "center": [
+    -111.884,
+    40.55
+   ],
+   "corr": 0.986,
+   "base_over": 0,
+   "base_max_pct": 64.5,
+   "base_lost_mw": 0.0,
+   "overload_500": 16,
+   "headroom_p50": 372,
+   "headroom_max": 2964,
+   "notes": [
+    "0 disconnected islands dropped (0 MW)",
+    "114 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -499 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "VA": {
+   "code": "VA",
+   "name": "Virginia",
+   "file": "grids/VA.json",
+   "interconnect": "Eastern",
+   "zones": [
+    14,
+    15
+   ],
+   "valid": true,
+   "buses": 1948,
+   "subs": 1103,
+   "branches": 2290,
+   "load_mw": 22675,
+   "gen_mw": 28079,
+   "bbox": [
+    -82.63,
+    36.499,
+    -75.075,
+    39.288
+   ],
+   "center": [
+    -77.857,
+    37.482
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 83.8,
+   "base_lost_mw": 0.0,
+   "overload_500": 19,
+   "headroom_p50": 257,
+   "headroom_max": 1813,
+   "notes": [
+    "42 disconnected islands dropped (2046 MW)",
+    "527 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +1374 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "VT": {
+   "code": "VT",
+   "name": "Vermont",
+   "file": "grids/VT.json",
+   "interconnect": "Eastern",
+   "zones": [
+    3
+   ],
+   "valid": true,
+   "buses": 718,
+   "subs": 330,
+   "branches": 800,
+   "load_mw": 982,
+   "gen_mw": 619,
+   "bbox": [
+    -73.372,
+    42.735,
+    -71.638,
+    45.017
+   ],
+   "center": [
+    -72.856,
+    44.248
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 29.3,
+   "base_lost_mw": 0.0,
+   "overload_500": 15,
+   "headroom_p50": 214,
+   "headroom_max": 647,
+   "notes": [
+    "11 disconnected islands dropped (44 MW)",
+    "218 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +467 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "WA": {
+   "code": "WA",
+   "name": "Washington",
+   "file": "grids/WA.json",
+   "interconnect": "Western",
+   "zones": [
+    201
+   ],
+   "valid": true,
+   "buses": 1050,
+   "subs": 493,
+   "branches": 1273,
+   "load_mw": 15615,
+   "gen_mw": 23162,
+   "bbox": [
+    -125.051,
+    45.575,
+    -117.03,
+    49.023
+   ],
+   "center": [
+    -122.228,
+    47.485
+   ],
+   "corr": 0.997,
+   "base_over": 0,
+   "base_max_pct": 76.0,
+   "base_lost_mw": 0.0,
+   "overload_500": 12,
+   "headroom_p50": 284,
+   "headroom_max": 6298,
+   "notes": [
+    "13 disconnected islands dropped (425 MW)",
+    "241 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -3285 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "WI": {
+   "code": "WI",
+   "name": "Wisconsin",
+   "file": "grids/WI.json",
+   "interconnect": "Eastern",
+   "zones": [
+    36
+   ],
+   "valid": true,
+   "buses": 2200,
+   "subs": 1083,
+   "branches": 2583,
+   "load_mw": 15275,
+   "gen_mw": 16781,
+   "bbox": [
+    -92.768,
+    42.463,
+    -86.918,
+    46.88
+   ],
+   "center": [
+    -89.125,
+    43.938
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 84.6,
+   "base_lost_mw": 0.0,
+   "overload_500": 18,
+   "headroom_p50": 143,
+   "headroom_max": 4086,
+   "notes": [
+    "10 disconnected islands dropped (131 MW)",
+    "638 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import +1940 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "WV": {
+   "code": "WV",
+   "name": "West Virginia",
+   "file": "grids/WV.json",
+   "interconnect": "Eastern",
+   "zones": [
+    28
+   ],
+   "valid": true,
+   "buses": 1194,
+   "subs": 742,
+   "branches": 1311,
+   "load_mw": 4708,
+   "gen_mw": 13716,
+   "bbox": [
+    -82.585,
+    37.26,
+    -78.281,
+    40.141
+   ],
+   "center": [
+    -81.141,
+    38.527
+   ],
+   "corr": 1.0,
+   "base_over": 0,
+   "base_max_pct": 69.6,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 291,
+   "headroom_max": 1341,
+   "notes": [
+    "34 disconnected islands dropped (776 MW)",
+    "315 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -2241 MW held fixed; generation dispatched to balance"
+   ]
+  },
+  "WY": {
+   "code": "WY",
+   "name": "Wyoming",
+   "file": "grids/WY.json",
+   "interconnect": "Western",
+   "zones": [
+    213
+   ],
+   "valid": true,
+   "buses": 157,
+   "subs": 69,
+   "branches": 192,
+   "load_mw": 1181,
+   "gen_mw": 4549,
+   "bbox": [
+    -110.958,
+    41.06,
+    -104.133,
+    44.886
+   ],
+   "center": [
+    -105.999,
+    42.949
+   ],
+   "corr": 0.999,
+   "base_over": 0,
+   "base_max_pct": 70.6,
+   "base_lost_mw": 0.0,
+   "overload_500": 20,
+   "headroom_p50": 277,
+   "headroom_max": 2642,
+   "notes": [
+    "3 disconnected islands dropped (162 MW)",
+    "39 branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+    "0 branches over their rating in the dataset's base case had it raised to base flow + 10 %",
+    "net tie import -630 MW held fixed; generation dispatched to balance"
+   ]
+  }
+ },
+ "source": "Breakthrough Energy Sciences U.S. Test System (PowerSimData usa_tamu), from Texas A&M ACTIVSg synthetic grids, CC-BY 4.0. Synthetic: no model represents any actual utility's network."
+}
