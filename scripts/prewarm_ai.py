@@ -7,7 +7,8 @@ quota (llm.py keeps them in memory and on disk for 48 hours). Safe to run again:
 It walks: the Fort Myers hero (briefing + the AI proposer, the full and short presentation, the cost AI column
 at 1,500 and 500 MW, the Ask box's suggested questions), the Florida five (briefing + proposer, the proposal
 page, the AI analyst when that route exists), Build together's top overlaps (the drafted agreement, English
-and Spanish for the first), and a Strengthen study for Florida at 1,000 MW when that route exists. Each line
+and Spanish for the first), the two negotiating agents on the top three pairs (and the drafts their terms feed), the
+siting agent's default goals (Florida and Texas, 3 GW), and a Strengthen study for Florida at 1,000 MW. Each line
 says whether Gemini or the plain version answered, so a run on a day the quota is out shows it at once.
 """
 
@@ -104,6 +105,32 @@ def main():
         for lang in (("en", "es") if i == 0 else ("en",)):
             d, dt, code = call("GET", f"/api/agreement/{oid}?lang={lang}&ai=true")
             note(f"agreement {oid[:30]} {lang}", ((d or {}).get("by") or "?") + (" verified" if (d or {}).get("verified") else "") if code == 200 else f"HTTP {code}", dt)
+
+    # Build together: the two negotiating agents on the top pairs (they feed the drafts above when agreed)
+    for i, oid in enumerate(ids[:3]):
+        if not oid:
+            continue
+        n, dt, code = call("POST", f"/api/negotiate/{oid}?lang=en&ai=true", {}, timeout=200)
+        out = (n or {}).get("outcome") or {}
+        note(f"negotiation {oid[:30]}", (f"{(n or {}).get('by')} {'agreed' if out.get('agreed') else 'no deal'} r{out.get('round')}") if code == 200 else f"HTTP {code}", dt)
+        if code == 200 and out.get("agreed"):
+            d, dt, code = call("GET", f"/api/agreement/{oid}?lang=en&ai=true&negotiated=en")
+            note(f"agreement {oid[:30]} negotiated", ((d or {}).get("by") or "?") if code == 200 else f"HTTP {code}", dt)
+
+    # AI boom mode: the siting agent's default goals (what "Let the AI place them" sends first)
+    for region, name in (("FL", "Florida"), ("TX", "Texas")):
+        body = {"region": region, "goal": f"Place 3 GW of AI campuses in {name} without blacking anyone out", "total_mw": 3000, "max_sites": 3, "load_factor": 1.0, "firm": False}
+        job, dt, code = call("POST", "/api/planner/start", body)
+        jid = (job or {}).get("job_id") or (job or {}).get("id")
+        t0 = time.time()
+        s = job
+        while code == 200 and jid and time.time() - t0 < 120:
+            s, _, _ = call("GET", f"/api/planner/jobs/{jid}")
+            if (s or {}).get("status") in ("done", "error"):
+                break
+            time.sleep(2)
+        res = (s or {}).get("result") or {}
+        note(f"siting agent {region} 3 GW", f"{(s or {}).get('status')} by {res.get('by') or res.get('agent', {}).get('by') if isinstance(res, dict) else '?'}" if code == 200 else f"HTTP {code}", dt + time.time() - t0)
 
     # Strengthen (a background job)
     job, dt, code = call("POST", "/api/unlock/start", {"region": "FL", "mw": 1000})
