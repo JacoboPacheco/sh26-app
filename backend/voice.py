@@ -443,35 +443,37 @@ async def ensure_audio(key: str) -> dict:
     if not configured():
         raise HTTPException(status_code=503, detail="Voice not configured")
     lock = _render_locks.setdefault(key, asyncio.Lock())
-    async with lock:  # the stage prefetches the next slide; a second request waits for the first render
-        cached = _payload(key, meta)
-        if cached:
-            return cached
-        n = len(meta["text"])
-        if not _take(n):
-            raise HTTPException(status_code=429, detail="Voice quota for today is used up")
-        if _sem is None:
-            _sem = asyncio.Semaphore(2)
-        try:
-            async with _sem:
-                audio, alignment = await asyncio.to_thread(_render, meta)
-        except urllib.error.HTTPError as e:
-            _give_back(n)
-            detail = e.read().decode(errors="replace")[:200]
-            log.warning("voice: ElevenLabs %s: %s", e.code, detail)
-            if e.code in (401, 403):
-                raise HTTPException(status_code=503, detail="Voice not configured — the voice service refused the key")
-            if e.code == 429:
-                raise HTTPException(status_code=429, detail="The voice service is busy — try again in a moment")
-            raise HTTPException(status_code=502, detail=f"The voice service failed ({e.code})")
-        except (urllib.error.URLError, OSError, ValueError) as e:
-            _give_back(n)
-            log.warning("voice: ElevenLabs call failed: %s", e)
-            raise HTTPException(status_code=502, detail="The voice service did not answer")
-        finally:
-            _render_locks.pop(key, None)
-        await asyncio.to_thread(_save, key, meta, audio, alignment)
-        log.info("voice: rendered %s (%s, %s chars)", key, meta["role"], n)
+    try:
+        async with lock:  # the stage prefetches the next slide; a second request waits for the first render
+            cached = _payload(key, meta)
+            if cached:
+                return cached
+            n = len(meta["text"])
+            if not _take(n):
+                raise HTTPException(status_code=429, detail="Voice quota for today is used up")
+            if _sem is None:
+                _sem = asyncio.Semaphore(2)
+            try:
+                async with _sem:
+                    audio, alignment = await asyncio.to_thread(_render, meta)
+            except urllib.error.HTTPError as e:
+                _give_back(n)
+                detail = e.read().decode(errors="replace")[:200]
+                log.warning("voice: ElevenLabs %s: %s", e.code, detail)
+                if e.code in (401, 403):
+                    raise HTTPException(status_code=503, detail="Voice not configured — the voice service refused the key")
+                if e.code == 429:
+                    raise HTTPException(status_code=429, detail="The voice service is busy — try again in a moment")
+                raise HTTPException(status_code=502, detail=f"The voice service failed ({e.code})")
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                _give_back(n)
+                log.warning("voice: ElevenLabs call failed: %s", e)
+                raise HTTPException(status_code=502, detail="The voice service did not answer")
+            # saved before the lock is released, so no second request renders (and pays for) it again
+            await asyncio.to_thread(_save, key, meta, audio, alignment)
+            log.info("voice: rendered %s (%s, %s chars)", key, meta["role"], n)
+    finally:
+        _render_locks.pop(key, None)
     return _payload(key, meta)
 
 

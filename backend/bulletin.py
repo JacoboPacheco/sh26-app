@@ -72,6 +72,12 @@ CLOSE = {
     "es": "Fin del simulacro informativo. Todas las cifras son estimaciones de un modelo sintético.",
 }
 TITLE = {"en": "Simulation briefing", "es": "Simulacro informativo"}
+# the states whose Spanish name differs (a state is not a substation name: it is translated like any country)
+STATE_ES = {
+    "New York": "Nueva York", "New Jersey": "Nueva Jersey", "New Mexico": "Nuevo México", "New Hampshire": "Nuevo Hampshire",
+    "North Carolina": "Carolina del Norte", "South Carolina": "Carolina del Sur", "North Dakota": "Dakota del Norte",
+    "South Dakota": "Dakota del Sur", "Pennsylvania": "Pensilvania", "Louisiana": "Luisiana", "West Virginia": "Virginia Occidental",
+}
 CREDIT = {
     "en": "Grid: Breakthrough Energy / Texas A&M synthetic USA test system (CC-BY 4.0). People: Census population per model load.",
     "es": "Red: sistema de prueba sintético de EE. UU. de Breakthrough Energy / Texas A&M (CC-BY 4.0). Personas: población del Censo según la carga del modelo.",
@@ -99,16 +105,18 @@ PRESET_SAY = {
     "fl-cat5-statewide": ("a category five hurricane crosses all of Florida", "un huracán de categoría cinco cruza toda Florida"),
     "fl-season-20": ("twenty category five storms strike Florida in a single season", "veinte tormentas de categoría cinco golpean Florida en una sola temporada"),
     "fl-heatdome-gulf": ("a heat dome and a Gulf storm strike at the same time", "una cúpula de calor y una tormenta del Golfo llegan al mismo tiempo"),
-    "tx-gulf-landfall": ("a major hurricane comes ashore on the Texas Gulf coast", "un gran huracán toca tierra en la costa del Golfo de Texas"),
-    "ny-noreaster-hudson": ("a severe winter storm sweeps up the Hudson valley", "una fuerte tormenta invernal recorre el valle del Hudson"),
+    # the same storms catastrophes.json names ("A Category 5 comes ashore on the Texas coast", "A nor'easter up
+    # the Hudson Valley"): the spoken scenario must not contradict the title on screen
+    "tx-gulf-landfall": ("a category five storm comes ashore on the Texas Gulf coast", "una tormenta de categoría cinco toca tierra en la costa del Golfo de Texas"),
+    "ny-noreaster-hudson": ("a nor'easter tracks north up the Hudson Valley", "una tormenta del noreste sube por el valle del Hudson"),
 }
 PRESET_NAME_ES = {
     "fl-gulf-fort-myers": "Tormenta desde el Golfo cerca de Fort Myers, con el centro de datos",
     "fl-cat5-statewide": "Un huracán de categoría 5 cruza toda Florida",
     "fl-season-20": "Veinte tormentas de categoría 5 en una temporada",
     "fl-heatdome-gulf": "Cúpula de calor y tormenta en el Golfo",
-    "tx-gulf-landfall": "Gran huracán en la costa de Texas",
-    "ny-noreaster-hudson": "Tormenta invernal en el valle del Hudson",
+    "tx-gulf-landfall": "Una tormenta de categoría 5 toca tierra en la costa de Texas",
+    "ny-noreaster-hudson": "Una tormenta del noreste sube por el valle del Hudson",
 }
 
 VERDICT_CHIP = {
@@ -408,6 +416,17 @@ def cap(s: str) -> str:
     return s[:1].upper() + s[1:] if s else s
 
 
+def a_n(n: int) -> str:
+    """The English article before a number read aloud: 'an 18-step cascade', 'a 9-step cascade'."""
+    s = str(int(n))
+    return "an" if s.startswith("8") or s in ("11", "18") or (len(s) == 5 and s[:2] in ("11", "18")) else "a"
+
+
+def fix_article(text: str) -> str:
+    """'a 18-step' -> 'an 18-step' in a headline the engine wrote."""
+    return re.sub(r"\b([Aa]) (\d[\d,]*)(?=[- ])", lambda m: (("An" if m.group(1) == "A" else "an") if a_n(int(m.group(2).replace(",", ""))) == "an" else m.group(1)) + " " + m.group(2), text)
+
+
 def speak_units(s: str, lang: str) -> str:
     """An engine string made speakable: 'MW' -> 'megawatts', '%' -> ' percent', '~' -> 'about '."""
     en = lang == "en"
@@ -512,13 +531,21 @@ class Writer:
         self.verdict = report.get("verdict") or "unverified"
         self.facts = {f["key"]: f for f in (report.get("facts") or []) if isinstance(f, dict) and "key" in f}
         self.extra: list[dict] = []  # numbers the templates print that the fact sheet lacks (derived from the report)
-        self.names: set[str] = {self.region_name}
+        self.region_es = STATE_ES.get(self.region_name, self.region_name)
+        self.names: set[str] = {self.region_name, self.region_es}
         self.steps = int(self.ev.get("steps") or 0)
         self.people = int(self.ev.get("people") or 0)
         self.storm = int(self.ev.get("storm_lines_out") or 0)
         self.sites = self.case.get("sites") or []
         self.mw = float(self.case.get("mw") or 0) if self.sites else 0.0
         self.place = self.case.get("sub_area") if self.sites else None
+        self.multi = len(self.sites) > 1  # the AI-boom case: several campuses at once
+        self.site_places: list[str] = []
+        for s in self.sites:
+            a = s.get("sub_area") if isinstance(s, dict) else None
+            if a and a not in self.site_places:
+                self.site_places.append(a)
+                self.names.add(a)
         preset = self.case.get("preset") or None
         self.preset = preset if isinstance(preset, dict) and preset.get("id") else None
         self.lf = round(float(self.case.get("load_factor") or 1.0), 2)
@@ -609,6 +636,16 @@ class Writer:
         pid = self.preset["id"]
         return str(self.preset.get("name") or pid) if lang == "en" else PRESET_NAME_ES.get(pid, "Escenario hipotético")
 
+    def dc(self, lang: str, the: bool = True) -> str:
+        """'the data center' / 'the data centers' (several campuses) / 'el centro de datos' / 'los centros de datos'."""
+        if lang == "en":
+            return ("the " if the else "") + ("data centers" if self.multi else "data center")
+        return ("los " if the else "") + "centros de datos" if self.multi else ("el " if the else "") + "centro de datos"
+
+    def where(self, lang: str) -> str:
+        """The campus towns, joined: 'Fort Myers, Orlando and Jacksonville'."""
+        return join(self.site_places[:4], lang) if self.site_places else (self.place or "")
+
     def site_pt(self) -> list[float] | None:
         if self.case.get("sub_lon") is None or not self.sites:
             return None
@@ -671,10 +708,17 @@ def s_event(w: Writer, lv: Level) -> dict:
             where = w.top_area()
             s = (f"A hypothetical storm knocks out {num(w.storm)} lines" + (f" around {where}" if where else "")
                  if en else f"Una tormenta hipotética derriba {num(w.storm, lang)} líneas" + (f" cerca de {where}" if where else ""))
-            if w.sites:
+            if w.multi:
+                s += (f", while {words(len(w.sites), 'en')} new data centers draw {mw_say(w.mw, lang)} in all" if en
+                      else f", mientras {words(len(w.sites), 'es', before_noun=True)} nuevos centros de datos consumen {mw_say(w.mw, lang)} en total")
+            elif w.sites:
                 s += (f", while a new {mw_say(w.mw, lang, adj=True)} data center draws power at {w.place}" if en
                       else f", mientras un nuevo centro de datos de {mw_say(w.mw, lang)} consume energía en {w.place}")
             parts.append((s + ".", False))
+        elif w.multi:
+            n_ = len(w.sites)
+            parts.append(((f"{when}, {words(n_, 'en')} new data centers, {mw_say(w.mw, lang)} in all, connect to the grid at {w.where(lang)}." if en
+                           else f"{when}, {words(n_, 'es', before_noun=True)} nuevos centros de datos, con {mw_say(w.mw, lang)} en total, se conectan a la red en {w.where(lang)}."), False))
         elif w.sites:
             parts.append(((f"{when}, a new {mw_say(w.mw, lang, adj=True)} data center connects to the grid at {w.place}." if en
                            else f"{when}, un nuevo centro de datos de {mw_say(w.mw, lang)} se conecta a la red en {w.place}."), False))
@@ -687,10 +731,10 @@ def s_event(w: Writer, lv: Level) -> dict:
         # what it did
         if w.steps:
             steps_w = words(w.steps, lang, before_noun=True)
-            if w.storm:
+            if w.storm:  # the chain slide reads the steps: the short deck drops this sentence first
                 s = (f"Then overloaded lines trip in {steps_w} more {'step' if w.steps == 1 else 'steps'}." if en
                      else f"Después, las líneas sobrecargadas se disparan en {steps_w} {'paso' if w.steps == 1 else 'pasos'} más.")
-                parts.append((s, False))
+                parts.append((s, True))
             else:
                 s = (f"Over {steps_w} {'step' if w.steps == 1 else 'steps'}, overloaded lines trip one after another" if en
                      else f"En {steps_w} {'paso' if w.steps == 1 else 'pasos'}, las líneas sobrecargadas se disparan una tras otra")
@@ -708,8 +752,9 @@ def s_event(w: Writer, lv: Level) -> dict:
             parts.append((s + ".", False))
         if w.ev.get("capped"):
             parts.append((("It is still spreading when the model stops." if en else "Sigue propagándose cuando el modelo se detiene."), True))
-        body = sentences(parts, lv, PRESENTER_MAX[lang] - len(OPEN[lang].format(region=w.region_name)) - 1)
-        out["narr"][lang] = [_seg("presenter", body, prefix=OPEN[lang].format(region=w.region_name))]
+        rn = w.region_name if en else w.region_es
+        body = sentences(parts, lv, PRESENTER_MAX[lang] - len(OPEN[lang].format(region=rn)) - 1)
+        out["narr"][lang] = [_seg("presenter", body, prefix=OPEN[lang].format(region=rn))]
 
         # headline + lines (visual)
         pr = people_round(w.people, lang)
@@ -719,35 +764,57 @@ def s_event(w: Writer, lv: Level) -> dict:
             h = (f"A storm knocked out {w.storm:,} lines; {people_noun(w.people, lang)} lost power (estimate)" if en
                  else f"Una tormenta derribó {w.storm:,} líneas; {people_noun(w.people, lang)} sin luz (estimación)")
         elif w.sites and w.steps:
-            h = (f"A {w.mw:,.0f} megawatt data center at {w.place} set off a {w.steps}-step cascade" if en
-                 else f"Un centro de datos de {w.mw:,.0f} megavatios en {w.place} desató una cascada de {w.steps} pasos")
+            if w.multi:
+                h = (f"{len(w.sites)} data centers ({w.mw:,.0f} MW in all) set off {a_n(w.steps)} {w.steps}-step cascade" if en
+                     else f"{len(w.sites)} centros de datos ({w.mw:,.0f} MW en total) desataron una cascada de {w.steps} pasos")
+            else:
+                h = (f"A {w.mw:,.0f} MW data center at {w.place} set off {a_n(w.steps)} {w.steps}-step cascade" if en
+                     else f"Un centro de datos de {w.mw:,.0f} MW en {w.place} desató una cascada de {w.steps} pasos")
             if w.people:
                 h += (f"; about {people_noun(w.people, lang)} lost power (estimate)." if en
                       else f"; {'unos' if w.people >= 999_500 else 'unas'} {people_noun(w.people, lang)} sin luz (estimación).")
             else:
-                h += "." if en else "."
+                h += "."
             eng_h = (w.r.get("headline") or {}).get("text") if isinstance(w.r.get("headline"), dict) else None
-            h = eng_h if (en and eng_h) else h
+            h = fix_article(eng_h) if (en and eng_h) else h
         elif w.sites:
-            h = (f"A {w.mw:,.0f} megawatt data center at {w.place}: every line holds." if en
-                 else f"Un centro de datos de {w.mw:,.0f} megavatios en {w.place}: todas las líneas aguantan.")
+            h = ((f"{len(w.sites)} data centers ({w.mw:,.0f} MW in all): every line holds." if en
+                  else f"{len(w.sites)} centros de datos ({w.mw:,.0f} MW en total): todas las líneas aguantan.") if w.multi else
+                 (f"A {w.mw:,.0f} MW data center at {w.place}: every line holds." if en
+                  else f"Un centro de datos de {w.mw:,.0f} MW en {w.place}: todas las líneas aguantan."))
+        elif w.steps:
+            h = (f"Demand at {pct_lf}% set off {a_n(w.steps)} {w.steps}-step cascade" if en
+                 else f"La demanda al {pct_lf}% desató una cascada de {w.steps} pasos")
+            if w.people:
+                h += (f"; about {people_noun(w.people, lang)} lost power (estimate)" if en
+                      else f"; {'unos' if w.people >= 999_500 else 'unas'} {people_noun(w.people, lang)} sin luz (estimación)")
         else:
-            h = (f"Demand at {pct_lf}% set off a {w.steps}-step cascade" if en
-                 else f"La demanda al {pct_lf}% desató una cascada de {w.steps} pasos") if w.steps else (
-                f"Demand at {pct_lf}%: every line holds" if en else f"La demanda al {pct_lf}%: todas las líneas aguantan")
+            h = f"Demand at {pct_lf}%: every line holds" if en else f"La demanda al {pct_lf}%: todas las líneas aguantan"
         out["headline"][lang] = h
         lines = []
-        if w.sites:
-            sub = _title_name(w.case.get("sub_name") or w.place or "")
-            kv = w.case.get("kv")
+        if w.multi:
+            lines.append((f"Where: {w.where(lang)}" if en else f"Dónde: {w.where(lang)}")[:LINE_MAX])
             if w.storm:
-                lines.append((f"Data center: {sub} substation · {mw_show(w.mw)}" if en else f"Centro de datos: subestación {sub} · {mw_show(w.mw)}"))
+                lines.append(f"Storm: {w.storm:,} lines knocked out" if en else f"Tormenta: {w.storm:,} líneas derribadas")
+            lines.append((f"Size: {mw_show(w.mw)} across {len(w.sites)} sites" if en else f"Tamaño: {mw_show(w.mw)} en {len(w.sites)} sitios"))
+            lines.append((f"When: {w.load_show(lang)}" if en else f"Cuándo: {w.load_show(lang)}"))
+        else:
+            if w.sites:
+                sub = _title_name(w.case.get("sub_name") or w.place or "")
+                kv = w.case.get("kv")
+                if w.storm:
+                    lines.append((f"Data center: {sub} substation · {mw_show(w.mw)}" if en else f"Centro de datos: subestación {sub} · {mw_show(w.mw)}"))
+                else:
+                    lines.append((f"Where: {sub} substation" if en else f"Dónde: subestación {sub}") + (f" ({kv:.0f} kV)" if kv else ""))
+            if w.storm:
+                lines.append(f"Storm: {w.storm:,} lines knocked out" if en else f"Tormenta: {w.storm:,} líneas derribadas")
+            if w.preset or w.storm:  # a storm has its own season: this line is the demand the model runs at
+                std = w.lf in LOAD_WORD
+                lines.append((f"Demand: {w.load_show(lang)}{' level' if std else ''}" if en
+                              else f"Demanda: {'nivel de ' if std else ''}{w.load_show(lang)}"))
             else:
-                lines.append((f"Where: {sub} substation" if en else f"Dónde: subestación {sub}") + (f" ({kv:.0f} kV)" if kv else ""))
-        if w.storm:
-            lines.append(f"Storm: {w.storm:,} lines knocked out" if en else f"Tormenta: {w.storm:,} líneas derribadas")
-        lines.append((f"When: {w.load_show(lang)}" if en else f"Cuándo: {w.load_show(lang)}"))
-        if w.sites and len(lines) < 3:
+                lines.append((f"When: {w.load_show(lang)}" if en else f"Cuándo: {w.load_show(lang)}"))
+        if w.sites and not w.multi and len(lines) < 3:
             size = mw_show(w.mw) + (f" · room there: {mw_show(w.room)}" if en else f" · margen allí: {mw_show(w.room)}") if w.room is not None else mw_show(w.mw)
             lines.append((f"Size: {size}" if en else f"Tamaño: {size}"))
         out["lines"][lang] = lines[:3]
@@ -769,10 +836,13 @@ def s_event(w: Writer, lv: Level) -> dict:
     return out
 
 
-def _step_sentence(w: Writer, st: dict, lang: str) -> str:
+def _step_sentence(w: Writer, st: dict, lang: str, seen: set | None = None) -> str:
+    """One step, read aloud. `seen`: areas already said to lose power in this chain (never said twice)."""
     en = lang == "en"
     n = int(st["n"])
-    dark = [d["area"] for d in (st.get("newly_dark") or []) if d.get("people", 0) >= 1000][:1]
+    seen = set() if seen is None else seen
+    dark = [d["area"] for d in (st.get("newly_dark") or []) if d.get("people", 0) >= 1000 and d["area"] not in seen][:1]
+    seen.update(dark)
     tail = ""
     if dark:
         tail = f", and {dark[0]} loses power" if en else f", y {dark[0]} se queda sin luz"
@@ -808,17 +878,19 @@ def _step_sentence(w: Writer, st: dict, lang: str) -> str:
     return cue("step", n) + head + f"{label} {verb}{at}{tail}."
 
 
-def _group_sentence(w: Writer, group: list[dict], lang: str, after: bool = True) -> str:
+def _group_sentence(w: Writer, group: list[dict], lang: str, after: bool = True, seen: set | None = None) -> str:
     """'Steps five to nine: five more lines trip...' (`after`: steps were read one by one before it)."""
     en = lang == "en"
     a, b = int(group[0]["n"]), int(group[-1]["n"])
     trips = sum(max(len(s.get("lines") or []), 1) for s in group if s.get("action") != "shed")
+    seen = set() if seen is None else seen
     dark: list[str] = []
     for s in group:
         for d in s.get("newly_dark") or []:
-            if d.get("people", 0) >= 1000 and d["area"] not in dark:
+            if d.get("people", 0) >= 1000 and d["area"] not in dark and d["area"] not in seen:
                 dark.append(d["area"])
     dark = dark[:2]
+    seen.update(dark)
     if en:
         s = f"Steps {words(a, 'en')} to {words(b, 'en')}: {words(trips, 'en')}{' more' if after else ''} {'line trips' if trips == 1 else 'lines trip'}"
         s += f", and {join(dark, 'en')} {'loses' if len(dark) == 1 else 'lose'} power." if dark else "."
@@ -860,8 +932,12 @@ def s_chain(w: Writer, lv: Level) -> dict:
                 b = w.line_label(why.get("id"), lang, fallback=why.get("label"))
                 parts.append(((f"When {a} trips, its power shifts onto {b}, which climbs to {pct_say(why['pct_after'], lang)}." if en
                                else f"Cuando {a} se dispara, su energía pasa a {b}, que sube al {pct_say(why['pct_after'], lang)}."), True))
-            parts.append((("Each trip does the same to the next line, until the grid gives way." if en
-                            else "Cada disparo hace lo mismo con la siguiente línea, hasta que la red cede."), 2))
+            if why is not None:
+                parts.append((("Each trip does the same to the next line, until the grid gives way." if en
+                                else "Cada disparo hace lo mismo con la siguiente línea, hasta que la red cede."), 2))
+            else:
+                parts.append((("Each line that trips hands its power to its neighbors, and the next one goes over its limit." if en
+                                else "Cada línea que se dispara pasa su energía a las vecinas, y la siguiente supera su límite."), True))
         intro = sentences(parts, lv, PRESENTER_MAX[lang])
         closing = ""
         if w.ev.get("capped"):
@@ -872,10 +948,11 @@ def s_chain(w: Writer, lv: Level) -> dict:
         analyst = ""
         for k in range(min(lv.k, len(run)), -1, -1):
             k_eff = len(run) if len(run) <= k + 1 else k  # never group a single step
-            parts = [_step_sentence(w, s, lang) for s in tl if int(s.get("n", 0)) == 0]
-            parts += [_step_sentence(w, s, lang) for s in run[:k_eff]]
+            seen: set = set()
+            parts = [_step_sentence(w, s, lang, seen) for s in tl if int(s.get("n", 0)) == 0]
+            parts += [_step_sentence(w, s, lang, seen) for s in run[:k_eff]]
             if len(run) > k_eff:
-                parts.append(_group_sentence(w, run[k_eff:], lang, after=k_eff > 0 or bool(parts)))
+                parts.append(_group_sentence(w, run[k_eff:], lang, after=k_eff > 0 or bool(parts), seen=seen))
             text = " ".join(parts)
             if closing and lv.opt and plain_len(text + " " + closing) <= ANALYST_MAX[lang]:
                 text += " " + closing
@@ -916,9 +993,14 @@ def s_chain(w: Writer, lv: Level) -> dict:
         if int(s.get("n", 0)) == 0 and listed:
             storm_ids = [x.get("id") if isinstance(x, dict) else x for x in listed][:12]
     pts = [p for bid in ids + storm_ids for p in w.line_pts(bid)]
-    out["big"] = {"value": w.steps, "display": {"en": f"{w.steps}", "es": f"{w.steps}"},
-                  "label": {"en": "steps" if w.steps != 1 else "step", "es": "pasos" if w.steps != 1 else "paso"},
-                  "fact_key": "event.steps", "tone": "alert"}
+    if w.steps == 0 and w.storm:  # nothing cascaded: the storm's own damage is the number
+        out["big"] = {"value": w.storm, "display": {"en": f"{w.storm:,}", "es": f"{w.storm:,}"},
+                      "label": {"en": "lines knocked out by the storm", "es": "líneas derribadas por la tormenta"},
+                      "fact_key": "event.storm_lines_out", "tone": "alert"}
+    else:
+        out["big"] = {"value": w.steps, "display": {"en": f"{w.steps}", "es": f"{w.steps}"},
+                      "label": {"en": "steps" if w.steps != 1 else "step", "es": "pasos" if w.steps != 1 else "paso"},
+                      "fact_key": "event.steps", "tone": "alert"}
     out["camera"] = cam("bbox", pts, line_ids=ids) if pts else (cam("areas", [a.get("center") for a in w.areas[:4]]) if w.areas else region_cam(w))
     out["map"] = mapspec("replay", 0, w.steps, highlight=ids[:1])
     out["facts_used"] = w.keys("event.steps", "event.storm_lines_out", *[f"step.{s['n']}.line" for s in tl], *[f"step.{s['n']}.pct_before" for s in tl])
@@ -933,7 +1015,7 @@ def s_areas(w: Writer, lv: Level) -> dict:
         who = people_say(w.people, lang)
         share = share_say(w.ev.get("people_share_pct"), lang)
         s1 = (f"In all, {who} lose power" + (f", {share} of {w.region_name}'s residents" if share else "") + "." if en
-              else f"En total, {who} se quedan sin luz" + (f", el {share} de los habitantes de {w.region_name}" if share else "") + ".")
+              else f"En total, {who} se quedan sin luz" + (f", el {share} de los habitantes de {w.region_es}" if share else "") + ".")
         s2 = ("These are estimates: the load the model loses, counted as the residents it serves." if en
               else "Son estimaciones: la carga que pierde el modelo, contada como los habitantes a los que abastece.")
         body = sentences([(("Where the lights went out." if en else "Dónde se fue la luz."), False), (s1, False), (s2, True)], lv, PRESENTER_MAX[lang])
@@ -965,13 +1047,17 @@ def s_hospitals(w: Writer, lv: Level) -> dict:
     out = {"kind": "hospitals", "headline": {}, "lines": {}, "narr": {}}
     for lang in LANGS:
         en = lang == "en"
-        cw = words(count, lang) if count <= 99 else num(count, lang)
-        s1 = (f"{cap(cw)} {'hospital sits' if count == 1 else 'hospitals sit'} in the areas without power" if en
-              else f"{cap(cw)} {'hospital queda' if count == 1 else 'hospitales quedan'} en las zonas sin luz")
+        # never open a spoken sentence on a numeral ("146 hospitals sit..." reads badly and sounds worse)
+        cw = words(count, lang, before_noun=True) if count <= 99 else num(count, lang)
+        s1 = (f"The areas without power include {cw} {'hospital' if count == 1 else 'hospitals'}" if en
+              else f"En las zonas sin luz hay {cw} {'hospital' if count == 1 else 'hospitales'}")
         if lv.hosp and per:
-            parts_ = [f"{words(a['count'], lang)} in {a['area']}" if en else f"{words(a['count'], lang)} en {a['area']}" for a in per]
+            parts_ = [f"{words(a['count'], lang, before_noun=True)} in {a['area']}" if en else f"{words(a['count'], lang, before_noun=True)} en {a['area']}" for a in per]
             s1 += ": " + join(parts_, lang)
-        s2 = ("Each would have to run on its own backup power." if en else "Cada uno tendría que funcionar con su propia energía de respaldo.")
+        if count == 1:
+            s2 = "It would have to run on backup power." if en else "Tendría que funcionar con energía de respaldo."
+        else:
+            s2 = "Each would have to run on backup power." if en else "Cada uno tendría que funcionar con energía de respaldo."
         out["narr"][lang] = [_seg("presenter", sentences([(s1 + ".", False), (s2, False)], lv, PRESENTER_MAX[lang]))]
         out["headline"][lang] = (f"{count} {'hospital' if count == 1 else 'hospitals'} in the dark areas" if en
                                  else f"{count} {'hospital' if count == 1 else 'hospitales'} en las zonas sin luz")
@@ -999,22 +1085,35 @@ def s_cost(w: Writer, lv: Level) -> dict:
                 _, scaled = usd_say(v, lang)
                 if scaled is not None:
                     w.add(f"deck.cost.{key}.scaled", f"{label}, scaled", scaled, "USD (scaled)", True)
+    # costs.py prices "the upgrades that stop the cascade": after a storm they spare only the cascade's
+    # share, never the people the damage itself cut off, so the copy must not say they "prevent" it
+    upgrade_fx = next((f for f in w.fixes if f.get("family") == "upgrade"), None)
+    prevents = w.verdict == "preventable" and upgrade_fx is not None and upgrade_fx.get("verdict") == "holds"
+    h_show = _dec(float(hours), 1) if hours else None
     for lang in LANGS:
         en = lang == "en"
         parts: list[tuple[str, bool]] = [(("What it costs." if en else "Lo que cuesta."), False)]
         if c.get("blackout_usd"):
             usd, _ = usd_say(c["blackout_usd"], lang)
             if hours:
-                s = (f"If the outage lasted {num(hours)} hours, the estimated cost to the people and businesses without power is about {usd}." if en
-                     else f"Si el apagón durara {num(hours, lang)} horas, el costo estimado para quienes se quedan sin luz sería de unos {usd}.")
+                s = (f"If the outage lasted {h_show} hours, it would cost the people and businesses without power about {usd}." if en
+                     else f"Si el apagón durara {h_show} horas, costaría unos {usd} a quienes se quedan sin luz.")
             else:
-                s = (f"The estimated cost to the people and businesses without power is about {usd}." if en
-                     else f"El costo estimado para quienes se quedan sin luz sería de unos {usd}.")
+                s = (f"The outage would cost the people and businesses without power about {usd}." if en
+                     else f"El apagón costaría unos {usd} a quienes se quedan sin luz.")
             parts.append((s, False))
         if c.get("upgrade_usd"):
             usd, _ = usd_say(c["upgrade_usd"], lang)
-            parts.append(((f"The upgrades that would prevent it are estimated at about {usd}." if en
-                           else f"Los refuerzos que lo evitarían costarían unos {usd}, según la estimación."), False))
+            if prevents:
+                s = (f"The line upgrades that would prevent it cost about {usd}." if en
+                     else f"Los refuerzos de líneas que lo evitarían cuestan unos {usd}.")
+            elif w.storm or w.verdict == "no_fix":
+                s = (f"Upgrades that stop the cascade cost about {usd}, but they cannot reconnect the people the damage cut off." if en
+                     else f"Los refuerzos que detienen la cascada cuestan unos {usd}, pero no reconectan a quienes el daño dejó aislados.")
+            else:
+                s = (f"The line upgrades that stop the cascade cost about {usd}." if en
+                     else f"Los refuerzos de líneas que detienen la cascada cuestan unos {usd}.")
+            parts.append((s, False))
         if c.get("campus_bill_usd_per_year"):
             usd, _ = usd_say(c["campus_bill_usd_per_year"], lang)
             parts.append(((f"The data center's own power bill would be about {usd} a year." if en
@@ -1023,23 +1122,27 @@ def s_cost(w: Writer, lv: Level) -> dict:
         if c.get("blackout_usd"):
             h_ = (f"Estimated cost of the blackout: {usd_show(c['blackout_usd'])}" if en else f"Costo estimado del apagón: {usd_show(c['blackout_usd'])}")
             if hours:
-                h_ += f" (assumes {hours} hours)" if en else f" (supone {hours} horas)"
+                h_ += f" (assumes {h_show} hours out)" if en else f" (supone {h_show} horas sin luz)"
         else:
             h_ = "What it costs (estimates)" if en else "Lo que cuesta (estimaciones)"
         out["headline"][lang] = h_
         lines = []
         if c.get("upgrade_usd"):
-            lines.append((f"Upgrades that prevent it: {usd_show(c['upgrade_usd'])} (estimate)" if en else f"Refuerzos que lo evitan: {usd_show(c['upgrade_usd'])} (estimación)"))
+            what = ("Upgrades that prevent it" if prevents else "Upgrades that stop the cascade") if en else (
+                "Refuerzos que lo evitan" if prevents else "Refuerzos que detienen la cascada")
+            lines.append(f"{what}: {usd_show(c['upgrade_usd'])} " + ("(estimate)" if en else "(estimación)"))
         if c.get("campus_bill_usd_per_year"):
             lines.append((f"Campus power bill: {usd_show(c['campus_bill_usd_per_year'])} a year (estimate)" if en
                           else f"Factura del campus: {usd_show(c['campus_bill_usd_per_year'])} al año (estimación)"))
         if c.get("who_pays") and en:
-            lines.append(f"Who pays (estimate): {c['who_pays']}"[:LINE_MAX])
+            # costs.py's range, read as a reader would say it ("$0.00 to $0.04" -> "up to $0.04")
+            who = re.sub(r"^\$0\.00 to (\$\d[\d.,]*)", r"up to \1", str(c["who_pays"]))
+            lines.append(f"Who pays (estimate): {who}"[:LINE_MAX])
         out["lines"][lang] = lines[:3]
     v = c.get("blackout_usd") or c.get("upgrade_usd") or 0
     out["big"] = {"value": v, "display": {"en": usd_show(v), "es": usd_show(v)},
-                  "label": {"en": "blackout cost (estimate" + (f", assumes {hours} h)" if hours else ")"),
-                            "es": "costo del apagón (estimación" + (f", supone {hours} h)" if hours else ")")},
+                  "label": {"en": "blackout cost (estimate" + (f", assumes {h_show} hours out)" if hours else ")"),
+                            "es": "costo del apagón (estimación" + (f", supone {h_show} horas sin luz)" if hours else ")")},
                   "fact_key": "cost.blackout_usd", "tone": "alert"}
     out["camera"] = region_cam(w) if not w.areas else cam("areas", [a.get("center") for a in w.areas[:4]])
     out["map"] = mapspec("final", w.steps, w.steps)
@@ -1059,55 +1162,71 @@ def s_cause(w: Writer, lv: Level) -> dict:
         en = lang == "en"
         label = w.line_label(bid, lang, fallback=line.get("label"))
         parts: list[tuple[str, bool]] = [(("Why it happened." if en else "Por qué pasó."), False)]
+        dc_en, dc_es = w.dc("en"), w.dc("es")
         if cause == "storm":
             parts.append((("The storm cut the lines first; the rest of the failure follows from that damage." if en
                            else "La tormenta cortó las líneas primero; el resto de la falla viene de ese daño."), False))
             if w.sites:
-                parts.append((("Without the data center, the same people lose power." if en
-                               else "Sin el centro de datos, las mismas personas se quedan sin luz."), False))
+                parts.append(((f"Without {dc_en}, the same people lose power." if en
+                               else f"Sin {dc_es}, las mismas personas se quedan sin luz."), False))
+            elif pw is not None:
+                parts.append(((f"The first line to overload after it, {label}, ran at {pct_say(pw, lang)} of its rating." if en
+                               else f"La primera línea en sobrecargarse después, {label}, llegó al {pct_say(pw, lang)} de su capacidad."), True))
         else:
             parts.append(((f"The first line to fail was {label}." if en else f"La primera línea en fallar fue {label}."), False))
             if cause == "campus" and pw is not None and po is not None:
-                parts.append(((f"With the data center it ran at {pct_say(pw, lang)} of its rating; without it, at {pct_say(po, lang)}." if en
-                               else f"Con el centro de datos llegó al {pct_say(pw, lang)} de su capacidad; sin él, al {pct_say(po, lang)}."), False))
+                parts.append(((f"With {dc_en} it ran at {pct_say(pw, lang)} of its rating; without, at {pct_say(po, lang)}." if en
+                               else f"Con {dc_es} llegó al {pct_say(pw, lang)} de su capacidad; sin {'ellos' if w.multi else 'él'}, al {pct_say(po, lang)}."), False))
                 s = "The new load alone pushed it over its limit" if en else "La nueva carga, por sí sola, la llevó por encima de su límite"
                 if rc.get("people_without_campus") == 0:
-                    s += ", and without it nobody loses power" if en else ", y sin ella nadie se queda sin luz"
+                    s += ", and without the new load nobody loses power" if en else ", y sin esa carga nadie se queda sin luz"
                 parts.append((s + ".", False))
             elif cause == "last_straw" and po is not None:
-                parts.append(((f"It was already at {pct_say(po, lang)} before the data center; the campus pushed it over its limit." if en
-                               else f"Ya estaba al {pct_say(po, lang)} antes del centro de datos; el campus la llevó por encima de su límite."), False))
+                parts.append(((f"It was already at {pct_say(po, lang)} before {dc_en}; the new load pushed it over its limit." if en
+                               else f"Ya estaba al {pct_say(po, lang)} antes de{'l' if not w.multi else ''} {dc_es[3:] if not w.multi else dc_es}; la nueva carga la llevó por encima de su límite."), False))
             elif cause == "heat" and pw is not None:
                 s = (f"It ran at {pct_say(pw, lang)} of its rating" if en else f"Llegó al {pct_say(pw, lang)} de su capacidad")
                 if po is not None and w.sites:
-                    s += (f", and even without the data center it would be at {pct_say(po, lang)}" if en
-                          else f", y aun sin el centro de datos estaría al {pct_say(po, lang)}")
+                    s += (f", and even without {dc_en} it would be at {pct_say(po, lang)}" if en
+                          else f", y aun sin {dc_es} estaría al {pct_say(po, lang)}")
                 parts.append((s + ".", False))
-                parts.append((("The heat, not the campus, is the cause." if en else "La causa es el calor, no el campus.") if w.sites
+                parts.append(((f"The heat, not {dc_en}, is the cause." if en else f"La causa es el calor, no {dc_es}.") if w.sites
                               else ("Demand alone is the cause." if en else "La causa es solo la demanda."), False))
             elif pw is not None:
                 parts.append(((f"It ran at {pct_say(pw, lang)} of its rating." if en else f"Llegó al {pct_say(pw, lang)} de su capacidad."), False))
         out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang]))]
+        lines = []
         if cause == "storm":
-            h = "The cause: storm damage, not the data center" if en else "La causa: el daño de la tormenta, no el centro de datos"
+            h = ((f"The cause: storm damage, not {dc_en}" if en else f"La causa: el daño de la tormenta, no {dc_es}") if w.sites
+                 else ("The cause: storm damage" if en else "La causa: el daño de la tormenta"))
+            if w.storm:
+                lines.append(f"Storm: {w.storm:,} lines cut" if en else f"Tormenta: {w.storm:,} líneas cortadas")
+            if pw is not None:
+                lines.append((f"First overload after it: {round(pw)}% of its rating" if en else f"Primera sobrecarga después: {round(pw)}% de su capacidad"))
+            if w.sites:
+                lines.append((f"Without {dc_en}: the same people lose power" if en else f"Sin {dc_es}: las mismas personas sin luz"))
         else:
             h = (f"The first line to fail: {label}" if en else f"La primera línea en fallar: {label}")
             if pw is not None:
                 h += f" at {round(pw)}%" if en else f" al {round(pw)}%"
             if po is not None and w.sites and cause in ("campus", "last_straw"):
-                h += f" — {round(po)}% without the campus" if en else f" — {round(po)}% sin el campus"
+                h += f" — {round(po)}% without {dc_en}" if en else f" — {round(po)}% sin {dc_es}"
+            if pw is not None:
+                lines.append(((f"With {dc_en}: " if w.sites else "Loading when it tripped: ") if en
+                              else (f"Con {dc_es}: " if w.sites else "Carga al dispararse: ")) + f"{round(pw)}%" + (" of its rating" if en else " de su capacidad"))
+            if po is not None and w.sites:
+                lines.append((f"Without {dc_en}: {round(po)}%" if en else f"Sin {dc_es}: {round(po)}%"))
+            if share is not None and w.sites:
+                lines.append((f"Share of its flow from {dc_en}: {round(share)}%" if en else f"Parte de su flujo que viene de{'l' if not w.multi else ''} {dc_es[3:] if not w.multi else dc_es}: {round(share)}%"))
         out["headline"][lang] = cap(h)
-        lines = []
-        if pw is not None:
-            lines.append((f"With the data center: {round(pw)}% of its rating" if en else f"Con el centro de datos: {round(pw)}% de su capacidad"))
-        if po is not None and w.sites:
-            lines.append((f"Without it: {round(po)}%" if en else f"Sin él: {round(po)}%"))
-        if share is not None and w.sites:
-            lines.append((f"Campus share of its flow: {round(share)}%" if en else f"Parte de su flujo que viene del campus: {round(share)}%"))
-        out["lines"][lang] = lines[:3]
-    if share is not None and w.sites and cause != "storm":
+        out["lines"][lang] = [x[:LINE_MAX] for x in lines[:3]]
+    if cause == "storm" and w.storm:
+        out["big"] = {"value": w.storm, "display": {"en": f"{w.storm:,}", "es": f"{w.storm:,}"},
+                      "label": {"en": "lines cut by the storm", "es": "líneas cortadas por la tormenta"},
+                      "fact_key": "event.storm_lines_out", "tone": "alert"}
+    elif share is not None and w.sites and cause != "storm":
         out["big"] = {"value": share, "display": {"en": f"{round(share)}%", "es": f"{round(share)}%"},
-                      "label": {"en": "of its flow came from the data center", "es": "de su flujo vino del centro de datos"},
+                      "label": {"en": f"of its flow came from {w.dc('en')}", "es": f"de su flujo vino de{'l' if not w.multi else ''} {w.dc('es')[3:] if not w.multi else w.dc('es')}"},
                       "fact_key": "cause.campus_share_pct", "tone": "alert" if cause == "campus" else "neutral"}
     elif pw is not None:
         out["big"] = {"value": pw, "display": {"en": f"{round(pw)}%", "es": f"{round(pw)}%"},
@@ -1152,6 +1271,9 @@ def _fix_phrase(w: Writer, fx: dict, lang: str) -> str:
     fam, ap, d = fx.get("family"), fx.get("apply") or {}, fx.get("detail") or {}
     size = d.get("mw", ap.get("mw"))
     if fam == "shrink" and size is not None:
+        if w.multi:
+            return (f"build {mw_say(size, lang)} in all instead of {num(w.mw)}" if en
+                    else f"construir {mw_say(size, lang)} en total en lugar de {num(w.mw, lang)}")
         return (f"build {mw_say(size, lang)} instead of {num(w.mw)}" if en
                 else f"construir {mw_say(size, lang)} en lugar de {num(w.mw, lang)}")
     if fam == "move":
@@ -1159,15 +1281,21 @@ def _fix_phrase(w: Writer, fx: dict, lang: str) -> str:
             (d.get("sites") or [{}])[0].get("town") or d.get("town"))
         if area:
             w.names.add(area)
+            if w.multi:
+                return f"build them near {area} instead" if en else f"construirlos cerca de {area}"
             return f"build it at a {area} substation instead" if en else f"construirlo en una subestación de {area}"
-        return "build it somewhere else" if en else "construirlo en otro lugar"
+        return ("build them somewhere else" if w.multi else "build it somewhere else") if en else (
+            "construirlos en otro lugar" if w.multi else "construirlo en otro lugar")
     if fam == "flexible":
+        it_en, it_es = ("them", "hacerlos flexibles") if w.multi else ("it", "hacerlo flexible")
         if size is not None:
-            return (f"make it flexible, curtailing to {mw_say(size, lang)} at the peak" if en
-                    else f"hacerlo flexible, recortando a {mw_say(size, lang)} en el pico")
-        return "make it flexible, curtailing at the peak" if en else "hacerlo flexible, recortando en el pico"
+            return (f"make {it_en} flexible, curtailing to {mw_say(size, lang)}{' in all' if w.multi else ''} at the peak" if en
+                    else f"{it_es}, recortando a {mw_say(size, lang)}{' en total' if w.multi else ''} en el pico")
+        return f"make {it_en} flexible, curtailing at the peak" if en else f"{it_es}, recortando en el pico"
     if fam == "time_of_day":
-        return "run it only at hours with room" if en else "operarlo solo en las horas con margen"
+        if not w.sites:  # a heat-only case: there is no campus to reschedule, only the hour itself
+            return "wait for a cooler hour" if en else "esperar a una hora más fresca"
+        return "run it only at quieter hours" if en else "operarlo solo en las horas de menos demanda"
     if fam == "upgrade":
         return f"upgrade {_upgrade_what(fx, 'en')}" if en else f"reforzar {_upgrade_what(fx, 'es')}"
     if fam == "combo":
@@ -1208,7 +1336,8 @@ def _fix_big(w: Writer, fx: dict, lang: str) -> str:
     en = lang == "en"
     d = fx.get("detail") or {}
     if fam in ("shrink", "flexible") and (d.get("mw") or ap.get("mw")) is not None:
-        return mw_show(d.get("mw") or ap["mw"])
+        v = float(d.get("mw") or ap["mw"])
+        return f"{round(v):,} MW" if v >= 100 else mw_show(v)  # as the narration says it
     if fam == "onsite" and d.get("onsite_mw"):
         return "+" + mw_show(d["onsite_mw"]) + (" on site" if en else " propios")
     if fam in ("upgrade", "combo") and ap.get("upgrades"):
@@ -1316,24 +1445,40 @@ def s_no_fix(w: Writer, lv: Level) -> dict:
     split = w.r.get("split") or {}
     bound = w.r.get("bound") or {}
     n = int(nf.get("people") or bound.get("people") or 0)
-    tried = [p.get("family") for p in (nf.get("proof") or []) if p.get("family") in FAMILY_SAY]
+    proof = [p for p in (nf.get("proof") or []) if isinstance(p, dict) and p.get("family") in FAMILY_SAY]
+    # the best fix the engine actually ran (not the no-campus floor, not a family it skipped as not needed)
+    ran = [p for p in proof if p.get("verdict") in ("holds", "partly", "fails") and p.get("family") != "remove" and p.get("people") is not None]
+    best_p = min(ran, key=lambda p: p["people"]) if ran else None
+    best_fx = next((f for f in w.fixes if best_p and f.get("family") == best_p.get("family")), None)
+    stops = bool(best_fx) and w.steps > 0 and int((best_fx.get("outcome") or {}).get("steps") or 0) == 0
     out = {"kind": "no_fix", "headline": {}, "lines": {}, "narr": {}}
     for lang in LANGS:
         en = lang == "en"
-        fams = join([FAMILY_SAY[f][0 if en else 1] for f in tried], lang)
         cause_ = "the storm cut the lines that serve them" if en else "la tormenta cortó las líneas que las abastecen"
         if not w.storm:
             cause_ = "demand is more than the lines left can carry" if en else "la demanda supera lo que pueden llevar las líneas que quedan"
+        best_s = ""
+        if best_p is not None:
+            fam_ = FAMILY_SAY[best_p["family"]][0 if en else 1]
+            if stops:
+                best_s = (f"The best fix we ran, {fam_}, stops the cascade that follows, and nothing more." if en
+                          else f"La mejor solución que probamos, {fam_}, detiene la cascada posterior, y nada más.")
+            else:
+                best_s = (f"The best fix we ran, {fam_}, saves only part of it." if en
+                          else f"La mejor solución que probamos, {fam_}, salva solo una parte.")
         body = sentences([
             ((f"No fix exists for {people_say(n, lang)}." if en else f"No hay solución para {people_say(n, lang)}."), False),
-            (((f"We tried {fams}." if en else f"Probamos {fams}.") if fams else ""), True),
             ((f"Even with unlimited line ratings and no data center, they stay dark: {cause_}." if en
               else f"Aun con líneas de capacidad ilimitada y sin centro de datos, siguen sin luz: {cause_}."), False),
-            (("Only rebuilding brings them back." if en else "Solo reconstruir les devuelve la luz.") if w.storm else "", False),
+            (best_s, True),
+            (("Only rebuilding brings them back." if en else "Solo reconstruir les devuelve la luz.") if w.storm and not lv.short else "", False),
         ], lv, PRESENTER_MAX[lang])
         segs = [_seg("presenter", body)]
         phys, casc, camp = split.get("physical"), split.get("cascade"), split.get("campus")
-        if phys and not lv.short:
+        if phys and not lv.short and not casc and not camp and phys >= 0.995 * max(w.people, 1):
+            segs.append(_seg("analyst", "Every one of them is cut off by the damage itself; nothing cascades after it." if en
+                             else "Todas quedan aisladas por el propio daño; nada se propaga después."))
+        elif phys and not lv.short:
             s = (f"Of {people_say(w.people, 'en', noun=False)} without power, {people_say(phys, 'en', noun=False)} are cut off by the damage itself" if en
                  else f"De {people_say(w.people, 'es', noun=False)} sin luz, {people_say(phys, 'es', noun=False)} quedan aisladas por el propio daño")
             if casc:
@@ -1348,7 +1493,16 @@ def s_no_fix(w: Writer, lv: Level) -> dict:
         out["headline"][lang] = (f"No fix exists for about {people_round(n, 'en')} people (estimate)" if en
                                  else f"No hay solución para unas {people_round(n, 'es')} personas (estimación)" if n < 999_500
                                  else f"No hay solución para unos {people_round(n, 'es')} de personas (estimación)")
-        lines = [((f"Tried: {fams}" if en else f"Probamos: {fams}") if fams else ("Every fix family tried" if en else "Probamos todas las soluciones"))[:LINE_MAX]]
+        if best_p is not None:
+            fam_ = FAMILY_SAY[best_p["family"]][0 if en else 1]
+            if stops:
+                lines = [(f"Best fix run, {fam_}: stops the cascade only" if en
+                          else f"Mejor solución probada, {fam_}: solo detiene la cascada")[:LINE_MAX]]
+            else:
+                lines = [(f"Best fix run, {fam_}: {int(best_p['people']):,} still out (estimate)" if en
+                          else f"Mejor solución probada, {fam_}: {int(best_p['people']):,} siguen sin luz (estimación)")[:LINE_MAX]]
+        else:
+            lines = ["Every fix family checked against the model" if en else "Cada familia de soluciones, comprobada en el modelo"]
         if phys:
             lines.append((f"Cut off by the damage: {phys:,} (estimate)" if en else f"Aislados por el daño: {phys:,} (estimación)"))
         if casc is not None and phys:
@@ -1407,11 +1561,11 @@ def s_recovery(w: Writer, lv: Level) -> dict:
             if en:
                 s = f"{nth}: rebuild {num(cnt)} {'line' if cnt == 1 else 'lines'}" + (" in all" if i else "")
                 s += f", {num(km)} kilometers" if km else ""
-                s += f"; {people_say(wv.get('people_back') or 0, 'en')} get power back."
+                s += f"; {people_say(wv.get('people_back') or 0, 'en')} " + ("have power back." if i else "get power back.")
             else:
                 s = f"{nth}: reconstruir {num(cnt, 'es')} {'línea' if cnt == 1 else 'líneas'}" + (" en total" if i else "")
                 s += f", {num(km, 'es')} kilómetros" if km else ""
-                s += f"; {people_say(wv.get('people_back') or 0, 'es')} recuperan la luz."
+                s += f"; {people_say(wv.get('people_back') or 0, 'es')} " + ("ya tienen luz." if i else "recuperan la luz.")
             items.append(cue("wave", wv.get("n", i + 1)) + s)
         out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang]))] + ([_seg("analyst", " ".join(items))] if items else [])
         first = waves[0] if waves else {}
@@ -1447,18 +1601,22 @@ def s_bottom(w: Writer, lv: Level) -> dict:
         en = lang == "en"
         if w.verdict == "preventable" and best:
             s = sentences([(("Bottom line: this blackout is preventable." if en else "En resumen: este apagón se puede evitar."), False),
-                           ((f"If we {_fix_phrase(w, best, lang)}, every line stays within its limit." if en
-                             else f"Si decidimos {_fix_phrase(w, best, lang)}, todas las líneas aguantan."), True)], lv, PRESENTER_MAX[lang])
+                           ((f"The verified fix: {_fix_phrase(w, best, lang)}, and every line stays within its limit." if en
+                             else f"La solución verificada: {_fix_phrase(w, best, lang)}, y todas las líneas aguantan."), True)], lv, PRESENTER_MAX[lang])
             h = "Preventable" if en else "Se puede evitar"
         elif w.verdict == "partly" and best:
             o = best.get("outcome") or {}
             s = (f"Bottom line: part of this is preventable. The best verified fix, to {_fix_phrase(w, best, lang)}, cuts the outage to {people_say(o.get('people') or 0, 'en')}." if en
                  else f"En resumen: una parte se puede evitar. La mejor solución verificada, {_fix_phrase(w, best, lang)}, reduce el apagón a {people_say(o.get('people') or 0, 'es')}.")
             h = "Partly preventable" if en else "Evitable en parte"
+        elif w.verdict == "no_fix" and not w.storm:  # demand alone, beyond what the lines left can carry
+            s = ("Bottom line: demand here is more than the grid can carry; no fix we ran brings everyone back." if en
+                 else "En resumen: la demanda supera lo que la red puede llevar; ninguna solución probada devuelve la luz a todos.")
+            h = "Beyond what the grid can carry" if en else "Más de lo que la red puede llevar"
         elif w.verdict == "no_fix":
             if lv.short or not w.r.get("recovery"):
-                s = ("Bottom line: most of this outage is physical damage that no fix prevents; it takes rebuilding." if en
-                     else "En resumen: la mayor parte de este apagón es daño físico que ninguna solución evita; hay que reconstruir.")
+                s = ("Bottom line: this is physical damage no fix prevents; it takes rebuilding." if en
+                     else "En resumen: es daño físico que ninguna solución evita; hay que reconstruir.")
             else:
                 s = ("Bottom line: most of this outage is physical damage no fix can prevent. Rebuild in the order shown, and harden the lines that matter most." if en
                      else "En resumen: la mayor parte de este apagón es daño físico que ninguna solución evita. Hay que reconstruir en el orden indicado y reforzar las líneas clave.")
@@ -1585,11 +1743,11 @@ def finish(report: dict, composed: dict, length: str, ai_meta: dict) -> dict:
             prev_t = seq[i - 1][0]["text"] if i else None
             next_t = seq[i + 1][0]["text"] if i + 1 < len(seq) else None
             seg["key"] = voice.register(seg["text"], lang, seg["role"], prev_text=prev_t, next_text=next_t, cues=seg["cues"])
-    place = (w.preset_name("en") if w.preset else (w.place or w.top_area() or w.region_name))
-    place_es = (w.preset_name("es") if w.preset else (w.place or w.top_area() or w.region_name))
+    place = (w.preset_name("en") if w.preset else (f"{len(w.sites)} data centers" if w.multi else (w.place or w.top_area() or w.region_name)))
+    place_es = (w.preset_name("es") if w.preset else (f"{len(w.sites)} centros de datos" if w.multi else (w.place or w.top_area() or w.region_name)))
     title = {
         "en": f"{TITLE['en']} · {place}" + (f", {w.region_name}" if place != w.region_name and not w.preset else ""),
-        "es": f"{TITLE['es']} · {place_es}" + (f", {w.region_name}" if place_es != w.region_name and not w.preset else ""),
+        "es": f"{TITLE['es']} · {place_es}" + (f", {w.region_es}" if place_es != w.region_name and not w.preset else ""),
     }
     by_list = [x for s in slides_out for x in s["written_by"].values()]
     by = "template" if all(b == "template" for b in by_list) else ("gemini" if all(b == "gemini" for b in _ai_slots(slides_out)) else "mixed")
@@ -1607,7 +1765,7 @@ def finish(report: dict, composed: dict, length: str, ai_meta: dict) -> dict:
         "credit": CREDIT["en"],
         "disclaimer": DISCLAIMER["en"],
         "local": {"es": {"credit": CREDIT["es"], "disclaimer": DISCLAIMER["es"],
-                         "banner": f"SIMULACIÓN · modelo sintético de la red de {w.region_name} (Breakthrough Energy / Texas A&M, CC-BY 4.0) · no es la red de ninguna empresa eléctrica · toda cifra de personas o costos es una estimación."}},
+                         "banner": f"SIMULACIÓN · modelo sintético de la red de {w.region_es} (Breakthrough Energy / Texas A&M, CC-BY 4.0) · no es la red de ninguna empresa eléctrica · toda cifra de personas o costos es una estimación."}},
         "languages": list(LANGS),
         "slides": slides_out,
         "short": [s["id"] for s in slides_out if s["id"] in SHORT],
@@ -1855,7 +2013,10 @@ def ai_data(w: Writer, sid: str) -> dict:
         if w.preset:
             d["scenario"] = {lang: w.preset_say(lang) for lang in LANGS}
             d["hypothetical"] = True
-        if w.sites:
+        if w.multi:
+            d["data_centers"] = {"how_many": _both(lambda lang: words(len(w.sites), lang)), "total_size": _both(lambda lang: mw_say(w.mw, lang)),
+                                 "places": w.site_places[:4]}
+        elif w.sites:
             d["data_center"] = {"size": _both(lambda lang: mw_say(w.mw, lang)), "size_before_a_noun": _both(lambda lang: mw_say(w.mw, lang, adj=True)),
                                 "place": w.place}
             if w.room is not None and w.steps and w.room < w.mw:
@@ -1901,6 +2062,9 @@ def ai_data(w: Writer, sid: str) -> dict:
         for k in ("blackout_usd", "upgrade_usd", "campus_bill_usd_per_year"):
             if c.get(k):
                 d[k.replace("_usd", "")] = _both(lambda lang, v=c[k]: usd_say(v, lang)[0])
+        up = next((f for f in w.fixes if f.get("family") == "upgrade"), None)
+        if c.get("upgrade_usd") and not (w.verdict == "preventable" and up and up.get("verdict") == "holds"):
+            d["upgrade_note"] = "these upgrades only stop the cascade; they do NOT prevent the outage or reconnect people the damage cut off"
         d["note"] = "every figure is an estimate"
     elif sid == "cause":
         rc = r.get("root_cause") or {}
@@ -1933,7 +2097,11 @@ def ai_data(w: Writer, sid: str) -> dict:
         nf = r.get("no_fix") or {}
         n = int(nf.get("people") or (r.get("bound") or {}).get("people") or 0)
         d["people_no_fix_can_reach"] = _both(lambda lang: people_say(n, lang))
-        d["fixes_tried"] = _both(lambda lang: join([FAMILY_SAY[p_.get("family")][0 if lang == "en" else 1] for p_ in (nf.get("proof") or []) if p_.get("family") in FAMILY_SAY], lang))
+        ran = [p_ for p_ in (nf.get("proof") or []) if isinstance(p_, dict) and p_.get("family") in FAMILY_SAY and p_.get("family") != "remove"
+               and p_.get("verdict") in ("holds", "partly", "fails")]
+        d["fixes_run_in_the_model"] = _both(lambda lang: join([FAMILY_SAY[p_["family"]][0 if lang == "en" else 1] for p_ in ran], lang))
+        if w.sites:
+            d["data_center_fixes"] = "not needed: without the data center the same people lose power (verified)"
         d["proof"] = "even with unlimited line ratings and no data center they stay dark: " + ("the storm cut the lines that serve them" if w.storm else "demand is more than the remaining lines can carry")
         d["only_rebuilding_brings_them_back"] = bool(w.storm)
     elif sid == "recovery":
@@ -2032,6 +2200,8 @@ def validate_ai(w: Writer, sid: str, lang: str, text: str, limit: int, template:
     extra_words = _number_words(text, lang) - known
     if extra_words:
         return False, f"a spelled number or ratio not in the template: {sorted(extra_words)}", 0
+    if sid == "cost" and "upgrade_note" in ai_data(w, sid) and re.search(r"prevent|avoid|evit", low):
+        return False, "says the upgrades prevent an outage they cannot prevent", 0
     if sid == "fix" and w.best is not None and w.best.get("verdict") == "holds":
         if not any(x in low for x in HOLDS_WORDS[lang]):
             return False, "drops the fix verdict", 0

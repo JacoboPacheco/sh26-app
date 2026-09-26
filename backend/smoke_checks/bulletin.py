@@ -87,6 +87,21 @@ def register(ctx):
         keys = {f["key"] for f in b["facts"]}
         assert "event.people_out" in keys and "event.steps" in keys, sorted(keys)[:10]
 
+    def test_honest_storm_and_heat():
+        # a storm the data center did not cause: "no fix" deck, and nothing says upgrades "prevent" it
+        d = ctx.request("POST", "/api/briefing/deck", {**case, "preset": "fl-gulf-fort-myers", "region": "FL", "ai": False})
+        ids = [s["id"] for s in d["slides"]]
+        assert d["verdict"] == "no_fix" and "no_fix" in ids and "fix" not in ids, (d["verdict"], ids)
+        for s in d["slides"]:
+            if s["id"] in ("cost", "no_fix", "recovery", "bottom_line"):
+                blob = " ".join([s["headline"]["en"], *s["lines"]["en"], *(g["text"] for g in s["narration"]["en"])]).lower()
+                assert "prevent it" not in blob and "would prevent" not in blob, f"{s['id']} claims a fix prevents a storm outage: {blob[:200]}"
+        # demand alone, no campus: no slide may speak of a data center that is not there
+        h = ctx.request("POST", "/api/briefing/deck", {"load_factor": 1.08, "ai": False})
+        for s in h["slides"]:
+            blob = " ".join([s["headline"]["en"], *s["lines"]["en"], *(g["text"] for g in s["narration"]["en"])]).lower()
+            assert "data center" not in blob and " it only at" not in blob, f"{s['id']} speaks of a data center with none placed: {blob[:200]}"
+
     def test_validation():
         ctx.request("POST", "/api/briefing/deck", {}, expect=422)  # nothing happened
         ctx.request("POST", "/api/briefing/deck", {**case, "lat": 40}, expect=422)  # north of Florida
@@ -101,4 +116,5 @@ def register(ctx):
     ctx.check("briefing deck (short): the <= 60 s demo version", test_short_deck)
     ctx.check("briefing deck with AI: complete with or without a key, fixed opening kept", test_ai_deck)
     ctx.check("legacy /api/bulletin: a paragraph from the deck, with the engine's facts", test_legacy_bulletin)
+    ctx.check("briefing deck: a storm reads 'no fix' (no upgrade 'prevents' it); a heat-only case never mentions a data center", test_honest_storm_and_heat)
     ctx.check("briefing deck rejects an empty case, a point outside Florida, a size of 0, an unknown line, a bad length", test_validation)
