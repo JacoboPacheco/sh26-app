@@ -24,7 +24,7 @@ export const useMapView = () => useContext(MapViewCtx)
 // Layers: `children` are SVG drawn inside the camera (above the grid); `overlay({svgRef, gRef})`
 // renders HTML over the map (the flow canvas reads gRef's screen matrix every frame).
 // The parent moves the camera through `ref.current.focus([[lon, lat], ...])`.
-export default function GridMap({ ref, grid, lineClasses, subClasses, sites = [], headroomMode, onPlace, tool, children, overlay }) {
+export default function GridMap({ ref, grid, lineClasses, subClasses, sites = [], tap, headroomMode, onPlace, tool, children, overlay }) {
   const svgRef = useRef(null)
   const gRef = useRef(null)
   const drag = useRef(null)
@@ -216,6 +216,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
               </g>
             )
           })}
+          {tap && <ConnectPulse key={tap.key} from={tap.from} to={tap.to} k={k} />}
         </g>
       </svg>
       {overlay?.({ svgRef, gRef })}
@@ -223,6 +224,29 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
         All of Florida
       </button>
     </div>
+  )
+}
+
+// The campus plugging in: a beam of current runs from where you clicked to the substation it
+// connects to, a spark rides it, and the substation flashes on arrival. Keyed by the click, so it
+// plays once per drop (the size slider doesn't replay it).
+function ConnectPulse({ from, to, k }) {
+  const [x1, y1] = project(from[0], from[1])
+  const [x2, y2] = project(to[0], to[1])
+  const w = 1.2 / k
+  return (
+    <g className="tap" pointerEvents="none">
+      <circle className="tap-origin" cx={x1} cy={y1} r={7 / k} strokeWidth={1 / k} />
+      <line className="tap-beam" x1={x1} y1={y1} x2={x2} y2={y2} pathLength={1} strokeWidth={w} />
+      <circle
+        className="tap-spark"
+        cx={x1}
+        cy={y1}
+        r={2.2 / k}
+        style={{ '--dx': `${x2 - x1}px`, '--dy': `${y2 - y1}px` }}
+      />
+      <circle className="tap-burst" cx={x2} cy={y2} r={14 / k} strokeWidth={1 / k} />
+    </g>
   )
 }
 

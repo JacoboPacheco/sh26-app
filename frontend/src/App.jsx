@@ -43,6 +43,11 @@ function MissionControl({ user }) {
     ...(site ? [{ lat: result?.sub_lat ?? site.lat, lon: result?.sub_lon ?? site.lon, primary: true }] : []),
     ...extraSites.map((s) => ({ lat: s.lat, lon: s.lon })),
   ]
+  // the connect pulse: from where you clicked to the substation the campus plugs into
+  const tap =
+    site && result?.forSite === site && result.sub_lat != null
+      ? { from: [site.lon, site.lat], to: [result.sub_lon, result.sub_lat], key: `${site.lat},${site.lon}` }
+      : null
 
   return (
     <div className="mc">
@@ -53,6 +58,7 @@ function MissionControl({ user }) {
           lineClasses={view.lineClasses}
           subClasses={view.subClasses}
           sites={sites}
+          tap={tap}
           headroomMode={headroomOn && !!headroom}
           onPlace={place}
           tool={mapTool}

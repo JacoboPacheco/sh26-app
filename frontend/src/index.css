@@ -873,7 +873,93 @@ a {
   }
 }
 
+/* the connect pulse (GridMap ConnectPulse): click point → substation. Quick, white, quiet. */
+.tap-origin {
+  fill: none;
+  stroke: #ffffff;
+  stroke-opacity: 0.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tap-origin 0.45s ease-out forwards;
+}
+
+.tap-beam {
+  stroke: #ffffff;
+  stroke-opacity: 0.55;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: tap-beam 0.5s ease-out forwards;
+}
+
+.tap-spark {
+  fill: #ffffff;
+  animation: tap-spark 0.25s ease-in forwards;
+}
+
+.tap-burst {
+  fill: none;
+  stroke: #ffffff;
+  stroke-opacity: 0.6;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tap-burst 0.35s ease-out 0.22s forwards;
+}
+
+@keyframes tap-origin {
+  from {
+    transform: scale(0.4);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.1);
+    opacity: 0;
+  }
+}
+
+@keyframes tap-beam {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 1;
+  }
+  45% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes tap-spark {
+  from {
+    transform: translate(0, 0);
+    opacity: 0.9;
+  }
+  to {
+    transform: translate(var(--dx), var(--dy));
+    opacity: 0;
+  }
+}
+
+@keyframes tap-burst {
+  from {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .tap {
+    display: none;
+  }
+
   .site-ring,
   .ln--over,
   .ln--tripped,

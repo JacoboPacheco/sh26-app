@@ -135,7 +135,7 @@ export function OverloadProvider({ user, children }) {
       whatIf(caseBody)
         .then((r) => {
           if (id !== latest.current) return
-          setResult(r)
+          setResult({ ...r, forSite: site }) // which click this answer belongs to (the map's connect pulse)
           setWhatifError(null)
           if (site && focusedSite.current !== site) {
             focusedSite.current = site
