@@ -163,6 +163,17 @@ def main():
         note(f"show: {ep}", (f"{ai.get('status')} {ai.get('scenes_by_gemini')}/{(ai.get('scenes_by_gemini') or 0) + (ai.get('scenes_template') or 0)} scenes"
                              if (s or {}).get("status") == "done" else f"{(s or {}).get('status')} {(s or {}).get('error') or ''}") if code == 200 else f"HTTP {code}", dt + time.time() - t0)
 
+    # Harden before the storm: the hero storm at the page's three budgets (the planner's cache is in memory:
+    # rerun after every backend restart)
+    for budget in (150e6, 50e6, 500e6):
+        body = {"region": "FL", **HERO, "sites": [], "load_factor": 1.0, "upgrades": {}, "firm": False, "preset": "gulf-fort-myers", "budget_usd": budget}
+        r, dt, code = call("POST", "/api/harden/run", body)
+        t0 = time.time()
+        while r and r.get("status") == "running" and time.time() - t0 < 240:
+            time.sleep(2)
+            r, _, code = call("GET", f"/api/harden/jobs/{r['job']}")
+        note(f"harden: hero storm ${budget / 1e6:.0f}M", ((r or {}).get("result") or {}).get("by") or f"HTTP {code}", time.time() - t0 + dt)
+
     st, _, _ = call("GET", "/api/ai/status")
     print(f"\nDone: {len(rows)} steps. AI used today {st and st.get('used_today')}/{st and st.get('cap')}; cached answers {st and st.get('cached_answers')}; models out today {st and st.get('models_out_today')}")
 

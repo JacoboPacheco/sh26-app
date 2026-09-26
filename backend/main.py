@@ -43,6 +43,7 @@ import forecast
 import grid
 import gridlock
 import gridreader
+import harden
 import hospitals
 import hurricane
 import leadtimes
@@ -127,6 +128,7 @@ app.include_router(llm.router)
 app.include_router(grid.router)
 app.include_router(scenarios.router)
 app.include_router(hurricane.router)
+app.include_router(harden.router)
 app.include_router(fixit.router)
 app.include_router(bulletin.router)
 app.include_router(towns.router)

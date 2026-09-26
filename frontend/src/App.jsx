@@ -7,6 +7,7 @@ import FixPanel from './features/fix/FixPanel'
 import GeminiDuelLayer from './features/fix/GeminiDuelLayer'
 import FlowCanvas from './features/flow/FlowCanvas'
 import Intro from './features/flow/Intro'
+import HardenLayer from './features/harden/HardenLayer'
 import HurricaneLayer from './features/hurricane/HurricaneLayer'
 import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
@@ -208,6 +209,8 @@ function MissionControl() {
             {/* "Who goes dark first?": the rule picked in the results column, crossfaded over the end state */}
             <DarkFirstLayer />
             <HurricaneLayer />
+            {/* "Harden before the storm": the plan's lines in green and the storm replayed with them */}
+            <HardenLayer />
             <BoomLayer />
             <BestSitesLayer />
             <PlantsLayer />

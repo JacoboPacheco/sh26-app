@@ -8,6 +8,7 @@ import { Button, ErrorBanner, Field, Loading } from '../../ui'
 import './hurricane.css'
 import { getPresets, trackHits } from './hurricaneApi'
 import { runCascade } from '../../api'
+import HardenControl from '../harden/HardenControl'
 import { STORM_MS, getHurricane, liveOverload as live, reducedMotion, setHurricane, useHurricane } from './hurricaneStore'
 import { MIN_TRACK_KM, distKm, framePoints, lengthKm, simplify, toLonLat } from './trackGeom'
 
@@ -197,6 +198,7 @@ export default function HurricanePanel() {
 
       <ErrorBanner error={error} />
       {hits && (phase === 'storm' || phase === 'landed') && <StormResult key={stormAt} hits={hits} phase={phase} cascade={cascade} failed={!!cascadeError && !cascade} />}
+      {hits && phase === 'landed' && cascade && <HardenControl hits={hits} />}
     </div>
   )
 }
