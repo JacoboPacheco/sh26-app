@@ -47,3 +47,5 @@ services:
         value: ""
       - key: UNLOCK_WARM
         value: "0"
+      - key: TIMELAPSE_WARM
+        value: "0"

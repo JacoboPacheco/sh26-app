@@ -8,6 +8,7 @@ import { overLimitText } from '../../shell/CampusPanel'
 import { townOf, useOverload } from '../../store'
 import { Button, EmptyState, ErrorBanner, Field } from '../../ui'
 import { usePlanner } from '../planner/plannerStore'
+import TimelapseEntry from '../timelapse/TimelapseEntry'
 import BoomAgent from './BoomAgent'
 import { CAMPUS_MW, MAX_EXTRA, PRESET, SIZE_MAX, SIZE_MIN, frame, homesLabel, newId, niceName, snapToSub } from './boomData'
 import './boom.css'
@@ -127,6 +128,7 @@ export default function BoomPanel() {
   return (
     <div className="stack panel-body boom">
       <p className="boom__lede">An AI buildout: several gigawatt campuses on one grid.</p>
+      <TimelapseEntry />
       <BoomAgent />
       {region !== 'US' && (
         <div className="boom__actions">

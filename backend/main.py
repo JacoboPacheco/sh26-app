@@ -54,6 +54,7 @@ import plants
 import scenarios
 import sitereport
 import sources
+import timelapse
 import towns
 import unlock
 import uploads
@@ -149,6 +150,7 @@ app.include_router(narrate.router)
 app.include_router(views.router)
 app.include_router(sitereport.router)
 app.include_router(sources.router)
+app.include_router(timelapse.router)
 
 
 @app.get("/api/health")
