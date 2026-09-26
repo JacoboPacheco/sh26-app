@@ -67,6 +67,7 @@ from fastapi import Path as PathParam
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
+import capacity
 import costs
 import danger
 from grid import DEFAULT_REGION, LOAD_FACTOR_MAX, LOAD_FACTOR_MIN, REGIONS, grid_at, region_code
@@ -906,6 +907,7 @@ class Study:
             },
             "apply": apply,
             "ai": ai,
+            "capacity": getattr(self, "capacity", None),  # campuses at once and the upgrades for each next one (capacity.py)
             "learned": self._learned(),
             "cost_basis": "Each upgrade priced with published figures: re-conductoring (low) or a rebuild (high) per mile at the line's voltage class, a new line past twice the rating, and $ per MVA for transformers (Black & Veatch 2014, CPI-adjusted to 2024 $). Ranked and totaled at the high end.",
             "sources": [costs.SOURCES[k] for k in ("bv_wecc", "gridlab_2035", "cpi")],
@@ -1129,6 +1131,13 @@ def _compute(job: _Job) -> Study:
             s.plan()
             s.verify()
             s.finish_index()
+            # how many campuses the grid carries at once, and the cheapest upgrades for one more (capacity.py)
+            report("capacity", 0, 1, f"Placing {mw:,.0f} MW campuses together, then the cheapest upgrade for each next one")
+            try:
+                s.capacity = capacity.study(s)
+            except Exception:  # noqa: BLE001 — the site-by-site study still stands without it
+                logging.getLogger("uvicorn.error").exception("capacity study failed")
+                s.capacity = None
         return s
 
 

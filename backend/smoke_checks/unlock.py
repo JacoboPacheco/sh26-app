@@ -183,8 +183,47 @@ def register(ctx):
             b = ctx.request("GET", q)
             assert b["state"] == "none" and b["id"] is None, f"a peek started a study: {b}"
 
+    def capacity():
+        # campuses AT ONCE (backend/capacity.py): ordered steps, costs that add up, the last set verified calm, and
+        # the public cascade route agrees: today's campuses plus the first upgraded one, all together, trip nothing
+        c = state["r"]["capacity"]
+        assert c and c["synthetic"] is True and c["mw"] == MW, c and c.get("mw")
+        for mode in ("firm", "flexible"):
+            m = c[mode]
+            assert m["stop"] in ("plants", "no_fix", "cap", "max", "time"), m["stop"]
+            assert m["steps"] and [st["n"] for st in m["steps"]] == list(range(1, len(m["steps"]) + 1)), mode
+            hi = 0
+            for st in m["steps"]:
+                hi += st["cost"]["high"]
+                assert abs(st["cum_cost"]["high"] - hi) <= 2 * st["n"], (mode, st["n"], st["cum_cost"], hi)
+                assert st["free"] == (not st["projects"]), (mode, st["n"])
+                assert st["free"] or (st["cost"]["high"] > 0 and st["blocked_by"]), (mode, st["n"])
+                assert st["busiest_pct"] <= 100.0 + 1e-6, (mode, st["n"], st["busiest_pct"])
+            assert m["verified"] and m["verified"]["calm"] is True and m["verified"]["campuses"] == len(m["steps"]), m["verified"]
+        assert c["firm"]["today"] >= 1 and c["flexible"]["today"] >= c["firm"]["today"], (c["firm"]["today"], c["flexible"]["today"])
+        pl = c["plants"]
+        assert 0 <= pl["room_mw"] <= pl["spare_mw"] and pl["reserve_pct"] == 15.0, pl
+        assert any("NERC" in x["name"] for x in c["sources"]) and any("Rethinking Load Growth" in x["name"] for x in c["sources"])
+        steps = c["firm"]["steps"]
+        k = next((i for i, st in enumerate(steps) if not st["free"]), None)
+        if k is None:
+            return
+        chosen = steps[: k + 1]
+        ups = {}
+        for st in chosen:
+            for pj in st["projects"]:
+                ups[str(pj["branch_id"])] = max(ups.get(str(pj["branch_id"]), 0), pj["rating_after_mva"])
+        main, rest = chosen[0]["site"], chosen[1:]
+        case = {"region": "FL", "lat": main["lat"], "lon": main["lon"], "mw": MW, "load_factor": 1.0,
+                "sites": [{"lat": st["site"]["lat"], "lon": st["site"]["lon"], "mw": MW} for st in rest]}
+        before = ctx.request("POST", "/api/grid/cascade", case)
+        assert before["total_steps"] > 0 or before["lost_mw"] > 0.5, "the upgraded campus should not fit before its upgrade"
+        after = ctx.request("POST", "/api/grid/cascade", {**case, "upgrades": ups})
+        assert after["total_steps"] == 0 and int(after.get("people_hit", after["people"]) or 0) == 0, (len(chosen), after["total_steps"])
+
     ctx.check("unlock: bad sizes, the national map, unknown states and jobs are refused", validation)
     ctx.check("unlock: Florida at 1,000 MW finds weak points and a verified plan", study)
     ctx.check("unlock: the cascade route agrees a site the plan unlocks now holds", engine_agrees)
     ctx.check("unlock: the same study again comes from the cache", cached_rerun)
     ctx.check("unlock: peek shows the finished Florida study at once and starts nothing elsewhere", peek)
+    ctx.check("unlock: capacity — campuses at once, costs that add up, verified calm, and the cascade route agrees", capacity)

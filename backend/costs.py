@@ -134,6 +134,14 @@ SOURCES = {
         "name": "EIA, Electric Power Annual 2024, Table 2.10 (average price by sector and state)",
         "url": "https://www.eia.gov/electricity/annual/html/epa_02_10.html",
     },
+    "nerc_ltra": {
+        "name": "NERC, Long-Term Reliability Assessment (2025): reference margin levels by assessment area (Florida, FRCC: 15 %)",
+        "url": "https://www.nerc.com/globalassets/our-work/assessments/nerc_ltra_2025.pdf",
+    },
+    "duke_flex": {
+        "name": "Norris et al., Rethinking Load Growth: Assessing the Potential for Integration of Large Flexible Loads in US Power Systems (Duke University Nicholas Institute, 2025): 76 GW of new load at 0.25 % average annual curtailment",
+        "url": "https://climate.duke.edu/annual-report/items/rethinking-load-growth/",
+    },
     "bv_wecc": {
         "name": "Black & Veatch for WECC, Capital Costs for Transmission and Substations (2014), Tables 2-1 to 2-4 and 3-3",
         "url": "https://efis.psc.mo.gov/mpsc/commoncomponents/viewdocument.asp?DocId=936076825",
