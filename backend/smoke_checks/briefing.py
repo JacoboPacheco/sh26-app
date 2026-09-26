@@ -29,6 +29,9 @@ def register(ctx):
             assert row["action"] == "trip" and len(row["lines"]) == 1, row
             ln = row["lines"][0]
             assert ln["label"].startswith("the ") and ln["pct_before"] > 100, ln
+            why = [w["label"] for w in row["why"]]
+            # parallel units share a name: grouped, and never the same label as the line that tripped
+            assert len(why) == len(set(why)) and ln["label"] not in why, (ln["label"], why)
         # the replay is the cascade payload itself
         assert r["replay"]["total_steps"] == ev["steps"] and r["replay"]["people"] == ev["people"]
         assert r["headline"]["text"] and "estimated" in r["headline"]["text"]
@@ -48,6 +51,10 @@ def register(ctx):
         assert r["event"]["steps"] == 14, r["event"]["steps"]
         assert r["root_cause"]["cause"] == "last_straw", r["root_cause"]["cause"]
         assert "Jacksonville" in r["root_cause"]["line"]["label"], r["root_cause"]["line"]
+        # the campus is in Fort Myers: the sentence says how far away the line it tipped over is
+        assert (r["root_cause"]["campus_km"] or 0) >= 300 and "km away" in r["root_cause"]["sentence"], r["root_cause"]
+        labels = [ln["label"] for row in r["timeline"] for ln in row["lines"]]
+        assert len(labels) == len(set(labels)), labels  # the second of two parallel transformers says "second"
         shrink = next(f for f in r["fixes"] if f["family"] == "shrink")
         assert shrink["verdict"] == "holds" and shrink["apply"]["mw"] <= 240, shrink
 
@@ -92,6 +99,8 @@ def register(ctx):
             c = ctx.request("POST", "/api/grid/cascade", body)
             assert c["total_steps"] == 0, f"{f['family']} holds in the briefing but cascades {c['total_steps']} steps: {f['apply']}"
         assert r["firm_note"] and r["firm_note"]["shed_mw"] > 0, r["firm_note"]
+        cost = r.get("cost") or {}
+        assert "$0.00" not in str(cost.get("who_pays")), cost.get("who_pays")  # never show zeros
         assert r["bound"]["people"] == 0 and r["split"]["campus"] == r["event"]["people"], (r["bound"], r["split"])
 
     def storm_has_no_fix():

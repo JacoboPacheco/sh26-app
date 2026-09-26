@@ -79,8 +79,8 @@ LEVELS = [
     (0.62, "at 3 AM", "3 AM"),
     (0.82, "at 9 AM", "9 AM"),
     (1.0, "at the 4 PM summer peak", "4 PM"),
-    (1.04, "during a heat wave", "heat wave"),
-    (1.08, "at the height of a heat wave", "height of a heat wave"),
+    (1.04, "during a heat wave", "in a heat wave"),
+    (1.08, "at the height of a heat wave", "at the height of a heat wave"),
 ]
 DAY_LEVELS = (0.62, 0.82, 1.0, 1.04)
 
@@ -146,6 +146,20 @@ def _big(n: float) -> str:
 
 def _mw(v: float) -> str:
     return f"{v:,.0f} MW"
+
+
+def _a(n: int) -> str:
+    """The article before a spoken number: 'an 8-step', 'an 18-step', 'a 9-step'."""
+    s = str(int(n))
+    return "an" if s.startswith("8") or s in ("11", "18") or (len(s) in (5, 8) and s[:2] in ("11", "18")) else "a"
+
+
+def _join(items: list[str]) -> str:
+    """'a', 'a and b', 'a, b and c'."""
+    items = [str(x) for x in items if x]
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
 
 
 class _Budget:
@@ -416,6 +430,42 @@ def _group_areas(c: _Case, g: Grid, sub_mw) -> dict[str, dict]:
 
 
 # ----------------------------------------------------------------------------- report sections
+_ORDINAL = {2: "second", 3: "third", 4: "fourth", 5: "fifth", 6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth"}
+
+
+def _why(g: Grid, nst, delta: np.ndarray, tripped_labels: set) -> list[dict]:
+    """The top 3 pieces of equipment that picked up a tripped line's flow. Parallel units share a name
+    (two North Fort Myers 6 transformers), so they are grouped — 'the 2 Cocoa 8 transformers', each
+    +105 MW — and a unit parallel to the one that just tripped is 'the other ...'."""
+    groups: dict[str, dict] = {}
+    for i in np.argsort(-delta)[:24]:
+        d = float(delta[i])
+        if not (np.isfinite(d) and d > 0.5):
+            break
+        label = _line(g, int(i))["label"]
+        grp = groups.get(label)
+        if grp is None:
+            if len(groups) >= 3:
+                continue
+            groups[label] = {"id": int(g.br_ids[i]), "ids": [int(g.br_ids[i])], "base": label, "delta_mw": int(round(d)), "pct_after": round(float(nst.loading_pct[i]), 1)}
+        else:
+            grp["ids"].append(int(g.br_ids[i]))
+            grp["pct_after"] = max(grp["pct_after"], round(float(nst.loading_pct[i]), 1))
+    out = []
+    for grp in groups.values():
+        n = len(grp["ids"])
+        rest = grp.pop("base")[len("the ") :]
+        other = rest in {t[len("the ") :] for t in tripped_labels}
+        if n == 1:
+            label = f"the other {rest}" if other else f"the {rest}"
+        else:
+            label = f"the {n} other {rest}s" if other else f"the {n} {rest}s"
+        grp["label"] = label
+        grp["count"] = n
+        out.append(grp)
+    return out
+
+
 def _timeline(c: _Case, inc: dict, why_steps: int = WHY_STEPS) -> tuple[list[dict], object]:
     """Per step: the line that tripped and how loaded it was (from the previous state's hot list,
     exact), the areas that newly lost power, and — for the first WHY_STEPS trips — which lines picked
@@ -427,6 +477,7 @@ def _timeline(c: _Case, inc: dict, why_steps: int = WHY_STEPS) -> tuple[list[dic
     first = st
     rows = []
     replay_ok = True
+    seen_labels: dict[str, int] = {}  # parallel equipment shares a name: the second one to trip says so
     prev_hot = {int(g.br_ids[i]): float(first.loading_pct[i]) for i in np.flatnonzero(first.active & (first.loading_pct > 80.0))}
     for s in inc["steps"]:
         row = {
@@ -451,9 +502,17 @@ def _timeline(c: _Case, inc: dict, why_steps: int = WHY_STEPS) -> tuple[list[dic
             replay_ok = False  # the operator's per-bus cut isn't in the payload; stop replaying
         else:
             new_active = active.copy()
+            tripped_labels = set()
             for bid in s.get("tripped", []):
                 i = g.br_index[int(bid)]
                 info = _line(g, i)
+                base_label = info["label"]
+                tripped_labels.add(base_label)
+                k = seen_labels.get(base_label, 0) + 1
+                seen_labels[base_label] = k
+                if k > 1:
+                    info["label"] = "the " + _ORDINAL.get(k, f"{k}th") + " " + base_label[len("the ") :]
+                    info["parallel_n"] = k
                 pct = prev_hot.get(int(bid))
                 info["pct_before"] = round(pct, 1) if pct is not None else None
                 info["flow_mw"] = int(round(pct / 100.0 * float(c.rate[i]))) if pct is not None else None
@@ -462,12 +521,7 @@ def _timeline(c: _Case, inc: dict, why_steps: int = WHY_STEPS) -> tuple[list[dic
             if replay_ok and row["n"] <= why_steps:
                 nst = _solve(c, g, new_active, c.extra, c.rate)
                 delta = np.where(nst.active, np.abs(nst.flow) - np.abs(st.flow), -np.inf)
-                top = np.argsort(-delta)[:3]
-                row["why"] = [
-                    {"id": int(g.br_ids[i]), "label": _line(g, i)["label"], "delta_mw": int(round(float(delta[i]))), "pct_after": round(float(nst.loading_pct[i]), 1)}
-                    for i in top
-                    if np.isfinite(delta[i]) and delta[i] > 0.5
-                ]
+                row["why"] = _why(g, nst, delta, tripped_labels)
                 st = nst
             active = new_active
         prev_hot = {int(h["id"]): float(h["pct"]) for h in s.get("hot", [])}
@@ -506,6 +560,11 @@ def _areas(c: _Case, inc: dict, rows: list[dict]) -> list[dict]:
     return out[:TOP_AREAS]
 
 
+def _storm_word(c: _Case) -> str:
+    """'storms' for a preset with several tracks (the twenty-storm season), else 'storm'."""
+    return "storms" if c.preset and len(c.preset.get("tracks") or []) > 1 else "storm"
+
+
 def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
     g = c.g
     over = _over(first)
@@ -527,7 +586,10 @@ def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
     if not len(over):
         if storm and people_inc > 0:
             cause = "storm"
-            sentence = f"The storm cut {len(c.trip):,} lines; no line went over its limit afterwards, so the outage is the storm's damage itself."
+            sw = _storm_word(c)
+            sentence = f"The {sw} cut {len(c.trip):,} lines; no line went over its limit afterwards, so the whole outage is the {sw}' damage itself." if sw == "storms" else (
+                f"The storm cut {len(c.trip):,} lines; no line went over its limit afterwards, so the whole outage is the storm's damage itself."
+            )
         else:
             cause = "none"
             sentence = "No line went over its limit."
@@ -540,36 +602,63 @@ def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
     share = 100.0 * on_line / f_with if f_with > 1e-6 else 0.0
     info = _line(g, i)
     label = info["label"]
-    if storm and people_wo >= 0.95 * people_inc and floor_cascades:
-        cause = "storm"
-    elif floor_cascades and not c.sites:
-        cause = "storm" if storm else "heat"
+    Label = label[0].upper() + label[1:]
+    # a storm case whose first overload is there before the storm too (no campus): that's the heat's
+    pct_no_storm = None
+    if storm and g.load_factor > 1.0 + 1e-9:
+        ns = _solve(c, g, np.ones(g.m, dtype=bool), None, c.rate)
+        pct_no_storm = float(ns.loading_pct[i])
+    if storm and pct_no_storm is not None and pct_no_storm > OVER_PCT and pct_wo > OVER_PCT:
+        cause = "heat"
     elif floor_cascades:
         cause = "storm" if storm else "heat"
     elif pct_wo >= 90.0:
         cause = "last_straw"
     else:
         cause = "campus"
+    # how far the nearest campus is from the line it overloaded (power flows by physics, not by distance)
+    campus_km = None
+    if c.sites and on_line > 0.5:
+        fs, ts = int(g.bus_sub_idx[g.f[i]]), int(g.bus_sub_idx[g.t[i]])
+        campus_km = round(min(_km(s.lat, s.lon, float(g.sub_lat[k]), float(g.sub_lon[k])) for s in c.sites for k in (fs, ts)))
+    dc = "the data center" if len(c.sites) <= 1 else "the data centers"
+    dc_is = "The data center is" if len(c.sites) <= 1 else "The nearest data center is"
+    far = f" {dc_is} about {campus_km:,} km away; its power still flows through {label}." if campus_km and campus_km >= 50 else ""
     pw, po = f"{pct_with:.0f}%", f"{pct_wo:.0f}%"
+    storm_w = _storm_word(c)
+    after = f"After the {storm_w} cut {len(c.trip):,} lines, " if storm else ""
     if cause == "campus":
-        sentence = f"The first line to fail was {label} at {pw} of its rating; without the data center it would carry {po}, so the campus pushed it over."
+        first_ = f"{after}the first line to fail was {label}, at {pw} of its rating."
+        sentence = first_[0].upper() + first_[1:] + f" Without {dc} it would carry {po}: the new load pushed it over." + far
     elif cause == "last_straw":
-        sentence = f"{label[0].upper() + label[1:]} was already at {po} of its rating; the data center's {on_line:,.0f} MW on it was the last straw, taking it to {pw}."
-    elif cause == "heat":
-        sentence = f"At this load level the grid overloads without any data center: {label} reaches {po} of its rating on its own."
-    else:
+        body_ = f"{after}{label} was already at {po} of its rating."
+        sentence = body_[0].upper() + body_[1:] + f" {dc[0].upper() + dc[1:]} added {on_line:,.0f} MW of flow and took it to {pw}: the last straw." + far
+    elif cause == "heat" and storm:
         sentence = (
-            f"The storm cut {len(c.trip):,} lines and pushed {label} to {pw} of its rating"
-            + (f" ({po} without the data center)" if c.sites else "")
-            + (f"; without the data center the same {_big(people_wo)} people lose power (estimate)." if c.sites else ".")
+            f"The {storm_w} cut {len(c.trip):,} lines, but the first overload is the heat's: {label} is already at {pct_no_storm:.0f}% of its rating "
+            f"before the {storm_w} and {pw} after" + (f", with or without {dc}." if c.sites else ".")
         )
+    elif cause == "heat":
+        sentence = f"At this load the grid overloads with no data center at all: {label} reaches {po} of its rating on its own."
+    else:
+        same = abs(pct_with - pct_wo) < 0.5
+        sentence = f"The {storm_w} cut {len(c.trip):,} lines. The first line to overload afterwards was {label}, at {pw} of its rating" + (
+            (f"; {dc} makes no difference to it." if same else f" ({po} without {dc}).") if c.sites else "."
+        )
+        if c.sites:
+            if people_wo >= 0.95 * people_inc:
+                sentence += f" Without {dc}, about the same number of people lose power: {_big(people_wo)} (estimate)."
+            else:
+                sentence += f" Without {dc}, {_big(people_wo)} people (estimate) would lose power instead of {_big(people_inc)}."
     return {
         **base,
         "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer")},
         "pct_with": round(pct_with, 1),
         "pct_without": round(pct_wo, 1),
+        "pct_before_storm": round(pct_no_storm, 1) if pct_no_storm is not None else None,
         "campus_mw_on_line": round(on_line, 1),
         "campus_share_pct": round(min(max(share, 0.0), 100.0), 1),
+        "campus_km": campus_km,
         "cause": cause,
         "sentence": sentence,
     }
@@ -600,7 +689,7 @@ def _headline(c: _Case, kind: str, inc: dict, areas: list[dict]) -> str:
         who = None
     lost = f"an estimated {_big(ppl)} people lost power" if ppl else "no one lost power"
     if kind == "catastrophe":
-        return f"{c.preset['name']}: {len(c.trip):,} lines down and an estimated {_big(ppl)} people without power."
+        return f"{c.preset['name']} (hypothetical): {len(c.trip):,} lines down and an estimated {_big(ppl)} people without power."
     if kind == "storm":
         more = f" and {n} more tripped" if n else ""
         return f"A storm knocked out {len(c.trip):,} lines{more}; {lost}."
@@ -609,8 +698,8 @@ def _headline(c: _Case, kind: str, inc: dict, areas: list[dict]) -> str:
             return f"{who} fits {load_word(c.g.load_factor)}: no line goes over its limit."
         return f"The grid holds {load_word(c.g.load_factor)}: no line goes over its limit."
     if kind == "heat":
-        return f"{load_word(c.g.load_factor)[0].upper() + load_word(c.g.load_factor)[1:]} the grid overloads on its own: a {n}-step cascade, and {lost}."
-    step = f"a {n}-step cascade" if n != 1 else "a 1-step cascade"
+        return f"{load_word(c.g.load_factor)[0].upper() + load_word(c.g.load_factor)[1:]} the grid overloads on its own: {_a(n)} {n}-step cascade, and {lost}."
+    step = f"{_a(n)} {n}-step cascade"
     return f"{who or 'The load'} set off {step} {load_word(c.g.load_factor)}; {lost}."
 
 
@@ -671,7 +760,13 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
             F.append(_fact("cause.pct_without", "Its loading without the data center", rc["pct_without"], "%"))
             F.append(_fact("cause.campus_mw_on_line", "Data center MW on that line", rc["campus_mw_on_line"], "MW"))
             F.append(_fact("cause.campus_share_pct", "Data center's share of that line's flow", rc["campus_share_pct"], "%"))
+            if rc.get("campus_km"):
+                F.append(_fact("cause.campus_km", "Distance from the data center to that line", rc["campus_km"], "km"))
+        if rc.get("pct_before_storm") is not None:
+            F.append(_fact("cause.pct_before_storm", "Its loading before the storm (the heat alone)", rc["pct_before_storm"], "%"))
     F.append(_fact("cause.kind", "Cause", rc["cause"]))
+    if rc.get("sentence"):
+        F.append(_fact("cause.sentence", "Why it happened (engine sentence)", rc["sentence"]))
     if c.sites:
         F.append(_fact("cause.people_without_campus", "People without power with no data center (same case)", int(rc["people_without_campus"]), "people", True))
         F.append(_fact("cause.people_due_to_campus", "People who lose power because of the data center", int(rc["people_due_to_campus"]), "people", True))
@@ -733,7 +828,7 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
                 F.append(_fact("recovery.baseline.plan_better_by", "People the plan's order brings back beyond biggest-first", int(bl["plan_better_by"]), "people", True))
         rc_ = rec.get("campus_reconnect")
         if rc_ is not None:
-            F.append(_fact("recovery.campus_reconnect", "Once every line is rebuilt, the data center can reconnect", "yes, the grid holds" if rc_["ok"] else f"no: it sets off a {rc_['steps']}-step cascade on its own"))
+            F.append(_fact("recovery.campus_reconnect", "Once every line is rebuilt, the data center can reconnect", "yes, the grid holds" if rc_["ok"] else f"no: it sets off {_a(rc_['steps'])} {rc_['steps']}-step cascade on its own"))
     cost = rep.get("cost")
     if cost:
         names = {"blackout_usd": "Cost of the blackout", "upgrade_usd": "Cost of the upgrades that prevent it", "campus_bill_usd_per_year": "The campus's yearly power bill"}
@@ -1110,7 +1205,10 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 new_total = float(sum(mws))
                 if new_total < 1.0:
                     oc, v = floor_oc, J.verdict(floor_oc)
-                    fixes.append(_fix(fam, "Shrink the data center", "fails" if v == "holds" else v, oc, "No size of the campus fits here without an overload.", {"mw": 0.0, "from_mw": total, "solves": solves}, None, _ms(t0)))
+                    trade = f"No size fits here without an overload {word}." + (
+                        f" Even with no data center, {_big(floor['people'])} people (estimate) lose power." if floor["people"] else ""
+                    )
+                    fixes.append(_fix(fam, "Shrink the data center", "fails" if v == "holds" else v, oc, trade, {"mw": 0.0, "from_mw": total, "solves": solves}, None, _ms(t0)))
                     shrink_res = {"ok": False}
                     continue
                 oc, v, how = _verify(c, J, g, _extra_for(g, c.buses, mws))
@@ -1165,9 +1263,11 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 elif first_try is not None:
                     i, town, extra = first_try
                     oc, v, how = _verify(c, J, g, extra)
-                    fixes.append(
-                        _fix(fam, f"Build it at {town} instead", v, oc, f"None of the {tried} roomiest towns takes {total:,.0f} MW {word} without an overload.", {"sites": [], "tried": tried, "checked_by": how, "town": town}, None, _ms(t0))
-                    )
+                    if grid_ok:
+                        trade = f"None of the {tried} roomiest towns takes {total:,.0f} MW {word} without an overload; {town}, the roomiest, was run through the engine."
+                    else:
+                        trade = f"{word[0].upper() + word[1:]} the grid overloads even with no data center anywhere, so no town takes it cleanly; {town}, the roomiest, was run through the engine."
+                    fixes.append(_fix(fam, f"Build it at {town} instead", v, oc, trade, {"sites": [], "tried": tried, "checked_by": how, "town": town}, None, _ms(t0)))
                 else:
                     skip(fam)
             elif fam == "flexible":
@@ -1188,14 +1288,14 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                     run = float(sum(mws))
                     levels.append({"level": lf, "name": level_name(lf), "word": load_word(lf), "runs_mw": run, "full": run >= total - 0.5})
                 at_case = shrink_res["total"]
-                full_at = [x["name"] for x in levels if x["full"]]
-                partial = [f"{x['runs_mw']:,.0f} MW {x['word']}" for x in levels if not x["full"] and abs(x["level"] - g.load_factor) >= 0.005]
-                bits = []
+                others = [x for x in levels if abs(x["level"] - g.load_factor) >= 0.005]
+                full_at = [x["name"] for x in others if x["full"]]
+                partial = [f"{x['runs_mw']:,.0f} MW {x['word']}" for x in others if not x["full"]]
+                trade = f"Drops to {at_case:,.0f} MW {word}, giving up {total - at_case:,.0f} MW."
                 if full_at:
-                    bits.append(f"runs the full {total:,.0f} MW at {', '.join(full_at)}")
+                    trade += f" It can run the full {total:,.0f} MW at {_join(full_at)}."
                 if partial:
-                    bits.append("; ".join(partial))
-                trade = (f"Gives up {total - at_case:,.0f} MW {word}; " + "; ".join(bits) + ".") if bits else f"Gives up {total - at_case:,.0f} MW {word}."
+                    trade += f" Room at other hours: {_join(partial)}."
                 fixes.append(
                     _fix(
                         fam,
@@ -1219,14 +1319,20 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 fails_at = [x["name"] for x in levels if not x["holds"]]
                 what = f"the full {total:,.0f} MW" if c.sites else "the grid"
                 if holds_at:
-                    trade = f"{what[0].upper() + what[1:]} holds at {', '.join(x['name'] for x in holds_at)} but not {word}" + (" — a data center runs around the clock." if c.sites else "; the heat itself can't be moved.")
+                    trade = f"{what[0].upper() + what[1:]} fits at {_join([x['name'] for x in holds_at])} but not {word}" + (
+                        ", and a data center runs around the clock." if c.sites else "; the heat itself can't be scheduled away."
+                    )
                 else:
-                    trade = f"{what[0].upper() + what[1:]} overloads at every hour checked ({', '.join(fails_at)})."
+                    trade = f"{what[0].upper() + what[1:]} overloads the grid at every hour checked: {_join(fails_at)}."
                 best_lf = max((x["level"] for x in holds_at), default=None)
+                if c.sites:
+                    tod_action = f"Run {what} only at quieter hours" if holds_at else f"Run {what} at a quieter hour"
+                else:
+                    tod_action = "Wait for a cooler hour"
                 fixes.append(
                     _fix(
                         fam,
-                        f"Run {what} only at hours with room" if c.sites else "Wait for a cooler hour",
+                        tod_action,
                         "fails",
                         inc_oc(inc),
                         trade,
@@ -1246,7 +1352,15 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 lst, mva, km = _upgrade_list(g, c.rate, rate, new)
                 what = _what_upgraded(lst)
                 detail = {"lines": len(lst), "mva": mva, "km": km, "list": lst[:20], "capped": len(maxed), "limited": bool(limited), "checked_by": how}
-                trade = f"New equipment on {what}" + (f" ({km:,.1f} km of line)" if km else "") + ("; the campus keeps its full size." if c.sites else ".")
+                trade = f"New equipment on {what}" + (f" ({km:,.1f} km of line)" if km else "")
+                if J.bound_people > 0:
+                    trade += (
+                        f". It stops the cascade, but the {_big(J.bound_people)} people (estimate) the {_storm_word(c)} cut off stay dark until the downed lines are rebuilt."
+                        if oc["steps"] == 0
+                        else f". The people the {_storm_word(c)} cut off stay dark until the downed lines are rebuilt."
+                    )
+                else:
+                    trade += "; the data center keeps its full size." if c.sites else "."
                 fixes.append(_fix(fam, f"Upgrade {what} (+{mva:,.0f} MVA)", v, oc, trade, detail, {"upgrades": {str(k): float(v_) for k, v_ in new_upg.items()}}, _ms(t0)))
                 notes["upgrade"] = {"mva": mva, "km": km, "lines": len(lst), "rate": rate, "chosen": list(chosen)}
             elif fam == "onsite":
@@ -1279,7 +1393,15 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 what = _what_upgraded(lst)
                 ap = {**_size_apply(c, mws), "upgrades": {str(k): float(v_) for k, v_ in new_upg.items()}}
                 action = f"Shrink to {mid_total:,.0f} MW and upgrade {what} (+{mva:,.0f} MVA)" if lst else f"Shrink to {mid_total:,.0f} MW"
-                fixes.append(_fix(fam, action, v, oc, f"Keeps {mid_total:,.0f} MW with fewer upgrades than the full size needs.", {"mw": mid_total, "lines": len(lst), "mva": mva, "km": km, "list": lst[:20], "checked_by": how}, ap, _ms(t0)))
+                trade = f"Keeps {mid_total:,.0f} of the planned {total:,.0f} MW"
+                full_up = notes.get("upgrade")
+                if lst and full_up and full_up.get("mva"):
+                    trade += f" and needs +{mva:,.0f} MVA of upgrades, against +{full_up['mva']:,.0f} MVA at full size."
+                elif lst:
+                    trade += f" with +{mva:,.0f} MVA of upgrades."
+                else:
+                    trade += "; no upgrade needed."
+                fixes.append(_fix(fam, action, v, oc, trade, {"mw": mid_total, "lines": len(lst), "mva": mva, "km": km, "list": lst[:20], "checked_by": how}, ap, _ms(t0)))
             elif fam == "remove":
                 v = J.verdict(floor_oc)
                 trade = "No campus at this site." if v == "holds" else f"Even with no data center, {_big(floor['people'])} people (estimate) lose power, verified by the no-campus run."
@@ -1289,6 +1411,17 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
         except Exception as e:  # noqa: BLE001 — a family that breaks is reported unchecked, never claimed
             log.exception("briefing: fix family %s failed: %s", fam, e)
             skip(fam)
+    # a fix that doesn't fully hold says what the engine found when it ran it
+    for fx in fixes:
+        oc = fx.get("outcome")
+        if fx["verdict"] in ("partly", "fails") and oc and fx["family"] != "time_of_day" and "(estimate)" not in fx["tradeoff"]:
+            n, ppl = int(oc["steps"]), int(oc["people"])
+            if n == 0:
+                fx["tradeoff"] += f" Engine check: no cascade, but {_big(ppl)} people (estimate) are still without power."
+            elif ppl == 0:
+                fx["tradeoff"] += f" Engine check: lines still trip ({n} {'step' if n == 1 else 'steps'}), though no one loses power."
+            else:
+                fx["tradeoff"] += f" Engine check: still {_a(n)} {n}-step cascade, with {_big(ppl)} people (estimate) without power."
     return fixes, unchecked, notes
 
 
@@ -1312,6 +1445,8 @@ def _firm_note(c: _Case, inc: dict) -> dict | None:
     r = _cascade(c, c.g, c.extra, firm_buses=list(c.buses))
     if not r:
         return None
+    if float(r.get("shed_mw", 0.0)) < 0.5 and int(r["people"]) == int(inc["people"]):
+        return None  # keeping the campus on changes nothing here (it's the storm's outage): nothing to say
     return {"shed_mw": float(r.get("shed_mw", 0.0)), "steps": int(r["total_steps"]), "people": int(r["people"]), "campus_kept_on": r.get("firm_held")}
 
 
@@ -1736,7 +1871,18 @@ def _cost(c: _Case, rep: dict, notes: dict) -> dict | None:
     who = lines.get("who_pays")
     who_txt = None
     if who and who.get("high"):
-        who_txt = f"${float(who.get('low') or 0):,.2f} to ${float(who['high']):,.2f} per household per month (illustrative)"
+
+        def money(v: float) -> str:  # never "$0.00": a fraction of a cent reads as "under 1 cent"
+            if v < 0.005:
+                return "under 1 cent"
+            if v < 0.995:
+                cents = round(v * 100)
+                return f"{cents} cent{'s' if cents != 1 else ''}"
+            return f"${v:,.2f}"
+
+        lo_, hi_ = money(float(who.get("low") or 0)), money(float(who["high"]))
+        span = hi_ if lo_ == hi_ else f"{lo_} to {hi_}"
+        who_txt = f"{span} per household per month (illustrative)"
     assumptions = [{"key": "hours_out", "value": hours, "unit": "hours", "note": "How long the lost load stays dark (an assumption)."}]
     sources = []
     for key in ("blackout", "upgrades", "power_bill", "who_pays"):
@@ -1935,8 +2081,15 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
             "fixes_save_at_most_pct": saved_pct,
             "proof": [{"family": f["family"], "verdict": f["verdict"], "people": (f.get("outcome") or {}).get("people")} for f in fixes],
             "sentence": (
-                f"No fix exists for about {_big(bound['people'])} people (estimate): every fix family was tried, and even with unlimited line ratings and no data center "
-                f"they stay cut off; the best fix saves at most {saved_pct}% — only rebuilding lines brings them back."
+                f"No fix exists for about {_big(bound['people'])} people (estimate). Even with unlimited line capacity and no data center, "
+                f"the damage cuts them off from the power plants that could serve them; only rebuilding the downed lines brings them back. "
+                + (
+                    f"Every fix family was checked, and the best saves at most {saved_pct}% of the outage."
+                    if saved_pct >= 1
+                    else "Every fix family was checked, and the best saves less than 1% of the outage."
+                    if saved > 0
+                    else "Every fix family was checked; none of them brings anyone back."
+                )
             ),
         }
 
@@ -1954,7 +2107,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     if no_fix and recovery and recovery.get("still_out_after_all"):
         left = int(recovery["still_out_after_all"])
         no_fix["after_rebuild_people"] = left
-        no_fix["sentence"] += f" Even with every line rebuilt, about {_big(left)} people (estimate) stay dark at this load: only cutting demand could reach them."
+        no_fix["sentence"] += f" Even with every line rebuilt, about {_big(left)} people (estimate) stay dark at this load; only cutting demand could reach them."
 
     case_out = {
         **c.header,
@@ -2015,6 +2168,16 @@ def _ctx_for(report_key: str) -> _Case:
     return c
 
 
+def _num(v, what: str) -> float:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{what} must be a number") from None
+    if not math.isfinite(x):
+        raise ValueError(f"{what} must be a number")
+    return x
+
+
 def what_if(report_key: str, change: dict) -> dict:
     """One engine run on a changed copy of a cached report's case (the Ask track's tools).
     change: {mw} | {factor} | {load_factor} | {area} | {fix: 'best'}. Raises KeyError (unknown or
@@ -2033,21 +2196,21 @@ def what_if(report_key: str, change: dict) -> dict:
         if not sites:
             raise ValueError("This scenario has no data center to resize")
         if "mw" in change:
-            mw = float(change["mw"])
+            mw = _num(change["mw"], "Size")
             if not (math.isfinite(mw) and grid.MW_MIN <= mw <= grid.MW_MAX):
                 raise ValueError(f"Size must be between {grid.MW_MIN} and {grid.MW_MAX:,} MW")
             sites[0] = SiteIn(lat=sites[0].lat, lon=sites[0].lon, mw=mw)
             delta = {"mw": mw}
             label = f"{mw:,.0f} MW at {where}"
         else:
-            fct = float(change["factor"])
+            fct = _num(change["factor"], "The size factor")
             if not (math.isfinite(fct) and 0.1 <= fct <= 2.0):
                 raise ValueError("The size factor must be between 0.1 and 2")
             sites = [SiteIn(lat=s.lat, lon=s.lon, mw=max(grid.MW_MIN, min(grid.MW_MAX, round(s.mw * fct, 1)))) for s in sites]
             delta = {"mw": sites[0].mw, "sites": [{"lat": s.lat, "lon": s.lon, "mw": s.mw} for s in sites[1:]]}
             label = f"{sum(s.mw for s in sites):,.0f} MW ({fct:g} x the size)"
     elif "load_factor" in change:
-        lf = float(change["load_factor"])
+        lf = _num(change["load_factor"], "Load level")
         if not (math.isfinite(lf) and grid.LOAD_FACTOR_MIN <= lf <= grid.LOAD_FACTOR_MAX):
             raise ValueError(f"Load level must be between {grid.LOAD_FACTOR_MIN} and {grid.LOAD_FACTOR_MAX}")
         g = grid_at(lf, c.code)
