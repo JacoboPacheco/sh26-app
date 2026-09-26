@@ -24,7 +24,7 @@ with sync_playwright() as p:
         # 1 — open: signed in as the demo account, the grid drawn, the synthetic-model pill visible.
         page.goto(URL, wait_until="load", timeout=30000)
         expect(page.get_by_text("Signed in as")).to_be_visible(timeout=15000)
-        expect(page.get_by_text("Synthetic grid model", exact=False)).to_be_visible()
+        expect(page.locator(".pill", has_text="Synthetic grid model")).to_be_visible()
         expect(page.locator("line.ln").first).to_be_attached(timeout=15000)
 
         # 2 — drop 1,500 MW at Fort Myers (the saved scenario replays the same site and size): lines over limit.
