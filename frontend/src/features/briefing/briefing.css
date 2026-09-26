@@ -553,6 +553,59 @@ html.review-open [data-review-hide] {
   color: var(--strain);
 }
 
+/* who is speaking ("George · presenter" while ElevenLabs speaks), the voice tag, the live level meter */
+.rs-captions__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 18px;
+  min-width: 0;
+}
+
+.rs-captions__speaker {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.rs-captions--analyst .rs-captions__speaker {
+  color: var(--strain);
+}
+
+.rs-captions__speaker b {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.rs-captions__tag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+  white-space: nowrap;
+}
+
+.rs-meter {
+  margin-left: auto;
+  flex: none;
+  width: 120px;
+  height: 18px;
+  color: var(--accent);
+}
+
+.rs-captions--analyst .rs-meter {
+  color: var(--strain);
+}
+
+.rs-meter--still {
+  width: 20px;
+  height: 14px;
+}
+
 .rs-captions__text {
   font-size: clamp(1.05rem, 1.5vw, 1.3rem);
   line-height: 1.35;
@@ -622,6 +675,33 @@ html.review-open [data-review-hide] {
 
 .rs-controls .rs-tool {
   border-radius: 999px;
+}
+
+/* sound is off: what would speak, one click away (quiet: no fill, secondary ink) */
+.rs-chip {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rs-chip:hover,
+.rs-chip:focus-visible {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.rs-chip__icon {
+  flex: none;
 }
 
 /* ------------------------------------------------------------------ drawers */

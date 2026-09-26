@@ -25,6 +25,12 @@ export const T = {
     voiceBrowser: 'Browser voice',
     voiceNone: 'No voice here, captions only',
     voiceMuted: 'Sound off, captions only',
+    // the captions' speaker: "George · presenter" while ElevenLabs speaks, else the role alone
+    roleOf: { presenter: 'presenter', analyst: 'analyst' },
+    whoOf: { presenter: 'Presenter', analyst: 'Analyst' },
+    // the chip beside Play while the sound is off and the ElevenLabs voice would speak
+    chipEleven: 'Narrated by ElevenLabs — turn sound on',
+    chipVoices: (p, a) => `ElevenLabs voices: ${p} (presenter), ${a} (analyst). Sound stays on for this browser until you turn it off.`,
     byGemini: (n) => `Written by Gemini · ${n} figures checked by the engine`,
     template: 'Template narration',
     fixture: 'Preview data: the briefing engine is not live yet',
@@ -90,6 +96,10 @@ export const T = {
     voiceBrowser: 'Voz del navegador',
     voiceNone: 'Sin voz aquí, solo subtítulos',
     voiceMuted: 'Sin sonido, solo subtítulos',
+    roleOf: { presenter: 'voz principal', analyst: 'analista' },
+    whoOf: { presenter: 'Voz principal', analyst: 'Analista' },
+    chipEleven: 'Narrado por ElevenLabs — activa el sonido',
+    chipVoices: (p, a) => `Voces de ElevenLabs: ${p} (voz principal), ${a} (analista). El sonido queda activado en este navegador hasta que lo apagues.`,
     byGemini: (n) => `Escrito por Gemini · ${n} cifras comprobadas por el motor`,
     template: 'Narración de plantilla',
     fixture: 'Datos de vista previa: el motor del informe aún no está activo',

@@ -1641,16 +1641,33 @@
 
 /* ------------------------------------------------------------------ narrow screens */
 @media (max-width: 860px) {
+  /* the slide card sits between the header and the captions (the controls when no caption shows), never under
+     them: ReviewStage measures --rs-head-h, --rs-ctl-h and --rs-cap-h; a card taller than the room scrolls */
   .rs-panel {
-    bottom: calc(150px + var(--rs-tick-h));
+    --rs-panel-bottom: calc(var(--gutter) + var(--rs-tick-h) + var(--rs-ctl-h, 88px) + 8px + var(--rs-cap-h, 0px));
+    bottom: var(--rs-panel-bottom);
+    max-height: max(120px, min(42vh, calc(100vh - 2 * var(--gutter) - var(--rs-head-h, 160px) - var(--rs-panel-bottom))));
+    transition:
+      bottom 180ms ease-out,
+      max-height 180ms ease-out;
   }
 
   .rs-controls {
     bottom: calc(var(--gutter) + var(--rs-tick-h));
   }
 
+  /* just above the control bar, however many rows it wraps to (ReviewStage measures --rs-ctl-h) */
   .rs-captions {
-    bottom: calc(70px + var(--rs-tick-h));
+    bottom: calc(var(--gutter) + var(--rs-tick-h) + var(--rs-ctl-h, 54px) + 6px);
+    background: rgba(0, 0, 0, 0.92); /* it can sit over the slide card's last lines here */
+  }
+
+  .rs-captions__head {
+    overflow: hidden;
+  }
+
+  .rs-meter:not(.rs-meter--still) {
+    width: 64px;
   }
 
   .rs-ask,
@@ -1703,7 +1720,8 @@
     stroke-dashoffset: 0;
   }
 
-  .sh-play__more {
+  .sh-play__more,
+  .rs-panel {
     transition: none;
   }
 }

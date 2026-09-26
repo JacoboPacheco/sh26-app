@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { assetUrl } from '../../api'
 import { useOverload } from '../../store'
@@ -290,6 +290,34 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   }, [loadReplay, body, report])
 
   // ------------------------------------------------------------------ chrome
+  // the control bar's and the header's heights (both wrap on a phone): the captions sit just above the controls,
+  // and on a phone the slide card fits between the header and the captions (show.css, narrow screens)
+  useEffect(() => {
+    const root = rootRef.current
+    const bar = root?.querySelector('.rs-controls')
+    const head = root?.querySelector('.rs-top')
+    if (!bar || typeof ResizeObserver !== 'function') return undefined
+    const ro = new ResizeObserver(() => {
+      root.style.setProperty('--rs-ctl-h', `${Math.round(bar.offsetHeight)}px`)
+      if (head) root.style.setProperty('--rs-head-h', `${Math.round(head.offsetHeight)}px`)
+    })
+    ro.observe(bar)
+    if (head) ro.observe(head)
+    return () => ro.disconnect()
+  }, [])
+  // the captions' height (0 when there are none): on a phone the slide card ends just above them instead of running
+  // under them. While the show plays the slot keeps the tallest caption so far, so the card doesn't move line by line.
+  const capSlot = useRef(0)
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+    const el = root.querySelector('.rs-captions')
+    const h = el ? Math.round(el.offsetHeight) + 6 : 0
+    const want = cc && view === 'slides' ? (narr.playing ? Math.max(h, capSlot.current) : h) : 0
+    if (want === capSlot.current) return
+    capSlot.current = want
+    root.style.setProperty('--rs-cap-h', `${want}px`)
+  })
   useEffect(() => {
     const el = document.documentElement
     el.classList.add('review-open')
@@ -526,7 +554,13 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         <ShowProblem key={`problem-${lang}-${narr.run}`} report={report} deck={deck} lang={lang} animate={animate} />
       )}
 
-      {cc && slidesView && (caption ? <Captions caption={caption} lang={lang} reduced={reduced} /> : <SayCaption say={live.say} lang={lang} />)}
+      {cc &&
+        slidesView &&
+        (caption ? (
+          <Captions caption={caption} lang={lang} reduced={reduced} speakers={narr.voice?.speakers} audio={narr.audio} />
+        ) : (
+          <SayCaption say={live.say} lang={lang} />
+        ))}
       {slidesView && animate && <Callout callout={live.callout} />}
 
       <nav className="rs-controls" aria-label="Briefing controls">
@@ -542,6 +576,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         <span className="rs-count" aria-live="polite">
           {slides.length ? `${idx + 1} / ${slides.length}` : ''}
         </span>
+        <SoundChip narr={narr} t={t} />
         {canShort && (
           <button type="button" className="rs-tool" aria-pressed={short} onClick={() => setShort((v) => !v)} title={t.shortHint}>
             {t.short}
@@ -570,6 +605,37 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
       <MapOverlay lines={overlay.lines} ghost={overlay.ghost} rings={overlay.rings} layerKey={live.layer?.key || ''} />
     </div>,
     document.body,
+  )
+}
+
+// While the sound is off and the ElevenLabs voice would really speak (the service is configured and today's
+// characters are not used up): one quiet chip beside Play, "Narrated by ElevenLabs — turn sound on". Without it
+// there is no chip (the Sound button in the top bar stays). Only a click turns the sound on (remembered under
+// the same key as the Sound button); nothing plays by itself.
+function SoundChip({ narr, t }) {
+  const v = narr.voice
+  if (!narr.muted || !v?.configured || !(Number(v.chars_left_today) > 0)) return null
+  const sp = v.speakers || {}
+  return (
+    <button
+      type="button"
+      className="rs-chip"
+      onClick={() => narr.setMuted(false)}
+      title={sp.presenter && sp.analyst ? t.chipVoices(sp.presenter, sp.analyst) : undefined}
+      data-chip="elevenlabs"
+    >
+      <SpeakerOff />
+      {t.chipEleven}
+    </button>
+  )
+}
+
+function SpeakerOff() {
+  return (
+    <svg className="rs-chip__icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+      <path d="M2 6h2.6L8 3.2v9.6L4.6 10H2z" fill="currentColor" />
+      <path d="M10.6 6.2l3.6 3.6M14.2 6.2l-3.6 3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
+    </svg>
   )
 }
 

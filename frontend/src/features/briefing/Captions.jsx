@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import LevelMeter from './LevelMeter'
 import { T } from './text'
 import { wordsOf } from './useNarration'
 
@@ -27,14 +28,35 @@ function chunksOf(text) {
 
 // The lower third: who is speaking, the two lines being spoken, the current word bright. Decorative
 // for screen readers (aria-hidden): the transcript button opens the same words as text.
-export default function Captions({ caption, lang, reduced }) {
+//   speakers  /api/voice/status speakers ({presenter: 'George', analyst: 'Sarah'}): named only while ElevenLabs
+//             speaks the words (caption.via), the segment's own name first (caption.speaker, from its audio), else
+//             the status's; the browser voice and captions-only say "Presenter" / "Analyst"
+//   audio     the ElevenLabs element playing ({el, meter}) for the live level meter
+export default function Captions({ caption, lang, reduced, speakers, audio }) {
   const chunks = useMemo(() => chunksOf(caption?.text || ''), [caption?.text])
   if (!caption || !chunks.length) return null
+  const t = T[lang]
   const char = caption.char
   const cur = chunks.find((c) => char < c.end + 1) || chunks[chunks.length - 1]
+  const role = caption.role === 'analyst' ? 'analyst' : 'presenter'
+  const eleven = caption.via === 'elevenlabs'
+  const name = eleven ? caption.speaker || speakers?.[role] || null : null
   return (
-    <div className={`rs-captions rs-captions--${caption.role}`} aria-hidden="true">
-      <span className="rs-captions__who">{caption.role === 'analyst' ? T[lang].analyst : T[lang].presenter}</span>
+    <div className={`rs-captions rs-captions--${role}${eleven ? ' rs-captions--eleven' : ''}`} aria-hidden="true" data-via={caption.via || ''}>
+      <div className="rs-captions__head">
+        <span className="rs-captions__speaker">
+          {name ? (
+            <>
+              <b>{name}</b> · {t.roleOf[role]}
+            </>
+          ) : (
+            t.whoOf[role]
+          )}
+        </span>
+        {eleven && <span className="rs-captions__tag">{t.voiceEleven}</span>}
+        {caption.via === 'browser' && <span className="rs-captions__tag">{t.voiceBrowser}</span>}
+        {eleven && <LevelMeter audio={audio} reduced={reduced} />}
+      </div>
       <p className="rs-captions__text">
         {cur.words.map((w, i) => (
           <span key={w.start} className={!reduced && w.start <= char ? 'rs-w rs-w--said' : 'rs-w'}>

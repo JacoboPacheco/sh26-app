@@ -4,6 +4,7 @@ import { Button } from '../../ui'
 import ReviewStage from './ReviewStage'
 import { getDeck, getReport } from './briefingApi'
 import { bodyFor } from './stage'
+import { getVoiceStatus } from './voiceApi'
 
 // "Present the damage": one click opens the review stage on the short deck — the expected cost and the
 // time without power first, then who is hit, why it failed, what could be done. It never opens by itself.
@@ -24,6 +25,7 @@ export default function PresentDamage() {
       const b = JSON.parse(key)
       getReport(b).catch(() => {})
       getDeck(b, { ai: false }).catch(() => {})
+      getVoiceStatus() // who narrates (the stage's sound chip and speaker names): a small GET, asked once per page
     }, 1500)
     return () => clearTimeout(t)
   }, [key])

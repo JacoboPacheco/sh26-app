@@ -8,9 +8,13 @@ key = sha256(VERSION|model|voice|lang|settings|text)[:32]; the text is kept in m
 in backend/.voice_cache/<key>.json (gitignored).
 
 Endpoints
-  GET  /api/voice/status              configured?, provider, model, voices, characters left today
+  GET  /api/voice/status              configured?, provider, model, voices, characters left today,
+                                      speakers {presenter, analyst}: the premade voices' first names
+                                      ("George", "Sarah"; None when off or not looked up yet — the
+                                      lookup runs in the background, the route never waits on it)
   POST /api/voice/segment {key}       render (or serve cached) one segment → audio URL, duration,
-                                      words [[w, t0, t1]], cues [[name, value, t]]      (60/minute)
+                                      words [[w, t0, t1]], cues [[name, value, t]], speaker (the
+                                      voice's first name, the caption's label, or None)  (60/minute)
                                       409 unknown key · 503 not configured · 429 daily cap reached
   GET  /api/voice/audio/<key>.mp3     the audio (immutable)
   POST /api/voice/download {deck_key, lang}  the whole briefing: MP3 (when every segment has audio),
@@ -24,6 +28,8 @@ ElevenLabs API (docs fetched Sat 26 Sep 2026):
           normalized_alignment{...}}   https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps
   GET  https://api.elevenlabs.io/v2/voices?voice_type=default → {voices[{voice_id, name, category, labels}]}
        https://elevenlabs.io/docs/api-reference/voices/search
+  GET  https://api.elevenlabs.io/v1/voices/{voice_id} → {voice_id, name, category, labels} (a configured
+       voice's name; fetched Sat 26 Sep 2026) https://elevenlabs.io/docs/api-reference/voices/get
   Models: eleven_flash_v2_5 (default here: low latency, half the credits, Spanish included)
        https://elevenlabs.io/docs/models
 Cache lookup order: backend/demo/voice/ (pinned hero audio, committed) → backend/.voice_cache/ (LRU
@@ -40,6 +46,7 @@ import re
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import OrderedDict
 from datetime import datetime
@@ -83,6 +90,7 @@ _texts: "OrderedDict[str, dict]" = OrderedDict()
 _lock = threading.Lock()
 _daily = {"day": "", "used": 0}
 _voices: dict = {"resolved": False, "presenter": None, "analyst": None, "names": {}}
+_resolve_lock = threading.Lock()
 _render_locks: dict[str, asyncio.Lock] = {}
 _sem: asyncio.Semaphore | None = None
 
@@ -275,44 +283,112 @@ def _give_back(n: int) -> None:
 
 
 # ----------------------------------------------------------------------------------- ElevenLabs I/O
-def _http(method: str, url: str, body: dict | None = None) -> dict:
+def _http(method: str, url: str, body: dict | None = None, timeout: float | None = None) -> dict:
     req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
                                  headers={"xi-api-key": api_key(), "Content-Type": "application/json", "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout_s()) as resp:
+    with urllib.request.urlopen(req, timeout=timeout or timeout_s()) as resp:
         return json.loads(resp.read())
 
 
-def _resolve_voices() -> dict:
-    """Voice ids per role: the env's, else premade default voices picked by name preference (once)."""
-    if _voices["resolved"]:
-        return _voices
-    env = {r: os.getenv(f"ELEVENLABS_VOICE_{r.upper()}", "").strip() for r in ROLES}
-    found: list[dict] = []
-    if not all(env.values()):
-        try:
-            data = _http("GET", f"{api_base()}/v2/voices?voice_type=default&page_size=100")
-            found = [v for v in data.get("voices", []) if isinstance(v, dict) and v.get("voice_id")]
-        except (urllib.error.URLError, OSError, ValueError) as e:
-            log.warning("voice: could not list ElevenLabs voices: %s", e)
-    premade = [v for v in found if v.get("category") in (None, "premade", "default")] or found
-    used: set[str] = set()
-    for role in ROLES:
-        if env[role]:
-            _voices[role], _voices["names"][role] = env[role], "custom"
-            used.add(env[role])
-            continue
-        pick = None
-        for name in PREFER[role]:
-            pick = next((v for v in premade if str(v.get("name", "")).split(" ")[0].split("-")[0].strip().lower() == name.lower()
-                         and v["voice_id"] not in used), None)
+PREMADE = (None, "premade", "default")  # the categories of ElevenLabs' own voices (never a clone)
+
+
+def _first_name(v: dict) -> str | None:
+    """'George - Warm, Captivating Storyteller' → 'George' (what the captions show)."""
+    name = str(v.get("name") or "").split(" - ")[0].strip()
+    return name[:40] or None
+
+
+def _resolve_voices(timeout: float | None = None) -> dict:
+    """Voice ids per role: the env's, else premade default voices picked by name preference (once).
+    The picked premade voices' first names go into _voices["names"]."""
+    with _resolve_lock:
+        if _voices["resolved"]:
+            return _voices
+        env = {r: os.getenv(f"ELEVENLABS_VOICE_{r.upper()}", "").strip() for r in ROLES}
+        found: list[dict] = []
+        if not all(env.values()):
+            try:
+                data = _http("GET", f"{api_base()}/v2/voices?voice_type=default&page_size=100", timeout=timeout)
+                found = [v for v in data.get("voices", []) if isinstance(v, dict) and v.get("voice_id")]
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                log.warning("voice: could not list ElevenLabs voices: %s", e)
+        premade = [v for v in found if v.get("category") in PREMADE] or found
+        used: set[str] = set()
+        for role in ROLES:
+            if env[role]:
+                _voices[role] = env[role]  # its name is looked up by voice_names()
+                used.add(env[role])
+                continue
+            pick = None
+            for name in PREFER[role]:
+                pick = next((v for v in premade if str(v.get("name", "")).split(" ")[0].split("-")[0].strip().lower() == name.lower()
+                             and v["voice_id"] not in used), None)
+                if pick:
+                    break
+            pick = pick or next((v for v in premade if v["voice_id"] not in used), None)
             if pick:
-                break
-        pick = pick or next((v for v in premade if v["voice_id"] not in used), None)
-        if pick:
-            _voices[role], _voices["names"][role] = pick["voice_id"], str(pick.get("name", "")).split(" - ")[0]
-            used.add(pick["voice_id"])
-    _voices["resolved"] = bool(_voices["presenter"] and _voices["analyst"])
-    return _voices
+                _voices[role] = pick["voice_id"]
+                _voices["names"][role] = _first_name(pick) if pick.get("category") in PREMADE else None
+                used.add(pick["voice_id"])
+        _voices["resolved"] = bool(_voices["presenter"] and _voices["analyst"])
+        return _voices
+
+
+NAMES_TIMEOUT_S = 3.0  # each ElevenLabs call of the (background) name lookup waits at most this
+NAMES_RETRY_S = 300  # a failed lookup is tried again after five minutes, not on every status call
+_names = {"done": False, "tried": 0.0}
+_names_lock = threading.Lock()
+_names_thread: threading.Thread | None = None
+_env_names: dict[str, str | None] = {}  # role → the configured voice's name, once looked up
+
+
+def _lookup_names() -> None:
+    """The name lookup itself (a background thread; see voice_names)."""
+    v = _resolve_voices(timeout=NAMES_TIMEOUT_S)
+    settled = v["resolved"]
+    for role in ROLES:
+        env = os.getenv(f"ELEVENLABS_VOICE_{role.upper()}", "").strip()
+        if not env or role in _env_names:
+            continue
+        try:
+            info = _http("GET", f"{api_base()}/v1/voices/{urllib.parse.quote(env, safe='')}", timeout=NAMES_TIMEOUT_S)
+            _env_names[role] = _first_name(info) if info.get("category") in PREMADE else None
+            v["names"][role] = _env_names[role]
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            log.warning("voice: could not look up the %s voice: %s", role, e)
+            settled = False
+    _names["done"] = settled
+
+
+def voice_names(wait: float = 0.0) -> dict:
+    """{role: first name | None} of the premade voice speaking each role, for the captions ("George ·
+    presenter"): the default preference list's picks (the same ids the renders use), or a configured
+    ELEVENLABS_VOICE_<ROLE> id via GET /v1/voices/{voice_id}, named only when it is a premade voice. None
+    when not configured, not premade, not looked up yet, or the lookup failed (the page says "Presenter").
+
+    Never waits on ElevenLabs: the first call starts the lookup in a background thread and answers with what
+    is known now (the status route, and the Play that awaits it, stay instant on slow venue Wi-Fi); a failed
+    lookup is started again after NAMES_RETRY_S. `wait` (tests) joins the lookup for up to that many seconds."""
+    global _names_thread
+    if not configured():
+        return {r: None for r in ROLES}
+    with _names_lock:
+        idle = _names_thread is None or not _names_thread.is_alive()
+        if not _names["done"] and idle and time.time() - _names["tried"] > NAMES_RETRY_S:
+            _names["tried"] = time.time()
+            _names_thread = threading.Thread(target=_lookup_names, name="voice-names", daemon=True)
+            _names_thread.start()
+        th = _names_thread
+    if wait and th is not None:
+        th.join(wait)
+    return {r: _voices["names"].get(r) for r in ROLES}
+
+
+def _speaker(role: str | None, rendered: str | None = None) -> str | None:
+    """The first name to caption a segment with: the name stored when it was rendered, else the name known
+    now for its role (None: the page says "Presenter" / "Analyst")."""
+    return rendered or (_voices["names"].get(role) if role in ROLES else None)
 
 
 def _render(meta: dict) -> tuple[bytes, dict]:
@@ -385,9 +461,10 @@ def _payload(key: str, meta: dict | None) -> dict | None:
         return None
     if meta is not None and meta.get("cues") and not t.get("cues"):
         t.update(_timing(meta, t.get("alignment") or {}, t["duration_s"]))
+    role = t.get("role") or (meta or {}).get("role")
     return {"key": key, "audio_url": f"/api/voice/audio/{key}.mp3", "duration_s": t["duration_s"], "words": t["words"],
-            "cues": t.get("cues", []), "provider": "elevenlabs", "role": t.get("role"), "lang": t.get("lang"),
-            "pinned": p[0].parent == PINNED_DIR}
+            "cues": t.get("cues", []), "provider": "elevenlabs", "role": role, "lang": t.get("lang"),
+            "speaker": _speaker(role, t.get("voice")), "pinned": p[0].parent == PINNED_DIR}
 
 
 MAX_SCRIPTS = 4000  # registered-text files kept on disk (memory keeps the newest 1,024 anyway)
@@ -481,13 +558,14 @@ async def ensure_audio(key: str) -> dict:
 @router.get("/api/voice/status")
 def status():
     on = configured()
-    names = _voices["names"] if _voices["resolved"] else None
+    speakers = voice_names()  # {role: "George" | None}; None whenever the voice service is off
     pinned = len(list(PINNED_DIR.glob("*.mp3"))) if PINNED_DIR.exists() else 0
     return {
         "configured": on,
         "provider": "elevenlabs" if on else "browser",
         "model": model_id() if on else None,
-        "voices": ({r: (names or {}).get(r) or ("custom" if os.getenv(f"ELEVENLABS_VOICE_{r.upper()}") else "default") for r in ROLES} if on else None),
+        "voices": ({r: speakers.get(r) or ("custom" if os.getenv(f"ELEVENLABS_VOICE_{r.upper()}") else "default") for r in ROLES} if on else None),
+        "speakers": speakers,
         "languages": list(LANGS),
         "chars_left_today": chars_left() if on else 0,
         "daily_chars": daily_chars(),

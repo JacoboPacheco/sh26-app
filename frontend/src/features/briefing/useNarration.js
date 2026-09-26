@@ -104,7 +104,10 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
   const [playing, setPlaying] = useState(false)
   const [provider, setProvider] = useState(null) // what is speaking: 'elevenlabs' | 'browser' | 'timer' (null = not started)
   const [segFellBack, setSegFellBack] = useState(false) // an ElevenLabs segment fell back to the browser voice
-  const [caption, setCaption] = useState(null) // {role, text, char, key}
+  // {role, text, char, key, via: 'elevenlabs' | 'browser' | 'timer', speaker: the ElevenLabs voice's first name | null}
+  const [caption, setCaption] = useState(null)
+  // the ElevenLabs element playing right now ({el, meter}: meter = it loaded with CORS, so WebAudio may read it)
+  const [audio, setAudio] = useState(null)
   const [progress, setProgress] = useState(0) // 0..1 through the current slide's narration
   const [muted, setMutedState] = useState(readMuted) // starts muted until this viewer turns sound on (remembered)
   const [voice, setVoice] = useState(null) // /api/voice/status
@@ -133,9 +136,18 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
 
   useEffect(() => {
     let live = true
-    getVoiceStatus().then((s) => live && setVoice(s))
+    let timer = 0
+    // the server names the voices in the background: an answer without the names yet is asked again once
+    const load = (again) =>
+      getVoiceStatus().then((s) => {
+        if (!live) return
+        setVoice(s)
+        if (again && s?.configured && !(s.speakers?.presenter && s.speakers?.analyst)) timer = setTimeout(() => load(false), 4500)
+      })
+    load(true)
     return () => {
       live = false
+      clearTimeout(timer)
     }
   }, [])
 
@@ -173,26 +185,35 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
         })
       const words = wordsOf(text)
       let lastWord = -2
+      let mode = providerRef.current
+      let via = mode || 'timer' // who is saying these words (the captions name the speaker only for ElevenLabs)
+      const who = { speaker: null } // the segment's own voice name, from its audio (speakEleven fills it)
+      const cap = (char) => ({ role: seg.role, text, char, key: seg.key, via, speaker: via === 'elevenlabs' ? who.speaker : null })
       const show = (char) => {
         let w = -1
         for (let k = 0; k < words.length && words[k].start <= char; k++) w = k
         if (w === lastWord) return
         lastWord = w
-        setCaption({ role: seg.role, text, char: w < 0 ? -1 : words[w].start, key: seg.key })
+        setCaption(cap(w < 0 ? -1 : words[w].start))
         onFrac(text.length ? Math.min(1, char / text.length) : 1)
       }
-      setCaption({ role: seg.role, text, char: -1, key: seg.key })
+      const restart = (v) => {
+        via = v
+        lastWord = -2
+        setCaption(cap(-1))
+      }
+      restart(via)
 
-      let mode = providerRef.current
       if (mode === 'elevenlabs') {
         try {
-          await speakEleven(seg, token, words, show, fireUpTo)
+          await speakEleven(seg, token, words, show, fireUpTo, who)
           if (token === run.current) fireUpTo(Infinity)
           return
         } catch {
           if (token !== run.current) return
           mode = 'browser'
           setSegFellBack(true)
+          restart('browser')
         }
       }
       if (mode === 'browser') {
@@ -202,6 +223,7 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
           return
         }
         chooseProvider('timer') // no voice on this device: captions only, for the rest of the deck
+        restart('timer')
       }
       await speakTimer(seg, token, show, fireUpTo, cpsFor(slide, langRef.current))
       if (token === run.current) fireUpTo(Infinity)
@@ -210,18 +232,24 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
     [],
   )
 
-  function speakEleven(seg, token, words, show, fireUpTo) {
+  // One ElevenLabs segment. The element loads with CORS (crossOrigin = 'anonymous') so the captions' level meter
+  // may read it through WebAudio; if the audio host refuses CORS, the same audio plays again without it and the
+  // meter stays hidden: playback always wins over the meter.
+  function speakEleven(seg, token, words, show, fireUpTo, who) {
     return new Promise((resolve, reject) => {
       getSegment(seg.key).then((data) => {
         if (token !== run.current) return resolve()
-        const audio = new Audio(assetUrl(data.audio_url))
+        who.speaker = typeof data.speaker === 'string' && data.speaker ? data.speaker : null
         const al = Array.isArray(data.words) ? data.words : []
+        let audio = null
         let raf = 0
         let done = false
         const end = (err) => {
           if (done) return
           done = true
           cancelAnimationFrame(raf)
+          const el = audio
+          setAudio((a) => (a?.el === el ? null : a))
           if (err) reject(err)
           else resolve()
         }
@@ -237,18 +265,42 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
           fireUpTo(char)
           raf = requestAnimationFrame(tick)
         }
-        audio.onended = () => end()
-        audio.onerror = () => end(new Error('audio failed'))
-        cancelRef.current = () => {
-          audio.pause()
-          end()
+        const start = (cors) => {
+          const a = new Audio()
+          if (cors) a.crossOrigin = 'anonymous'
+          a.preload = 'auto'
+          a.src = assetUrl(data.audio_url)
+          audio = a
+          let started = false
+          let failed = false
+          const fail = (err) => {
+            if (failed || done || audio !== a) return
+            failed = true
+            a.onended = a.onerror = null
+            // a load failure with CORS on (the audio host sent no CORS headers): play it plain, no meter
+            if (cors && !started && err?.name !== 'NotAllowedError') {
+              a.removeAttribute('src')
+              dbg('eleven retry without cors', seg.key)
+              return start(false)
+            }
+            end(err || new Error('audio failed'))
+          }
+          a.onended = () => audio === a && end()
+          a.onerror = () => fail(a.error)
+          cancelRef.current = () => {
+            a.pause()
+            end()
+          }
+          a.play()
+            .then(() => {
+              if (done || audio !== a) return a.pause()
+              started = true
+              setAudio({ el: a, meter: cors })
+              raf = requestAnimationFrame(tick)
+            })
+            .catch(fail)
         }
-        audio
-          .play()
-          .then(() => {
-            raf = requestAnimationFrame(tick)
-          })
-          .catch(end)
+        start(true)
       }, reject)
     })
   }
@@ -344,6 +396,7 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
     if (mutedRef.current) return chooseProvider('timer')
     if (providerRef.current) return providerRef.current
     const st = await getVoiceStatus()
+    setVoice(st) // the names may have arrived since the stage opened (the server looks them up in the background)
     const first = slide?.narration?.[langRef.current]?.[0]
     if (st?.configured && first) {
       try {
@@ -525,6 +578,7 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
     provider,
     segFellBack,
     voice, // /api/voice/status (null while loading)
+    audio, // {el, meter} while an ElevenLabs segment plays, else null
     caption,
     progress,
     muted,
