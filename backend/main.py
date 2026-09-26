@@ -45,6 +45,7 @@ import gridlock
 import gridreader
 import hospitals
 import hurricane
+import leadtimes
 import llm
 import narrate
 import negotiate
@@ -143,6 +144,7 @@ app.include_router(vote.router)
 app.include_router(comment.router)
 app.include_router(analyst.router)
 app.include_router(unlock.router)
+app.include_router(leadtimes.router)
 app.include_router(narrate.router)
 app.include_router(views.router)
 app.include_router(sitereport.router)

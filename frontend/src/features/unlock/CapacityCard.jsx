@@ -3,6 +3,8 @@
 // checked, and two buttons that hand the case to Watch it fail: these campuses WITH their upgrades (run the
 // cascade: nothing trips) and the same campuses WITHOUT them (run it: it trips). Watch it fail takes 12 data
 // centers at once (store.jsx MAX_POINTS), so a bigger plan tries its first 12.
+// When it could connect (time to power, backend/leadtimes.py `tt`): the years, the slowest thing it waits for, the
+// flexible plan's time when that is sooner, and what the sources say, with their links (typical, varies by utility).
 // Opening it moves focus into it (Tab reaches the Try buttons first; Escape or × closes it and gives focus back
 // to what opened it); on a phone, where the card sits under the map, it also scrolls into view.
 import { useCallback, useEffect, useRef } from 'react'
@@ -13,6 +15,7 @@ import AiBadge from '../ai/AiBadge'
 import { moneyRange } from '../cost/money'
 import { shortMoney } from './budget'
 import { count, firstRaised, ordinal, raisedAgain, shortName, sizeLabel, upgradesUpTo } from './capacity'
+import { spanWords, ttpPlan, yearsLong } from './timeToPower'
 import { reducedMotion, select } from './unlockStore'
 
 const PARTS = 4
@@ -31,7 +34,7 @@ function tryCampuses(o, m, n, withUpgrades, mw) {
   o.place(main.site.lat, main.site.lon)
 }
 
-export default function CapacityCard({ r, m, n, flex, target, onBudget }) {
+export default function CapacityCard({ r, m, n, flex, target, onBudget, tt = null }) {
   const o = useOverload()
   const ref = useRef(null)
   const opener = useRef(null)
@@ -154,6 +157,8 @@ export default function CapacityCard({ r, m, n, flex, target, onBudget }) {
         </div>
       )}
 
+      <TimeToPower tt={tt} m={m} n={n} flex={flex} />
+
       <dl className="st-card__facts cc-facts">
         {b && (
           <div>
@@ -196,6 +201,72 @@ export default function CapacityCard({ r, m, n, flex, target, onBudget }) {
     </aside>
   )
 }
+
+// "When it could connect": campus n of the plan on screen (always on or flexible), from the time-to-power ranges.
+function TimeToPower({ tt, m, n, flex }) {
+  const plan = ttpPlan(tt, flex ? 'flexible' : 'firm', m.steps.length)
+  const c = plan?.[n - 1]
+  const it = c && tt.items[c.item]
+  if (!it) return null
+  const years = c.from_year === c.to_year ? `~${c.from_year}${c.plus ? '+' : ''}` : `${c.from_year}–${c.to_year}${c.plus ? '+' : ''}`
+  const rest = c.waits_for.filter((k) => k !== c.item && k !== 'connect')
+  // a wait with the very same range (a line doubled and new plants, both 3–5+ years) is "just as long", not shorter
+  const same = (k) => tt.items[k].lo === it.lo && tt.items[k].hi === it.hi && !!tt.items[k].plus === !!it.plus
+  const tied = rest.filter(same).map((k) => tt.items[k].label)
+  const others = rest.filter((k) => !same(k)).map((k) => `${tt.items[k].label} (${spanWords(tt.items[k])})`)
+  // what sets it: the first upgrade of that kind in the plan (and the campus it was made for), or the plants' line
+  const lim = c.limit
+  const whose = lim ? (lim.n === n ? 'this campus' : `campus ${lim.n}`) : ''
+  const setBy = !lim
+    ? ''
+    : c.item === 'generation'
+      ? lim.n > 1
+        ? `: past the ${ordinal(lim.n - 1)} campus the power plants’ reserve runs out`
+        : ': the power plants have no room for a campus of this size'
+      : `: the ${lim.name}, raised${RAISED[c.item] || ''} for ${whose}`
+  const why =
+    c.item === 'connect'
+      ? `No network upgrades to wait for: the pace is set by ${it.label} (${spanWords(it)}).`
+      : `It waits longest for ${it.label} (${spanWords(it)})${setBy}.${tied.length ? ` It waits just as long for ${listWords(tied)}.` : ''}${others.length ? ` It also waits for ${listWords(others)}.` : ''}`
+  // the other campus type's time for the same count, when flexible is the sooner one
+  const firm = tt.firm?.campuses?.[n - 1]
+  let alt = null
+  if (!flex && c.flex_sooner && c.flex) {
+    const fi = c.flex.item
+    alt = `As flexible campuses, the ${ordinal(n)} could connect ${yearsLong(c.flex)}: sooner, ${fi === 'connect' ? 'with no network upgrades to wait for' : `since its longest wait is ${tt.items[fi].label}`}.`
+  } else if (flex && firm?.flex_sooner) {
+    alt = `As always-on campuses, the ${ordinal(n)} would connect ${yearsLong(firm)}: flexible is sooner.`
+  }
+  const ids = [...it.sources, ...(alt ? tt.flex_sources || [] : [])].filter((id, i, all) => all.indexOf(id) === i && tt.sources[id])
+  return (
+    <div className="cc-block cc-ttp">
+      <p className="cc-k">
+        When it could connect <span className="cc-k__v">{years}</span>
+      </p>
+      <p className="cc-ttp__why">
+        {yearsLong(c).replace(/^about/, 'About')} if work started now. {why}
+      </p>
+      {alt && <p className="cc-ttp__alt">{alt}</p>}
+      <p className="cc-how">
+        {it.basis} Typical ranges that vary by utility, region and project: not a schedule for this or any real project.{' '}
+        {ids.map((id, i) => (
+          <span key={id}>
+            {i > 0 && ' · '}
+            <a href={tt.sources[id].url} target="_blank" rel="noreferrer" title={tt.sources[id].name}>
+              {tt.sources[id].short || tt.sources[id].name}
+            </a>
+          </span>
+        ))}
+      </p>
+    </div>
+  )
+}
+
+// how far the line that sets the time was raised (backend/leadtimes.py _line_kind)
+const RAISED = { line_doubled: ' past twice its rating', new_line: ' past four times its rating' }
+
+// "a, b and c"
+const listWords = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`)
 
 // The single-outage screen of the always-on plan (capacity.n1), landing after the plan: the headline's campuses (the
 // count the meter sells) and, when the search went further, its whole set. Its counts are single OUTAGES, not overloads

@@ -24,3 +24,10 @@ export const startSensitivity = ({ region, mw, loadFactor = 1 }) =>
 
 export const peekUnlock = ({ region, mw, loadFactor = 1 }) =>
   api(`/api/unlock/peek?region=${encodeURIComponent(region)}&mw=${encodeURIComponent(mw)}&load_factor=${encodeURIComponent(loadFactor)}`)
+
+// Time to power (backend/leadtimes.py): roughly when each campus of a FINISHED study's meter could connect, as typical
+// ranges with sources. Reads the cached study only (404 when it isn't cached, 409 without a capacity plan): LAZY.
+// → {items {id: {lo, hi, plus, short, label, basis, sources}}, firm|flexible|ai {campuses [{n, lo, hi, plus, item,
+//    from_year, to_year, waits_for, flex?, flex_sooner?}], plants_n}, sources {id: {name, url, short}}, note, flex_note}
+export const getTimeToPower = ({ region, mw, loadFactor = 1 }) =>
+  api(`/api/unlock/time-to-power?region=${encodeURIComponent(region)}&mw=${encodeURIComponent(mw)}&load_factor=${encodeURIComponent(loadFactor)}`)

@@ -31,6 +31,7 @@ import CapacityMeter from './CapacityMeter'
 import CapacityPlan from './CapacityPlan'
 import GeminiChallenge from './GeminiChallenge'
 import StudyProgress from './StudyProgress'
+import { ttpPlan, useTimeToPower } from './timeToPower'
 import SureFold from './SureFold'
 import UpgradeCard from './UpgradeCard'
 import UpgradeTable from './UpgradeTable'
@@ -91,6 +92,9 @@ export default function StrengthenPage() {
   const selN = u.selected?.type === 'cap' ? u.selected.id : null
   // Gemini's verified plan on the meter and the map ("Show it"), in place of the engine's
   const gm = r ? gemNow(u) : null
+  // time to power (backend/leadtimes.py): fetched once the study is on screen, for the plan the meter shows
+  const tt = useTimeToPower(r)
+  const ttpNow = m ? ttpPlan(tt, gm ? 'ai' : u.flex ? 'flexible' : 'firm', (gm || m).steps.length) : null
 
   // the study for this state, size and load level: shown at once when the backend has it; Florida starts it
   useEffect(() => {
@@ -195,6 +199,9 @@ export default function StrengthenPage() {
             onPick={gm ? pickGem : pick}
             summary={gm ? gemSummary : summary}
             gem={gm ? r.capacity.ai : null}
+            ttp={ttpNow}
+            ttpItems={tt?.items}
+            flexView={u.flex}
           />
         )}
         {hasPlan && !gm && <SureFold r={r} flex={u.flex} />}
@@ -257,7 +264,7 @@ export default function StrengthenPage() {
       {m && view === 'capacity' && <MapKey gem={!!gm?.steps.some((st) => st.gem)} />}
       {m && view === 'capacity' && !gm && (building || resumable) && <BuildCaption nb={nb} />}
 
-      {r && view === 'capacity' && selN && !gm && <CapacityCard r={r} m={m} n={selN} flex={u.flex} target={target} onBudget={setCapBudget} />}
+      {r && view === 'capacity' && selN && !gm && <CapacityCard r={r} m={m} n={selN} flex={u.flex} target={target} onBudget={setCapBudget} tt={tt} />}
       {r && view === 'sites' && (
         <UpgradeCard r={r} selected={u.selected} bundle={u.bundle} target={targetOf(u)} budget={budgetOf(u)} onBudget={setBudget} onPickStep={pickStep} />
       )}

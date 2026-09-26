@@ -392,6 +392,82 @@
   font-weight: 500;
 }
 
+/* time to power (backend/leadtimes.py): a quiet rule under the brackets, one segment per group of campuses that
+   wait for the same thing, a tick where each group starts, and the years in small tabular figures. No color of its
+   own: the years are ink, what they wait for is the second ink; only the flexible "sooner" takes the green. */
+.cm-ttp {
+  position: relative;
+  height: 17px;
+  margin-top: 1px;
+}
+
+.cm-tt {
+  position: absolute;
+  top: 0;
+  height: 17px;
+  border-top: 1px solid color-mix(in srgb, var(--ink-2) 30%, transparent);
+}
+
+.cm-tt::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -3px;
+  height: 7px;
+  border-left: 1px solid color-mix(in srgb, var(--ink-2) 65%, transparent);
+}
+
+.cm-tt__label {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  color: var(--ink-2);
+}
+
+.cm-tt__y {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--ink) 88%, var(--ink-2));
+}
+
+.cm-end__ttp-g {
+  white-space: nowrap;
+}
+
+.cm-tt--generation .cm-tt__y,
+.cm-tt--line_doubled .cm-tt__y,
+.cm-tt--new_line .cm-tt__y {
+  color: color-mix(in srgb, var(--ink) 80%, var(--ink-2));
+}
+
+.cm-tt__f {
+  color: color-mix(in srgb, var(--hr-ok) 80%, var(--ink-2));
+}
+
+.cm-ttp__cap {
+  position: absolute;
+  top: 3px;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  color: var(--ink-2);
+}
+
+.cm-ttp__cap-line {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.cm-end__ttp {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  color: var(--ink-2);
+}
+
 /* ------------------------------------------------------------------ the controls */
 .st-controls {
   display: flex;
@@ -1115,6 +1191,28 @@
   justify-self: start;
   padding: 0.35rem 0.8rem;
   font-size: 0.82rem;
+}
+
+/* when it could connect (time to power): the years beside the heading, like "What it takes", then the sentence */
+.cc-ttp__why,
+.cc-ttp__alt {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.cc-ttp__alt {
+  color: color-mix(in srgb, var(--hr-ok) 70%, var(--ink));
+}
+
+.cc-ttp .cc-how {
+  margin: 0;
+}
+
+.cc-ttp .cc-how a {
+  color: var(--ink-2);
+  text-underline-offset: 2px;
 }
 
 .cc-basis {

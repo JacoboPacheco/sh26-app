@@ -7,17 +7,22 @@
 // Brackets under the cells group them ("2 today", "+5 with $37M", "10 more for another $241M", the same words as
 // the plan's budget line); a dashed mark after the last cell says why the search ends. The plants line sits between
 // cells where the plants' 15 % reserve runs out; its flag points back at the campuses they cover and keys the hatch.
+// Time to power (backend/leadtimes.py, `ttp`): a quiet row under the brackets groups the campuses by the slowest thing
+// each waits for, with roughly when they could connect ("~2028 · no upgrades", "2028–30 · transformer"); the caption
+// at its end says the ranges are typical. On a phone the groups are too narrow for words: the years go in the line
+// under the rows. The card has the full sentence and sources.
 // Cells are sized to the width (at least 12 px) and wrap to a second row on a phone. Screen readers get one
-// summary sentence (`summary`); the plan list beside the map gives keyboard access to every campus.
+// summary sentence (`summary`, and the time to power's); the plan list beside the map gives keyboard access to every campus.
 import { useLayoutEffect, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { shortMoney } from './budget'
 import { aOrdinal, stopText } from './capacity'
+import { textWidth, ttpGroups, yearsLong, yearsShort } from './timeToPower'
 
 const MIN = 12
 const STAGGER_MS = 45
 
-export default function CapacityMeter({ m, plantsN, reservePct, target, shown, playing, selectedN, onPick, summary, gem = null }) {
+export default function CapacityMeter({ m, plantsN, reservePct, target, shown, playing, selectedN, onPick, summary, gem = null, ttp = null, ttpItems = null, flexView = false }) {
   const ref = useRef(null)
   const [w, setW] = useState(0)
   useLayoutEffect(() => {
@@ -66,6 +71,13 @@ export default function CapacityMeter({ m, plantsN, reservePct, target, shown, p
   const marker = plantsN != null && plantsN < N ? plantsN : null // index of the first cell past the plants' line
 
   const stateOf = (n) => (n <= today ? 'today' : n <= target ? 'bought' : 'more')
+  // time to power: the campuses grouped by what they wait for longest (only for the plan the meter shows)
+  const tg = ttp && ttpItems && ttp.length === N ? ttpGroups(ttp, ttpItems) : null
+  const ttpSummary = tg
+    ? `Time to power, typical ranges that vary by utility: ${tg
+        .map((g) => `${g.from === g.to ? `campus ${g.from}` : `campuses ${g.from} to ${g.to}`} ${yearsLong(g.c)}, waiting for ${g.it.label}`)
+        .join('; ')}.`
+    : ''
   const stop = stopText(m.stop)
   const endLine = `${stop.charAt(0).toUpperCase()}${stop.slice(1)}`
   const endSub = m.stop === 'plants' || m.stop === 'no_fix' ? `for ${aOrdinal(N + 1)} campus` : ''
@@ -73,6 +85,7 @@ export default function CapacityMeter({ m, plantsN, reservePct, target, shown, p
   return (
     <div className={`cm${gem ? ' cm--gem' : ''}`} ref={ref}>
       <p className="st-sr">{summary}</p>
+      {ttpSummary && <p className="st-sr">{ttpSummary}</p>}
       {gem && (
         <p className="cm-gem" aria-hidden="true">
           <span className="cm-gem__tag">Gemini’s plan</span>
@@ -131,9 +144,10 @@ export default function CapacityMeter({ m, plantsN, reservePct, target, shown, p
                         className={cls}
                         style={{ width: `${cellW}px`, '--cm-d': `${delay}ms` }}
                         title={
-                          gem
+                          (gem
                             ? `Gemini’s campus ${n}: ${st.site.area}${st.gem ? ' (not in the engine’s plan)' : ''}`
-                            : `Campus ${n}: ${st.site.area}${st.free ? (n <= today ? ', fits today' : ', fits with the upgrades before it') : `, +${shortMoney(st.cost.high)} of upgrades`}`
+                            : `Campus ${n}: ${st.site.area}${st.free ? (n <= today ? ', fits today' : ', fits with the upgrades before it') : `, +${shortMoney(st.cost.high)} of upgrades`}`) +
+                          (tg ? `; time to power ${yearsShort(ttp[n - 1])}${!flexView && ttp[n - 1].flex_sooner ? ` (as flexible campuses ${yearsShort(ttp[n - 1].flex)})` : ''}, typical` : '')
                         }
                         onClick={() => onPick(n)}
                       >
@@ -164,6 +178,36 @@ export default function CapacityMeter({ m, plantsN, reservePct, target, shown, p
                     )
                   })}
                 </div>
+                {tg && (
+                  <div className="cm-ttp" style={{ width: `${rowW(k)}px` }}>
+                    {tg.map((g) => {
+                      const a = Math.max(g.from, first)
+                      const b = Math.min(g.to, last)
+                      if (a > b) return null
+                      const left = x(a - first)
+                      const width = x(b - first) + cellW - left
+                      // a phone's groups are a few px wide: the years go in the line under the rows instead
+                      const label = wide && a === g.from ? ttpLabel(g, width + G - 6, flexView) : null
+                      return (
+                        <div
+                          key={g.from}
+                          className={`cm-tt cm-tt--${g.item}`}
+                          style={{ left: `${left}px`, width: `${width}px` }}
+                          title={`${g.from === g.to ? `Campus ${g.from}` : `Campuses ${g.from}–${g.to}`}: ${yearsLong(g.c)}, waiting for ${g.it.label} (typical, varies by utility)`}
+                        >
+                          {label && (
+                            <span className="cm-tt__label">
+                              <span className="cm-tt__y">{label.y}</span>
+                              {label.k && <span className="cm-tt__k"> · {label.k}</span>}
+                              {label.f && <span className="cm-tt__f"> · flexible {label.f}</span>}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {isLast && wide && <TtpCaption left={rowW(k) + Math.max(10, 14 - G) + 11.5} room={w - rowW(k) - Math.max(10, 14 - G) - 12} sooner={!flexView && ttp.some((c) => c.flex_sooner)} />}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -171,12 +215,71 @@ export default function CapacityMeter({ m, plantsN, reservePct, target, shown, p
             <p className="cm-end cm-end--below">
               <span className="cm-end__line">Then {stop}</span>
               {endSub && <span className="cm-end__sub"> {endSub}</span>}
+              {tg && (
+                <span className="cm-end__ttp">
+                  <span className="cm-ttp__cap-line">Time to power</span> (typical, varies by utility):{' '}
+                  {byYears(tg).map((g, i) => (
+                    <span key={g.from} className="cm-end__ttp-g">
+                      {i > 0 && ' · '}
+                      {g.from === g.to ? g.from : `${g.from}–${g.to}`}: <span className="cm-tt__y">{g.y}</span>
+                    </span>
+                  ))}
+                  {!flexView && ttp.some((c) => c.flex_sooner) && <span className="cm-tt__f">. Flexible campuses: sooner</span>}
+                </span>
+              )}
             </p>
           )}
         </div>
       )}
     </div>
   )
+}
+
+// The phone's time-to-power line names only the years, so neighbouring groups with the same years (new plants, then
+// a line doubled: both 3–5+ years) read as one span ("5–17: 2029–31+"), not as two identical ones.
+function byYears(tg) {
+  const out = []
+  for (const g of tg) {
+    const y = yearsShort(g.c)
+    const last = out.at(-1)
+    if (last && last.y === y) last.to = g.to
+    else out.push({ from: g.from, to: g.to, y })
+  }
+  return out
+}
+
+// The time-to-power row's caption at its end (wide meters): the longest wording that fits; on the always-on plan, when
+// flexible campuses would connect sooner, it says so (the flexible view and each campus's card show how much sooner).
+function TtpCaption({ left, room, sooner }) {
+  const opts = [
+    sooner && ['typical, varies by utility', 'flexible: sooner'],
+    sooner && ['typical', 'flexible: sooner'],
+    ['typical, varies by utility', null],
+    ['typical', null],
+  ].filter(Boolean)
+  const fits = (o) => textWidth(`Time to power ${o[0]}${o[1] ? ` · ${o[1]}` : ''}`) * 0.98 <= room
+  const [rest, flex] = opts.find(fits) || opts.at(-1)
+  return (
+    <span className="cm-ttp__cap" style={{ left: `${left}px` }}>
+      <span className="cm-ttp__cap-line">Time to power</span> {rest}
+      {flex && <span className="cm-tt__f"> · {flex}</span>}
+    </span>
+  )
+}
+
+// A time-to-power group's words, the longest that fits `room` px (measured at the row's type size): the years, what
+// it waits for, and (always-on plan only) when the same campuses could connect as flexible ones.
+function ttpLabel(g, room, flexView) {
+  const y = yearsShort(g.c)
+  const k = g.it.short
+  const f = !flexView && g.flex ? yearsShort(g.flex) : null
+  const w = (t) => textWidth(t)
+  const opts = [
+    f && { y, k, f, t: `${y} · ${k} · flexible ${f}` },
+    { y, k, t: `${y} · ${k}` },
+    { y, t: y },
+  ].filter(Boolean)
+  return opts.find((o) => w(o.t) <= room) || null
 }
 
 // The plants line's flag, longest first: what the plants cover (pointing back at those cells) and a key for the
