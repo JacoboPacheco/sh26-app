@@ -8,6 +8,8 @@ import HeatClock from './features/heat/HeatClock'
 import HurricaneLayer from './features/hurricane/HurricaneLayer'
 import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
+import PlantsLayer from './features/plants/PlantsLayer'
+import PlantsPanel from './features/plants/PlantsPanel'
 import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
 import CascadeFX from './shell/CascadeFX'
@@ -54,6 +56,7 @@ const MODES = [
   { id: 'hurricane', label: 'Hurricane', Panel: HurricanePanel },
   { id: 'boom', label: 'AI boom', Panel: BoomPanel },
   { id: 'fix', label: 'Fix it', Panel: FixPanel },
+  { id: 'plants', label: 'Plants', Panel: PlantsPanel },
 ]
 
 function App() {
@@ -111,6 +114,7 @@ function MissionControl({ user }) {
           <HurricaneLayer />
           <BoomLayer />
           <BestSitesLayer />
+          <PlantsLayer />
         </GridMap>
       ) : (
         <div className="mc-loading">{gridError ? <ErrorBanner error={gridError} onRetry={loadGrid} /> : <Loading label="Loading Florida's grid…" />}</div>
