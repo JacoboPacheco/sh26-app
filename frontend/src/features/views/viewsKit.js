@@ -63,16 +63,15 @@ export function useTip(boxRef) {
   return { tip, show, hide }
 }
 
-// The Overload map with a campus of a site's reported size placed at its reported point. The app shell reads
-// the query once on entry (features/app/router.js): `dc` is only added for the curated catalog's own ids.
+// The Overload map (Watch it fail) with a campus of a site's reported size placed at its reported point, in its
+// state: the main app's drop link (shell/CampusPanel useDropLink), not the old #/next shell (REVIEW-1 #8).
 export function testHref(site) {
   if (!site?.state || site.lat == null || site.lon == null || !site.mw) return null
-  const q = new URLSearchParams({ lat: Number(site.lat).toFixed(4), lon: Number(site.lon).toFixed(4), mw: String(Math.min(Math.round(site.mw), 50000)) })
-  if (site.origin === 'curated') q.set('dc', site.id)
-  return `#/next/state/${site.state}?${q.toString()}`
+  const mw = Math.min(Math.round(site.mw), 50000)
+  return `#/?at=${Number(site.lat).toFixed(4)},${Number(site.lon).toFixed(4)}&mw=${mw}${site.state !== 'FL' ? `&state=${site.state}` : ''}`
 }
 
-export const stateHref = (code) => `#/next/state/${code}`
+export const stateHref = (code) => `#/?state=${code}`
 
 // round-number ticks for a 0-based axis, ending at or past the largest value
 export function niceTicks(max, want = 4) {

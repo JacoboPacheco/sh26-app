@@ -35,9 +35,8 @@ import useAuth from './useAuth'
 // live map inside the real app state. How a feature is built and checked before it is mounted.
 // Loaded lazily, so a half-written feature only breaks its own preview, never the main app.
 const PREVIEWS = Object.fromEntries(Object.entries(import.meta.glob('./features/*/Preview.jsx')).map(([path, load]) => [path, lazy(load)]))
-// The next application shell, built in features/app/ alongside this one: #/next… renders it instead.
-const loadNext = import.meta.glob('./features/app/NextApp.jsx')['./features/app/NextApp.jsx']
-const NEXT = loadNext ? lazy(loadNext) : null
+// The old #/next… application shell (features/app/) is retired: its addresses go to the map (REVIEW-1 #8:
+// it showed different numbers for the same case). The files stay for history.
 // Build plans (Sperry GridLock): a full page with its own map at #/plans
 const PLANS = lazy(() => import('./features/gridlock/BuildPlansPage'))
 // Before the vote: look up a proposed data center, what to ask, where to speak (#/vote, #/vote/<id>)
@@ -80,6 +79,11 @@ function App() {
   // in as the seeded demo account on load, so per-user features need no login screen.
   const { user } = useAuth()
   const next = useIsNext()
+  useEffect(() => {
+    if (!next) return
+    window.history.replaceState(null, '', '#/')
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+  }, [next])
   const plans = useHashPrefix('#/plans')
   const vote = useHashPrefix('#/vote')
   const views = useHashPrefix('#/views')
@@ -118,13 +122,7 @@ function App() {
     )
   return (
     <OverloadProvider user={user}>
-      {next && NEXT ? (
-        <Suspense fallback={<Loading />}>
-          <NEXT user={user} />
-        </Suspense>
-      ) : (
-        <MissionControl />
-      )}
+      <MissionControl />
     </OverloadProvider>
   )
 }

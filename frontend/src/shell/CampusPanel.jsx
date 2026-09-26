@@ -165,8 +165,10 @@ function ExtraPoints() {
   )
 }
 
-// #/?at=26.6406,-81.8723&mw=1500 opens Watch it fail with that campus dropped: a link straight to a case (the
-// hero, for the demo and its check). Read on load and on a hash change, then the address goes back to #/.
+// #/?at=26.6406,-81.8723&mw=1500 (&state=TX outside Florida) opens Watch it fail with that campus dropped: a
+// link straight to a case (the hero, for the demo and its check). Read on load and on a hash change. The
+// campus on screen is written back into the address (replaceState: no history entry, no hashchange), so a
+// reload at the table re-drops the same campus instead of an empty map (REVIEW-1 #4).
 function useDropLink() {
   const o = useOverload()
   const latest = useRef(o)
@@ -176,12 +178,19 @@ function useDropLink() {
       const m = window.location.hash.match(/^#\/\?(.+)$/)
       if (!m) return
       const q = new URLSearchParams(m[1])
-      window.history.replaceState(null, '', '#/')
       const at = (q.get('at') || '').split(',').map(Number)
-      if (at.length !== 2 || !at.every(Number.isFinite)) return
+      const st = (q.get('state') || '').toUpperCase()
+      const { grid, region, setMw, setRegion, place, site } = latest.current
+      if (at.length !== 2 || !at.every(Number.isFinite)) {
+        // #/?state=TX alone opens that state's map (the Data page's links)
+        if (/^[A-Z]{2}$/.test(st) && st !== region) setRegion(st)
+        return
+      }
       const mw = Number(q.get('mw'))
       const size = mw >= 1 && mw <= CUSTOM_MAX ? Math.round(mw) : undefined
-      const { grid, region, setMw, setRegion, place } = latest.current
+      // the address already describes the campus on screen (written below): nothing to do
+      if (site && Math.abs(site.lat - at[0]) < 1e-4 && Math.abs(site.lon - at[1]) < 1e-4 && (!st || st === region)) return
+      if (/^[A-Z]{2}$/.test(st) && st !== region) return setRegion(st, { place: at, mw: size })
       if (grid) {
         if (size) setMw(size)
         place(at[0], at[1])
@@ -191,6 +200,17 @@ function useDropLink() {
     window.addEventListener('hashchange', read)
     return () => window.removeEventListener('hashchange', read)
   }, [])
+
+  // the campus on screen -> the address (only on the map page's own addresses: #/ and #/?…)
+  const { site, mw, region } = o
+  useEffect(() => {
+    const h = window.location.hash
+    if (!(h === '' || h === '#/' || h.startsWith('#/?'))) return
+    const want = site
+      ? `#/?at=${site.lat.toFixed(4)},${site.lon.toFixed(4)}&mw=${Math.round(mw)}${region && region !== 'FL' && region !== 'US' ? `&state=${region}` : ''}`
+      : '#/'
+    if (h !== want && !(want === '#/' && h === '')) window.history.replaceState(null, '', want)
+  }, [site, mw, region])
 }
 
 function CustomSize() {
