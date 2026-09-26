@@ -1,9 +1,9 @@
-# Project: [NAME]
+# Project: Overload
 
 You're a great engineer and this team is lucky to have you on this build — let's ship something judges remember.
 
 ## Idea
-[One paragraph: what it does, who it's for, why it's interesting to a judge in 30 seconds.]
+**Overload** — when the next AI data center plugs in, whose lights go out? A synthetic model of Florida's grid (Breakthrough Energy / Texas A&M USA test system, CC-BY 4.0; labeled synthetic on screen, never a real utility's network) glows over a dark map. The judge drags a 500 MW data center onto it: a DC power flow recomputes every line's loading, overloaded lines turn red, and the site's headroom appears. "Run the cascade" trips the worst line, redistributes flow and spreads failures step by step until the grid settles or a region goes dark, while a homes-without-power estimate climbs. A headroom heatmap answers the inverse: where can this load go? For Floridians who'd lose power and anyone deciding where the next data center goes. Judge moment: the drop turns lines red within a second, then the cascade spreads live. Kill switch: power flow validated against the dataset's own solved flows by 3:00 AM Sat, else the Texas interconnect, else the runner-up (SPEC.md → Milestone 0).
 
 ## Sponsor / company challenges to target
 [Pasted at Phase 0 — name, sponsor, their actual eligibility requirement. `/ideas` and `/spec` mark the targeted ones `← claimed`; the rest stay for a runner-up switch.] Full text + Devpost link: C:\dev\notes\SPONSORS.md. Devpost: https://shellhacks-2026.devpost.com/ (opt in per challenge or you're not judged for it).
@@ -14,21 +14,27 @@ You're a great engineer and this team is lucky to have you on this build — let
 - [ ] Blackstone — Reimagining the Investor Experience: public financial/economic data; portfolio understanding or research. $350 gift card.
 - [ ] State Farm — Auto Insurance: make auto insurance simpler for students, reduce everyday risks. Backpacks, safes.
 - [ ] INIT National — Building Together: help student builders collaborate over weeks/months. Claude subscriptions per member.
-- [ ] MLH — Best Use of Gemini API (swag kits). MLH — Best Use of ElevenLabs (earbuds). MLH — Tiger Data (Postgres-based time-series; Stream Deck Mini). MLH — DigitalOcean ($200 credits; mouse). MLH — Snowflake API (Raspberry Pi). MLH — MongoDB Atlas (M5Stack). MLH — Solana (Ledger). MLH — GoDaddy Registry best domain (gift card).
-- Best Overall (1st–3rd; creativity, execution, impact; in-person 3-min demo) — automatic. Best First-Time Hacker — needs 50% first-timers and opt-in.
+- [ ] MLH — Best Use of Gemini API (swag kits) ← claimed only if the Gemini explanation (SPEC nice-to-have 3) ships in the demo. MLH — Best Use of ElevenLabs (earbuds). MLH — Tiger Data (Postgres-based time-series; Stream Deck Mini). MLH — DigitalOcean ($200 credits; mouse). MLH — Snowflake API (Raspberry Pi). MLH — MongoDB Atlas (M5Stack). MLH — Solana (Ledger). MLH — GoDaddy Registry best domain (gift card).
+- Best Overall (1st–3rd; creativity, execution, impact; in-person 3-min demo) — automatic ← the target. Best First-Time Hacker — needs 50% first-timers and opt-in; judged separately, opt in at /ship-check if eligible (user: only if it can't cost #1).
 
 ## Stack
 FastAPI (backend; SQLite locally, Postgres on Render), React + Vite (frontend), Render + Vercel (deploy) — change only if the idea truly needs something else.
 
 ## Scope (hackathon-realistic)
 Must have (demo breaks without these — tick each in the commit that finishes it):
-- [ ]
+- [ ] M1 — drop a load (or click a saved scenario), DC power flow, overloaded lines + site headroom; saved scenarios table seeded with "Orlando · 500 MW" and "Miami · 1,500 MW"
+- [ ] M2 — cascade: trip → re-solve → spread until settled/islanded, animated steps, homes-without-power estimate
+- [ ] M3 — headroom heatmap: MW each substation can take before the first overload
 
 Nice to have (build top-down; cut bottom-up):
-- [ ]
+- [ ] 1. HIFLD hospitals "on backup power" near dark substations
+- [ ] 2. Hurricane trigger: click a line to trip it, same cascade
+- [ ] 3. Gemini plain-English cascade explanation with fallback (the one extra integration; MLH Gemini API)
+- [ ] 4. Fix it: cheapest line upgrades that clear the overload
+- [ ] 5. Optional dark basemap tiles (must work offline without them)
 
 Explicitly NOT doing:
-- [ ]
+- [ ] AC power flow / voltages / dynamics; real or real-time utility data; user-uploaded grids; markets or cost modeling; login screen; report export; native mobile layout
 
 ## Phases
 Every session starts with PLAYBOOK.md → "Knowing where we are", before anything else. When I say I'm leaving or going to sleep, reread PLAYBOOK → Away mode and follow it instead of asking. Every prompt arrives with a `Now:` line from a hook — that's the clock for every time rule; in a long turn, run `date`.
@@ -98,12 +104,26 @@ Prompts may arrive with "Budget right now: …". 5-hour past 85% or weekly past 
 - Keep rate limits ≥ 30/minute (the whole venue shares one IP).
 - A renamed column or changed type isn't migrated. Locally: ask me to close the backend window, then `rm backend/app.db`, ask me to rerun `.\dev.ps1`, then `backend/venv/Scripts/python backend/seed.py`. Deployed, only an *added* column is handled — so add a new column instead of renaming, and alone (Away mode) never rename or retype.
 - `git restore .` / `git checkout .` / `git reset --hard` are denied. To drop uncommitted work, ask me to rewind (Esc Esc) or run it myself.
+- Power flow memory: never build a dense PTDF or B′⁻¹ (~4k×4k floats and up; Render free tier is 512 MB). Factor once with `scipy.sparse.linalg.splu`, one solve per what-if, precompute only the per-bus headroom vector at startup.
+- The grid JSON is built offline by `backend/demo/build_grid.py` and committed; nothing downloads data at runtime. Credit Breakthrough Energy / Texas A&M (CC-BY 4.0) on screen.
 - [add project-specific gotchas here as you hit them]
 
 ## Decisions
 [Confirmed answers about how the app looks and behaves — layout, the wow moment, design direction, what it must never do. Append, don't rewrite — except the `RUNNER-UP`, `Facts:`, and `OVERRIDE` lines, which `/ideas` writes or replaces (a switch to the runner-up deletes `RUNNER-UP`).]
+RUNNER-UP (not built): Next Stop — click a Miami-Dade map to add a bus stop and see how many people gain a 5-minute walk to transit (public GTFS stops + Census block-group population centers); a slider to N runs a greedy maximum-coverage optimizer that places the N best new stops one by one · Judge watches: click → stop drops, blocks fill, "+2,340 people" counts up; slider → stops appear in order · Sponsors: Waymo (public data improving transit).
+Facts: team: solo · first hackathon: unknown (ASSUMED no) · phone at the table: ASSUMED yes · can print a prop: ASSUMED unknown · own sample data: no · demo shape: the screen reacts live to the judge (PREFERENCES.md) · pain: none named — chosen on Best Overall criteria alone, sponsors are a bonus (user, Fri 11:32 PM) · user wants "the maximum amount of capabilities": build ambitious, cut by the scope guard, not up front.
+Design is a differentiator: set the design direction right after milestone 1, not in Phase 4 (PREFERENCES.md; confirmed by the user's brief, Fri 11:48 PM).
+Story (user, Fri 11:48 PM): the hook is "When the next AI data center plugs in, whose lights go out?" — real people (homes, hospitals) losing power, Florida heat and hurricanes. Never "a grid simulator for planners".
+Wow moments (user, 11:48 PM): (a) a live cascade — trip, redistribute, spread until it settles or blacks out; (b) the inverse heatmap "where can this load go?"; (c) stretch: cheapest upgrades that clear the overload.
+Honesty (user, 11:48 PM): the grid is synthetic — say so on screen, credit Breakthrough Energy / Texas A&M, never claim FPL/Duke/TECO or any real network.
+Kill switch (confirmed 11:55 PM): validate DC flows vs the dataset's solved flows by 3:00 AM Sat; chain Florida cut → Texas interconnect → Next Stop (SPEC.md → Milestone 0).
+People layer (confirmed 11:55 PM): homes-without-power counter is a must-have, labeled estimate; hospitals overlay is nice-to-have 1.
+Hurricane trigger, click a line to trip it: nice-to-have 2 (confirmed 11:55 PM).
+Sponsors (user, 11:48 PM): claim nothing the demo doesn't honestly show; the Gemini explanation with fallback is the only extra; DigitalOcean not pursued (Render is the tested deploy path).
+Map: no map library — SVG with a simple projection over a committed Florida outline and ten city labels, offline-safe, dark. ASSUMED until the user sees it.
 
 ## Current status
-PHASE: 0 — repo just generated, SPEC.md doesn't exist yet
+PHASE: 2 — spec done, skeleton not started
 deployed: no
+DO FIRST: milestone 0 — `backend/demo/build_grid.py` → `florida_grid.json`, then `backend/demo/validate.py`; pass/fail rules in SPEC.md → Milestone 0; kill switch 3:00 AM Sat (K+4).
 [Line 1 is always `PHASE: n — reason`, line 2 `deployed: yes/no`; then, when they apply, one per line: `DO FIRST: …`, `BLOCKED: …`, `WAITING ON YOU: …`, `LATER: …` (Workflow and PLAYBOOK say when); then working / broken / in progress + its acceptance check.]
