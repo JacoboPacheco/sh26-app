@@ -9,6 +9,7 @@ import HurricaneLayer from './features/hurricane/HurricaneLayer'
 import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
 import PlantsLayer from './features/plants/PlantsLayer'
+import ProposalRings from './features/proposals/ProposalRings'
 import UnlockLayer from './features/unlock/UnlockLayer'
 import StrengthenPage from './features/unlock/StrengthenPage'
 import { NO_SUBS, strengthenClick, useStayOnStrengthen, useStrengthenLines } from './features/unlock/strengthenMap'
@@ -194,6 +195,8 @@ function MissionControl() {
         >
           {/* the demo's layers stay mounted (their state survives a visit to Strengthen) but hidden there */}
           <g display={strengthen ? 'none' : undefined}>
+            {/* first, so the danger zones, best sites and every other layer draw (and take clicks) above them */}
+            <ProposalRings />
             <DangerLayer />
             <CascadeFX />
             <ImpactLayer />

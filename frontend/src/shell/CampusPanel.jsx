@@ -5,6 +5,7 @@ import { fmt } from '../geo'
 import { MAX_POINTS, useOverload } from '../store'
 import { Button, ErrorBanner, Field, Loading } from '../ui'
 import DangerPanel from '../features/danger/DangerPanel'
+import { isDroppedAt, setPickedProposal, sizeOf, statusOf, useDropProposal, usePickedProposal } from '../features/proposals/proposalStore'
 import SiteReport from '../features/site/SitePanel'
 import './campus.css'
 
@@ -257,8 +258,9 @@ function CustomSize() {
 // other state lists the national catalog's entries for it (features/catalog). Each test runs on a
 // synthetic grid model: not a prediction about the real project or utility. Sources are shown as reported.
 function PlannedProposals() {
-  const { setMw, place, setMode, region, grid } = useOverload()
-  const [pickedId, setPickedId] = useState('')
+  const { region, grid, site } = useOverload()
+  const pickedId = usePickedProposal() // shared with the rings on the map (features/proposals)
+  const drop = useDropProposal()
   const [places, setPlaces] = useState({}) // state code -> its data centers (GET /api/catalog/places: nothing is computed)
   const stateName = grid?.meta?.region_name || 'this state'
   // Fetched only when a state other than Florida is opened, and only that state's list: choosing a state
@@ -281,7 +283,7 @@ function PlannedProposals() {
       .filter((e) => Number.isFinite(e.lat) && Number.isFinite(e.lon) && e.mw > 0)
       .map((e) => ({ id: e.id, name: e.name, place: e.city || e.county || stateName, mw: e.mw, status: e.status, lat: e.lat, lon: e.lon, sources: e.sources }))
   }, [region, places, stateName])
-  const picked = entries.find((e) => e.id === pickedId)
+  const picked = entries.find((e) => e.id === pickedId && isDroppedAt(site, e)) // only while that proposal is the case on the map
   const src = picked?.sources?.[0]
   if (region === 'US') return <p className="real__note">Click a state on the map, or pick one above, to see its planned data centers.</p>
   return (
@@ -292,17 +294,14 @@ function PlannedProposals() {
         value={picked ? pickedId : ''}
         onChange={(ev) => {
           const e = entries.find((x) => x.id === ev.target.value)
-          setPickedId(ev.target.value)
-          if (!e) return
-          setMode('campus')
-          setMw(Math.min(Math.round(e.mw), CUSTOM_MAX))
-          place(e.lat, e.lon)
+          if (e) drop(e)
+          else setPickedProposal('')
         }}
       >
         <option value="">{loaded ? 'Pick a planned data center…' : 'Loading…'}</option>
         {entries.map((e) => (
           <option key={e.id} value={e.id}>
-            {e.name} — {e.place}, {fmt(e.mw)} MW reported ({e.status})
+            {e.name} — {e.place}, {sizeOf(e)} reported ({statusOf(e)})
           </option>
         ))}
       </Field>
@@ -310,7 +309,7 @@ function PlannedProposals() {
       {picked && (
         <p className="real__status">
           <span className="real__meta">
-            {picked.place} · {fmt(picked.mw)} MW reported · {picked.status}
+            {picked.place} · {sizeOf(picked)} reported · {statusOf(picked)}
           </span>
           {src?.url && (
             <a className="real__src" href={src.url} target="_blank" rel="noreferrer" title={src.title}>

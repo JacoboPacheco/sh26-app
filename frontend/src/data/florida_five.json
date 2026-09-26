@@ -1,5 +1,5 @@
 {
- "note": "Real, large Florida data-center proposals at their publicly reported sizes (see sources). Each test places a campus of that size at that location on a SYNTHETIC grid model; it is not a prediction about the real project or the real utility.",
+ "note": "Real, large Florida data-center proposals at their publicly reported sizes (see sources). Each test places a campus of that size at that location on a SYNTHETIC grid model; it is not a prediction about the real project or the real utility. 'status' is the catalog's bucket (for styling and sorting); 'status_reported' is the status in the sources' own words, and is what the page shows. 'mw_reported' is the size as the source words it, when that differs from the plain number tested.",
  "entries": [
   {
    "id": "stonebridge-fort-meade",
@@ -9,6 +9,7 @@
    "lon": -81.8018,
    "mw": 1200,
    "status": "announced",
+   "status_reported": "announced",
    "sources": [
     {
      "title": "Fort Meade moves forward with controversial $2.6B data center project despite community op",
@@ -27,7 +28,10 @@
    "lat": 27.4467,
    "lon": -80.3256,
    "mw": 1000,
+   "mw_reported": "up to 1,000 MW",
+   "size_note": "phase 1: 240 MW",
    "status": "announced",
+   "status_reported": "announced",
    "sources": [
     {
      "title": "Atlas Compute Secures Land and Utilities for 240 MW AI Data Center Campus in Central Flori",
@@ -47,6 +51,7 @@
    "lon": -80.3256,
    "mw": 1000,
    "status": "paused/canceled",
+   "status_reported": "paused",
    "sources": [
     {
      "title": "Officials fail to back plans for 1GW data center campus in Florida - DCD",
@@ -66,6 +71,7 @@
    "lon": -80.37,
    "mw": 600,
    "status": "paused/canceled",
+   "status_reported": "rejected by the county",
    "sources": [
     {
      "title": "'Not compatible': Palm Beach County rejects controversial Project Tango AI data center (WL",
@@ -85,6 +91,7 @@
    "lon": -81.6879,
    "mw": 200,
    "status": "paused/canceled",
+   "status_reported": "paused",
    "sources": [
     {
      "title": "Concerns grow over proposed AI data center in Nassau County | Jacksonville Today",

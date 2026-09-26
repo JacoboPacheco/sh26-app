@@ -1,0 +1,178 @@
+/* The planned data centers on the Watch it fail map (ProposalRings.jsx): neutral ink, never the danger
+   colors — a dashed ring is the map's sign for "proposed, not built". No glow, no pulse. */
+.pr-layer {
+  animation: pr-in 0.5s ease-out both;
+}
+
+@keyframes pr-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.pr {
+  cursor: pointer;
+  transition: opacity 0.25s ease;
+}
+
+.pr-hit {
+  fill: transparent;
+  pointer-events: all;
+}
+
+.pr-ring {
+  fill: var(--night);
+  fill-opacity: 0.55;
+  stroke: var(--ink);
+  stroke-opacity: 0.9;
+  stroke-dasharray: 2 1; /* in pathLength units (24): eight dashes */
+  pointer-events: none;
+}
+
+.pr-dot {
+  fill: var(--ink);
+  pointer-events: none;
+}
+
+/* the status as reported, told apart without judging it: a proposal reported as paused or rejected is drawn quieter */
+.pr--paused .pr-ring {
+  stroke: var(--ink-2);
+}
+
+.pr--paused .pr-dot {
+  fill: var(--ink-2);
+}
+
+.pr--hover .pr-ring {
+  stroke: var(--ink);
+  stroke-opacity: 1;
+  stroke-dasharray: none;
+  fill-opacity: 0.8;
+}
+
+.pr--hover .pr-dot {
+  fill: var(--ink);
+}
+
+/* the label: a small opaque plaque so it reads over the grid; clicking it is clicking the ring */
+.pr-plaque {
+  fill: var(--night);
+  fill-opacity: 0.86;
+  stroke: var(--glass-edge);
+}
+
+.pr--hover .pr-plaque {
+  stroke: var(--border);
+}
+
+.pr-name,
+.pr-meta {
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.pr-name {
+  fill: var(--ink);
+  font-weight: 600;
+}
+
+.pr-meta {
+  fill: var(--ink-2);
+  font-weight: 400;
+}
+
+/* a case is on the map: the proposals step back (no labels) but stay clickable on the ring itself; the one
+   under the pointer comes forward */
+.pr-layer--faded .pr {
+  opacity: 0.4;
+}
+
+.pr-layer--faded .pr--active {
+  opacity: 0.75;
+}
+
+.pr-layer--faded .pr--hover {
+  opacity: 1;
+}
+
+/* the danger zones or the headroom heatmap are on: the proposals stay in view for reference (a proposal
+   next to a danger zone says something) but every click goes through to the zone or dot underneath */
+.pr-layer--inert .pr,
+.pr-layer--inert .pr-hit {
+  pointer-events: none;
+  cursor: default;
+}
+
+.pr-layer--inert .pr,
+.pr-layer--inert .pr--active {
+  opacity: 0.32;
+}
+
+/* the hover card, fixed to the viewport beside the ring (a portal into <body>) */
+.pr-tip {
+  position: fixed;
+  z-index: 60;
+  width: max-content;
+  max-width: min(290px, calc(100vw - 16px));
+  padding: 10px 12px 11px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: grid;
+  gap: 4px;
+  opacity: 0;
+}
+
+.pr-tip--ready {
+  opacity: 1;
+  transition: opacity 0.12s ease-out;
+}
+
+.pr-tip p {
+  margin: 0;
+}
+
+.pr-tip__name {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.pr-tip__meta,
+.pr-tip__src {
+  color: var(--ink-2);
+}
+
+.pr-tip__src a {
+  color: var(--current);
+  text-underline-offset: 2px;
+}
+
+.pr-tip__act {
+  margin-top: 4px !important;
+  font-weight: 600;
+}
+
+.pr-tip__fine {
+  color: var(--ink-2);
+  font-size: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-layer {
+    animation: none;
+  }
+
+  .pr,
+  .pr-tip--ready {
+    transition: none;
+  }
+}
