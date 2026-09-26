@@ -611,6 +611,9 @@ def _facts(st, pa, pb, rec, est, tl, rank, split, as_of: date) -> tuple[list[dic
     add("pair.distance_mi", f"Closest points {_num(mi)} mi apart", mi, "mi")
     add("pair.center_mi", f"Centers {_num(rec['center_distance_mi'])} mi apart (Sperry's center method)", rec["center_distance_mi"], "mi")
     add("pair.tier", f"Distance tier: {rec['tier_label']} ({gl.TIER_BY_ID[rec['tier']][5]})", rec["tier_label"])
+    station = rec.get("shared_station")
+    if station:  # gridlock's class above every distance tier: an endpoint of each project is the same substation
+        add("pair.station", f"Same station: {station['reason']}", station["name"])
     if js["status"] == "past":
         s, e = js["joint"]
         years = f"{s.year}" if s.year == e.year else f"{s.year}-{e.year}"
@@ -625,7 +628,8 @@ def _facts(st, pa, pb, rec, est, tl, rank, split, as_of: date) -> tuple[list[dic
     if rank:
         add(
             "pair.rank",
-            f"Ranked #{rank['rank']} of {rank['of']} flagged {SHORT.get(rank['a'], rank['a'])} x {SHORT.get(rank['b'], rank['b'])} pairs within {rank['max_km']:g} km",
+            f"Ranked #{rank['rank']} of {rank['of']} flagged {SHORT.get(rank['a'], rank['a'])} x {SHORT.get(rank['b'], rank['b'])} pairs within {rank['max_km']:g} km"
+            + ("; pairs whose filings work at the same substation are listed first, then by coordination score" if station else ""),
             rank["rank"],
         )
     if rec.get("sperry"):
@@ -707,7 +711,14 @@ def _template(pa, pb, rec, est, tl, rank, split, facts, extra) -> dict:
         f"{SHORT.get(p['utility'], p['utility'])}'s build window ended {_month(w[1])}" for s, p, w in (("a", pa, wa), ("b", pb, wb)) if s in extra["past_sides"]
     )
     km, mi = rec["distance_km"], rec["distance_mi"]
-    where = "cross each other" if rec["crosses"] else f"come within {_num(km)} km ({_num(mi)} mi) of each other"
+    station = rec.get("shared_station")  # same station: the filings meet at one substation (gridlock lists these first)
+    where = (
+        f"both work at {station['name']}"
+        if station
+        else "cross each other"
+        if rec["crosses"]
+        else f"come within {_num(km)} km ({_num(mi)} mi) of each other"
+    )
     if joint and status == "past":
         when = f"as filed, their build windows were both open from {_month(joint[0])} to {_month(joint[1])} ({tl['windows_overlap_months']:g} months), a period that has passed"
     elif joint and status == "open":
@@ -729,7 +740,7 @@ def _template(pa, pb, rec, est, tl, rank, split, facts, extra) -> dict:
         f"({', '.join(x for x in (kb, KIND_WORDS.get(pb.get('kind'))) if x)}) {where}, and {when}. "
         f"{share} "
         f"The rough estimate of what that could save is {total}.",
-        "a.project", k("a.kv"), "b.project", k("b.kv"), "pair.distance", k("pair.distance_mi"), k("pair.joint_window"), k("pair.overlap_months"),
+        "a.project", k("a.kv"), "b.project", k("b.kv"), k("pair.station"), "pair.distance", k("pair.distance_mi"), k("pair.joint_window"), k("pair.overlap_months"),
         k("pair.months_left"), k("pair.window_gap"), "pair.share", "save.total",
     )
     scope = [
@@ -768,7 +779,17 @@ def _template(pa, pb, rec, est, tl, rank, split, facts, extra) -> dict:
             "a.confidence", "b.confidence",
         ),
     ]
-    if rank:
+    if station:
+        why.insert(0, _it(f"{station['reason']}.", "pair.station"))
+    if rank and station:
+        why.append(
+            _it(
+                f"Ranked #{rank['rank']} of {rank['of']} flagged {A} x {B} pairs within {rank['max_km']:g} km: pairs whose filings work at the same "
+                f"substation are listed first, then by coordination score (this pair's is {rec['score']:g} out of 100).",
+                "pair.rank", "pair.station", "pair.score",
+            )
+        )
+    elif rank:
         why.append(_it(f"Ranked #{rank['rank']} of {rank['of']} flagged {A} x {B} pairs within {rank['max_km']:g} km (coordination score {rec['score']:g} out of 100).", "pair.rank", "pair.score"))
     if rec.get("sperry"):
         why.append(_it(f"One of the six overlaps in Sperry's worked example ({rec['sperry']}), found here from the raw filings.", "pair.sperry"))
@@ -993,7 +1014,10 @@ def _prompt(facts: list[dict], pa: dict, pb: dict, rec: dict, lang: str, tpl: di
     return (
         f"Today (as_of): {as_of}. {timing}\n"
         f"Utility A: {a_name}, project {pa['id']}. Utility B: {b_name}, project {pb['id']}.\n"
-        f"Overlap tier: {rec['tier_label']}.\n\nFACTS (key: text):\n{lines}\n\n"
+        f"Overlap tier: {rec['tier_label']}.\n"
+        # a same-station pair only (other pairs' prompts, and so their cached drafts, are unchanged)
+        + ("Both filings work at the same substation (pair.station): give that first in summary and why, as filed; it is why this comparison ranks the pair ahead of pairs that are only near each other (pair.rank).\n" if rec.get("shared_station") else "")
+        + f"\nFACTS (key: text):\n{lines}\n\n"
         f"Write the draft in {language} as JSON with these fields, each item {{\"text\", \"facts\": [keys]}}:\n"
         "- summary: 2-3 sentences: the two projects, why they overlap (distance, timing), what they could share and the savings range.\n"
         "- scope: 2-5 items: what the two projects could share (use the pair.share, pair.tier and save.* facts).\n"

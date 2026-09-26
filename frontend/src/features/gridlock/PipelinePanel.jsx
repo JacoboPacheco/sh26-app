@@ -124,7 +124,12 @@ function SperryPairLink({ ours }) {
   const o = g.overlaps.find((x) => x.id === ours.id)
   if (!o) return `#${ours.rank}`
   return (
-    <button type="button" className="gl-link" onClick={() => g.openOverlap(o)} title={`${ours.tier_label}, ${ours.distance_km} km`}>
+    <button
+      type="button"
+      className="gl-link"
+      onClick={() => g.openOverlap(o)}
+      title={ours.shared_station ? `Same station: ${ours.shared_station}` : `${ours.tier_label}, ${ours.distance_km} km`}
+    >
       #{ours.rank}
     </button>
   )

@@ -40,6 +40,18 @@ Score (0-100) = distance factor (tier weight, sliding down within the tier) x ti
 confidence (the weaker of the two: high 1, medium .8, low .5) x 1.1 when both are line work at the
 same kV class. Every overlap carries its reasons in plain words.
 
+Same station (a class ranked ABOVE every distance tier). When an endpoint of one project and an endpoint
+of the other are the same substation, the two utilities physically meet there (a tie line, a shared
+station), so the pair is listed first whatever its score: the sort key is (same station first, then score).
+The score itself is unchanged and still orders pairs inside each class. How a shared station is found:
+  osm_feature      both endpoints resolve to the same OpenStreetMap feature (type + id). An endpoint the
+                   pipeline placed by proxy (no OSM substation carries its name, so the nearest unnamed one
+                   stands in) counts only when the two filed names also agree.
+  name_within_1km  only when an endpoint has no OSM id (Sperry's worked example): the same station name once
+                   qualifiers and generic words are dropped ('THURMOND DAM #5' ~ 'Thurmond Sub'), within 1 km.
+The pair's `tier` stays its distance tier (other modules read it); `class` / `class_label` say "same_station"
+and `shared_station` names the station, its OSM link and which endpoint of each project it is.
+
 Honesty rules (CLAUDE.md -> Decisions): real public filings; never say whether utilities are or
 aren't coordinating ("could coordinate"); estimates are low-high ranges with their basis, sources
 and assumptions, never a single falsely precise number.
@@ -112,6 +124,21 @@ CONF_RANK = {"high": 3, "medium": 2, "low": 1}
 KV_CLASSES = (46, 69, 115, 138, 161, 230, 345, 500)
 LINE_KINDS = {"new_line", "line_rebuild", "reconductor", "tap"}
 SAME_KV_BONUS = 1.1
+SAME_STATION = ("same_station", "Same station", "both filings work at the same substation")
+SAME_STATION_NAME_KM = 1.0  # the name rule's radius, used only when an endpoint has no OSM id
+# short names for the reason lines (agreement.py's SHORT, kept here so gridlock doesn't import it)
+UTILITY_SHORT = {"DESC": "DESC", "GPC": "Georgia Power", "GTC": "GTC", "MEAG": "MEAG Power", "DU": "Dalton Utilities"}
+# words that don't tell two stations apart, dropped at either end of a name (the pipeline's locate.GENERIC)
+_STATION_GENERIC = sorted(
+    [
+        "COMBINED CYCLE FACILITY", "ENERGY FACILITY", "ENERGY CENTER", "ELECTRIC GENERATING PLANT", "GENERATING PLANT",
+        "GENERATING STATION", "POWER PLANT", "POWER STATION", "STEAM PLANT", "NUCLEAR PLANT", "NUCLEAR STATION",
+        "HYDROELECTRIC STATION", "HYDROELECTRIC PLANT", "HYDROELECTRIC", "HYDRO", "PLANT", "STATION", "DAM", "TIE",
+        "TAP", "SWITCHING", "PRIMARY", "NEW", "TRANSMISSION", "DISTRIBUTION", "SUBSTATION", "GEORGIA", "SOUTH CAROLINA",
+    ],
+    key=len,
+    reverse=True,
+)
 
 _lock = threading.Lock()
 _current: dict = {"key": None}  # replaced whole on reload, so a request mid-reload keeps a consistent view
@@ -390,6 +417,7 @@ def _load() -> dict:
             "center_km": center_km,
             "center_mi": center_mi,
             "kv": [_kv_classes(p.get("kv")) for p in placed],
+            "stations": [_stations_of(p) for p in placed],
             "line": np.array([p.get("kind") in LINE_KINDS for p in placed], dtype=bool),
             "cache": {},
             "basemap": None,
@@ -576,6 +604,172 @@ def _length_within(ga, gb, within_km: float, samples: int = 80, max_angle: float
     return total * near / max(count, 1)
 
 
+# ----------------------------------------------------------------------------- same station
+
+
+def station_core(name) -> str:
+    """A station name reduced to what tells it apart: qualifiers ('(USA)', '#5'), punctuation and 'Sub' dropped,
+    'Pri' spelled out, generic words (Dam, Primary, Plant, ...) removed at either end. 'THURMOND DAM (USA) #5',
+    'Thurmond Dam' and 'Thurmond Sub' all give 'THURMOND'."""
+    s = re.sub(r"\([^)]*\)|#\s*\d+\w*", " ", str(name or "")).upper()
+    s = re.sub(r"[.'’]", "", s)
+    s = re.sub(r"\b(SUBSTATION|SUB|SWITCHING STATION|SWITCHYARD)\b", " ", s)
+    s = re.sub(r"\bPRI\b", "PRIMARY", s)
+    s = re.sub(r"\bFT\b", "FORT", s)
+    s = re.sub(r"\bMT\b", "MOUNT", s)
+    s = re.sub(r"[^A-Z0-9 ]", " ", s)
+    s = re.sub(r"BOROUGH\b", "BORO", re.sub(r"\s+", " ", s).strip())
+    s = f" {s} "
+    changed = True
+    while changed:
+        changed = False
+        for g in _STATION_GENERIC:
+            for pat in (rf"^ {g} ", rf" {g} $"):
+                t = re.sub(pat, " ", s)
+                if t != s and t.strip():
+                    s, changed = t, True
+    return s.strip()
+
+
+def _station_display(name) -> str:
+    """A filed station name for a sentence: qualifiers and a trailing 'Sub' dropped, capitals title-cased
+    ('THURMOND DAM #5' -> 'Thurmond Dam', 'Thurmond Sub' -> 'Thurmond')."""
+    s = re.sub(r"\([^)]*\)|#\s*\d+\w*", " ", str(name or ""))
+    s = re.sub(r"\s+(sub|substation)\s*$", "", re.sub(r"\s+", " ", s).strip(), flags=re.I)
+    return s.title() if s.isupper() else s
+
+
+def _stations_of(p: dict) -> list[dict]:
+    """The project's located endpoints as stations: which endpoint, the filed name, the OSM feature (if any) and
+    whether the pipeline placed it by proxy (no OSM substation carries its name; a nearby one stands in)."""
+    out = []
+    for k, e in enumerate(p.get("endpoints") or []):
+        if not isinstance(e, dict) or e.get("lat") is None or e.get("lon") is None:
+            continue
+        osm = e.get("osm") if isinstance(e.get("osm"), dict) else {}
+        key = f"{osm['type']}/{osm['id']}" if osm.get("type") and osm.get("id") is not None else None
+        url = osm.get("url") or (f"https://www.openstreetmap.org/{key}" if key else None)
+        out.append(
+            {
+                "index": k,
+                "name": e.get("name") or e.get("raw"),
+                "core": station_core(e.get("name") or e.get("raw")),
+                "lat": float(e["lat"]),
+                "lon": float(e["lon"]),
+                "osm_key": key,
+                "osm_url": url,
+                "osm_name": osm.get("name"),
+                "proxy": str(e.get("match") or "").startswith("no OSM substation is named"),
+                "confidence": e.get("confidence"),
+            }
+        )
+    return out
+
+
+def _km_between(a: dict, b: dict) -> float:
+    return _haversine_mi((a["lat"], a["lon"]), (b["lat"], b["lon"])) * KM_PER_MI
+
+
+def _shared_stations(sa: list[dict], sb: list[dict]) -> list[dict]:
+    """Every station an endpoint of project a shares with an endpoint of project b (see the module docstring)."""
+    out, seen = [], set()
+    for ea in sa:
+        for eb in sb:
+            names_agree = bool(ea["core"]) and ea["core"] == eb["core"]
+            if ea["osm_key"] and eb["osm_key"]:
+                if ea["osm_key"] != eb["osm_key"] or ((ea["proxy"] or eb["proxy"]) and not names_agree):
+                    continue
+                rule = "osm_feature"
+            elif names_agree and _km_between(ea, eb) <= SAME_STATION_NAME_KM:
+                rule = "name_within_1km"
+            else:
+                continue
+            key = ea["osm_key"] if rule == "osm_feature" else f"name:{ea['core']}"
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"a": ea, "b": eb, "rule": rule})
+    return out
+
+
+def _months_apart(d1: date, d2: date) -> int:
+    return round(abs((d2 - d1).days) / 30.4375)
+
+
+def _years_months(months: int) -> str:
+    """'8 years 5 months', '11 months', '2 years'."""
+    y, m = divmod(months, 12)
+    parts = ([f"{y} year{'s' if y != 1 else ''}"] if y else []) + ([f"{m} month{'s' if m != 1 else ''}"] if m else [])
+    return " ".join(parts)
+
+
+def _shared_station_record(pa: dict, pb: dict, hits: list[dict]) -> dict:
+    """The pair's shared station in the overlap's shape, with its neutral reason (as filed, never 'should')."""
+    h = hits[0]
+    ea, eb = h["a"], h["b"]
+    # the fuller of the two filed names ('Thurmond Dam' over 'Thurmond', 'Bonaire Primary' over 'Bonaire Pri')
+    name = max((_station_display(ea["name"]), _station_display(eb["name"])), key=len) or ea["osm_name"] or "the same substation"
+    ua, ub = UTILITY_SHORT.get(pa["utility"], pa["utility"]), UTILITY_SHORT.get(pb["utility"], pb["utility"])
+    da, db = _date(pa.get("in_service")), _date(pb.get("in_service"))
+    months = _months_apart(da, db) if da and db else None
+    if da and db:
+        if months == 0:
+            when = (
+                f"both in service {da:%b %Y}"
+                if (da.year, da.month) == (db.year, db.month)
+                else f"in service less than a month apart ({da:%b %Y} and {db:%b %Y})"
+            )
+        elif da.year == db.year:
+            when = f"both in service in {da.year}, {_years_months(months)} apart"
+        else:
+            when = f"{ua}'s in service in {da.year}, {ub}'s in {db.year} — {_years_months(months)} apart"
+        reason = f"As filed, both projects work at {name}: {when}"
+    else:
+        known = [f"{u}'s in service in {d.year}" for u, d in ((ua, da), (ub, db)) if d]
+        missing = [u for u, d in ((ua, da), (ub, db)) if not d]
+        reason = f"As filed, both projects work at {name}" + (f": {known[0]}" if known else "") + (
+            f"; {' and '.join(missing)}'s filing gives no in-service date" if missing else ""
+        )
+    # a stand-in: no OSM substation carries the filed name, so the pipeline placed that endpoint at the nearest
+    # substation OpenStreetMap maps there (often unnamed); the link then points at the stand-in, not a named station
+    proxies = int(ea["proxy"]) + int(eb["proxy"])
+    stand_in = h["rule"] == "osm_feature" and proxies > 0
+    if h["rule"] == "osm_feature":
+        osm_what = f"{ea['osm_name']} ({ea['osm_key'].replace('/', ' ')})" if ea["osm_name"] else f"OpenStreetMap {ea['osm_key'].replace('/', ' ')}"
+        how = f"Same OpenStreetMap substation: {ua}'s '{ea['name']}' and {ub}'s '{eb['name']}' both resolve to {osm_what}" + (
+            (
+                "; no OpenStreetMap substation carries that name, so on both sides the nearest one stands in"
+                if proxies == 2
+                else "; on one side no OpenStreetMap substation carries the filed name, so the nearest one stands in"
+            )
+            + ", and the filed names were checked too"
+            if stand_in
+            else ""
+        )
+    else:
+        how = (
+            f"Same station by name: {ua}'s '{ea['name']}' and {ub}'s '{eb['name']}' are one name once qualifiers and "
+            f"generic words are dropped, {_km_between(ea, eb):.2f} km apart (no OpenStreetMap id on at least one side)"
+        )
+    return {
+        "name": name,
+        "osm_url": ea["osm_url"] if h["rule"] == "osm_feature" else (ea["osm_url"] or eb["osm_url"]),
+        "osm_name": ea["osm_name"] or eb["osm_name"],
+        "stand_in": stand_in,  # the OSM feature stands in for the filed name (the link's text must say so)
+        "lat": round((ea["lat"] + eb["lat"]) / 2, 6),
+        "lon": round((ea["lon"] + eb["lon"]) / 2, 6),
+        "a_end": {"index": ea["index"], "name": ea["name"], "confidence": ea["confidence"]},
+        "b_end": {"index": eb["index"], "name": eb["name"], "confidence": eb["confidence"]},
+        "rule": h["rule"],
+        "a_in_service": da.isoformat() if da else None,
+        "b_in_service": db.isoformat() if db else None,
+        "months_apart": months,
+        "reason": reason,
+        "how": how,
+        "also": [x["a"]["name"] for x in hits[1:]],  # a pair can share both ends (two lines between the same stations)
+    }
+
+
 # ----------------------------------------------------------------------------- tiers, timeline, score
 
 
@@ -733,8 +927,16 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
     shared_kv = st["kv"][i] & st["kv"][j]
     kf = SAME_KV_BONUS if (st["line"][i] and st["line"][j] and shared_kv) else 1.0
     score = round(100 * df * tl["factor"] * cf * kf, 1)
+    hits = _shared_stations(st["stations"][i], st["stations"][j])
+    station = _shared_station_record(pa, pb, hits) if hits else None
 
-    reasons = [
+    reasons = []
+    if station:
+        reasons += [
+            f"{SAME_STATION[1]}: {station['reason']}",
+            station["how"],
+        ]
+    reasons += [
         (
             "The two projects cross" if crosses else f"Closest points {km:.2f} km ({km / KM_PER_MI:.2f} mi) apart"
         )
@@ -757,7 +959,9 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
     reasons.append(
         f"Score {score:g} = distance {df:.2f} ({'closest points' if method == 'closest' else 'centers'})"
         f" x timeline {tl['factor']:g} x location {cf:g}" + (f" x same kV {SAME_KV_BONUS:g}" if kf > 1 else "")
+        + ("; same-station pairs are listed before every distance tier, then by score" if station else "")
     )
+    cls = SAME_STATION if station else (tier, label, what)
     return {
         "id": f"{pa['id']}~{pb['id']}",
         "a": pa["id"],
@@ -771,6 +975,11 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
         "crosses": crosses,
         "tier": tier,
         "tier_label": label,
+        # the ranking class: "same_station" (listed first) or the distance tier
+        "class": cls[0],
+        "class_label": cls[1],
+        "class_what": cls[2],
+        "shared_station": station,
         "closest_points": [cpa, cpb],
         "time_gap_days": tl["time_gap_days"],
         "windows_overlap_months": tl["windows_overlap_months"],
@@ -778,7 +987,7 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
         "same_window": tl["same_window"],
         "ahead": tl["ahead"],
         "score": score,
-        "score_parts": {"distance": round(df, 3), "timeline": tl["factor"], "location": cf, "same_kv": kf},
+        "score_parts": {"distance": round(df, 3), "timeline": tl["factor"], "location": cf, "same_kv": kf, "same_station": bool(station)},
         "share": _share_line(tier, tl),
         "sperry": sperry,
         "reasons": reasons,
@@ -822,6 +1031,11 @@ def _params(max_km: float, window_months: int, method: str, a: str, b: str) -> d
     return {"max_km": max_km, "window_months": window_months, "method": method, "a": ca, "b": cb}
 
 
+def rank_key(r: dict):
+    """The default order: same-station pairs before every distance tier, then score, then distance."""
+    return (0 if r.get("shared_station") else 1, -r["score"], r["distance_km"], r["id"])
+
+
 def _compute(st: dict, prm: dict) -> dict:
     """Every flagged pair, ranked (cached per data version and parameters)."""
     key = (prm["max_km"], prm["window_months"], prm["method"], tuple(prm["a"]), tuple(prm["b"]))
@@ -849,7 +1063,7 @@ def _compute(st: dict, prm: dict) -> dict:
         elif not a_ok:
             i, j = j, i
         rows.append(_overlap_record(st, i, j, prm["window_months"], prm["method"]))
-    rows.sort(key=lambda r: (-r["score"], r["distance_km"], r["id"]))
+    rows.sort(key=rank_key)
     for k, r in enumerate(rows, 1):
         r["rank"] = k
     result = {"total_pairs": total_pairs, "overlaps": rows}
@@ -1327,7 +1541,11 @@ def project_detail(project_id: str):
     flagged = [o for o in _compute(st, prm)["overlaps"] if project_id in (o["a"], o["b"])]
     return {
         "project": p,
-        "overlaps": [{k: o[k] for k in ("id", "a", "b", "distance_km", "tier", "tier_label", "score")} for o in flagged[:50]],
+        "overlaps": [
+            {k: o[k] for k in ("id", "a", "b", "distance_km", "tier", "tier_label", "class", "class_label", "score")}
+            | {"shared_station": o["shared_station"]["name"] if o["shared_station"] else None}
+            for o in flagged[:50]
+        ],
     }
 
 
@@ -1383,6 +1601,13 @@ def overlaps(
         "flagged": len(rows),
         "by_tier": tiers,
         "tiers": [{"id": t[0], "label": t[4], "under_km": t[1], "what": t[5]} for t in TIERS],
+        # the class listed above every tier: pairs whose filings work at the same substation
+        "same_station": {
+            "id": SAME_STATION[0], "label": SAME_STATION[1], "what": SAME_STATION[2],
+            "count": sum(1 for r in rows if r["shared_station"]),
+            "stations": sorted({r["shared_station"]["name"] for r in rows if r["shared_station"]}),
+            "rule": "listed before every distance tier, then by score",
+        },
         "window_rule": (
             f"A project's build window is the one its filing supports (a filed start date, or DESC's yearly spending); "
             f"for the {n_assumed} of {len(in_play)} projects here without one, the {window_months} months before in-service"
@@ -1439,7 +1664,9 @@ def sperry_check_route():
         pair = ids.get(r["overlap_id"])
         o = by_pair.get(pair) if pair else None
         r["ours"] = (
-            {"id": o["id"], "rank": o["rank"], "distance_km": o["distance_km"], "tier": o["tier"], "tier_label": o["tier_label"], "score": o["score"]}
+            {"id": o["id"], "rank": o["rank"], "distance_km": o["distance_km"], "tier": o["tier"], "tier_label": o["tier_label"],
+             "class": o["class"], "class_label": o["class_label"], "score": o["score"],
+             "shared_station": o["shared_station"]["name"] if o["shared_station"] else None}
             if o
             else ({"id": "~".join(sorted(pair)), "rank": None} if pair else None)
         )
@@ -1583,7 +1810,8 @@ def _project_table(st: dict, overlaps: list[dict], chosen: set, months: int) -> 
 
 def _overlap_table(st: dict, overlaps: list[dict], method: str) -> tuple[list[tuple], list[list]]:
     extra = [
-        "rank", "pair_id", "closest_points_km", "closest_points_mi", "center_distance_mi", "crosses", "tier", "tier_label", "score",
+        "rank", "pair_id", "closest_points_km", "closest_points_mi", "center_distance_mi", "crosses", "tier", "tier_label",
+        "same_station", "same_station_osm", "score",
         "windows_overlap_months", "window_gap_days", "shared_window", "in_service_a", "in_service_b", "confidence_a",
         "confidence_b", "could_share", "in_sperry_example", "why",
     ]
@@ -1597,7 +1825,9 @@ def _overlap_table(st: dict, overlaps: list[dict], method: str) -> tuple[list[tu
             pa.get("utility_name") or o["a_utility"], o["a"], pa.get("name"),
             pb.get("utility_name") or o["b_utility"], o["b"], pb.get("name"),
             o["rank"], o["id"], _round(o["distance_km"], 3), _round(o["distance_mi"], 2), _round(o["center_distance_mi"], 2),
-            _yn(o.get("crosses")), o["tier"], o["tier_label"], o["score"], o.get("windows_overlap_months"), o.get("window_gap_days"),
+            _yn(o.get("crosses")), o["tier"], o["tier_label"],
+            (o.get("shared_station") or {}).get("name"), (o.get("shared_station") or {}).get("osm_url"),
+            o["score"], o.get("windows_overlap_months"), o.get("window_gap_days"),
             _shared_window(o), _date(pa.get("in_service")), _date(pb.get("in_service")),
             pa.get("confidence"), pb.get("confidence"), o.get("share"),
             f"Sperry {o['sperry']}" if o.get("sperry") else None,  # their numbering, not this sheet's overlap_id
@@ -1673,6 +1903,8 @@ def _about_rows(st: dict, prm: dict, t: dict) -> list[tuple[str, str]]:
         ("shared_window", "for pairs whose build windows overlap (windows_overlap_months > 0): whether that shared period is still "
                           f"ahead, open now, or ended before today as filed; '{NO_SHARED_WINDOW}' when the windows don't overlap "
                           "(window_gap_days says how far apart); blank when a project has no in-service date"),
+        ("same_station", "the substation both projects work at, when an endpoint of each resolves to the same OpenStreetMap "
+                         "feature (same_station_osm links it); these pairs are ranked before every distance tier, then by score"),
         ("in_sperry_example", "for the six pairs in Sperry's worked example, their own id for the pair (e.g. 'Sperry OVL_1'); "
                               "their numbering, not this sheet's overlap_id, which follows our rank"),
     ]

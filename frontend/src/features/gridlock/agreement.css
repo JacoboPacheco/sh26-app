@@ -323,6 +323,38 @@
   gap: 16px;
 }
 
+/* a same-station pair: the plain sentence first, a hairline rule on its left */
+.gl-ovstation {
+  display: grid;
+  gap: 4px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--gl-ring);
+}
+
+.gl-ovstation__line {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+
+.gl-ovstation__line strong {
+  font-weight: 650;
+}
+
+.gl-ovstation__why {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.gl-ovstation__why a {
+  color: var(--ink);
+  text-underline-offset: 2px;
+}
+
 .gl-pair2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 56px minmax(0, 1fr);

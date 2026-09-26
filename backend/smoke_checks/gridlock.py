@@ -134,8 +134,9 @@ def register(ctx):
         assert rows, "no overlaps at the default parameters"
         assert o["flagged"] >= len(rows) and o["total_pairs"] >= o["flagged"], (o["total_pairs"], o["flagged"], len(rows))
         assert [r["rank"] for r in rows] == list(range(1, len(rows) + 1)), "ranks are not 1..n"
-        scores = [r["score"] for r in rows]
-        assert scores == sorted(scores, reverse=True), "not ranked by score"
+        # same-station pairs first (a class above every distance tier), then by score
+        order = [(0 if r.get("shared_station") else 1, -r["score"]) for r in rows]
+        assert order == sorted(order), "not ranked same station first, then by score"
         projects = state["projects"]
         for r in rows:
             pa, pb = projects[r["a"]], projects[r["b"]]
@@ -156,7 +157,67 @@ def register(ctx):
                 assert d >= 8, f"{r['id']}: crews at {d} km"
             assert len(r["closest_points"]) == 2 and all(len(pt) == 2 for pt in r["closest_points"]), r["closest_points"]
             assert r["reasons"] and 0 < r["score"] <= 110, f"{r['id']}: score {r['score']} / reasons {r['reasons']}"
+            want = ("same_station", "Same station") if r.get("shared_station") else (t, r["tier_label"])
+            assert (r["class"], r["class_label"]) == want, f"{r['id']}: class {r['class']!r} / {r['class_label']!r}"
         state["top"] = rows[0]
+
+    def same_station():
+        # DESC's Hooks - Thurmond 115 kV tie rebuild and Georgia Power's Evans Primary - Thurmond Dam 115 kV rebuilds end at
+        # the same substation (one OpenStreetMap feature in both filings): flagged as the same station, ranked first
+        o = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")
+        rows, projects = o["overlaps"], state["projects"]
+        ss = [r for r in rows if r.get("shared_station")]
+        assert ss, "no same-station pair at the defaults (DESC's Thurmond tie x Georgia Power's Evans Primary - Thurmond Dam)"
+        assert o["same_station"]["count"] == len(ss) and o["same_station"]["label"] == "Same station", o["same_station"]
+        others = [r["rank"] for r in rows if not r.get("shared_station")]
+        assert not others or max(r["rank"] for r in ss) < min(others), "a same-station pair ranks below a distance-tier pair"
+        thurmond = [r for r in ss if "THURMOND" in r["shared_station"]["name"].upper()]
+        assert thurmond and any(projects[r["a"]]["utility"] == "DESC" and projects[r["b"]]["utility"] == "GPC" for r in thurmond), (
+            f"Thurmond Dam isn't a DESC x Georgia Power same-station pair: {[r['id'] for r in ss]}"
+        )
+        for r in ss:
+            s = r["shared_station"]
+            pa, pb = projects[r["a"]], projects[r["b"]]
+            ea, eb = pa["endpoints"][s["a_end"]["index"]], pb["endpoints"][s["b_end"]["index"]]
+            if s["rule"] == "osm_feature":  # the same asset in both filings: one OpenStreetMap feature
+                assert s["osm_url"] and s["osm_url"].startswith("https://www.openstreetmap.org/"), s
+                assert (ea.get("osm") or {}).get("url") == (eb.get("osm") or {}).get("url") == s["osm_url"], (r["id"], ea.get("osm"), eb.get("osm"))
+            else:
+                assert s["rule"] == "name_within_1km" and not ((ea.get("osm") or {}).get("url") and (eb.get("osm") or {}).get("url")), s
+            # the reason states both in-service years as filed, and sits in the pair's reasons
+            reason = s["reason"]
+            assert reason.startswith("As filed, both projects work at ") and s["name"] in reason, reason
+            for p in (pa, pb):
+                if p.get("in_service"):
+                    assert p["in_service"][:4] in reason, f"{r['id']}: {p['id']}'s in-service year {p['in_service'][:4]} missing: {reason}"
+            assert any(reason in x for x in r["reasons"]), r["reasons"]
+            # a stand-in (no OSM substation carries the filed name) is said as one, so the link isn't read as that station
+            proxied = [e for e in (ea, eb) if str(e.get("match") or "").startswith("no OSM substation is named")]
+            assert s["stand_in"] is (s["rule"] == "osm_feature" and bool(proxied)), (r["id"], s["stand_in"], len(proxied))
+            assert not s["stand_in"] or ("stands in" in s["how"] and ("both sides" in s["how"]) == (len(proxied) == 2)), s["how"]
+        t = thurmond[0]["shared_station"]
+        assert "2024" in t["reason"] and "2033" in t["reason"] and t["months_apart"] and t["months_apart"] > 96, t
+        # Georgia Power x GTC: Adamsville and Echeconnee are placed by proxy on both sides (no OSM substation carries
+        # either name), so they are stand-ins and say so
+        g = ctx.request("GET", "/api/gridlock/overlaps?a=GPC&b=GTC&limit=2000")["overlaps"]
+        stand = [r for r in g if (r.get("shared_station") or {}).get("stand_in")]
+        assert stand, "no stand-in same-station pair for Georgia Power x GTC (Adamsville, Echeconnee)"
+        for r in stand:
+            s = r["shared_station"]
+            n = sum(str(projects[pid]["endpoints"][s[f"{side}_end"]["index"]].get("match") or "").startswith("no OSM substation is named")
+                    for pid, side in ((r["a"], "a"), (r["b"], "b")))
+            assert n and "stands in" in s["how"] and ("both sides" in s["how"]) == (n == 2), (r["id"], n, s["how"])
+        # the other way round: every flagged pair whose endpoints name one OSM feature directly is flagged
+        for r in rows:
+            pa, pb = projects[r["a"]], projects[r["b"]]
+
+            def direct(p):
+                return {(e.get("osm") or {}).get("url") for e in p.get("endpoints") or []
+                        if e and e.get("lat") is not None and (e.get("osm") or {}).get("url")
+                        and not str(e.get("match") or "").startswith("no OSM substation is named")}
+
+            if direct(pa) & direct(pb):
+                assert r.get("shared_station"), f"{r['id']} shares an OSM substation but isn't flagged same station"
 
     def overlaps_center_method():
         o = ctx.request("GET", "/api/gridlock/overlaps?method=center&max_km=40.2336")
@@ -279,8 +340,11 @@ def register(ctx):
         assert p[0][: len(SPERRY_PROJECT_COLS)] == SPERRY_PROJECT_COLS, f"projects header: {p[0][:17]}"
         assert o[0][: len(SPERRY_OVERLAP_COLS)] == SPERRY_OVERLAP_COLS, f"overlaps header: {o[0][:9]}"
         assert len(p) - 1 == len(state["projects"]), f"{len(p) - 1} project rows, {len(state['projects'])} projects"
-        flagged = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")["flagged"]
+        ov = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")
+        flagged = ov["flagged"]
         assert len(o) - 1 == flagged, f"{len(o) - 1} overlap rows, {flagged} flagged at the defaults"
+        filled = [r for r in o[1:] if o[0].index("same_station") < len(r) and r[o[0].index("same_station")]]
+        assert len(filled) == ov["same_station"]["count"], f"{len(filled)} same_station cells, {ov['same_station']['count']} same-station pairs"
         h = p[0]
         for row in p[1:]:
             assert row[h.index("project_id")] in state["projects"], row[0]
@@ -329,6 +393,8 @@ def register(ctx):
     ctx.check("gridlock: summary has sources, DESC + Georgia counts, and the pipeline report", summary_shape)
     ctx.check("gridlock: projects cover DESC and a Georgia utility, placed inside SC/GA, quarantine has reasons", projects_both_sides)
     ctx.check("gridlock: default overlaps are ranked cross-utility pairs with tiers matching their distances", overlaps_default)
+    ctx.check("gridlock: the Thurmond Dam pair (one OSM substation in both filings) is flagged same station, ranked above every "
+              "distance-tier pair, its reason giving both in-service years as filed", same_station)
     ctx.check("gridlock: center method stays under 25 mi; a tighter threshold stays tighter", overlaps_center_method)
     ctx.check("gridlock: bad max_km / window / method / utilities / limits are 422s", param_validation)
     ctx.check("gridlock: opportunities inline both projects and say what they could share", opportunities)

@@ -229,6 +229,55 @@ export function whenOf(o, lang = 'en') {
   return { status: 'unknown', tone: 'past', row: t.unknown, short: t.unknown, months: null }
 }
 
+// Same station: the engine's class above every distance tier (an endpoint of each project is the same substation,
+// one OpenStreetMap feature in both filings). o.shared_station = {name, osm_url, osm_name, lat, lon, a_end, b_end,
+// a_in_service, b_in_service, months_apart, reason, how}. The English sentence is the engine's own reason.
+export const SAME_STATION = {
+  en: { label: 'Same station', tag: (n) => `Same station: ${n}`, sub: 'same station in both filings' },
+  es: { label: 'Misma subestación', tag: (n) => `Misma subestación: ${n}`, sub: 'misma subestación en ambos documentos' },
+}
+function yearsMonths(months, lang) {
+  const y = Math.floor(months / 12)
+  const m = months % 12
+  const es = lang === 'es'
+  const ys = y ? (es ? `${y} año${y === 1 ? '' : 's'}` : `${y} year${y === 1 ? '' : 's'}`) : ''
+  const ms = m ? (es ? `${m} mes${m === 1 ? '' : 'es'}` : `${m} month${m === 1 ? '' : 's'}`) : ''
+  return [ys, ms].filter(Boolean).join(es ? ' y ' : ' ')
+}
+// {lead, rest}: "As filed, both projects work at Thurmond Dam" + ": DESC's in service in 2024, Georgia Power's in 2033 — …"
+export function stationSentence(o, lang = 'en') {
+  const s = o?.shared_station
+  if (!s) return null
+  const ya = s.a_in_service?.slice(0, 4)
+  const yb = s.b_in_service?.slice(0, 4)
+  if (lang === 'es') {
+    // the engine's reason in Spanish, every case it has: years apart, the same month, under a month, a missing date
+    const ua = utilityShort(o.a_utility)
+    const ub = utilityShort(o.b_utility)
+    let rest = ''
+    if (ya && yb && s.months_apart) {
+      const gap = yearsMonths(s.months_apart, 'es')
+      rest = ya === yb ? `: ambos entran en servicio en ${ya}, con ${gap} de diferencia` : `: el de ${ua} entra en servicio en ${ya}, el de ${ub} en ${yb}, con ${gap} de diferencia`
+    } else if (ya && yb) {
+      const ma = s.a_in_service.slice(0, 7)
+      const mb = s.b_in_service.slice(0, 7)
+      rest =
+        ma === mb
+          ? `: ambos entran en servicio en ${fmtDate(ma, 'es')}`
+          : `: entran en servicio con menos de un mes de diferencia (${fmtDate(ma, 'es')} y ${fmtDate(mb, 'es')})`
+    } else if (ya || yb) {
+      rest = `: el de ${ya ? ua : ub} entra en servicio en ${ya || yb}; el documento de ${ya ? ub : ua} no da fecha de entrada en servicio`
+    } else {
+      rest = '; ningún documento da fecha de entrada en servicio'
+    }
+    return { lead: `Según lo publicado, ambos proyectos trabajan en ${s.name}`, rest }
+  }
+  const head = `As filed, both projects work at ${s.name}`
+  const reason = s.reason || head
+  return reason.startsWith(head) ? { lead: head, rest: reason.slice(head.length) } : { lead: reason, rest: '' }
+}
+export const stationGap = (o, lang = 'en') => (o?.shared_station?.months_apart ? yearsMonths(o.shared_station.months_apart, lang) : null)
+
 // What each tier lets two projects share, in Spanish (TIER_SHARE is the English)
 export const TIER_SHARE_ES = {
   touching: 'la programación de cortes y las estructuras de cruce',

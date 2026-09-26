@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState } from 'react'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../../ui'
 import { useGridlock } from './context'
 import PipelinePanel from './PipelinePanel'
-import { KM_PER_MI, TIER_LABEL, TIER_ORDER, UTILITIES, displayName, fmtInt, fmtMi, pairDistance, toneOf, utilityShort, whenOf } from './format'
+import { KM_PER_MI, SAME_STATION, TIER_LABEL, TIER_ORDER, UTILITIES, displayName, fmtInt, fmtMi, pairDistance, toneOf, utilityShort, whenOf } from './format'
 import './gridlock.css'
 
 // The Build together rail: a short title and one sentence, the two filings, the filters folded away, then the
@@ -267,6 +267,9 @@ function RankedList() {
           )}
           {ov.truncated && <p className="gl-fine">The engine sent the top {fmtInt(overlaps.length)}; narrow the distance to see the rest ranked.</p>}
           {order !== 'score' && flagged > 1 && <p className="gl-fine">Sorted by distance; each keeps its best-match rank.</p>}
+          {order === 'score' && listed[0]?.shared_station && (
+            <p className="gl-fine">Listed first: pairs whose filings work at the same substation, where the two systems meet.</p>
+          )}
           {order === 'score' && firstPast > 0 && <p className="gl-fine">Pairs whose shared months have passed are listed last; each keeps its rank.</p>}
           <ol className={`gl-rows${ov.status === 'refreshing' ? ' gl-rows--stale' : ''}`} aria-busy={ov.status === 'refreshing' || undefined}>
             {shown.map((o, i) => (
@@ -324,10 +327,17 @@ function PairRow({ o }) {
             <span>{dist}</span>
             <span className={`gl-when gl-when--${when.tone}`}>{when.row}</span>
           </span>
-          {/* the tier only when it isn't the usual one (crews and equipment: most pairs); the map key and Filters list all */}
-          {(o.tier !== 'crews' || o.sperry) && (
+          {/* a shared substation first (the engine lists these pairs above every tier); else the tier only when it isn't
+              the usual one (crews and equipment: most pairs); the map key and Filters list all */}
+          {(o.shared_station || o.tier !== 'crews' || o.sperry) && (
             <span className="gl-row__foot">
-              {o.tier !== 'crews' && <span className={`gl-tier gl-tier--${o.tier}`}>{o.tier_label}</span>}
+              {o.shared_station ? (
+                <span className="gl-stationtag" title={o.shared_station.reason}>
+                  {SAME_STATION.en.tag(o.shared_station.name)}
+                </span>
+              ) : (
+                o.tier !== 'crews' && <span className={`gl-tier gl-tier--${o.tier}`}>{o.tier_label}</span>
+              )}
               {o.sperry && <span className="gl-sperrytag">In Sperry&apos;s example ({o.sperry})</span>}
             </span>
           )}

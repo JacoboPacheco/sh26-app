@@ -119,6 +119,13 @@ def register(ctx):
         assert any(f["key"] == "as_of" for f in r["facts"]), "no as_of fact"
         cited = {k for _, it in [(0, d["summary"])] + [(0, i) for s in d["sections"] for i in s["items"]] for k in it["facts"]}
         assert cited and cited <= set(keys), cited - set(keys)
+        # a same-station pair (gridlock lists these first): the draft says so first, and its rank line says why it leads
+        if "pair.station" in keys:
+            why = next(s["items"] for s in d["sections"] if s["id"] == "why")
+            assert "pair.station" in why[0]["facts"] and why[0]["text"].startswith("As filed, both projects work at"), why[0]
+            ranked = [it for it in why if "pair.rank" in it["facts"]]
+            assert not ranked or "listed first" in ranked[0]["text"], ranked
+            assert "pair.station" in d["summary"]["facts"], d["summary"]
         assert r["sources"] and any(s["kind"] == "filing" for s in r["sources"]), r["sources"]
 
     def every_number_traceable():
@@ -174,9 +181,9 @@ def register(ctx):
         oid = state.get("id") or "DESC-6852~GA-21116"
         b = ag._base(oid, 24)
         facts, tpl = b["facts"], b["tpl"]
-        # the checker itself
-        ok, why, _ = ag.check_text("The two projects could save $250K by sharing a yard.", facts)
-        assert not ok and "250" in why, why
+        # the checker itself ($437K: in no top pair's estimate; $250K was within 3 % of Thurmond's $245K low end)
+        ok, why, _ = ag.check_text("The two projects could save $437K by sharing a yard.", facts)
+        assert not ok and "437" in why, why
         ok, why, _ = ag.check_text("DESC has agreed to host the crews.", facts)
         assert not ok and "agreed" in why, why
         ok, why, _ = ag.check_text("Call Mr. Smith at 803-555-0100 to start.", facts)

@@ -362,8 +362,28 @@ export default function PlansMap() {
     () => [...overlaps].filter((o) => byId[o.a] && byId[o.b]).sort((a, b) => (TIER_RANK[b.tier] ?? 4) - (TIER_RANK[a.tier] ?? 4)),
     [overlaps, byId],
   )
+  const stationOverlaps = useMemo(
+    () => drawnOverlaps.filter((o) => o.shared_station).sort((a, b) => (b.displayRank ?? b.rank ?? 0) - (a.displayRank ?? a.rank ?? 0)),
+    [drawnOverlaps],
+  )
+  // a pair's mark or ring: hover shows its tip (not on touch, where a tap opens it), a click opens it
+  const ringHandlers = (o) => ({
+    onEnter: (e) => {
+      if (e.pointerType === 'touch') return
+      setHover({ kind: 'overlap', id: o.id })
+      showTip(e, <OverlapTip o={o} byId={byId} method={g.params.method} />)
+    },
+    onLeave: () => {
+      setHover(null)
+      setTip(null)
+    },
+    onClick: () => openOverlap(o),
+  })
   const rankSpots = useMemo(() => placeRanks(drawnOverlaps, proj, k), [drawnOverlaps, proj, k])
   const focusPlaced = focus && view ? placeFocusLabels([...focus.projects], byId, proj, view, visibleRight) : []
+  // the highlighted pair's shared substation (a same-station pair): marked on the map and named
+  const focusOverlap = focus?.overlap ? overlaps.find((x) => x.id === focus.overlap) || (selectedOverlap?.id === focus.overlap ? selectedOverlap : null) : null
+  const station = focusOverlap?.shared_station && view ? placeStation(focusOverlap, byId, proj, k) : null
 
   return (
     <div className="gl gl-map" ref={wrapRef} onPointerLeave={() => setTip(null)} style={{ '--gl-cover': `${cover || 0}px` }}>
@@ -395,23 +415,7 @@ export default function PlansMap() {
             <Labels proj={proj} k={k} states={base.states} />
             <g className={`gl-rings${focus ? ' gl-has-focus' : ''}`}>
               {drawnOverlaps.map((o) => (
-                <OverlapRing
-                  key={o.id}
-                  o={o}
-                  proj={proj}
-                  k={k}
-                  on={focus?.overlap === o.id}
-                  onEnter={(e) => {
-                    if (e.pointerType === 'touch') return
-                    setHover({ kind: 'overlap', id: o.id })
-                    showTip(e, <OverlapTip o={o} byId={byId} method={g.params.method} />)
-                  }}
-                  onLeave={() => {
-                    setHover(null)
-                    setTip(null)
-                  }}
-                  onClick={() => openOverlap(o)}
-                />
+                <OverlapRing key={o.id} o={o} proj={proj} k={k} on={focus?.overlap === o.id} {...ringHandlers(o)} />
               ))}
             </g>
             <g className={`gl-projects${focus ? ' gl-has-focus' : ''}`}>
@@ -440,6 +444,17 @@ export default function PlansMap() {
                 <Connector key={o.id} o={o} proj={proj} k={k} on={focus?.overlap === o.id} dim={!!focus && focus.overlap !== o.id} onClick={() => openOverlap(o)} />
               ))}
             </g>
+            {/* same-station pairs sit above the project marks: a project located at one point (DESC's Hooks - Thurmond
+                tie has one located endpoint) is drawn exactly on the station and would take the pair's hover and click.
+                The target stays while the pair is highlighted (StationMark draws the square then), so the pointer never
+                falls through to that project; the best rank is drawn last, on top of a pair at the same station. */}
+            {stationOverlaps.length > 0 && (
+              <g className={`gl-rings gl-rings--station${focus ? ' gl-has-focus' : ''}`}>
+                {stationOverlaps.map((o) => (
+                  <StationPairMark key={o.id} o={o} proj={proj} k={k} on={focus?.overlap === o.id} {...ringHandlers(o)} />
+                ))}
+              </g>
+            )}
             {/* the top ten's ranks above every line and mark (with a dark halo), so none hides under a project */}
             <g className={`gl-ranks${focus ? ' gl-has-focus' : ''}`} aria-hidden="true">
               {[...rankSpots].map(([id, spot]) =>
@@ -458,8 +473,9 @@ export default function PlansMap() {
                 ),
               )}
             </g>
+            {station && <StationMark st={station} k={k} />}
             {focus && <FocusLabels placed={focusPlaced} k={k} />}
-            {selectedOverlap && <RankBadge o={selectedOverlap} proj={proj} k={k} avoid={focusPlaced} />}
+            {selectedOverlap && <RankBadge o={selectedOverlap} proj={proj} k={k} avoid={station ? [...focusPlaced, station] : focusPlaced} />}
           </g>
         )}
       </svg>
@@ -626,6 +642,8 @@ function OverlapRing({ o, proj, k, on, onEnter, onLeave, onClick }) {
   // small mark at its midpoint (the top ten numbered like the list) until it's hovered or selected; only then
   // does its full ring show how close the two projects are.
   if (!on) {
+    // a same-station pair rests as a small square above the project marks (StationPairMark), every other pair as a dot
+    if (o.shared_station) return null
     const rank = o.displayRank ?? o.rank
     return (
       <g className={`gl-ring gl-ring--${o.tier} gl-ring--mark`} onPointerEnter={onEnter} onPointerLeave={onLeave} onClick={onClick}>
@@ -637,9 +655,33 @@ function OverlapRing({ o, proj, k, on, onEnter, onLeave, onClick }) {
   }
   return (
     <g className={`gl-ring gl-ring--${o.tier}${on ? ' gl-on' : ''}`} onPointerEnter={onEnter} onPointerLeave={onLeave} onClick={onClick}>
-      <title>{`Could coordinate: ${o.tier_label}`}</title>
+      <title>{o.shared_station ? `Same station: ${o.shared_station.name}` : `Could coordinate: ${o.tier_label}`}</title>
       <circle className="gl-ring__glow" cx={cx} cy={cy} r={r * 1.35} fill="url(#gl-glow)" />
       <circle className="gl-ring__edge" cx={cx} cy={cy} r={r} />
+    </g>
+  )
+}
+
+// A same-station pair's target, drawn above the project marks: a small square (a substation) at rest; while the pair
+// is highlighted only its invisible target stays (StationMark draws the station), so hovering never flickers onto the
+// project point underneath. Slightly smaller than a dot's target so a point project there keeps a sliver of its own.
+function StationPairMark({ o, proj, k, on, onEnter, onLeave, onClick }) {
+  const pair = worldPair(o, proj)
+  if (!pair) return null
+  const [[x1, y1], [x2, y2]] = pair
+  const cx = (x1 + x2) / 2
+  const cy = (y1 + y2) / 2
+  const rank = o.displayRank ?? o.rank
+  return (
+    <g
+      className={`gl-ring gl-ring--${o.tier} gl-ring--station${on ? ' gl-on' : ' gl-ring--mark'}`}
+      onPointerEnter={onEnter}
+      onPointerLeave={onLeave}
+      onClick={onClick}
+    >
+      <title>{`Same station: ${o.shared_station.name}${rank ? ` (#${rank})` : ''}`}</title>
+      <circle className="gl-ring__hit" cx={cx} cy={cy} r={9 / k} />
+      {!on && <rect className="gl-ring__mark" x={cx - 3.6 / k} y={cy - 3.6 / k} width={7.2 / k} height={7.2 / k} />}
     </g>
   )
 }
@@ -770,12 +812,45 @@ function FocusLabels({ placed, k }) {
   )
 }
 
+// A same-station pair's shared substation: where it is, and its name under it, on the side away from the two
+// projects (so the label doesn't sit on their lines). Returns the label's box in world units for the rank badge.
+const STATION_SUB = 'Same station in both filings'
+function placeStation(o, byId, proj, k) {
+  const s = o.shared_station
+  const [x, y] = proj.w(s.lon, s.lat)
+  const pts = [...projectPoints(byId[o.a]), ...projectPoints(byId[o.b])].map(([lon, lat]) => proj.w(lon, lat))
+  const left = pts.reduce((t, p) => t + (p[0] - x), 0) > 0
+  const lx = left ? x - 13 / k : x + 13 / k
+  const w = Math.max(s.name.length * 6.8, STATION_SUB.length * 5.4) / k
+  const box = left ? [lx - w, y + 10 / k, lx, y + 38 / k] : [lx, y + 10 / k, lx + w, y + 38 / k]
+  return { x, y, lx, left, name: s.name, box }
+}
+
+function StationMark({ st, k }) {
+  const h = 5.5 / k
+  const anchor = st.left ? 'end' : 'start'
+  return (
+    <g className="gl-station" aria-hidden="true">
+      <circle className="gl-station__halo" cx={st.x} cy={st.y} r={17 / k} />
+      <line className="gl-station__tick" x1={st.x} y1={st.y + h} x2={st.lx + (st.left ? 2 / k : -2 / k)} y2={st.y + 16 / k} strokeWidth={1 / k} />
+      <rect className="gl-station__sq" x={st.x - h} y={st.y - h} width={2 * h} height={2 * h} strokeWidth={1.6 / k} />
+      <text className="gl-station__name" x={st.lx} y={st.y + 22 / k} textAnchor={anchor} fontSize={11.5 / k} strokeWidth={3.5 / k}>
+        {st.name}
+      </text>
+      <text className="gl-station__sub" x={st.lx} y={st.y + 35 / k} textAnchor={anchor} fontSize={10 / k} strokeWidth={3 / k}>
+        {STATION_SUB}
+      </text>
+    </g>
+  )
+}
+
 function RankBadge({ o, proj, k, avoid = [] }) {
   const pair = worldPair(o, proj)
   if (!pair) return null
   const [[x1, y1], [x2, y2]] = pair
   const half = Math.hypot(x2 - x1, y2 - y1) / 2
-  const r = Math.max(half + 8 / k, 13 / k)
+  // a same-station pair: out on the station's halo, clear of its square
+  const r = Math.max(half + 8 / k, (o.shared_station ? 26 : 13) / k)
   // lower left of the pair (the project names are labelled up and to the right), else the first corner of the ring
   // clear of both names
   const mx = (x1 + x2) / 2
@@ -816,7 +891,7 @@ function OverlapTip({ o, byId, method }) {
   return (
     <>
       <strong>
-        #{o.displayRank ?? o.rank} · {o.tier_label}
+        #{o.displayRank ?? o.rank} · {o.shared_station ? `Same station: ${o.shared_station.name}` : o.tier_label}
       </strong>
       <span className="gl-tip__sub">
         {fmtPairDistance(o, method)}: {displayName(byId[o.a]?.name)} and {displayName(byId[o.b]?.name)}
@@ -856,6 +931,12 @@ function MapKey() {
             <circle cx="13" cy="7" r="3.4" className="gl-legend__mark" />
           </svg>
           A pair that could build together (brighter is closer; the top ten carry their rank)
+        </li>
+        <li>
+          <svg width="26" height="14" aria-hidden="true">
+            <rect x="9.4" y="3.4" width="7.2" height="7.2" className="gl-legend__mark" />
+          </svg>
+          A substation both filings work at (listed first)
         </li>
         <li>
           <LegendLine tone="osm" /> Existing lines, 115 kV and up

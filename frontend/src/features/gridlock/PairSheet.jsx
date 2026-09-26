@@ -6,7 +6,25 @@ import { DraftStatus, Paper, PrintCopy, WindowTimeline } from './AgreementDoc'
 import { useAgreement } from './useAgreement'
 import { ProjectCard } from './DetailCard'
 import Negotiation from './Negotiation'
-import { TIER_LABEL_ES, TIER_SHARE, TIER_SHARE_ES, displayName, fmtDate, fmtKm, fmtMi, fmtMoney, fmtRange, kindText, pairDistance, statusText, toneOf, utilityShort, whenOf } from './format'
+import {
+  SAME_STATION,
+  TIER_LABEL_ES,
+  TIER_SHARE,
+  TIER_SHARE_ES,
+  displayName,
+  fmtDate,
+  fmtKm,
+  fmtMi,
+  fmtMoney,
+  fmtRange,
+  kindText,
+  pairDistance,
+  stationSentence,
+  statusText,
+  toneOf,
+  utilityShort,
+  whenOf,
+} from './format'
 import './agreement.css'
 import './negotiation.css'
 
@@ -21,6 +39,11 @@ const S = {
     steps: ['The overlap', 'Two AI agents negotiate', 'The drafted agreement'],
     stepsShort: ['Overlap', 'Negotiate', 'Agreement'],
     title: (a, b, share) => `${a} and ${b} could share ${share}`,
+    stationTitle: (a, b, name) => `${a} and ${b} both work at ${name}`,
+    stationWhy: 'A substation both utilities work at is where their systems meet, so outages and equipment work there could be planned once.',
+    stationMap: (n) => `${n} on OpenStreetMap`,
+    // no OpenStreetMap substation carries the filed name: the link is the nearest one, standing in
+    stationStandIn: (n) => `The substation standing in for ${n} on OpenStreetMap (none there carries the name)`,
     pairOf: (r, n) => (n ? `Pair ${r} of ${n}` : `Pair ${r}`),
     apart: (d) => `${d} apart`,
     touching: 'The projects touch',
@@ -74,6 +97,10 @@ const S = {
     steps: ['La coincidencia', 'Dos agentes de IA negocian', 'El acuerdo redactado'],
     stepsShort: ['Coincidencia', 'Negociación', 'Acuerdo'],
     title: (a, b, share) => `${a} y ${b} podrían compartir ${share}`,
+    stationTitle: (a, b, name) => `${a} y ${b} trabajan en la misma subestación: ${name}`,
+    stationWhy: 'Una subestación en la que trabajan las dos empresas es donde se unen sus sistemas: los cortes y las obras allí podrían planificarse una sola vez.',
+    stationMap: (n) => `${n} en OpenStreetMap`,
+    stationStandIn: (n) => `La subestación que representa a ${n} en OpenStreetMap (ninguna allí lleva ese nombre)`,
     pairOf: (r, n) => (n ? `Par ${r} de ${n}` : `Par ${r}`),
     apart: (d) => `a ${d}`,
     touching: 'Los proyectos se tocan',
@@ -321,9 +348,21 @@ export default function PairSheet() {
   const aShort = utilityShort(a?.utility)
   const bShort = utilityShort(b?.utility)
   const share = (lang === 'es' ? TIER_SHARE_ES : TIER_SHARE)[o.tier]
-  const title = s.title(aShort, bShort, lang === 'es' ? share : (share || 'work').toLowerCase())
+  const station = o.shared_station
+  // a shared substation is the headline: the title names it, the sub line says it is the same one in both filings
+  const title = station
+    ? s.stationTitle(aShort, bShort, station.name)
+    : s.title(aShort, bShort, lang === 'es' ? share : (share || 'work').toLowerCase())
   const d = pairDistance(o, g.params.method)
-  const distText = d.km == null ? '' : d.km < 0.05 ? (o.crosses ? s.crossing : s.touching) : s.apart(`${fmtMi(d.mi)} (${fmtKm(d.km)})`)
+  const distText = station
+    ? SAME_STATION[lang].sub
+    : d.km == null
+      ? ''
+      : d.km < 0.05
+        ? o.crosses
+          ? s.crossing
+          : s.touching
+        : s.apart(`${fmtMi(d.mi)} (${fmtKm(d.km)})`)
   const when = whenOf(o, lang)
   const status = [
     when.short,
@@ -406,7 +445,17 @@ export default function PairSheet() {
 
       <div className="gl-sheet__main">
         <div className="gl-sheet__body" ref={bodyRef} onScroll={onScroll} inert={projectOpen || undefined}>
-          <Step n={1} title={s.steps[0]}>
+          <Step
+            n={1}
+            title={s.steps[0]}
+            aside={
+              station && (
+                <span className="gl-stationtag" title={station.how || undefined}>
+                  {SAME_STATION[lang].tag(station.name)}
+                </span>
+              )
+            }
+          >
             <OverlapStep o={o} base={base} s={s} lang={lang} listed={listed} onOpenProject={openProject} onRetry={() => setTries((n) => n + 1)} />
           </Step>
           <Step n={2} title={s.steps[1]}>
@@ -491,8 +540,26 @@ function OverlapStep({ o, base, s, lang, listed, onOpenProject, onRetry }) {
   // the dashed gap between the two boxes is narrow: a short word there, the full sentence under "Distance"
   const bridge = d.km == null ? '–' : d.km < 0.05 ? (o.crosses ? s.cross : s.touch) : fmtMi(d.mi)
   const shareLabels = (sv.items || []).map((it) => it.label)
+  const station = o.shared_station
+  const said = stationSentence(o, lang)
   return (
     <div className="gl-ov">
+      {station && said && (
+        <div className="gl-ovstation">
+          <p className="gl-ovstation__line">
+            <strong>{said.lead}</strong>
+            {said.rest}.
+          </p>
+          <p className="gl-ovstation__why">
+            {s.stationWhy}{' '}
+            {station.osm_url && (
+              <a href={station.osm_url} target="_blank" rel="noreferrer">
+                {station.stand_in ? s.stationStandIn(station.name) : s.stationMap(station.osm_name || station.name)}
+              </a>
+            )}
+          </p>
+        </div>
+      )}
       <div className="gl-pair2">
         {pa && <ProjectBox p={pa} s={s} lang={lang} onOpen={onOpenProject} />}
         <div className="gl-pair2__gap" aria-hidden="true">
@@ -504,8 +571,18 @@ function OverlapStep({ o, base, s, lang, listed, onOpenProject, onRetry }) {
       <dl className="gl-ovfacts">
         <div>
           <dt>{s.distance}</dt>
-          <dd className="gl-ovfacts__big">{d.km == null ? '–' : d.km < 0.05 ? (o.crosses ? s.crossing : s.touching) : fmtMi(d.mi)}</dd>
-          <dd>{d.km != null && d.km >= 0.05 ? `${fmtKm(d.km)} ${g.params.method === 'center' ? s.centers : s.closest}` : lang === 'es' ? TIER_LABEL_ES[o.tier] || o.tier_label : o.tier_label}</dd>
+          <dd className="gl-ovfacts__big">
+            {station ? SAME_STATION[lang].label : d.km == null ? '–' : d.km < 0.05 ? (o.crosses ? s.crossing : s.touching) : fmtMi(d.mi)}
+          </dd>
+          <dd>
+            {station
+              ? station.name
+              : d.km != null && d.km >= 0.05
+                ? `${fmtKm(d.km)} ${g.params.method === 'center' ? s.centers : s.closest}`
+                : lang === 'es'
+                  ? TIER_LABEL_ES[o.tier] || o.tier_label
+                  : o.tier_label}
+          </dd>
         </div>
         <div>
           <dt>{s.shared}</dt>

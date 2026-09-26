@@ -690,6 +690,88 @@
   opacity: calc(0.3 + var(--i) * 0.7);
 }
 
+/* same station: the class above every tier. A small square (a substation) before the words, full-intensity ink */
+.gl-stationtag {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.gl-stationtag::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--gl-ring);
+  background: color-mix(in srgb, var(--gl-ring) 35%, transparent);
+}
+
+.gl-row__foot .gl-stationtag {
+  font-size: 0.75rem;
+}
+
+.gl-step__aside .gl-stationtag {
+  font-size: 0.8125rem;
+}
+
+/* the map: a same-station pair's shared substation, marked and named while the pair is highlighted */
+.gl-station {
+  pointer-events: none;
+}
+
+.gl-station__halo {
+  fill: none;
+  stroke: var(--gl-ring);
+  stroke-opacity: 0.35;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: gl-station-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes gl-station-in {
+  from {
+    transform: scale(2.2);
+    stroke-opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-station__halo {
+    animation: none;
+  }
+}
+
+.gl-station__sq {
+  fill: var(--night);
+  stroke: var(--gl-ring);
+}
+
+.gl-station__tick {
+  stroke: var(--gl-ring);
+  stroke-opacity: 0.5;
+}
+
+.gl-station__name,
+.gl-station__sub {
+  paint-order: stroke;
+  stroke: var(--night);
+  stroke-linejoin: round;
+}
+
+.gl-station__name {
+  fill: var(--ink);
+  font-weight: 650;
+}
+
+.gl-station__sub {
+  fill: var(--ink-2);
+}
+
 .gl-sperrytag {
   display: inline-block;
   padding: 0 7px;
