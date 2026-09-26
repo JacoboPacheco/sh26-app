@@ -659,8 +659,8 @@ def _clean_ai(raw, det: dict) -> tuple[dict, bool]:
         ok = lo is not None and hi is not None and why is not None
         if ok and lo > hi:
             lo, hi = hi, lo
-        # a unit slip (thousands vs millions) lands far outside the formula's range: don't show it
-        if ok and (hi > d_high * 100 or hi < max(d_low, 1e-9) / 100):
+        # a unit slip (a factor of 10 or 1,000) lands far outside the formula's range: don't show it (the hero's upgrades once came back exactly 10x)
+        if ok and (hi > d_high * 8 or hi < max(d_low, 1e-9) / 8):
             ok = False
         if not ok:
             out[k] = {"low": d_low, "high": d_high, "reasoning": "Gemini's answer for this line was unusable, so this repeats the formula.", "fallback": True}
