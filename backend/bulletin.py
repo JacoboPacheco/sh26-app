@@ -23,6 +23,8 @@ Until the engine track lands report_for, a small local report (the cascade, its 
 it darkened; no fixes) keeps the deck and the legacy bulletin working.
 """
 
+import asyncio
+import difflib
 import hashlib
 import json
 import logging
@@ -40,6 +42,8 @@ from pydantic import Field
 import voice
 from grid import REGIONS, CaseIn, _case_header, check_case, grid_at, region_code
 from limiter import limiter
+from llm import complete_json
+from llm import configured as ai_configured
 from powerflow import area_of
 
 router = APIRouter(tags=["bulletin"])
@@ -380,8 +384,11 @@ def usd_say(v: float, lang: str) -> tuple[str, float | None]:
     """('$1.2 billion' | '1.2 mil millones de dólares', the scaled value it prints, for the fact check)."""
     v = float(v)
     if v >= 1e9:
+        if lang == "es":  # "2300 millones": a scale word must follow a figure ("mil millones" would not)
+            x = round(v / 1e6)
+            return f"{num(x, 'es')} millones de dólares", x
         x = round(v / 1e9, 1)
-        return (f"${_dec(x, 1)} billion" if lang == "en" else f"{_dec(x, 1)} mil millones de dólares"), x
+        return f"${_dec(x, 1)} billion", x
     if v >= 1e6:
         x = round(v / 1e6) if v >= 1e8 else round(v / 1e6, 1)
         return (f"${_dec(x, 1)} million" if lang == "en" else f"{_dec(x, 1)} millones de dólares"), x
@@ -463,26 +470,29 @@ class Level:
     k: int = 5  # chain steps read one by one (the rest are grouped)
     areas: int = 4  # areas read by name on the areas slide
     hosp: bool = True  # the per-area hospital clause
-    opt: bool = True  # optional sentences
+    opt: int = 2  # optional sentences kept: 2 all, 1 the useful ones, 0 none
     checks: int = 4  # other fixes read out after the best one
     short: bool = False  # the demo version: one idea per slide
 
 
 LEVELS = (
-    Level(5, 4, True, True, 4), Level(4, 4, True, True, 4), Level(3, 4, True, True, 4), Level(3, 3, True, True, 4),
-    Level(2, 3, True, True, 4), Level(2, 3, False, True, 4), Level(2, 2, False, True, 3), Level(2, 2, False, False, 2),
-    Level(2, 2, False, False, 1), Level(2, 1, False, False, 0), Level(1, 1, False, False, 0), Level(0, 1, False, False, 0),
+    Level(5, 4, True, 2, 4), Level(4, 4, True, 2, 4), Level(3, 4, True, 2, 4), Level(3, 3, True, 2, 4),
+    Level(2, 3, True, 2, 4), Level(2, 3, False, 2, 4), Level(2, 2, False, 2, 3), Level(2, 2, False, 1, 3),
+    Level(2, 2, False, 1, 2), Level(2, 2, False, 1, 1), Level(2, 1, False, 1, 1), Level(1, 1, False, 1, 1),
+    Level(2, 2, False, 0, 2), Level(2, 2, False, 0, 1), Level(2, 1, False, 0, 0),
+    Level(1, 1, False, 0, 0), Level(0, 1, False, 0, 0),
 )
-SHORT_LEVELS = tuple(Level(lv.k, min(lv.areas, 2), False, False, 0, True) for lv in LEVELS[4:])
+SHORT_LEVELS = tuple(Level(lv.k, min(lv.areas, 2), False, 0, 0, True) for lv in LEVELS[4:])
 
 
-def sentences(parts: list[tuple[str, bool]], lv: Level, limit: int) -> str:
-    """Join (sentence, optional) parts: required ones always, optional ones while they fit."""
+def sentences(parts: list[tuple[str, bool | int]], lv: Level, limit: int) -> str:
+    """Join (sentence, optional) parts: required ones (False) always; optional ones (True = useful,
+    2 = nice to have) while the level keeps them and they fit."""
     out: list[str] = []
     for text, optional in parts:
         if not text:
             continue
-        if optional and (not lv.opt or plain_len(" ".join(out + [text])) > limit):
+        if optional and (lv.opt < int(optional) or plain_len(" ".join(out + [text])) > limit):
             continue
         out.append(text)
     return " ".join(out)
@@ -851,7 +861,7 @@ def s_chain(w: Writer, lv: Level) -> dict:
                 parts.append(((f"When {a} trips, its power shifts onto {b}, which climbs to {pct_say(why['pct_after'], lang)}." if en
                                else f"Cuando {a} se dispara, su energía pasa a {b}, que sube al {pct_say(why['pct_after'], lang)}."), True))
             parts.append((("Each trip does the same to the next line, until the grid gives way." if en
-                            else "Cada disparo hace lo mismo con la siguiente línea, hasta que la red cede."), True))
+                            else "Cada disparo hace lo mismo con la siguiente línea, hasta que la red cede."), 2))
         intro = sentences(parts, lv, PRESENTER_MAX[lang])
         closing = ""
         if w.ev.get("capped"):
@@ -1008,9 +1018,7 @@ def s_cost(w: Writer, lv: Level) -> dict:
         if c.get("campus_bill_usd_per_year"):
             usd, _ = usd_say(c["campus_bill_usd_per_year"], lang)
             parts.append(((f"The data center's own power bill would be about {usd} a year." if en
-                           else f"La factura eléctrica del propio centro de datos sería de unos {usd} al año."), True))
-        if c.get("who_pays"):
-            parts.append(((f"Who pays: {c['who_pays']}." if en else ""), True))
+                           else f"La factura eléctrica del propio centro de datos sería de unos {usd} al año."), 2))
         out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang]))]
         if c.get("blackout_usd"):
             h_ = (f"Estimated cost of the blackout: {usd_show(c['blackout_usd'])}" if en else f"Costo estimado del apagón: {usd_show(c['blackout_usd'])}")
@@ -1252,7 +1260,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
         else:
             with_it = f"Verdict: {verdict}." if en else f"Resultado: {verdict}."
         body = sentences([(("How to fix it." if en else "Cómo evitarlo."), False),
-                          (("We tested each fix by re-running the model." if en else "Probamos cada solución volviendo a correr el modelo."), True),
+                          (("We tested each fix by re-running the model." if en else "Probamos cada solución volviendo a correr el modelo."), 2),
                           ((f"The best one: {phrase}." if en else f"La mejor: {phrase}."), False),
                           (with_it, False)], lv, PRESENTER_MAX[lang])
         checks = [f"{cap(_fix_phrase(w, f, lang))}: {_fix_verdict(w, f, lang, short=True)}." for f in listed if f is not best]
@@ -1735,11 +1743,326 @@ def deck_by_key(key: str) -> dict | None:
     return _decks.get(key)
 
 
+# ------------------------------------------------------------------------------------------- Gemini
+AI_SYSTEM = """You are the presenter of a narrated after-action briefing about a SIMULATED power-grid failure on a
+synthetic grid model (not any real utility's network). For each slide you get its PURPOSE and its DATA (values
+computed by the grid engine, with the spoken form of each number in English and Spanish). Write the presenter's
+short spoken paragraph for that slide, once in English and once in Spanish: a calm, clear analyst explaining what
+happened and what would fix it, in natural spoken prose (not a list, not a headline).
+
+Rules:
+- Say only what the DATA says. Write numbers exactly in their given spoken form ("about 784,000", "1,500
+  megawatts"; Spanish "unas 784 mil", "1500 megavatios"). Never compute a new number: no sums, differences, ratios,
+  percentages, comparisons ("three times", "half") of your own.
+- Write step numbers and small counts as words ("nine steps", "nueve pasos").
+- Never write "MW" or "%": say "megawatts" / "megavatios" and "percent" / "por ciento".
+- Never name a real utility, company, agency, or storm. No dates, years, clock times or durations unless the DATA
+  gives one. No advice to the public. Never sound like an emergency alert.
+- Stay within each slide's max_chars. Lead with what matters most, connect cause and effect, keep it tight.
+- Use the present tense, like a narrator walking the audience through a replay.
+- Do not write the fixed opening ("This is a simulation...") or the fixed closing ("End of simulated
+  briefing..."): the server adds them.
+- The Spanish is written natively for a US Spanish-speaking audience, not translated word for word.
+- Plain text only: no markdown, lists, emoji or quotation marks around the paragraph.
+
+Answer only with JSON: {"slides": {"<slide id>": {"en": "...", "es": "..."}}}, one entry per slide id given."""
+
+AI_PURPOSE = {
+    "event": "what happened, in one breath: the trigger, where and when, how it spread, how many people lost power",
+    "chain": "introduce the step-by-step chain reaction (an analyst reads the steps right after you)",
+    "areas": "where the lights went out, in total, and that these are estimates",
+    "hospitals": "hospitals in the dark areas would need backup power (counts only, no names)",
+    "cost": "what it would cost, each figure an estimate with its assumption",
+    "cause": "why it happened: the first line to fail, with and without the data center",
+    "fix": "the best verified fix and what it does (an analyst lists the other fixes right after you)",
+    "no_fix": "why no fix exists for most of these people, and that only rebuilding brings them back",
+    "recovery": "why repair order matters, and hardening before the next storm",
+    "bottom_line": "the one-sentence conclusion (the fixed closing follows you)",
+}
+AI_TIMEOUT_S = 10  # per socket read inside llm
+AI_DEADLINE_S = 15  # the whole call
+AI_CACHE = 128
+_ai_cache: "OrderedDict[str, dict]" = OrderedDict()
+_ai_locks: dict[str, asyncio.Lock] = {}
+_OPENING = re.compile(r"^\s*(this is a simulation|esto es una simulaci[oó]n)", re.IGNORECASE)
+_CLOSING = re.compile(r"(end of (the )?simulated briefing|fin del simulacro)", re.IGNORECASE)
+HOLDS_WORDS = {
+    "en": ("no line", "nothing trips", "within its limit", "within their limits", "holds", "stays within", "stay within", "every line"),
+    "es": ("ninguna línea", "nada se dispara", "dentro de su límite", "dentro de sus límites", "funciona", "aguanta", "se sostiene", "todas las líneas"),
+}
+
+
+def _clean_ai(text) -> str:
+    """Plain spoken text: no markdown, one paragraph, no wrapping quotes."""
+    if not isinstance(text, str):
+        return ""
+    text = re.sub(r"[*_#`>|]+", "", text)
+    text = re.sub(r"\s+", " ", text).strip().strip('"').strip("“”").strip()
+    return text
+
+
+def ai_slots(composed: dict) -> list[dict]:
+    """The presenter paragraphs Gemini may rewrite: every slide's first presenter segment."""
+    out = []
+    for sl in composed["slides"]:
+        for lang in LANGS:
+            segs = sl["narr"][lang]
+            if not segs or segs[0]["role"] != "presenter" or not segs[0]["body"]:
+                continue
+            seg = segs[0]
+            fixed = plain_len(seg.get("prefix", "")) + plain_len(seg.get("suffix", ""))
+            tmpl = _CUE.sub("", seg["body"])
+            cap_ = PRESENTER_MAX[lang] - fixed - (1 if fixed else 0)
+            out.append({"id": sl["id"], "lang": lang, "template": tmpl, "max": min(cap_, max(int(len(tmpl) * 1.4) + 60, 120))})
+    return out
+
+
+def _both(fn, *a) -> dict:
+    return {lang: fn(*a, lang) for lang in LANGS}
+
+
+def ai_data(w: Writer, sid: str) -> dict:
+    """The slide's content as data (no sentences to copy): engine values, names, and the spoken form of
+    every number in both languages. Gemini writes the paragraph from this."""
+    ev, r = w.ev, w.r
+    ppl = {"en": people_say(w.people, "en"), "es": people_say(w.people, "es")}
+    d: dict = {}
+    if sid == "event":
+        if w.preset:
+            d["scenario"] = {lang: w.preset_say(lang) for lang in LANGS}
+            d["hypothetical"] = True
+        if w.sites:
+            d["data_center"] = {"size": _both(lambda lang: mw_say(w.mw, lang)), "size_before_a_noun": _both(lambda lang: mw_say(w.mw, lang, adj=True)),
+                                "place": w.place}
+            if w.room is not None and w.steps and w.room < w.mw:
+                d["room_at_site_before_a_line_overloads"] = _both(lambda lang: mw_say(w.room, lang))
+        if w.storm:
+            d["lines_knocked_out_by_the_storm"] = num(w.storm)
+        d["when"] = {lang: w.when(lang).lower() for lang in LANGS}
+        d["cascade_steps"] = _both(lambda lang: words(w.steps, lang))
+        d["people_without_power"] = ppl
+        if w.preset or w.people > 1_000_000:
+            d["share_of_state_residents"] = _both(lambda lang: share_say(ev.get("people_share_pct"), lang))
+        d["still_spreading_when_model_stopped"] = bool(ev.get("capped"))
+    elif sid == "chain":
+        run = [x for x in w.timeline if int(x.get("n", 0)) > 0]
+        d["cascade_steps"] = _both(lambda lang: words(w.steps, lang))
+        d["storm_first"] = bool(w.storm)
+        if run and run[0].get("lines"):
+            ln = run[0]["lines"][0]
+            d["first_line_to_trip"] = {lang: w.line_label(ln.get("id"), lang, fallback=ln.get("label")) for lang in LANGS}
+            if ln.get("pct_before") is not None:
+                d["its_loading_when_it_tripped"] = _both(lambda lang: pct_say(ln["pct_before"], lang))
+        why = next((f for f in w.extra if f["key"].startswith("deck.why.")), None)
+        if why and run:
+            first = run[0]
+            cands = [x for x in (first.get("why") or []) if isinstance(x, dict) and x.get("pct_after") == why["value"]]
+            if cands:
+                d["line_that_picked_up_its_power"] = {lang: w.line_label(cands[0].get("id"), lang, fallback=cands[0].get("label")) for lang in LANGS}
+                d["that_line_climbs_to"] = _both(lambda lang: pct_say(why["value"], lang))
+        d["note"] = "an analyst reads each step right after you: introduce the chain reaction, do not list the steps"
+    elif sid == "areas":
+        d["people_without_power"] = ppl
+        d["share_of_state_residents"] = _both(lambda lang: share_say(ev.get("people_share_pct"), lang))
+        d["hardest_hit_areas_in_order"] = [a["area"] for a in w.areas[:3]]
+        d["note"] = "people counts are estimates: the load the model loses, counted as the residents it serves"
+    elif sid == "hospitals":
+        h = r.get("hospitals") or {}
+        d["hospitals_in_the_dark_areas"] = _both(lambda lang: words(int(h.get("count") or 0), lang))
+        d["note"] = "counts only, no hospital names; they would need backup power"
+    elif sid == "cost":
+        c = r.get("cost") or {}
+        if c.get("duration_h_assumed"):
+            d["assumed_outage_hours"] = num(c["duration_h_assumed"])
+        for k in ("blackout_usd", "upgrade_usd", "campus_bill_usd_per_year"):
+            if c.get(k):
+                d[k.replace("_usd", "")] = _both(lambda lang, v=c[k]: usd_say(v, lang)[0])
+        d["note"] = "every figure is an estimate"
+    elif sid == "cause":
+        rc = r.get("root_cause") or {}
+        line = rc.get("line") or {}
+        d["cause"] = rc.get("cause")
+        if line.get("id") is not None:
+            d["first_line_to_fail"] = {lang: w.line_label(line.get("id"), lang, fallback=line.get("label")) for lang in LANGS}
+        if rc.get("pct_with") is not None:
+            d["its_loading_with_the_data_center"] = _both(lambda lang: pct_say(rc["pct_with"], lang))
+        if rc.get("pct_without") is not None and w.sites:
+            d["its_loading_without_the_data_center"] = _both(lambda lang: pct_say(rc["pct_without"], lang))
+        if w.sites:
+            d["nobody_loses_power_without_the_data_center"] = rc.get("people_without_campus") == 0
+    elif sid == "fix":
+        if w.best is None:
+            d["room_at_site"] = _both(lambda lang: mw_say(w.room or 0, lang))
+        else:
+            o = w.best.get("outcome") or {}
+            d["tested_by_rerunning_the_model"] = True
+            d["best_fix"] = _both(lambda lang: _fix_phrase(w, w.best, lang))
+            d["verdict"] = w.best.get("verdict")
+            d["with_it"] = ({"en": "no line trips", "es": "ninguna línea se dispara"} if int(o.get("steps") or 0) == 0
+                            else _both(lambda lang: people_say(o.get("people") or 0, lang) + (" still lose power" if lang == "en" else " siguen sin luz")))
+            d["note"] = "an analyst lists the other fixes right after you"
+    elif sid == "no_fix":
+        nf = r.get("no_fix") or {}
+        n = int(nf.get("people") or (r.get("bound") or {}).get("people") or 0)
+        d["people_no_fix_can_reach"] = _both(lambda lang: people_say(n, lang))
+        d["fixes_tried"] = _both(lambda lang: join([FAMILY_SAY[p_.get("family")][0 if lang == "en" else 1] for p_ in (nf.get("proof") or []) if p_.get("family") in FAMILY_SAY], lang))
+        d["proof"] = "even with unlimited line ratings and no data center they stay dark: " + ("the storm cut the lines that serve them" if w.storm else "demand is more than the remaining lines can carry")
+        d["only_rebuilding_brings_them_back"] = bool(w.storm)
+    elif sid == "recovery":
+        rec = r.get("recovery") or {}
+        d["repair_order_matters"] = True
+        d["line_limits_applied"] = rec.get("method") == "lp"
+        hard = [x for x in (rec.get("hardening") or []) if isinstance(x, dict)]
+        if hard:
+            d["hardening"] = {"lines": num(hard[0].get("k") or 0), "people_kept_on": _both(lambda lang: people_say(hard[0].get("people_kept_on") or 0, lang))}
+        d["note"] = "an analyst reads the repair waves right after you"
+    elif sid == "bottom_line":
+        d["verdict"] = w.verdict
+        if w.best is not None and w.verdict in ("preventable", "partly"):
+            d["best_fix"] = _both(lambda lang: _fix_phrase(w, w.best, lang))
+        d["note"] = "one or two sentences; the fixed closing follows you"
+    return d
+
+
+def _prompt(w: Writer, slots: list[dict]) -> str:
+    eng = _engine()
+    sheet = None
+    if eng is not None and callable(getattr(eng, "fact_sheet", None)):
+        try:
+            sheet = eng.fact_sheet(w.r, extra_facts=w.extra)
+        except Exception:  # noqa: BLE001
+            sheet = None
+    if sheet is None:
+        sheet = "\n".join(f"[{f['key']}] {f['label']}: {f['text']}" for f in list(w.r.get("facts") or []) + w.extra)
+    lines = ["FACTS (from the grid engine; the only numbers you may use):", sheet, "", "SLIDES:"]
+    by_id: dict[str, dict] = {}
+    for sl in slots:
+        by_id.setdefault(sl["id"], {})[sl["lang"]] = sl
+    for sid, langs in by_id.items():
+        lines.append(f"- id: {sid}")
+        lines.append(f"  PURPOSE: {AI_PURPOSE.get(sid, sid)}")
+        lines.append(f"  max_chars: " + ", ".join(f"{lang} {langs[lang]['max']}" for lang in LANGS if lang in langs))
+        lines.append("  DATA: " + json.dumps(ai_data(w, sid), ensure_ascii=False))
+    lines.append("")
+    lines.append('Write every slide now, as JSON {"slides": {"<id>": {"en": "...", "es": "..."}}}.')
+    return "\n".join(lines)
+
+
+_NUMWORDS = {
+    "en": set("two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen "
+              "eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred hundreds "
+              "twice double doubled triple tripled half halved quarter third thirds times dozen dozens".split()),
+    "es": set("dos tres cuatro cinco seis siete ocho nueve diez once doce trece catorce quince dieciséis diecisiete dieciocho "
+              "diecinueve veinte treinta cuarenta cincuenta sesenta setenta ochenta noventa cien ciento cientos "
+              "doble duplica triple triplica mitad tercio tercios veces docena docenas".split()),
+}
+
+
+def _number_words(text: str, lang: str) -> set[str]:
+    """Spelled numbers and ratio words (the digit check cannot see 'three times' or 'half')."""
+    toks = set(re.findall(r"[a-záéíóúñü]+", text.lower()))
+    if lang == "es":
+        toks |= {t for t in toks if t.startswith("veinti")}
+    return {t for t in toks if t in _NUMWORDS[lang] or t.startswith("veinti")}
+
+
+def _same(a: str, b: str) -> bool:
+    """A near-copy of the template (it stays labeled a template: Gemini did not write it)."""
+    norm = lambda x: re.sub(r"[^a-z0-9áéíóúñü]+", " ", x.lower()).strip()  # noqa: E731
+    return difflib.SequenceMatcher(None, norm(a), norm(b)).ratio() >= 0.9
+
+
+def validate_ai(w: Writer, sid: str, lang: str, text: str, limit: int, template: str | None = None) -> tuple[bool, str | None, int]:
+    """One Gemini paragraph against the report: length, no repeated opening/closing, the fix verdict
+    kept, the right language, and every number a fact (briefing.check_text, names masked)."""
+    if not text or len(text) < 20:
+        return False, "empty", 0
+    if len(text) > limit:
+        return False, f"too long ({len(text)} > {limit})", 0
+    if _OPENING.search(text) or _CLOSING.search(text):
+        return False, "repeats the fixed opening or closing", 0
+    low = f" {text.lower()} "
+    es_marks = sum(t in low for t in (" el ", " la ", " los ", " las ", " que ", " del ", " una ", " se ", "ción", "ñ"))
+    if lang == "es" and es_marks == 0:
+        return False, "not Spanish", 0
+    if lang == "en" and es_marks >= 2:
+        return False, "not English", 0
+    known = _number_words(template or "", lang) | _number_words(json.dumps(ai_data(w, sid), ensure_ascii=False), lang)
+    known |= {words(int(x), lang) for x in re.findall(r"\b\d{1,2}\b", (template or "") + json.dumps(ai_data(w, sid)))}
+    known |= {words(int(x), lang, fem=True) for x in re.findall(r"\b\d{1,2}\b", (template or "") + json.dumps(ai_data(w, sid)))}
+    extra_words = _number_words(text, lang) - known
+    if extra_words:
+        return False, f"a spelled number or ratio not in the template: {sorted(extra_words)}", 0
+    if sid == "fix" and w.best is not None and w.best.get("verdict") == "holds":
+        if not any(x in low for x in HOLDS_WORDS[lang]):
+            return False, "drops the fix verdict", 0
+    return check_segment(text, w, lang)
+
+
+async def ai_bodies(report: dict, composed: dict, length: str) -> tuple[dict, dict]:
+    """({(slide id, lang): validated Gemini paragraph}, meta). One Gemini call per report and length,
+    cached; any slide or language that fails validation keeps its template."""
+    key = f"{VERSION}|{report.get('key')}|{length}"
+    hit = _ai_cache.get(key)
+    if hit is not None:
+        _ai_cache.move_to_end(key)
+        return dict(hit["bodies"]), dict(hit["meta"])
+    if not ai_configured():
+        return {}, {"numbers_checked": 0, "rejected": 0, "fallback": True, "reason": "not configured"}
+    lock = _ai_locks.setdefault(key, asyncio.Lock())
+    async with lock:  # the stage prefetches; a second request for the same deck waits for the first
+        hit = _ai_cache.get(key)
+        if hit is not None:
+            return dict(hit["bodies"]), dict(hit["meta"])
+        w: Writer = composed["writer"]
+        slots = ai_slots(composed)
+        if not slots:
+            return {}, {"numbers_checked": 0, "rejected": 0, "fallback": True, "reason": "nothing to write"}
+        prompt = await run_in_threadpool(_prompt, w, slots)
+        none = {"slides": {}}
+        try:
+            data, offline = await asyncio.wait_for(
+                complete_json(prompt, system=AI_SYSTEM, fallback=none, timeout=AI_TIMEOUT_S), AI_DEADLINE_S)
+        except asyncio.TimeoutError:
+            log.warning("briefing deck: Gemini took over %ss; templates used", AI_DEADLINE_S)
+            data, offline = none, True
+        if offline:
+            _ai_locks.pop(key, None)
+            return {}, {"numbers_checked": 0, "rejected": 0, "fallback": True, "reason": "AI unavailable"}
+        got = data.get("slides") if isinstance(data, dict) else None
+        got = got if isinstance(got, dict) else {}
+        bodies, checked, rejected, reasons = {}, 0, 0, []
+        for sl in slots:
+            text = _clean_ai((got.get(sl["id"]) or {}).get(sl["lang"]) if isinstance(got.get(sl["id"]), dict) else None)
+            if text and _same(text, sl["template"]):
+                continue  # Gemini returned the draft unchanged: it stays labeled a template
+            ok, why, n = await run_in_threadpool(validate_ai, w, sl["id"], sl["lang"], text, sl["max"], sl["template"])
+            if ok:
+                bodies[(sl["id"], sl["lang"])] = text
+                checked += n
+            else:
+                rejected += 1
+                reasons.append(f"{sl['id']}/{sl['lang']}: {why}")
+        if reasons:
+            log.warning("briefing deck: Gemini paragraphs rejected, templates used: %s", "; ".join(reasons)[:600])
+        meta = {"numbers_checked": checked, "rejected": rejected, "fallback": not bodies}
+        _ai_cache[key] = {"bodies": bodies, "meta": meta}
+        while len(_ai_cache) > AI_CACHE:
+            _ai_cache.popitem(last=False)
+        _ai_locks.pop(key, None)
+        return dict(bodies), dict(meta)
+
+
 async def build_deck(body: DeckIn) -> tuple[dict, dict]:
-    """(deck, report). Templates only in M1: ai.fallback says the AI prose was not used."""
+    """(deck, report). ai=false: templates only, instantly. ai=true: Gemini's presenter prose where it
+    passes the checks (cached per report), templates everywhere else."""
     report = await run_in_threadpool(report_for_case, body)
     composed = await run_in_threadpool(compose, report, body.length, None)
     meta = {"numbers_checked": 0, "rejected": 0, "fallback": bool(body.ai)}
+    if body.ai:
+        bodies, meta = await ai_bodies(report, composed, body.length)
+        if bodies:
+            composed = await run_in_threadpool(compose, report, body.length, bodies)
     deck = await run_in_threadpool(finish, report, composed, body.length, meta)
     remember(deck)
     return deck, report
