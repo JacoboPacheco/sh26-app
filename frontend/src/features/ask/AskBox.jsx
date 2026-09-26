@@ -3,6 +3,7 @@ import { useOverload } from '../../store'
 import { Badge, Button, ErrorBanner, Loading } from '../../ui'
 import './ask.css'
 import { askQuestion, askSuggestions, audioUrl, caseForCascade, voiceConfigured, voiceSegment } from './askApi'
+import { factLabel, factValue } from './factText'
 
 // Ask Overload: one question about the scenario on screen, answered from the engine's facts
 // (backend/ask.py). Not a chat: one question, one answer, the facts it used, and any engine run it
@@ -225,18 +226,18 @@ function Answer({ res, t, speech }) {
                 <button
                   type="button"
                   className="ask-fact"
-                  title={c.text}
+                  title={factValue(c.text, res.lang)}
                   aria-expanded={open === c.key}
                   onClick={() => setOpen(open === c.key ? null : c.key)}
                 >
-                  {factName(c)}
+                  {factName(c, res.lang)}
                 </button>
               </li>
             ))}
           </ul>
           {shown && (
             <p className="ask-facts__detail">
-              <code>{shown.key}</code> {shown.label}: {shown.text}
+              <code>{shown.key}</code> {factLabel(shown.label, res.lang)}: {factValue(shown.text, res.lang)}
             </p>
           )}
         </div>
@@ -265,10 +266,11 @@ function Answer({ res, t, speech }) {
   )
 }
 
-// A short chip name for a cited fact: its label, without the "What-if:" / "Fix (x)" prefixes.
-function factName(c) {
-  const label = String(c.label || c.key)
-    .replace(/^What-if:\s*/i, '')
+// A short chip name for a cited fact: its label (in the answer's language), without the
+// "What-if:" / "Simulación:" prefix.
+function factName(c, lang) {
+  const label = factLabel(c.label || c.key, lang)
+    .replace(/^(What-if|Simulación):\s*/i, '')
     .replace(/^Fix \(([^)]+)\)\s*/i, 'Fix, $1 ')
   return label.length > 42 ? `${label.slice(0, 40)}…` : label
 }
