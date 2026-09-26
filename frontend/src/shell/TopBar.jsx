@@ -2,6 +2,7 @@
 // add a nice high quality bar"; top tabs picked Sat 08:14): the name, the state (on the map), the pages,
 // and how AI is used. Tabs are plain links; on the map page `onPick` switches between the destruction demo
 // and Strengthen without leaving the page.
+import { useEffect, useRef } from 'react'
 import HowAiIsUsed from '../features/ai/HowAiIsUsed'
 import { useOverload } from '../store'
 import './topbar.css'
@@ -15,13 +16,21 @@ const PAGES = [
 ]
 
 export default function TopBar({ active, onPick, withState = false }) {
+  // on a phone the tabs are a strip that scrolls sideways: bring the page you are on into view
+  const tabsRef = useRef(null)
+  useEffect(() => {
+    const nav = tabsRef.current
+    const on = nav?.querySelector('.is-on')
+    if (!nav || !on || nav.scrollWidth <= nav.clientWidth) return
+    nav.scrollLeft = Math.max(0, on.offsetLeft - (nav.clientWidth - on.offsetWidth) / 2)
+  }, [active])
   return (
     <header className="appbar">
       <a className="appbar__brand" href="#/" onClick={(e) => onPick?.('demo', e)}>
         Overload
       </a>
       {withState && <StatePicker />}
-      <nav className="appbar__tabs" aria-label="Pages">
+      <nav className="appbar__tabs" aria-label="Pages" ref={tabsRef}>
         {PAGES.map((p) => (
           <a
             key={p.id}

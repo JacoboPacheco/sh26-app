@@ -185,3 +185,36 @@ h1.hook {
 .below-bar .vote-top__map {
   display: none;
 }
+
+/* phones: two rows — the name (and the state on the map), then every page as a full-width strip that scrolls
+   sideways, fading at the edge so it reads as more to swipe to; the page you are on scrolls into view */
+@media (max-width: 860px) {
+  :root {
+    --appbar-h: 92px;
+  }
+  .appbar {
+    flex-wrap: wrap;
+    align-content: flex-start;
+    row-gap: 0;
+  }
+  .appbar__brand,
+  .appbar__state {
+    height: 48px;
+  }
+  .appbar__state {
+    margin-block: 0;
+  }
+  .appbar__tabs {
+    order: 3;
+    flex: 1 0 100%;
+    height: 44px;
+    margin-inline: calc(-1 * var(--gutter));
+    padding-inline: var(--gutter);
+    border-top: 1px solid var(--glass-edge);
+    -webkit-mask-image: linear-gradient(to right, #000 85%, transparent);
+    mask-image: linear-gradient(to right, #000 85%, transparent);
+  }
+  .appbar__tab {
+    padding: 0 0.7rem;
+  }
+}
