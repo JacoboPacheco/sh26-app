@@ -1,17 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { deleteScenario, getGrid, getHeadroom, listScenarios, runCascade, saveScenario, whatIf } from './api'
-import { fmt, headroomClass, loadClass } from './geo'
+import { api, deleteScenario, listScenarios, runCascade, saveScenario, whatIf } from './api'
+import { US_BBOX, fmt, headroomClass, loadClass, regionAt, setProjectionFor } from './geo'
 
 // The app's shared state and actions. Every feature reads and changes the scenario through
 // useOverload() — it never keeps its own copy of the grid, the case, or the results.
 //
 // A *case* is what the backend solves (backend/grid.py → CaseIn):
+//   region           the state whose synthetic model is solved ('FL' default; 'US' = the national map, no case)
 //   site + mw        the main data center (Campus mode)
 //   extraSites       more data centers [{id, lat, lon, mw}] (AI-boom mode)
 //   loadFactor       1.0 = the dataset's snapshot (a summer afternoon); the heat-wave clock scales it
 //   trip             branch ids knocked out first (hurricane mode)
 //   upgrades         {branch id: new rating MVA} (Fix it)
+//   firm             every campus on firm service: kept on, the operator cuts other customers instead
+//                    (false = flexible: the plain cascade, the campus's own line may trip)
 // Any change re-runs the what-if (debounced) and clears the cascade.
+//
+// People without power (an estimate) come from the backend: lost MW x the state's people per MW
+// (Census population / the state model's load). view.peopleMax is the counter's number.
 
 const Ctx = createContext(null)
 export const useOverload = () => useContext(Ctx)
@@ -22,7 +28,7 @@ export const stepMsFor = (n) => Math.round(Math.min(1800, Math.max(1100, 12000 /
 export const HOMES_PER_MW = 700 // matches backend/powerflow.py; an estimate (~1.4 kW per home)
 export const SEED_MARK = '(demo scenario)' // matches backend/seed.py
 
-// "NAPLES 12" -> "Naples": the town a synthetic substation is named after
+// "NAPLES 12" -> "Naples": the town a synthetic substation is named after (backend: powerflow.area_of)
 export function townOf(name) {
   const base = String(name || '')
     .replace(/\s+\d+$/, '')
@@ -31,9 +37,22 @@ export function townOf(name) {
   return base.replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// The national map: no grid model of its own, just the state outlines (GridMap draws them).
+const US_GRID = { meta: { region: 'US', region_name: 'the U.S.', bbox: US_BBOX, synthetic: true }, subs: [], branches: [] }
+const regionQuery = (r) => `region=${encodeURIComponent(r)}`
+
 export function OverloadProvider({ user, children }) {
   const [grid, setGrid] = useState(null)
   const [gridError, setGridError] = useState(null)
+
+  // regions
+  const [region, setRegionState] = useState('FL')
+  const [regions, setRegions] = useState(null)
+  const [regionsError, setRegionsError] = useState(null)
+  const [regionLoading, setRegionLoading] = useState(false)
+  const gridCache = useRef(new Map()) // region -> /api/grid payload
+  const gridReq = useRef(0)
+  const pendingPlace = useRef(null) // a drop waiting for its state's grid: {lat, lon, mw?}
 
   // the case
   const [site, setSite] = useState(null)
@@ -42,6 +61,7 @@ export function OverloadProvider({ user, children }) {
   const [loadFactor, setLoadFactorState] = useState(1.0)
   const [trip, setTripState] = useState([])
   const [upgrades, setUpgradesState] = useState({})
+  const [firm, setFirmState] = useState(false)
 
   // results
   const [result, setResult] = useState(null)
@@ -53,7 +73,7 @@ export function OverloadProvider({ user, children }) {
   const [step, setStepState] = useState(0)
   const [playing, setPlaying] = useState(false)
 
-  // headroom heatmap (per load level)
+  // headroom heatmap (per region and load level)
   const [headroomOn, setHeadroomOn] = useState(false)
   const [headroomByLevel, setHeadroomByLevel] = useState({})
   const [headroomError, setHeadroomError] = useState(null)
@@ -61,7 +81,7 @@ export function OverloadProvider({ user, children }) {
   // UI
   const [mode, setMode] = useState('campus') // campus | hurricane | boom | fix
   const [mapTool, setMapTool] = useState(null) // a feature's pointer handlers for the map, or null (see GridMap)
-  const [resetCount, setResetCount] = useState(0) // bumps on "Start over": features clear their own local state on it
+  const [resetCount, setResetCount] = useState(0) // bumps on "Start over" and on a region change: features clear their own local state on it
 
   // saved scenarios (the demo account's)
   const [scenarios, setScenarios] = useState(undefined)
@@ -77,26 +97,75 @@ export function OverloadProvider({ user, children }) {
   const branchById = useMemo(() => new Map((grid?.branches || []).map((b) => [b.id, b])), [grid])
   const branchIndex = useMemo(() => new Map((grid?.branches || []).map((b, i) => [b.id, i])), [grid])
   const subName = useCallback((id) => subById.get(id)?.name || `#${id}`, [subById])
+  const areaOf = useCallback(
+    (id) => {
+      const s = subById.get(id)
+      return s ? s.area || townOf(s.name) : `#${id}`
+    },
+    [subById],
+  )
   const subPos = useCallback((id) => {
     const s = subById.get(id)
     return s ? [s.lon, s.lat] : null
   }, [subById])
   const focus = useCallback((points, center) => mapRef.current?.focus(points.filter(Boolean), center), [])
+  const peoplePerMw = grid?.meta?.people_per_mw || 0
+  const population = grid?.meta?.population || null
 
   // ------------------------------------------------------------------ loading
+  // The region's grid (cached per region). The projection is set before the map sees the new grid.
   const loadGrid = useCallback(
-    () =>
-      getGrid()
+    (code = region) => {
+      const id = ++gridReq.current
+      const show = (g) => {
+        if (id !== gridReq.current) return
+        setProjectionFor(g)
+        setGridError(null)
+        setGrid(g)
+        setRegionLoading(false)
+      }
+      if (code === 'US') {
+        show(US_GRID)
+        return Promise.resolve(US_GRID)
+      }
+      const cached = gridCache.current.get(code)
+      if (cached) {
+        show(cached)
+        return Promise.resolve(cached)
+      }
+      setRegionLoading(true)
+      return api(`/api/grid?${regionQuery(code)}`)
         .then((g) => {
-          setGridError(null)
-          setGrid(g)
+          gridCache.current.set(code, g)
+          show(g)
+          return g
         })
-        .catch(setGridError),
+        .catch((err) => {
+          if (id !== gridReq.current) return null
+          setRegionLoading(false)
+          setGridError(err)
+          return null
+        })
+    },
+    [region],
+  )
+  useEffect(() => {
+    loadGrid(region)
+  }, [loadGrid, region])
+
+  const loadRegions = useCallback(
+    () =>
+      api('/api/regions')
+        .then((r) => {
+          setRegionsError(null)
+          setRegions(r.regions)
+        })
+        .catch(setRegionsError),
     [],
   )
   useEffect(() => {
-    loadGrid()
-  }, [loadGrid])
+    loadRegions()
+  }, [loadRegions])
 
   const loadScenarios = useCallback(
     () =>
@@ -114,11 +183,20 @@ export function OverloadProvider({ user, children }) {
 
   // ------------------------------------------------------------------ the case
   const caseBody = useMemo(() => {
-    const body = { load_factor: loadFactor, trip, upgrades, sites: extraSites.map(({ lat, lon, mw: m }) => ({ lat, lon, mw: m })) }
+    const body = {
+      region,
+      firm,
+      load_factor: loadFactor,
+      trip,
+      upgrades,
+      sites: extraSites.map(({ lat, lon, mw: m }) => ({ lat, lon, mw: m })),
+    }
     if (site) Object.assign(body, { lat: site.lat, lon: site.lon, mw })
     return body
-  }, [site, mw, extraSites, loadFactor, trip, upgrades])
-  const hasCase = !!(site || extraSites.length || trip.length || loadFactor !== 1.0)
+  }, [region, firm, site, mw, extraSites, loadFactor, trip, upgrades])
+  // the national map has no model to solve, and a case waits for its own state's grid
+  const gridRegion = grid ? grid.meta?.region || 'FL' : null
+  const hasCase = region !== 'US' && gridRegion === region && !!(site || extraSites.length || trip.length || loadFactor !== 1.0)
 
   const clearCascade = useCallback(() => {
     cascadeReq.current++ // a cascade still in flight belongs to the old case; drop it when it lands
@@ -173,7 +251,7 @@ export function OverloadProvider({ user, children }) {
   }, [playing, step, cascade])
 
   // setters that also clear a cascade that no longer matches the case
-  const place = useCallback((lat, lon) => {
+  const placeHere = useCallback((lat, lon) => {
     setSite({ lat, lon })
     clearCascade()
   }, [clearCascade])
@@ -197,14 +275,18 @@ export function OverloadProvider({ user, children }) {
     setUpgradesState(v)
     clearCascade()
   }, [clearCascade])
+  const setFirm = useCallback((v) => {
+    setFirmState(!!v)
+    clearCascade()
+  }, [clearCascade])
   const clearSite = useCallback(() => {
     setSite(null)
     focusedSite.current = null
     if (!extraSites.length && !trip.length && loadFactor === 1.0) setResult(null)
     clearCascade()
   }, [clearCascade, extraSites.length, trip.length, loadFactor])
-  // "Start over": every ingredient of the case, the results, any map tool, the camera
-  const resetAll = useCallback(() => {
+  // every ingredient of the case and its results (Start over and a region change share it)
+  const clearCase = useCallback(() => {
     latest.current++ // a what-if still in flight is dropped when it lands
     setSite(null)
     focusedSite.current = null
@@ -212,6 +294,7 @@ export function OverloadProvider({ user, children }) {
     setLoadFactorState(1.0)
     setTripState([])
     setUpgradesState({})
+    setFirmState(false)
     setResult(null)
     setWhatifError(null)
     setSolving(false)
@@ -220,8 +303,49 @@ export function OverloadProvider({ user, children }) {
     setMapTool(null)
     setMode('campus')
     setResetCount((n) => n + 1)
-    mapRef.current?.reset()
   }, [clearCascade])
+  // "Start over": the whole case, any map tool, the camera back to the whole region
+  const resetAll = useCallback(() => {
+    clearCase()
+    mapRef.current?.reset()
+  }, [clearCase])
+
+  // Switch to another state ('US' = the national map): clears the case like Start over, loads that
+  // state's grid, and the map flies there. opts.place = [lat, lon] (and opts.mw) drops the campus
+  // there once the grid is in. Returns false for an unknown code.
+  const setRegion = useCallback(
+    (code, opts = {}) => {
+      const next = String(code || 'FL').toUpperCase()
+      if (next !== 'US' && regions && !regions.some((r) => r.code === next)) return false
+      pendingPlace.current = opts.place ? { lat: opts.place[0], lon: opts.place[1], mw: opts.mw } : null
+      if (next !== region) {
+        clearCase()
+        setHeadroomError(null)
+        setRegionState(next)
+      }
+      return true
+    },
+    [region, regions, clearCase],
+  )
+  // place a drop that was waiting for its state's grid
+  useEffect(() => {
+    const p = pendingPlace.current
+    if (!p || gridRegion !== region) return
+    pendingPlace.current = null
+    if (p.mw) setMwState(p.mw)
+    setMode('campus')
+    placeHere(p.lat, p.lon)
+  }, [gridRegion, region, placeHere, resetCount])
+
+  // A click on the map. On the national map it opens the state under the click and drops the campus there.
+  const place = useCallback(
+    (lat, lon) => {
+      if (region !== 'US') return placeHere(lat, lon)
+      const code = regionAt(lat, lon)
+      if (code && code !== 'DC') setRegion(code, { place: [lat, lon] })
+    },
+    [region, placeHere, setRegion],
+  )
 
   const setStep = useCallback((s) => {
     setPlaying(false)
@@ -264,22 +388,29 @@ export function OverloadProvider({ user, children }) {
   )
 
   // ------------------------------------------------------------------ headroom
-  const levelKey = loadFactor.toFixed(2)
+  const levelKey = `${region}:${loadFactor.toFixed(2)}`
   const headroom = headroomByLevel[levelKey] || null
-  // fetched when the heatmap is on and this level isn't cached; Retry clears the error, which refetches
+  // MW each substation can take, for a region and load level (cached; the heatmap uses the current one)
+  const getHeadroom = useCallback(
+    (lf = loadFactor, code = region) =>
+      api(`/api/grid/headroom?load_factor=${encodeURIComponent(lf)}&${regionQuery(code)}`).then((h) => {
+        setHeadroomByLevel((m) => ({ ...m, [`${code}:${Number(lf).toFixed(2)}`]: h.by_sub }))
+        return h.by_sub
+      }),
+    [loadFactor, region],
+  )
+  // fetched when the heatmap is on and this region + level isn't cached; Retry clears the error, which refetches
   useEffect(() => {
-    if (!headroomOn || headroom || headroomError) return
-    const key = loadFactor.toFixed(2)
-    getHeadroom(loadFactor)
-      .then((h) => setHeadroomByLevel((m) => ({ ...m, [key]: h.by_sub })))
-      .catch(setHeadroomError)
-  }, [headroomOn, headroom, headroomError, loadFactor])
+    if (!headroomOn || headroom || headroomError || region === 'US') return
+    getHeadroom().catch(setHeadroomError)
+  }, [headroomOn, headroom, headroomError, region, getHeadroom])
   const fetchHeadroom = useCallback(() => setHeadroomError(null), [])
   const toggleHeadroom = useCallback(() => setHeadroomOn((on) => !on), [])
 
   // ------------------------------------------------------------------ scenarios
   const saveName = result?.sub_name ? `${result.sub_name} · ${fmt(mw)} MW`.slice(0, 80) : ''
-  const canSave = !!(user && site && result && !scenarios?.some((sc) => sc.name === saveName))
+  // saved scenarios are Florida's (the scenarios table has no region yet)
+  const canSave = !!(user && region === 'FL' && site && result && !scenarios?.some((sc) => sc.name === saveName))
   const saveSite = useCallback(async () => {
     setSaving(true)
     setScenarioError(null)
@@ -303,11 +434,19 @@ export function OverloadProvider({ user, children }) {
     }
     setScenarios((list) => list.filter((sc) => sc.id !== id))
   }, [])
-  const pickScenario = useCallback((sc) => {
-    setMwState(sc.mw)
-    setMode('campus')
-    place(sc.lat, sc.lon)
-  }, [place])
+  const pickScenario = useCallback(
+    (sc) => {
+      const code = sc.region || 'FL'
+      if (code !== region) {
+        setRegion(code, { place: [sc.lat, sc.lon], mw: sc.mw })
+        return
+      }
+      setMwState(sc.mw)
+      setMode('campus')
+      placeHere(sc.lat, sc.lon)
+    },
+    [region, setRegion, placeHere],
+  )
 
   // ------------------------------------------------------------------ what the map shows
   const view = useMemo(() => {
@@ -359,6 +498,9 @@ export function OverloadProvider({ user, children }) {
       })
     }
     const cur = cascade && step > 0 ? steps[step - 1] : null
+    // the counter never counts down mid-replay: the most people dark at any step shown so far
+    let peopleMax = cur ? 0 : result?.people || 0
+    for (let j = 0; cur && j < step; j++) peopleMax = Math.max(peopleMax, steps[j].people ?? 0)
     return {
       lineClasses,
       subClasses,
@@ -366,14 +508,31 @@ export function OverloadProvider({ user, children }) {
       affected, // Map sub id -> MW lost (for the towns feed)
       homes: cur ? cur.homes : result ? Math.round((result.lost_mw || 0) * HOMES_PER_MW) : 0,
       lostMw: cur ? cur.lost_mw : result?.lost_mw || 0,
+      people: cur ? (cur.people ?? 0) : result?.people || 0, // people without power at the step on screen (estimate)
+      peopleMax, // the counter's number: the peak so far (estimate)
+      peopleFinal: cascade ? (cascade.people ?? null) : null, // where the cascade ends — show it in the result
+      action: cur?.action || null, // the step on screen: 'storm' | 'trip' | 'shed' (firm: customers cut to hold a line)
+      siteCutOff: !!(cascade && step >= steps.length && cascade.site_cut_off), // the campus itself lost power
     }
   }, [grid, result, cascade, step, trip, headroomOn, headroom, mw, subById, loadFactor])
 
   const value = {
     user,
+    // grid: /api/grid for the region — {meta: {region, region_name, bbox, center, load_mw, population,
+    //   people_per_mw, population_source, synthetic, ...}, subs: [{id, name, area, lat, lon, load_mw, kv_max}],
+    //   branches: [{id, from_sub, to_sub, kv, rate_mva, base_pct, base_flow}]}; 'US' → no subs/branches
     grid,
     gridError,
-    loadGrid,
+    loadGrid, // (code = region) → Promise<grid>
+    // regions
+    region, // 'FL' by default; any code from /api/regions; 'US' = the national map
+    regions, // /api/regions → [{code, name, bbox, center, load_mw, population, people_per_mw, valid, ...}], null while loading
+    regionsError,
+    loadRegions,
+    regionLoading, // true while a new state's grid loads (the old map stays up)
+    setRegion, // (code, {place: [lat, lon], mw}?) → clears the case, loads the grid, the map flies there
+    peoplePerMw, // this region's people per MW of lost load (estimate, from /api/grid meta)
+    population, // this region's population (Census Vintage 2024, from /api/grid meta)
     // the case
     site,
     mw,
@@ -381,15 +540,18 @@ export function OverloadProvider({ user, children }) {
     loadFactor,
     trip,
     upgrades,
-    place,
+    firm, // bool: every campus on firm service (kept on; the operator cuts other customers)
+    place, // (lat, lon): drop the campus; on the national map, opens that state and drops it there
     clearSite,
     setMw,
     setExtraSites,
     setLoadFactor,
     setTrip,
     setUpgrades,
-    caseBody,
-    // results
+    setFirm, // (bool) → clears the cascade, re-solves
+    caseBody, // what the backend solves: {region, firm, load_factor, trip, upgrades, sites, lat?, lon?, mw?}
+    // results: result = /api/grid/whatif (…, people, people_per_mw, population, sub_area, firm);
+    // cascade = /api/grid/cascade (steps[{…, action, people, shed_mw}], people, site_cut_off, firm, firm_held, shed_mw)
     result,
     solving,
     whatifError,
@@ -402,13 +564,14 @@ export function OverloadProvider({ user, children }) {
     setPlaying,
     startCascade,
     clearCascade,
-    view,
+    view, // {lineClasses, subClasses, flow, affected, homes, lostMw, people, peopleMax, peopleFinal, action, siteCutOff}
     // headroom
     headroomOn,
     headroom,
     headroomError,
     toggleHeadroom,
     fetchHeadroom,
+    getHeadroom, // (loadFactor?, region?) → Promise<{sub id: MW}>; cached for the heatmap too
     // scenarios
     scenarios,
     scenarioError,
@@ -432,7 +595,12 @@ export function OverloadProvider({ user, children }) {
     branchById,
     branchIndex,
     subName,
+    areaOf, // (sub id) → the town it's named after, e.g. "Naples"
     subPos,
   }
+  // dev only: browser checks (scratch/*.py) can drive the store, e.g. window.__overload.setRegion('TX')
+  useEffect(() => {
+    if (import.meta.env.DEV) window.__overload = value
+  })
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -1,9 +1,18 @@
-import { createContext, memo, useCallback, useContext, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { createContext, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import outline from './data/florida_outline.json'
-import { CITIES, HEIGHT, WIDTH, project, toPath, unproject } from './geo'
+import { HEIGHT, REGION, STATES, WIDTH, citiesFor, project, setProjectionFor, snapshot, toPath, unproject } from './geo'
 
-const LAND = outline.land.map((ring) => toPath(ring)).join('')
-const LAKES = outline.lakes.map((l) => toPath(l))
+// The land for the current projection: the region's state filled, every other state faint around
+// it (all of them, equally, on the national map). Florida keeps its hand-built outline and lake.
+function landFor(region) {
+  const paths = (rings) => rings.map((ring) => toPath(ring)).join('')
+  if (region === 'US') return { land: Object.values(STATES).map((st) => paths(st.rings)).join(''), lakes: [], near: [] }
+  const own = region === 'FL' ? paths(outline.land) : paths(STATES[region]?.rings || [])
+  const near = Object.entries(STATES)
+    .filter(([code]) => code !== region)
+    .map(([code, st]) => ({ code, d: paths(st.rings) }))
+  return { land: own, lakes: region === 'FL' ? outline.lakes.map((l) => toPath(l)) : [], near }
+}
 const TOP = new Set(['ln--hot', 'ln--over', 'ln--tripped'])
 const MAX_ZOOM = 12
 const FOCUS_MAX_ZOOM = 6
@@ -25,6 +34,10 @@ export const useMapView = () => useContext(MapViewCtx)
 // that go out when they lose power, the data-center sites. It renders what the store computed —
 // no power-flow logic here.
 //
+// Any region: the projection follows `grid.meta.region` (geo.js → setProjectionFor); when it changes
+// the camera flies from what was on screen to the new region (Florida → the U.S. zooms out). A grid
+// with meta.region 'US' (no subs, no branches) is the national map: every state outlined, no grid.
+//
 // Interaction: click (or drop the data-center card) calls onPlace(lat, lon); wheel zooms; drag pans.
 // A feature can take over the pointer with `tool` = {down, move, up, cursor} — each gets
 // {lat, lon} in map coordinates — e.g. hurricane mode drawing a storm track.
@@ -39,6 +52,13 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
   const [view, setView] = useState({ k: 1, tx: 0, ty: 0 })
   const [easing, setEasing] = useState(false)
   const [panning, setPanning] = useState(false)
+
+  // the projection follows the grid's region (idempotent; the store normally sets it first)
+  setProjectionFor(grid)
+  const region = REGION
+  const national = region === 'US'
+  const regionName = national ? 'the U.S.' : grid.meta?.region_name || STATES[region]?.name || 'Florida'
+  const shot = useRef(null) // the projection + camera as last painted, to fly from on a region change
 
   // animate the next view change (a camera move), then drop the transition so panning stays direct
   const easeTo = useCallback((next) => {
@@ -83,6 +103,33 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
     [easeTo],
   )
 
+  // Region change: start the camera on what was on screen (in the new projection), then ease to the
+  // whole region — a zoom out to the country or a dive into a state.
+  useLayoutEffect(() => {
+    const prev = shot.current
+    if (!prev || prev.region === region) return undefined
+    const { k: k0, tx, ty } = prev.view
+    const corners = [
+      prev.unproject(-tx / k0, -ty / k0),
+      prev.unproject((prev.width - tx) / k0, (prev.height - ty) / k0),
+    ].map(({ lon, lat }) => project(lon, lat))
+    const [[x0, y0], [x1, y1]] = corners
+    const k = Math.max(0.02, Math.min(40, Math.min(WIDTH / Math.max(Math.abs(x1 - x0), 1), HEIGHT / Math.max(Math.abs(y1 - y0), 1))))
+    clearTimeout(easeTimer.current)
+    setEasing(false)
+    setView({ k, tx: WIDTH / 2 - ((x0 + x1) / 2) * k, ty: HEIGHT / 2 - ((y0 + y1) / 2) * k })
+    let raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => easeTo({ k: 1, tx: 0, ty: 0 }))
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [region, easeTo])
+  useEffect(() => {
+    shot.current = { ...snapshot(), view }
+  })
+
+  const land = useMemo(() => landFor(region), [region])
+  const cities = useMemo(() => (national ? [] : citiesFor(grid)), [grid, national])
+
   const geom = useMemo(() => {
     const xy = new Map(grid.subs.map((s) => [s.id, project(s.lon, s.lat)]))
     const segments = []
@@ -97,7 +144,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
       return { id: s.id, x, y, r: 0.7 + Math.sqrt(Math.max(s.load_mw, 0)) / 12 }
     })
     return { segments, dots }
-  }, [grid])
+  }, [grid, region]) // eslint-disable-line react-hooks/exhaustive-deps -- region: the projection changed
 
   // map coordinates under a client (screen) point, inside the zoomed group
   const toMap = useCallback((clientX, clientY) => {
@@ -183,7 +230,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
   }
 
   const k = view.k
-  const mapView = useMemo(() => ({ k, project }), [k])
+  const mapView = useMemo(() => ({ k, project, region }), [k, region])
   // lights shrink as you zoom in (by √zoom, so they still grow a little); bucketed so the heavy
   // layer re-renders only when the zoom crosses a step, not on every pan frame
   const zoomBucket = k < 1.5 ? 1 : k < 2.5 ? 2 : k < 4 ? 3 : k < 6 ? 5 : 8
@@ -195,7 +242,11 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
         className={`map-svg${headroomMode ? ' map-svg--headroom' : ''}`}
         viewBox={`0 0 ${WIDTH.toFixed(0)} ${HEIGHT.toFixed(0)}`}
         role="img"
-        aria-label="Map of the synthetic Florida grid. Click to place the data center, drag to move around, scroll or use + and − to zoom."
+        aria-label={
+          national
+            ? 'Map of the United States. Click a state to open its synthetic grid model, drag to move around, scroll or use + and − to zoom.'
+            : `Map of the synthetic ${regionName} grid. Click to place the data center, drag to move around, scroll or use + and − to zoom.`
+        }
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -224,13 +275,16 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
           className={easing ? 'map-cam map-cam--ease' : 'map-cam'}
           style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${k})` }}
         >
-          <path className="map-land" d={LAND} />
-          {LAKES.map((d) => (
+          {land.near.map((n) => (
+            <path key={n.code} className="map-land map-land--near" d={n.d} opacity={0.35} />
+          ))}
+          <path className={national ? 'map-land map-land--us' : 'map-land'} d={land.land} />
+          {land.lakes.map((d) => (
             <path key={d} className="map-lake" d={d} />
           ))}
-          <GridLayers geom={geom} lineClasses={lineClasses} subClasses={subClasses} zoomBucket={zoomBucket} />
+          {!national && <GridLayers geom={geom} lineClasses={lineClasses} subClasses={subClasses} zoomBucket={zoomBucket} />}
           <MapViewCtx.Provider value={mapView}>{children}</MapViewCtx.Provider>
-          {CITIES.map((c) => {
+          {cities.map((c) => {
             const [x, y] = project(c.lon, c.lat)
             return (
               <text key={c.name} className="map-city" x={x + 6 / k} y={y - 4 / k} fontSize={11 / k}>
@@ -264,7 +318,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
           onClick={() => easeTo({ k: 1, tx: 0, ty: 0 })}
           disabled={k === 1 && view.tx === 0 && view.ty === 0}
         >
-          All of Florida
+          All of {regionName}
         </button>
       </div>
     </div>

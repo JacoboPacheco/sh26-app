@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -28,6 +29,15 @@ MAX_STEPS = 30
 HOT_PCT = 80.0
 OVER_PCT = 100.0
 _EPS = 1e-9
+FIRM_TARGET = 0.995  # a line held in for a firm campus is relieved to this share of its rating
+MIN_RELIEF = 0.1  # load is cut only where a MW cut relieves the line by at least this much
+
+
+def area_of(name: str) -> str:
+    """The town a synthetic substation is named after: "NAPLES 12" -> "Naples" (the frontend's
+    townOf uses the same rule)."""
+    base = re.sub(r"\s+\d+$", "", str(name or "")).strip().lower()
+    return re.sub(r"\b\w", lambda m: m.group(0).upper(), base)
 
 
 @dataclass
@@ -58,6 +68,10 @@ class Grid:
         self._data = data
         self.load_factor = float(load_factor)
         self.meta = dict(data.get("meta", {}))
+        # people without power (an estimate): lost MW x people_per_mw, capped at the population.
+        # grid.py sets both from backend/demo/population.json; 0 / None means "not known".
+        self.people_per_mw = 0.0
+        self.population: int | None = None
         buses = data["buses"]
         self.n = len(buses)
         self.bus_ids = np.array([int(b["id"]) for b in buses])
@@ -102,8 +116,16 @@ class Grid:
             return cls(json.load(fh))
 
     def variant(self, load_factor: float) -> "Grid":
-        """The same network at another load level (shares the parsed JSON, not the arrays)."""
-        return Grid(self._data, load_factor)
+        """The same network at another load level (shares the parsed JSON, not the arrays). People
+        per MW stays the base level's (a MW lost stands for the same people at every level)."""
+        g = Grid(self._data, load_factor)
+        g.people_per_mw, g.population = self.people_per_mw, self.population
+        return g
+
+    def people(self, mw: float) -> int:
+        """People without power for `mw` of existing load lost (an estimate)."""
+        n = int(round(max(float(mw), 0.0) * self.people_per_mw))
+        return min(n, self.population) if self.population else n
 
     def extra_load(self, sites: list[tuple[int, float]]) -> np.ndarray:
         """Per-bus added load from [(bus index, MW), ...] — several data centers at once."""
@@ -140,15 +162,17 @@ class Grid:
         return self.connect_bus(self.nearest_sub(lat, lon))
 
     # ------------------------------------------------------------------ solving
-    def _balance(self, active: np.ndarray, extra_load: np.ndarray):
-        """Dispatch generation island by island so every component balances.
+    def _balance(self, active: np.ndarray, extra_load: np.ndarray, shed: np.ndarray | None = None):
+        """Dispatch generation island by island so every component balances. `shed` is existing
+        load (MW per bus) the operator has already cut to keep a firm campus connected.
 
         Returns (P per bus in per-unit, served_load, gen, tie_eff, lost_mw, dark_bus, comp, ref_buses, weights)."""
         adj = sp.coo_matrix(
             (np.ones(int(active.sum())), (self.f[active], self.t[active])), shape=(self.n, self.n)
         )
         ncomp, comp = connected_components(adj, directed=False)
-        load = self.pd + extra_load
+        pd = self.pd if shed is None else self.pd - shed
+        load = pd + extra_load
         served = load.copy()
         gen = np.zeros(self.n)
         tie = self.tie.copy()
@@ -205,18 +229,22 @@ class Grid:
         # Split the shed load into existing load (homes) and the added load (the data center itself).
         with np.errstate(divide="ignore", invalid="ignore"):
             frac = np.where(load > _EPS, served / load, 1.0)
-        lost_bus = self.pd * (1.0 - frac)
+        lost_bus = self.pd - pd * frac  # shed load counts as lost
         lost_existing = float(lost_bus.sum())
+        if shed is not None:
+            lost += float(shed.sum())
         lost_extra = float((extra_load * (1.0 - frac)).sum())
         return P, served, gen, tie, lost, dark, comp, np.array(refs, dtype=int), weights, lost_existing, lost_extra, lost_bus
 
-    def solve(self, active: np.ndarray, extra_load: np.ndarray | None = None, rate: np.ndarray | None = None) -> State:
+    def solve(
+        self, active: np.ndarray, extra_load: np.ndarray | None = None, rate: np.ndarray | None = None, shed: np.ndarray | None = None
+    ) -> State:
         if extra_load is None:
             extra_load = np.zeros(self.n)
         if rate is None:
             rate = self.rate
         P, served, gen, tie, lost, dark, comp, refs, weights, lost_existing, lost_extra, lost_bus = self._balance(
-            active, extra_load
+            active, extra_load, shed
         )
         b = 1.0 / self.x[active]
         fa, ta = self.f[active], self.t[active]
@@ -335,22 +363,104 @@ class Grid:
         np.add.at(per, self.bus_sub_idx, state.lost_bus if state.lost_bus is not None else 0.0)
         return {int(self.sub_ids[i]): round(float(per[i]), 1) for i in np.flatnonzero(per >= min_mw)}
 
-    def cascade(self, bus: int | None, mw: float, trip: list[int] | None = None) -> dict:
+    def cascade(self, bus: int | None, mw: float, trip: list[int] | None = None, firm: bool = False) -> dict:
         """One data center (or none); see cascade_case."""
-        return self.cascade_case(self.extra_load([(bus, mw)] if bus is not None else []), trip)
+        extra = self.extra_load([(bus, mw)] if bus is not None else [])
+        return self.cascade_case(extra, trip, firm_buses=[bus] if (firm and bus is not None) else None)
+
+    # -- firm campuses: which outages would cut a campus off from the supply it needs
+    def _components(self, active: np.ndarray) -> np.ndarray:
+        adj = sp.coo_matrix((np.ones(int(active.sum())), (self.f[active], self.t[active])), shape=(self.n, self.n))
+        return connected_components(adj, directed=False)[1]
+
+    def _short(self, comp: np.ndarray, load: np.ndarray, buses: np.ndarray) -> np.ndarray:
+        """Per bus in `buses`: is its island short of supply (load beyond its generators' Pmax plus
+        tie imports), so that load there would be shed?"""
+        k = int(comp.max()) + 1
+        need = np.bincount(comp, weights=load - self.tie, minlength=k)
+        gmax = np.bincount(comp, weights=self.pmax, minlength=k)
+        return (need > gmax + 0.5)[comp[buses]]
+
+    def _strands(self, active: np.ndarray, branch: int, firm: np.ndarray, load: np.ndarray) -> bool:
+        """Would tripping `branch` leave a firm campus (that has supply now) in an island short of it?"""
+        comp_now = self._components(active)
+        live = firm[~self._short(comp_now, load, firm)]
+        if not len(live):
+            return False
+        trial = active.copy()
+        trial[branch] = False
+        return bool(self._short(self._components(trial), load, live).any())
+
+    def _line_sens(self, state: State, branch: int) -> np.ndarray:
+        """MW change on `branch` per MW of load added at each bus (picked up by that island's
+        generators with the state's slack weights). One sparse solve on the state's factor."""
+        e = np.zeros(self.n)
+        e[self.f[branch]] += 1.0
+        e[self.t[branch]] -= 1.0
+        y = np.zeros(self.n)
+        if state.lu is not None and len(state.keep):
+            y[state.keep] = state.lu.solve(e[state.keep])  # B' is symmetric
+        y /= self.x[branch]  # MW on the branch per MW injected at each bus (reference: 0)
+        comp = state.comp
+        ybar = np.bincount(comp, weights=state.weights * y, minlength=int(comp.max()) + 1)[comp]
+        return -(y - ybar)
+
+    def _firm_line(self, state: State, branch: int, extra: np.ndarray, shed: np.ndarray, firm: np.ndarray, rate: np.ndarray) -> bool:
+        """Does protecting the firm campuses mean holding `branch` in (shedding instead of tripping)?"""
+        flow = float(state.flow[branch])
+        excess = abs(flow) - float(rate[branch])
+        sens = self._line_sens(state, branch)
+        push = float(np.sign(flow) * (sens[firm] * extra[firm]).sum())  # MW the campuses add to it
+        if push >= excess:
+            return True
+        return self._strands(state.active, branch, firm, self.pd - shed + extra)
+
+    def _relief(self, state: State, branch: int, shed: np.ndarray, firm: np.ndarray, rate: np.ndarray) -> np.ndarray | None:
+        """Existing load to cut (MW per bus) that brings `branch` back to FIRM_TARGET of its rating,
+        taken where a MW cut helps it most; None when no load can do it."""
+        flow = float(state.flow[branch])
+        excess = abs(flow) - FIRM_TARGET * float(rate[branch])
+        eff = np.sign(flow) * self._line_sens(state, branch)  # MW of relief per MW cut at each bus
+        avail = np.where(state.comp == state.comp[self.f[branch]], self.pd - shed, 0.0)
+        cand = np.flatnonzero((eff > MIN_RELIEF) & (avail > _EPS))
+        cand = cand[np.argsort(-eff[cand])]
+        cut = np.zeros(self.n)
+        got = 0.0
+        for k in cand:
+            take = min(float(avail[k]), (excess - got) / float(eff[k]))
+            cut[k] = take
+            got += take * float(eff[k])
+            if got >= excess - 1e-6:
+                return cut
+        return None
 
     def cascade_case(
-        self, extra: np.ndarray, trip: list[int] | None = None, upgrades: dict[int, float] | None = None
+        self,
+        extra: np.ndarray,
+        trip: list[int] | None = None,
+        upgrades: dict[int, float] | None = None,
+        firm_buses: list[int] | None = None,
     ) -> dict:
         """Trip the most overloaded branch, re-solve, repeat (SPEC.md M2). `trip` knocks branches out
         before step 1 (a hurricane) and is reported as step 0; `upgrades` raises ratings (Fix it).
 
         Each step lists the substations that newly lose load (`newly_affected`: [[sub id, MW lost]]),
-        so the UI can name towns as they go dark."""
+        so the UI can name towns as they go dark.
+
+        `firm_buses` (bus indices) are campuses on firm service: the grid operator keeps them on and
+        protects them by cutting other customers instead. When the hottest overloaded line is one the
+        campuses push over its rating (it would be within rating without them) or one whose loss
+        would strand a campus short of supply, the operator sheds existing load where it relieves
+        that line most (a "shed" step, `held_line`) instead of letting it trip. If no load nearby
+        can relieve it enough, it trips after all. So a firm campus's size sets how many people are
+        cut. Flexible (no firm buses) is the plain cascade: the campus's own connection may trip,
+        cutting the campus off along with its neighbors."""
         rate = self.rates_with(upgrades)
         active = np.ones(self.m, dtype=bool)
         for bid in trip or []:
             active[self.br_index[int(bid)]] = False
+        firm = np.unique(np.asarray(firm_buses or [], dtype=int))
+        shed = np.zeros(self.n)
         steps = []
         state = self.solve(active, extra, rate)
         prev_dark = np.zeros(self.n, dtype=bool)
@@ -358,6 +468,7 @@ class Grid:
         capped = False
         n = 0
         tripped_ids = [int(b) for b in (trip or [])]
+        action, held_line = "storm", None
         while True:
             over = np.flatnonzero(state.active & (state.loading_pct > OVER_PCT + 1e-6))
             newly_dark = state.dark_bus & ~prev_dark
@@ -368,12 +479,16 @@ class Grid:
                 steps.append(
                     {
                         "n": n,
+                        "action": action,  # "storm" (step 0: lines knocked out first), "trip" or "shed"
                         "tripped": tripped_ids,
+                        "held_line": held_line,  # a shed step: the line held in by cutting load
                         "dark_subs": sorted({int(self.sub_ids[self.bus_sub_idx[i]]) for i in np.flatnonzero(newly_dark)}),
                         "newly_affected": sorted(fresh, key=lambda x: -x[1]),
                         "hot": self._hottest(state),
                         "lost_mw": round(state.lost_existing_mw, 1),
                         "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
+                        "people": self.people(state.lost_existing_mw),
+                        "shed_mw": round(float(shed.sum()), 1),
                         "site_dark_mw": round(state.lost_extra_mw, 1),
                     }
                 )
@@ -385,10 +500,20 @@ class Grid:
                 break
             worst = int(over[np.argmax(state.loading_pct[over])])
             active = state.active.copy()
-            active[worst] = False
-            tripped_ids = [int(self.br_ids[worst])]
+            held_line = None
+            action = "trip"
+            if len(firm) and self._firm_line(state, worst, extra, shed, firm, rate):
+                cut = self._relief(state, worst, shed, firm, rate)
+                if cut is not None:
+                    shed += cut
+                    action, held_line = "shed", int(self.br_ids[worst])
+            if action == "trip":
+                active[worst] = False
+                tripped_ids = [int(self.br_ids[worst])]
+            else:
+                tripped_ids = []
             n += 1
-            state = self.solve(active, extra, rate)
+            state = self.solve(active, extra, rate, shed if shed.any() else None)
         return {
             "steps": steps,
             "final_loading_pct": np.round(state.loading_pct, 1).tolist(),
@@ -399,7 +524,14 @@ class Grid:
             "total_steps": n,
             "lost_mw": round(state.lost_existing_mw, 1),
             "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
+            "people": self.people(state.lost_existing_mw),
+            "people_per_mw": round(self.people_per_mw, 2),
+            "population": self.population,
             "site_dark_mw": round(state.lost_extra_mw, 1),
+            "site_cut_off": bool(state.lost_extra_mw > 0.5),  # the campus itself lost its supply
+            "firm": bool(len(firm)),
+            "firm_held": bool(state.lost_extra_mw <= 0.5) if len(firm) else None,  # firm: the campus stayed on
+            "shed_mw": round(float(shed.sum()), 1),
             "affected": self.lost_by_sub(state),
         }
 
@@ -414,6 +546,7 @@ class Grid:
             {
                 "id": int(self.sub_ids[i]),
                 "name": self.sub_name[i],
+                "area": area_of(self.sub_name[i]),  # the town it's named after, e.g. "Naples"
                 "lat": round(float(self.sub_lat[i]), 4),
                 "lon": round(float(self.sub_lon[i]), 4),
                 "load_mw": round(float(load_by_sub[i]), 1),

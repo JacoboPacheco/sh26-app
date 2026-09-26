@@ -11,6 +11,13 @@ Regions: every state in the lower 48 has its own validated model (backend/demo/b
 grids/index.json). A case names its `region` (default "FL"); a state's model is loaded on first use
 and each (region, load level) Grid stays in a small LRU cache — Render's free tier has 512 MB.
 Florida at load 1.0 is loaded at import and never evicted.
+
+People without power (an estimate): every model's load stands for its state's residents
+(backend/demo/population.json, Census Vintage 2024), so people = lost MW x population / the model's
+base load (`people_per_mw`, the same at every load level), capped at the population.
+
+Firm vs flexible (`firm` on a case): a firm campus is kept on by cutting other customers instead
+(powerflow.cascade_case → firm_buses); flexible, the default, is the plain cascade.
 """
 
 import json
@@ -24,12 +31,34 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from limiter import limiter
-from powerflow import Grid
+from powerflow import Grid, area_of
 
 router = APIRouter(tags=["grid"])
 
-GRID_PATH = Path(__file__).parent / "demo" / "florida_grid.json"
-GRID = Grid.from_file(str(GRID_PATH))
+DEMO = Path(__file__).parent / "demo"
+_INDEX = json.loads((DEMO / "grids" / "index.json").read_text(encoding="utf-8"))
+REGIONS: dict[str, dict] = _INDEX["regions"]
+REGION_SOURCE: str = _INDEX.get("source", "")
+DEFAULT_REGION = "FL"
+_POP = json.loads((DEMO / "population.json").read_text(encoding="utf-8"))
+POPULATION: dict[str, int] = _POP["states"]
+POPULATION_SOURCE: str = _POP["source"]
+PEOPLE_PER_HOUSEHOLD: float = float(_POP["people_per_household"])
+
+
+def people_per_mw(code: str) -> float:
+    """Residents per MW of the state model's base load (an estimate)."""
+    return POPULATION.get(code, 0) / max(float(REGIONS[code]["load_mw"]), 1.0)
+
+
+def _with_people(g: Grid, code: str) -> Grid:
+    g.people_per_mw = people_per_mw(code)
+    g.population = POPULATION.get(code)
+    return g
+
+
+GRID_PATH = DEMO / "florida_grid.json"
+GRID = _with_people(Grid.from_file(str(GRID_PATH)), DEFAULT_REGION)
 DRAWABLE = GRID.drawable()
 GRID.headroom_all()  # fill the base level's headroom cache at startup
 
@@ -44,15 +73,10 @@ MAX_SITES = 12
 MAX_TRIPS = 400
 MAX_UPGRADES = 200
 
-DEMO = Path(__file__).parent / "demo"
-_INDEX = json.loads((DEMO / "grids" / "index.json").read_text(encoding="utf-8"))
-REGIONS: dict[str, dict] = _INDEX["regions"]
-REGION_SOURCE: str = _INDEX.get("source", "")
-DEFAULT_REGION = "FL"
 MAX_LOADED = 8  # (region, level) models kept in memory
 
 _cache: "OrderedDict[tuple[str, float], Grid]" = OrderedDict({(DEFAULT_REGION, 1.0): GRID})
-_drawables: "OrderedDict[str, dict]" = OrderedDict({DEFAULT_REGION: DRAWABLE})
+_drawables: "OrderedDict[str, dict]" = OrderedDict()  # filled by drawable(); Florida stamped at import below
 _lock = threading.Lock()
 
 
@@ -75,7 +99,7 @@ def grid_at(load_factor: float = 1.0, region: str | None = None) -> Grid:
         if g is None:
             base = _cache.get((code, 1.0))
             if base is None:
-                base = Grid.from_file(str(DEMO / REGIONS[code]["file"]))
+                base = _with_people(Grid.from_file(str(DEMO / REGIONS[code]["file"])), code)
                 _cache[(code, 1.0)] = base
             g = base if f == 1.0 else base.variant(f)
             _cache[key] = g
@@ -93,6 +117,25 @@ def site_headroom(g: Grid, bus: int) -> float:
     return float(min(hb[bus], 1e6)) if hb is not None else float(g.headroom_bus(bus))
 
 
+def _region_meta(code: str, d: dict) -> dict:
+    """Stamp a drawable payload with its region: name, bbox, load, population (people per MW)."""
+    r = REGIONS[code]
+    d["meta"].update(
+        {
+            "region": code,
+            "region_name": r["name"],
+            "bbox": r["bbox"],
+            "center": r["center"],
+            "interconnect": r["interconnect"],
+            "load_mw": r["load_mw"],
+            "population": POPULATION.get(code),
+            "people_per_mw": round(people_per_mw(code), 2),
+            "population_source": POPULATION_SOURCE,
+        }
+    )
+    return d
+
+
 def drawable(region: str | None = None) -> dict:
     code = region_code(region)
     with _lock:
@@ -100,13 +143,14 @@ def drawable(region: str | None = None) -> dict:
         if d is not None:
             _drawables.move_to_end(code)
             return d
-    d = grid_at(1.0, code).drawable()
-    r = REGIONS[code]
-    d["meta"].update({"region": code, "region_name": r["name"], "bbox": r["bbox"], "center": r["center"], "interconnect": r["interconnect"]})
+    d = _region_meta(code, grid_at(1.0, code).drawable())
     with _lock:
         _drawables[code] = d
         while len(_drawables) > MAX_LOADED:
-            _drawables.popitem(last=False)
+            old = next((k for k in _drawables if k != DEFAULT_REGION), None)
+            if old is None:
+                break
+            del _drawables[old]
     return d
 
 
@@ -125,6 +169,7 @@ class CaseIn(BaseModel):
     load_factor: float = 1.0  # 1.0 = the dataset's snapshot; the heat-wave clock scales it
     trip: list[int] = Field(default_factory=list)  # branch ids knocked out first (hurricane mode)
     upgrades: dict[int, float] = Field(default_factory=dict)  # branch id -> new rating MVA (Fix it)
+    firm: bool = False  # every campus in the case on firm service (kept on; others are cut instead)
 
 
 def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -187,6 +232,16 @@ def check_case(body: CaseIn) -> tuple[Grid, list[SiteIn], list[int], dict[int, f
     return g, sites, list(dict.fromkeys(body.trip)), dict(body.upgrades)
 
 
+def case_firm_buses(g: Grid, sites: list[SiteIn], firm: bool) -> list[int] | None:
+    """The bus indices of the case's campuses when the case is firm, for Grid.cascade_case(firm_buses=...)."""
+    return [g.site_bus(s.lat, s.lon) for s in sites] if firm and sites else None
+
+
+def people_fields(g: Grid, lost_mw: float) -> dict:
+    """The people-without-power fields every what-if carries (estimates)."""
+    return {"people": g.people(lost_mw), "people_per_mw": round(g.people_per_mw, 2), "population": g.population}
+
+
 def site_summary(lat: float, lon: float, mw: float) -> dict:
     """The what-if at one site on the base grid, without the per-branch array (scenarios.py stores this)."""
     bus = GRID.site_bus(lat, lon)
@@ -205,6 +260,7 @@ def _site_info(g: Grid, bus: int, mw: float) -> dict:
         "bus": int(g.bus_ids[bus]),
         "sub": int(g.sub_ids[s]),
         "sub_name": g.sub_name[s],
+        "sub_area": area_of(g.sub_name[s]),  # the town the substation is named after, e.g. "Fort Myers"
         "sub_lat": round(float(g.sub_lat[s]), 4),
         "sub_lon": round(float(g.sub_lon[s]), 4),
         "kv": float(g.bus_kv[bus]),
@@ -216,7 +272,7 @@ def _site_info(g: Grid, bus: int, mw: float) -> dict:
 def _case_header(g: Grid, sites: list[SiteIn], trip: list[int], upgrades: dict[int, float]) -> tuple[np.ndarray, dict]:
     buses = [g.site_bus(s.lat, s.lon) for s in sites]
     infos = [_site_info(g, b, s.mw) for b, s in zip(buses, sites)]
-    main = infos[0] if infos else {k: None for k in ("bus", "sub", "sub_name", "sub_lat", "sub_lon", "kv", "headroom_mw")}
+    main = infos[0] if infos else {k: None for k in ("bus", "sub", "sub_name", "sub_area", "sub_lat", "sub_lon", "kv", "headroom_mw")}
     header = {
         **main,
         "mw": sum(s.mw for s in sites),  # total added load
@@ -233,7 +289,15 @@ def _case_header(g: Grid, sites: list[SiteIn], trip: list[int], upgrades: dict[i
 def regions():
     """Every state model: name, size, load, bounding box, validation numbers."""
     keep = ("code", "name", "interconnect", "buses", "subs", "branches", "load_mw", "gen_mw", "bbox", "center", "corr", "base_max_pct", "overload_500", "headroom_p50", "headroom_max", "valid")
-    return {"regions": [{k: r[k] for k in keep} for r in REGIONS.values()], "default": DEFAULT_REGION, "source": REGION_SOURCE}
+    return {
+        "regions": [
+            {**{k: r[k] for k in keep}, "population": POPULATION.get(r["code"]), "people_per_mw": round(people_per_mw(r["code"]), 2)}
+            for r in REGIONS.values()
+        ],
+        "default": DEFAULT_REGION,
+        "source": REGION_SOURCE,
+        "population_source": POPULATION_SOURCE,
+    }
 
 
 @router.get("/api/grid")
@@ -257,6 +321,8 @@ def whatif(request: Request, body: CaseIn):
         "flow_mw": np.round(state.flow).astype(int).tolist(),  # signed, from -> to positive
         "overloaded": g.overloaded(state),
         "lost_mw": round(state.lost_existing_mw, 1),
+        **people_fields(g, state.lost_existing_mw),
+        "firm": body.firm,
         "affected": g.lost_by_sub(state),
     }
 
@@ -266,10 +332,14 @@ def whatif(request: Request, body: CaseIn):
 def cascade(request: Request, body: CaseIn):
     g, sites, trip, upgrades = check_case(body)
     extra, header = _case_header(g, sites, trip, upgrades)
-    return {**header, "region": region_code(body.region), **g.cascade_case(extra, trip, upgrades)}
+    firm = case_firm_buses(g, sites, body.firm)
+    return {**header, "region": region_code(body.region), **g.cascade_case(extra, trip, upgrades, firm_buses=firm)}
 
 
 @router.get("/api/grid/headroom")
 def headroom(load_factor: float = Query(1.0), region: str = Query(DEFAULT_REGION)):
     code = region_code(region)
     return {"by_sub": grid_at(load_factor, code).headroom_by_sub(), "load_factor": round(load_factor, 2), "region": code}
+
+
+_drawables[DEFAULT_REGION] = _region_meta(DEFAULT_REGION, DRAWABLE)  # Florida: /api/grid carries its region meta too
