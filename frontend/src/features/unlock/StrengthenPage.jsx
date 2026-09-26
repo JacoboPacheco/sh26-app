@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Button, ErrorBanner, Loading } from '../../ui'
+import { PlanRacePanel, raceCapPlan } from '../planrace'
 import AiBadge from '../ai/AiBadge'
 import { narrationBody, useBuildNarration } from '../narrate'
 import { money, moneyRange } from '../cost/money'
@@ -59,6 +60,7 @@ import {
   settleCap,
   showBundle,
   showGemini,
+  showRace,
   showCap,
   stopPlay,
   useUnlock,
@@ -96,6 +98,8 @@ export default function StrengthenPage() {
   const gm = r ? gemNow(u) : null
   // time to power (backend/leadtimes.py): fetched once the study is on screen, for the plan the meter shows
   const tt = useTimeToPower(r)
+  // a plan-race competitor's verified plan, when "Show on the map" is on (features/planrace)
+  const rp = r && u.raceShow ? raceCapPlan(u.raceShow) : null
   const ttpNow = m ? ttpPlan(tt, gm ? 'ai' : u.flex ? 'flexible' : 'firm', (gm || m).steps.length) : null
 
   // the study for this state, size and load level: shown at once when the backend has it; Florida starts it
@@ -217,13 +221,13 @@ export default function StrengthenPage() {
         <Answer o={o} u={u} r={r} m={m} where={where} national={national} busy={busy} mine={mine} target={target} loadFactor={loadFactor} plantsN={plantsN} />
         {hasPlan && (
           <CapacityMeter
-            m={gm || m}
+            m={rp || gm || m}
             plantsN={plantsN}
             reservePct={plants?.reserve_pct ?? 15}
-            target={gm ? gm.steps.length : target}
-            shown={gm ? gm.steps.length : shown}
-            playing={gm ? false : u.capPlaying}
-            selectedN={gm ? null : selN}
+            target={rp ? rp.steps.length : gm ? gm.steps.length : target}
+            shown={rp ? rp.steps.length : gm ? gm.steps.length : shown}
+            playing={rp || gm ? false : u.capPlaying}
+            selectedN={rp || gm ? null : selN}
             onPick={gm ? pickGem : pick}
             summary={gm ? gemSummary : summary}
             gem={gm ? r.capacity.ai : null}
@@ -357,6 +361,17 @@ export default function StrengthenPage() {
                     <p className="st-empty">No campus of this size fits, and no upgrade makes room for one: {stopText(m.stop)}.</p>
                   )}
                   <Folds r={r} flex={u.flex} />
+                  {/* three Gemini planners race the engine's plan; the referee checks every plan (features/planrace) */}
+                  {hasPlan && (
+                    <PlanRacePanel
+                      region={region}
+                      mw={r.mw}
+                      loadFactor={loadFactor}
+                      mode={u.flex ? 'flexible' : 'firm'}
+                      onShowPlan={showRace}
+                      shownLane={u.raceShow?.lane ?? null}
+                    />
+                  )}
                 </div>
               ) : (
                 <div className="st-pane st-pane--sites" role="tabpanel" aria-label="Site by site">

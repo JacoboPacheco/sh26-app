@@ -1,3 +1,4 @@
+import { raceCapPlan } from '../planrace'
 import { useSyncExternalStore } from 'react'
 import { defaultBudget, stepsWithin } from './budget'
 import { aiCapPlan, capOf, capWithin, defaultCapBudget } from './capacity'
@@ -47,7 +48,7 @@ let state = {
   playing: false,
   selected: null, // {type: 'cap' | 'step' | 'point' | 'site' | 'bundle', id}
   bundle: null, // a Gemini bundle shown on the map instead of the plan (its index), or null
-  gemShow: false, // the capacity view shows Gemini's verified plan (capacity.ai) instead of the engine's
+  gemShow: false, raceShow: null, // the capacity view shows Gemini's verified plan (capacity.ai) instead of the engine's
 }
 const subs = new Set()
 const get = () => state
@@ -104,7 +105,7 @@ const fresh = (region, loadFactor, extra) => ({
   capShown: 0,
   selected: null,
   bundle: null,
-  gemShow: false,
+  gemShow: false, raceShow: null,
   ...extra,
 })
 
@@ -299,14 +300,14 @@ function finish(s) {
 export function setView(view) {
   stopPlay()
   stopCap()
-  set((s) => ({ view, autoSites: false, selected: null, bundle: null, gemShow: false, capShown: capTargetOf(s) }))
+  set((s) => ({ view, autoSites: false, selected: null, bundle: null, gemShow: false, raceShow: null, capShown: capTargetOf(s) }))
 }
 
 export function setCapBudget(dollars) {
   stopCap()
   set((s) => {
     const next = { ...s, capBudget: Math.max(0, dollars) }
-    return { capBudget: next.capBudget, capShown: capTargetOf(next), gemShow: false }
+    return { capBudget: next.capBudget, capShown: capTargetOf(next), gemShow: false, raceShow: null }
   })
 }
 
@@ -315,7 +316,7 @@ export function setFlex(flex) {
   stopCap()
   set((s) => {
     const next = { ...s, flex: !!flex, capBudget: null }
-    return { flex: next.flex, capBudget: null, capShown: capTargetOf(next), selected: null, gemShow: false }
+    return { flex: next.flex, capBudget: null, capShown: capTargetOf(next), selected: null, gemShow: false, raceShow: null }
   })
 }
 
@@ -334,7 +335,7 @@ export function playCap(fromStart = false) {
     return
   }
   let at = fromStart || state.capShown >= n || state.capShown < m.today ? m.today : state.capShown
-  set({ capShown: at, capPlaying: true, gemShow: false })
+  set({ capShown: at, capPlaying: true, gemShow: false, raceShow: null })
   const delay = (k) => (m.steps[k]?.free ? CAP_FREE_MS : CAP_STEP_MS) // k: the index of the campus about to land
   const tick = () => {
     at += 1
@@ -383,7 +384,7 @@ export function openPbp() {
     view: 'capacity',
     selected: null,
     bundle: null,
-    gemShow: false,
+    gemShow: false, raceShow: null,
     capPlaying: false,
     capTalk: !reducedMotion(),
     capShown: capNow(s)?.today ?? 0,
@@ -436,8 +437,16 @@ export const select = (sel) => set({ selected: sel })
 // Show Gemini's verified plan on the meter and the map in place of the engine's (or go back to the engine's)
 export function showGemini(on) {
   stopCap()
-  set((s) => ({ gemShow: !!on && !!aiCapPlan(s.result), selected: null, capShown: capTargetOf(s) }))
+  set((s) => ({ gemShow: !!on && !!aiCapPlan(s.result), raceShow: null, selected: null, capShown: capTargetOf(s) }))
 }
+
+// The plan race (features/planrace): a verified competitor's plan on the meter and the map ("Show on the map");
+// null puts the page's own plan back. Unverified plans never show (raceCapPlan returns null for them).
+export function showRace(plan) {
+  stopCap()
+  set((s) => ({ raceShow: plan || null, gemShow: false, selected: null, capShown: capTargetOf(s) }))
+}
+export const raceNow = (s) => (s.raceShow && s.view === 'capacity' ? raceCapPlan(s.raceShow) : null)
 export const showBundle = (i) => {
   stopPlay()
   set((s) => ({ bundle: s.bundle === i ? null : i }))

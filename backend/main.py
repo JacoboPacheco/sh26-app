@@ -49,6 +49,7 @@ import leadtimes
 import llm
 import narrate
 import negotiate
+import plan_agents
 import planner
 import plants
 import scenarios
@@ -147,6 +148,7 @@ app.include_router(vote.router)
 app.include_router(comment.router)
 app.include_router(analyst.router)
 app.include_router(unlock.router)
+app.include_router(plan_agents.router)
 app.include_router(leadtimes.router)
 app.include_router(narrate.router)
 app.include_router(views.router)

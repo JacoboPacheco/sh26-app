@@ -21,7 +21,7 @@ import CapacityLayer from './CapacityLayer'
 import PbpLayer from './PbpLayer'
 import { pickCampus } from './capacityPick'
 import './unlock.css'
-import { capNow, capTargetOf, compact, drawnUpgrades, gemNow, reducedMotion, select, useUnlock } from './unlockStore'
+import { capNow, capTargetOf, compact, drawnUpgrades, gemNow, raceNow, reducedMotion, select, useUnlock } from './unlockStore'
 
 const HALO_MIN = 6
 const HALO_MAX = 17
@@ -57,6 +57,24 @@ export default function UnlockLayer() {
   const gem = cap ? gemNow(u) : null
   // "Watch it get built": the play-by-play draws its own picture, beat by beat
   if (cap && u.pbp) return <PbpLayer m={cap} u={u} grid={grid} reduced={reducedMotion()} />
+  // a plan-race competitor's verified plan (features/planrace, "Show on the map")
+  const race = cap ? raceNow(u) : null
+  if (race)
+    return (
+      <CapacityLayer
+        m={race}
+        target={race.steps.length}
+        shown={race.steps.length}
+        playing={false}
+        selectedN={null}
+        onPick={(n) => {
+          const st = race.steps[n - 1]
+          if (st) o.focus([[st.site.lon, st.site.lat]])
+        }}
+        grid={grid}
+        gem
+      />
+    )
   if (gem)
     return (
       <CapacityLayer
