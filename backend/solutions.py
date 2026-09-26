@@ -254,7 +254,10 @@ def kick(key: str) -> None:
     from llm import configured
 
     rep = _b().report_by_key(key)
-    if rep is None or key in _running or rep.get("agentic") is not None:
+    if rep is None or rep.get("agentic") is not None:
+        return
+    if key in _running:  # a rebuilt report for a case whose proposer is already running: say so (the result lands in it too)
+        rep["agentic"] = {"status": "running", "added": 0}
         return
     has_campus = bool((rep.get("case") or {}).get("sites") or (rep.get("case") or {}).get("mw"))
     if not configured() or not has_campus or rep.get("verdict") not in ("preventable", "partly") or not rep.get("fixes"):
@@ -481,13 +484,21 @@ async def propose(key: str) -> None:
         feedback = "The engine checked your previous plans:\n" + "\n".join(failed[:3]) + "\nRevise: propose replacement plans that fix what is still over its limit."
         extra_ids = [int(x.split(":")[0]) for f in failed for x in f.split("Lines still over their limit: ")[-1].split("; ") if x.split(":")[0].strip().isdigit()][:10]
     total = float(sum(s.mw for s in c.sites))
-    if added:
-        for fx in added:
-            fx["kept_mw"] = float(fx["detail"]["mw"])
-            fx["kept_pct"] = round(100.0 * fx["kept_mw"] / total, 1) if total else None
-        fixes = list(rep["fixes"]) + added
-        enrich(c, g, fixes, total)
-        rep["fixes"] = fixes
-        rep["solutions"] = ranked(fixes)
-        rep["best_fix"] = best_fix(fixes)
-    rep["agentic"] = {"status": "done", "asked": asked, "verified": verified, "added": len(added), "rounds": min(rnd + 1, MAX_ROUNDS), "by": "gemini"}
+    for fx in added:
+        fx["kept_mw"] = float(fx["detail"]["mw"])
+        fx["kept_pct"] = round(100.0 * fx["kept_mw"] / total, 1) if total else None
+    status = {"status": "done", "asked": asked, "verified": verified, "added": len(added), "rounds": min(rnd + 1, MAX_ROUNDS), "by": "gemini"}
+    # The report may have been rebuilt while Gemini worked (a request with a bigger time budget replaces an
+    # "unchecked" one under the same key): write the verified plans into every copy still reachable.
+    targets = [rep]
+    cur = b.report_by_key(key)
+    if cur is not None and cur is not rep:
+        targets.append(cur)
+    for r in targets:
+        if added:
+            fixes = list(r["fixes"]) + [fx for fx in added if not _same(fx, r["fixes"])]
+            enrich(c, g, fixes, total)
+            r["fixes"] = fixes
+            r["solutions"] = ranked(fixes)
+            r["best_fix"] = best_fix(fixes)
+        r["agentic"] = dict(status)
