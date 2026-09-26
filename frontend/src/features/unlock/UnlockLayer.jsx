@@ -1,5 +1,7 @@
 // FEATURE: Strengthen the grid, the map layer (owned by the unlock track): SVG inside the map camera.
 //
+// The capacity view (the page's answer: campuses connected at once) draws CapacityLayer. The site-by-site view,
+// and a study still learning, draw this:
 // While mode === 'unlock' and a study for this region is on screen (or learning):
 //  - every simulated site as a small dot: pale where a campus of the study's size fits today, amber where
 //    it overloads a line (filled: it would also set off a blackout), GREEN once the plan's upgrades on
@@ -14,8 +16,10 @@ import { useMemo } from 'react'
 import { useMapView } from '../../GridMap'
 import { WIDTH, citiesFor, fmt } from '../../geo'
 import { useOverload } from '../../store'
+import CapacityLayer from './CapacityLayer'
+import { pickCampus } from './capacityPick'
 import './unlock.css'
-import { compact, drawnUpgrades, select, useUnlock } from './unlockStore'
+import { capNow, capTargetOf, compact, drawnUpgrades, select, useUnlock } from './unlockStore'
 
 const HALO_MIN = 6
 const HALO_MAX = 17
@@ -23,7 +27,8 @@ const LABELS = 3 // the top weak points carry a name (when it fits)
 const nameOf = (p) => p.short || p.label.replace(/^the /, '')
 
 export default function UnlockLayer() {
-  const { mode, region, focus, grid } = useOverload()
+  const o = useOverload()
+  const { mode, region, focus, grid } = o
   const { k, project } = useMapView()
   const u = useUnlock()
   const on = mode === 'unlock' && u.region === region
@@ -44,7 +49,20 @@ export default function UnlockLayer() {
   const selStep = r && u.selected?.type === 'step' && u.bundle == null ? r.steps[u.selected.id - 1] : null
   const building = r && u.playing && n > 0 ? r.steps[n - 1] : null
 
-  const labels = on && points ? placeLabels(points, k, project, grid, u.selected) : new Map()
+  const cap = r && u.view === 'capacity' ? capNow(u) : null
+  const labels = on && points && !cap ? placeLabels(points, k, project, grid, u.selected) : new Map()
+  if (cap)
+    return (
+      <CapacityLayer
+        m={cap}
+        target={capTargetOf(u)}
+        shown={Math.min(u.capShown, cap.steps.length)}
+        playing={u.capPlaying}
+        selectedN={u.selected?.type === 'cap' ? u.selected.id : null}
+        onPick={(n) => pickCampus(o, cap, n)}
+        grid={grid}
+      />
+    )
   if (!on || (!sites && !points)) return null
   const stop = (e) => e.stopPropagation()
   const sel = u.selected

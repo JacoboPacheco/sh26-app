@@ -1,4 +1,4 @@
-// While a study runs: which step of the study it is on (learn, plan, verify, Gemini), how far along, the sites
+// While a study runs: which step of the study it is on (learn, plan, verify, capacity, Gemini), how far along, the sites
 // simulated so far and the weak points found so far (the map fills in with them as they come).
 import { useEffect, useState } from 'react'
 import { fmt } from '../../geo'
@@ -7,6 +7,7 @@ const PHASES = [
   ['learn', 'Learn the weak points', 'a campus at every town, the full cascade wherever a line overloads'],
   ['plan', 'Test the cheapest fixes', 'upgrades priced from published figures, cheapest per site first'],
   ['verify', 'Verify with the engine', 'every unlocked site re-run through the full cascade'],
+  ['capacity', 'Connect campuses together', 'one at a time, each where it fits with all the others; the cheapest upgrade for each next one'],
   ['ai', 'Gemini proposes, the engine checks', 'other bundles from the weak points; only verified ones count'],
 ]
 
@@ -54,11 +55,17 @@ export default function StudyProgress({ u, where }) {
               <span className="ul-phase__text">
                 <strong>{label}</strong>
                 <span>{sub}</span>
-                {st === 'now' && (
-                  <span className="ul-bar" aria-hidden="true">
-                    <span style={{ transform: `scaleX(${frac})` }} />
-                  </span>
-                )}
+                {st === 'now' &&
+                  (p.total > 1 ? (
+                    <span className="ul-bar" aria-hidden="true">
+                      <span style={{ transform: `scaleX(${frac})` }} />
+                    </span>
+                  ) : (
+                    // a phase that reports no count (the capacity search): a bar that says "working", not how far
+                    <span className="ul-bar ul-bar--wait" aria-hidden="true">
+                      <span />
+                    </span>
+                  ))}
               </span>
             </li>
           )

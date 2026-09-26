@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from 'react'
 import { defaultBudget, stepsWithin } from './budget'
+import { capOf, capWithin, defaultCapBudget } from './capacity'
 import { DEFAULT_SIZE, getUnlockJob, peekUnlock, startUnlock } from './unlockApi'
 
-// State the Strengthen page and its map layer share: the study (a background job on the backend), the budget
-// (how much of the plan is bought), the build-up on screen (how many plan steps are shown), and what is selected.
+// State the Strengthen page and its map layer share: the study (a background job on the backend), what is on
+// screen (the capacity view: campuses connected at once, or the site-by-site plan), the capacity budget and its
+// build-up (how many campuses the map shows), the site-by-site plan's budget, and what is selected.
 // It lives in this folder so the feature stays self-contained; the region and load level come from useOverload().
 //
 // openStudy() shows what the backend already has (a finished or running study) without starting one; in Florida
@@ -11,9 +13,9 @@ import { DEFAULT_SIZE, getUnlockJob, peekUnlock, startUnlock } from './unlockApi
 
 const POLL_MS = 700
 const MAX_FAILS = 6 // transient poll errors tolerated in a row
-const SLOW_STEPS = 6 // the build-up's first steps (the biggest blackouts) play slowly, the rest quicker
-const SLOW_MS = 850
-const TAIL_MS = 5000 // the rest of the build-up takes about this long in all
+const CAP_STEP_MS = 1200 // the build-up: one paid campus (its upgrades drawn, its marker dropped) every 1.2 s
+const CAP_FREE_MS = 650 // a campus that fits with the upgrades so far comes quicker
+const CAP_LEAD_MS = 700 // before the first one
 
 let state = {
   size: DEFAULT_SIZE, // MW: the campus the study makes room for
@@ -28,10 +30,16 @@ let state = {
   error: null,
   estimate: null, // {seconds, sites}: how long a run should take (from /api/unlock/peek)
   startedAt: null, // Date.now() when this page first saw the study running
-  budget: null, // dollars (high end); null = the study's default (budget.js)
-  shown: 0, // plan steps shown on the map, the table and the chart (the build-up)
+  view: 'capacity', // 'capacity' (campuses at once, the page's answer) | 'sites' (the site-by-site plan, secondary)
+  autoSites: false, // the site-by-site view opened by itself (a study without the capacity section)
+  flex: false, // the capacity view's campuses: always on (false) or flexible
+  capBudget: null, // dollars (high end) for the capacity plan; null = the default (capacity.js)
+  capShown: 0, // campuses on the map and lit in the meter (the build-up)
+  capPlaying: false,
+  budget: null, // dollars (high end) for the site-by-site plan; null = the study's default (budget.js)
+  shown: 0, // site-by-site plan steps shown on the map and in its table
   playing: false,
-  selected: null, // {type: 'step' | 'point' | 'site' | 'bundle', id}
+  selected: null, // {type: 'cap' | 'step' | 'point' | 'site' | 'bundle', id}
   bundle: null, // a Gemini bundle shown on the map instead of the plan (its index), or null
 }
 const subs = new Set()
@@ -49,11 +57,16 @@ export const useUnlock = () => useSyncExternalStore(subscribe, get)
 let runId = 0
 let pollTimer = null
 let playTimer = null
-const played = new Set() // studies whose build-up already played once on open
+let capTimer = null
+const played = new Set() // studies whose build-up already played once on open (once per page load)
 
 export const keyOf = (region, size, loadFactor) => `${region}|${size}|${Number(loadFactor).toFixed(2)}`
 export const budgetOf = (s) => (s.budget != null ? s.budget : defaultBudget(s.result))
 export const targetOf = (s) => (s.result ? stepsWithin(s.result, budgetOf(s)) : 0)
+// the capacity view: the search on screen, its budget and how many campuses that budget connects at once
+export const capNow = (s) => capOf(s.result, s.flex)
+export const capBudgetOf = (s) => (s.capBudget != null ? s.capBudget : defaultCapBudget(capNow(s)))
+export const capTargetOf = (s) => capWithin(capNow(s), capBudgetOf(s))
 
 export const reducedMotion = () => {
   try {
@@ -78,6 +91,8 @@ const fresh = (region, loadFactor, extra) => ({
   error: null,
   startedAt: null,
   shown: 0,
+  capBudget: null,
+  capShown: 0,
   selected: null,
   bundle: null,
   ...extra,
@@ -92,6 +107,7 @@ export async function openStudy({ region, loadFactor, auto = false, force = fals
     return
   }
   stopPlay()
+  stopCap()
   clearTimeout(pollTimer)
   const id = ++runId
   set(fresh(region, loadFactor, { status: 'peeking', estimate: null }))
@@ -134,6 +150,7 @@ async function refreshAi(region, loadFactor) {
 
 export async function runStudy({ region, loadFactor }) {
   stopPlay()
+  stopCap()
   clearTimeout(pollTimer)
   const id = ++runId
   set(
@@ -177,66 +194,100 @@ async function poll(jobId, id, fails) {
   pollTimer = setTimeout(() => poll(jobId, id, fails), POLL_MS)
 }
 
-// A finished study lands at the budget's answer; the first time it is shown the build-up plays once from zero.
+// A finished study lands at the budget's answer; the first time it is shown (once per page load) the capacity
+// build-up plays by itself, from today's campuses to the budget's last one. A study without the capacity section
+// (an old cached result, or its search failed) opens on the site-by-site plan.
 function finish(s) {
   const result = s.result
-  set({ status: 'done', progress: s.progress, result, partial: null })
-  const target = targetOf(state)
-  set({ shown: target })
-  if (!played.has(state.key) && target > 0 && !reducedMotion()) {
-    played.add(state.key)
-    startPlay(true)
-  } else played.add(state.key)
+  set({ status: 'done', progress: s.progress, result, partial: null, shown: 0 })
+  // no capacity section: the site-by-site plan opens by itself (and closes again for the next study that has one)
+  const view = !result?.capacity ? 'sites' : state.autoSites ? 'capacity' : state.view
+  set({ shown: targetOf(state), view, autoSites: !result?.capacity })
+  const m = capNow(state)
+  const n = capTargetOf(state)
+  set({ capShown: n })
+  const first = !played.has(state.key)
+  played.add(state.key)
+  if (first && m && n > m.today && !reducedMotion() && state.view === 'capacity') playCap(true)
 }
 
-// ------------------------------------------------------------------ the budget and the build-up
+// ------------------------------------------------------------------ the capacity view: budget, type, build-up
+export function setView(view) {
+  stopPlay()
+  stopCap()
+  set((s) => ({ view, autoSites: false, selected: null, bundle: null, capShown: capTargetOf(s) }))
+}
+
+export function setCapBudget(dollars) {
+  stopCap()
+  set((s) => {
+    const next = { ...s, capBudget: Math.max(0, dollars) }
+    return { capBudget: next.capBudget, capShown: capTargetOf(next) }
+  })
+}
+
+// Always on / flexible: each has its own plan, so the budget goes back to that plan's default.
+export function setFlex(flex) {
+  stopCap()
+  set((s) => {
+    const next = { ...s, flex: !!flex, capBudget: null }
+    return { flex: next.flex, capBudget: null, capShown: capTargetOf(next), selected: null }
+  })
+}
+
+// Build the plan up on the map: from today's campuses (or where it paused) to the budget's last one, one campus
+// per tick: its upgrades draw in green, its numbered marker drops at its site, its meter cell and plan row light.
+export function playCap(fromStart = false) {
+  const m = capNow(state)
+  const n = capTargetOf(state)
+  stopCap()
+  if (!m || n <= m.today) {
+    set({ capShown: n })
+    return
+  }
+  if (reducedMotion()) {
+    set({ capShown: n, capPlaying: false })
+    return
+  }
+  let at = fromStart || state.capShown >= n || state.capShown < m.today ? m.today : state.capShown
+  set({ capShown: at, capPlaying: true })
+  const delay = (k) => (m.steps[k]?.free ? CAP_FREE_MS : CAP_STEP_MS) // k: the index of the campus about to land
+  const tick = () => {
+    at += 1
+    set({ capShown: at })
+    if (at >= n) {
+      capTimer = null
+      set({ capPlaying: false })
+      return
+    }
+    capTimer = setTimeout(tick, delay(at))
+  }
+  capTimer = setTimeout(tick, CAP_LEAD_MS)
+}
+
+export function stopCap() {
+  clearTimeout(capTimer)
+  capTimer = null
+  if (state.capPlaying) set({ capPlaying: false })
+}
+
+// Leaving the page mid build-up: the answer stands complete for the next visit.
+export function settleCap() {
+  stopCap()
+  set((s) => ({ capShown: capTargetOf(s) }))
+}
+
+// ------------------------------------------------------------------ the site-by-site plan: its budget
+// (secondary: no build-up of its own; the map shows the plan up to the budget while that view is open)
 export function setBudget(dollars) {
   stopPlay()
   set((s) => ({ budget: Math.max(0, dollars), bundle: null, shown: s.result ? stepsWithin(s.result, Math.max(0, dollars)) : 0 }))
-}
-
-const delayFor = (at, n) => (at < SLOW_STEPS ? SLOW_MS : Math.max(60, Math.min(450, TAIL_MS / Math.max(1, n - SLOW_STEPS))))
-
-// Build the plan up on the map, one step at a time, to the budget's last step (from zero, or from where it paused).
-export function startPlay(fromStart = false) {
-  const n = targetOf(state)
-  stopPlay()
-  if (!n) return
-  if (reducedMotion()) {
-    set({ shown: n, playing: false, bundle: null })
-    return
-  }
-  let at = fromStart || state.shown >= n ? 0 : state.shown
-  set({ shown: at, playing: true, bundle: null })
-  const tick = () => {
-    at += 1
-    set({ shown: at })
-    if (at >= n) {
-      set({ playing: false })
-      return
-    }
-    playTimer = setTimeout(tick, delayFor(at, n))
-  }
-  playTimer = setTimeout(tick, at === 0 ? 450 : delayFor(at, n))
 }
 
 export function stopPlay() {
   clearTimeout(playTimer)
   playTimer = null
   if (state.playing) set({ playing: false })
-}
-
-// Move the build-up by hand (0 .. the budget's last step).
-export function scrub(n) {
-  stopPlay()
-  set((s) => ({ shown: Math.max(0, Math.min(targetOf(s), Math.round(n))), bundle: null }))
-}
-
-// Show n steps whatever the budget (the chart and the old panel pick a step directly).
-export function setShown(n) {
-  stopPlay()
-  const max = state.result?.steps?.length || 0
-  set({ shown: Math.max(0, Math.min(max, Math.round(n))), bundle: null })
 }
 
 export const select = (sel) => set({ selected: sel })

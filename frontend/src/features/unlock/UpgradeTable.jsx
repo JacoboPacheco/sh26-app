@@ -14,10 +14,10 @@ import { compact } from './unlockStore'
 const kindOf = (p) => `${fmt(p.kv)} kV ${p.kind}`
 const plain = (p) => p.short || p.label?.replace(/^the /, '') || `#${p.branch_id}`
 
-export default function UpgradeTable({ r, shown, target, playing, budget, selected, bundle, onPickStep, onPickBundle }) {
+export default function UpgradeTable({ r, shown, target, playing, budget, selected, bundle, onPickStep, onPickBundle, startView = 'plan' }) {
   const ai = r.ai || {}
   const bundles = ai.bundles || []
-  const [view, setView] = useState('plan')
+  const [view, setView] = useState(startView)
   const scroller = useRef(null)
   const total = r.steps.at(-1)?.cum_cost.high || 0
   const atBudget = target ? r.steps[target - 1].cum_cost.high : 0
