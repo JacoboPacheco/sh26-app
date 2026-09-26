@@ -65,7 +65,7 @@ GRID.headroom_all()  # fill the base level's headroom cache at startup
 # Florida's bounding box (a little wider than the state so the offshore synthetic subs fit)
 LAT_MIN, LAT_MAX = 24.3, 31.1
 LON_MIN, LON_MAX = -87.7, -79.4
-MW_MIN, MW_MAX = 1, 5000
+MW_MIN, MW_MAX = 1, 50000  # up to 50 GW: the custom size is for "what if" extremes
 # the grid model is peninsular Florida only; a drop farther than this from any substation is refused
 MAX_SNAP_KM = 75.0
 LOAD_FACTOR_MIN, LOAD_FACTOR_MAX = 0.4, 1.4

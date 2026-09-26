@@ -62,7 +62,7 @@ def register(ctx):
         assert "No grid here" in r["detail"], r["detail"]
 
     def campus_size_limits():
-        ctx.request("POST", "/api/grid/whatif", {"sites": _sites(METROS[:1], 5001)}, expect=422)
+        ctx.request("POST", "/api/grid/whatif", {"sites": _sites(METROS[:1], 50001)}, expect=422)  # over the 50 GW custom-size cap
         ctx.request("POST", "/api/grid/whatif", {"sites": _sites(METROS[:1], 0)}, expect=422)
 
     ctx.check("boom: five 1 GW campuses solve together, worst line first", five_campuses_whatif)

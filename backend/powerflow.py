@@ -24,7 +24,8 @@ from scipy.sparse.csgraph import connected_components
 from scipy.sparse.linalg import splu
 
 BASE_MVA = 100.0
-HOMES_PER_MW = 700  # ~1.4 kW average household load; always labeled an estimate in the UI
+HOMES_PER_MW = 700  # legacy `homes` field only; the UI shows people (people_zone) and homes_zone
+PEOPLE_PER_HOME = 2.5  # Census persons per household (U.S. 2.5, Florida 2.47): homes = people / 2.5
 MAX_STEPS = 30
 HOT_PCT = 80.0
 OVER_PCT = 100.0
@@ -109,6 +110,10 @@ class Grid:
         self.base = self.solve(np.ones(self.m, dtype=bool))
         self._headroom_bus: np.ndarray | None = None
         self._marginal: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
+        self._adj: list[list[tuple[int, int]]] | None = None  # substation graph (waves)
+        # full existing load per substation at this load level (people in the blackout zone)
+        self.sub_load = np.zeros(len(self.sub_ids))
+        np.add.at(self.sub_load, self.bus_sub_idx, self.pd)
 
     # ------------------------------------------------------------------ loading
     @classmethod
@@ -402,11 +407,124 @@ class Grid:
         idx = idx[np.argsort(-state.loading_pct[idx])][:limit]
         return [{"id": int(self.br_ids[i]), "pct": round(float(state.loading_pct[i]), 1)} for i in idx]
 
+    def _carried(self, state: State, idx: list[int]) -> list[dict]:
+        """Power each branch carried in `state` (MW) and the people that much power serves (an estimate)."""
+        out = []
+        for k in idx:
+            mw = abs(float(state.flow[k]))
+            out.append({"id": int(self.br_ids[k]), "mw": round(mw, 1), "people": self.people(mw)})
+        return out
+
     def lost_by_sub(self, state: State, min_mw: float = 0.1) -> dict[int, float]:
         """Existing load lost per substation (MW), only where it's at least `min_mw`."""
         per = np.zeros(len(self.sub_ids))
         np.add.at(per, self.bus_sub_idx, state.lost_bus if state.lost_bus is not None else 0.0)
         return {int(self.sub_ids[i]): round(float(per[i]), 1) for i in np.flatnonzero(per >= min_mw)}
+
+    def zone(self, sub_ids) -> dict:
+        """Everyone served by these substations (the ones that lost any power): the high-end estimate.
+        In a shortage the operator rotates outages across the whole area, so each of them loses power
+        at some point — not only the share of MW that was cut. Capped at the population."""
+        idx = [self.sub_index[s] for s in set(sub_ids) if s in self.sub_index]
+        mw = float(self.sub_load[idx].sum()) if idx else 0.0
+        people = self.people(mw)
+        return {"zone_mw": round(mw, 1), "people_zone": people, "homes_zone": int(round(people / PEOPLE_PER_HOME))}
+
+    # -- how a step's darkness spreads (the map animates this, wave by wave)
+    MAX_WAVES = 24
+
+    def _sub_graph(self) -> list[list[tuple[int, int]]]:
+        """Substation adjacency over branches between different substations: [sub idx] -> [(neighbor idx, branch idx)]."""
+        if self._adj is None:
+            fs, ts = self.bus_sub_idx[self.f], self.bus_sub_idx[self.t]
+            adj: list[list[tuple[int, int]]] = [[] for _ in range(len(self.sub_ids))]
+            for k in range(self.m):
+                a, b = int(fs[k]), int(ts[k])
+                if a != b:
+                    adj[a].append((b, k))
+                    adj[b].append((a, k))
+            self._adj = adj
+        return self._adj
+
+    def _nearest(self, cands, targets) -> tuple[int, int]:
+        """(candidate, target) pair of sub indices closest on the map (degrees, cos-corrected)."""
+        c, t = np.array(sorted(cands)), np.array(sorted(targets))
+        cos = math.cos(math.radians(float(self.sub_lat[c].mean())))
+        d = (self.sub_lat[c][:, None] - self.sub_lat[t][None, :]) ** 2 + ((self.sub_lon[c][:, None] - self.sub_lon[t][None, :]) * cos) ** 2
+        i, j = np.unravel_index(int(np.argmin(d)), d.shape)
+        return int(c[i]), int(t[j])
+
+    def waves(self, pocket_ids, origin_bids, active: np.ndarray, before: set[int]) -> list[dict]:
+        """The substations that lost power this step (`pocket_ids`), in the order the darkness reaches
+        them: it starts at the failed line(s) (`origin_bids`) and runs outward along the lines still in
+        service (`active`), passing through switching stations (no load), one level at a time. A part
+        of the pocket that no line reaches is joined from the nearest dark point (a jump). Each wave:
+        {subs, paths (sub ids from where the darkness comes to each sub), people (added), people_zone
+        (everyone in the areas hit so far, as in the step's people_zone)}."""
+        P = {self.sub_index[s] for s in pocket_ids if s in self.sub_index}
+        if not P:
+            return []
+        adj = self._sub_graph()
+        switching = self.sub_load < 0.5
+        ends: list[int] = []
+        for bid in origin_bids:
+            k = self.br_index.get(int(bid))
+            if k is not None:
+                ends += [int(self.bus_sub_idx[self.f[k]]), int(self.bus_sub_idx[self.t[k]])]
+        ends = list(dict.fromkeys(ends))
+        seen: set[int] = set()
+
+        def expand(frm: list[int]) -> dict[int, list[int]]:
+            """Pocket subs one level out from `frm`, each with the path taken (through switching stations)."""
+            found: dict[int, list[int]] = {}
+            for x in frm:
+                stack, via = [(x, [x])], {x}
+                while stack:
+                    y, path = stack.pop()
+                    for z, k in adj[y]:
+                        if not active[k] or z in via or z in seen or z in found:
+                            continue
+                        if z in P:
+                            found[z] = path + [z]
+                        elif switching[z]:
+                            via.add(z)
+                            stack.append((z, path + [z]))
+            return found
+
+        level = {e: [e] for e in ends if e in P}
+        level.update({z: p for z, p in expand(ends).items() if z not in level})
+        if not level:  # the pocket isn't wired to the failed line: jump from its nearest end
+            a, b = self._nearest(P, ends or list(P))
+            level = {a: [b, a] if b != a else [a]}
+        out: list[dict] = []
+        hit = {self.sub_index[s] for s in before if s in self.sub_index}
+        prev_people = self.zone(before)["people_zone"]
+        while level:
+            seen.update(level)
+            hit.update(level)
+            z = self.zone(int(self.sub_ids[i]) for i in hit)
+            out.append({
+                "subs": [int(self.sub_ids[i]) for i in sorted(level)],
+                "paths": [[int(self.sub_ids[i]) for i in level[j]] for j in sorted(level)],
+                "people": z["people_zone"] - prev_people,
+                "people_zone": z["people_zone"],
+            })
+            prev_people = z["people_zone"]
+            nxt = expand(sorted(level))
+            if not nxt and len(seen) < len(P):
+                a, b = self._nearest(P - seen, seen)
+                nxt = {a: [b, a]}
+            level = nxt
+        if len(out) > self.MAX_WAVES:  # a long tail joins the last wave
+            head, tail = out[: self.MAX_WAVES - 1], out[self.MAX_WAVES - 1:]
+            head.append({
+                "subs": [s for w in tail for s in w["subs"]],
+                "paths": [p for w in tail for p in w["paths"]],
+                "people": sum(w["people"] for w in tail),
+                "people_zone": tail[-1]["people_zone"],
+            })
+            out = head
+        return out
 
     def cascade(self, bus: int | None, mw: float, trip: list[int] | None = None, firm: bool = False) -> dict:
         """One data center (or none); see cascade_case."""
@@ -507,6 +625,10 @@ class Grid:
         firm = np.unique(np.asarray(firm_buses or [], dtype=int))
         shed = np.zeros(self.n)
         steps = []
+        carried: list[dict] = []
+        if trip:
+            pre = self.solve(np.ones(self.m, dtype=bool), extra, rate)
+            carried = self._carried(pre, [self.br_index[int(b)] for b in trip if int(b) in self.br_index])
         state = self.solve(active, extra, rate)
         prev_dark = np.zeros(self.n, dtype=bool)
         seen_affected: set[int] = set()
@@ -520,6 +642,7 @@ class Grid:
             if n > 0 or len(trip or []):
                 lost = self.lost_by_sub(state)
                 fresh = [[sid, mw_] for sid, mw_ in lost.items() if sid not in seen_affected]
+                before = set(seen_affected)
                 seen_affected.update(lost)
                 steps.append(
                     {
@@ -533,8 +656,11 @@ class Grid:
                         "lost_mw": round(state.lost_existing_mw, 1),
                         "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
                         "people": self.people(state.lost_existing_mw),
+                        **self.zone(seen_affected),  # people_zone: everyone in the areas hit so far (never goes down)
                         "shed_mw": round(float(shed.sum()), 1),
                         "site_dark_mw": round(state.lost_extra_mw, 1),
+                        "carried": carried,  # the power the failed (or held) line carried just before, and the people it serves
+                        "waves": self.waves([f[0] for f in fresh], tripped_ids or ([held_line] if held_line is not None else []), state.active, before),
                     }
                 )
             prev_dark = prev_dark | state.dark_bus
@@ -544,6 +670,7 @@ class Grid:
                 capped = True
                 break
             worst = int(over[np.argmax(state.loading_pct[over])])
+            carried = self._carried(state, [worst])
             active = state.active.copy()
             held_line = None
             action = "trip"
@@ -570,6 +697,8 @@ class Grid:
             "lost_mw": round(state.lost_existing_mw, 1),
             "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
             "people": self.people(state.lost_existing_mw),
+            **self.zone(seen_affected),
+            "people_per_home": PEOPLE_PER_HOME,
             "people_per_mw": round(self.people_per_mw, 2),
             "population": self.population,
             "site_dark_mw": round(state.lost_extra_mw, 1),

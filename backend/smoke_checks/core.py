@@ -75,6 +75,31 @@ def register(ctx):
         assert any(s["area"] == "Fort Myers" for s in subs), "no substation in the area 'Fort Myers'"
         assert all(not s["area"][-1].isdigit() for s in subs), "an area name still ends in a number"
 
+    def test_zone_and_waves():
+        c = hero(1500, False)
+        subs = {s["id"] for s in ctx.request("GET", "/api/grid")["subs"]}
+        assert c["people_zone"] >= c["people"] > 0, f"zone {c['people_zone']:,} < cut share {c['people']:,}"
+        assert c["homes_zone"] == round(c["people_zone"] / c["people_per_home"]), "homes_zone is not people / people per home"
+        zones = [s["people_zone"] for s in c["steps"]]
+        assert zones == sorted(zones), f"people_zone went down between steps: {zones}"
+        with_waves = [s for s in c["steps"] if s["waves"]]
+        assert with_waves, "the hero blackout has no waves"
+        for s in c["steps"]:
+            assert all(x["mw"] >= 0 and x["people"] >= 0 for x in s["carried"]), s["carried"]
+            if s["action"] == "trip":
+                assert [x["id"] for x in s["carried"]] == s["tripped"], f"step {s['n']}: carried {s['carried']} vs tripped {s['tripped']}"
+            fresh = {sid for sid, _ in s["newly_affected"]}
+            got = [sid for w in s["waves"] for sid in w["subs"]]
+            assert len(got) == len(set(got)) and set(got) == fresh, f"step {s['n']}: waves cover {len(set(got))} of {len(fresh)} new substations"
+            if s["waves"]:
+                totals = [w["people_zone"] for w in s["waves"]]
+                assert totals == sorted(totals) and totals[-1] == s["people_zone"], f"step {s['n']}: wave totals {totals[-3:]} vs {s['people_zone']}"
+                for w in s["waves"]:
+                    assert len(w["paths"]) == len(w["subs"]) and all(p[-1] == t for p, t in zip(w["paths"], w["subs"])), "a path doesn't end at its substation"
+                    assert all(x in subs for p in w["paths"] for x in p), "a path runs through an unknown substation"
+        assert len(with_waves[0]["waves"]) >= 5, "the hero blackout arrives all at once (want a spreading wave)"
+
+    ctx.check("core: people in the blackout zone >= cut share, never down; waves spread the step's darkness exactly", test_zone_and_waves)
     ctx.check("core: /api/regions lists 48 valid regions with population", test_regions)
     ctx.check("core: hero cascade people > 0 and = lost MW x people_per_mw (estimate)", test_hero_people)
     ctx.check("core: what-if carries people, people_per_mw, population, sub_area", test_whatif_people_fields)
