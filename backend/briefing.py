@@ -1320,7 +1320,7 @@ WAVE_PCTS = (0.02, 0.05, 0.10, 0.25, 0.50, 1.0)
 WAVE_PCTS_BIG = (0.02, 0.10, 0.50, 1.0)  # more than BIG_DAMAGE damaged lines
 BIG_DAMAGE = 1500
 HARDEN_KS = (10, 25)
-EXPORT_PENALTY = 10.0  # LP cost per MW of tie export curtailed (served load earns 1)
+EXPORT_PENALTY = 1e-3  # LP cost per MW of tie export curtailed: kept when free, cut before any customer (served load earns 1)
 PRESET_BUDGET_MS = 5000  # a catastrophe preset gets this long (reported in timing_ms); cached after the first run
 
 
@@ -1418,8 +1418,8 @@ def _repair_order(g: Grid, base_active: np.ndarray, damaged: list[int], rate: np
 def _lp_served(g: Grid, active: np.ndarray, rate: np.ndarray) -> np.ndarray | None:
     """Controlled pickup: the most existing load (MW per bus) these lines can serve when operators
     re-dispatch generators (0..Pmax) and route power with every line within its rating (a
-    network-flow LP with explicit flow variables; loop flows are not modeled). Tie exports are
-    honored first, as in the engine. scipy's HiGHS, dual simplex then interior point. None when
+    network-flow LP with explicit flow variables; loop flows are not modeled). Tie exports are cut
+    before customers, as in the engine. scipy's HiGHS, dual simplex then interior point. None when
     neither solves."""
     import scipy.sparse as sp
 
@@ -1443,9 +1443,8 @@ def _lp_served(g: Grid, active: np.ndarray, rate: np.ndarray) -> np.ndarray | No
     ub = np.concatenate([rate[A], g.pmax[Gb], g.pd[Lb], np.maximum(g.tie[Tb], 0.0)])
     cost = np.zeros(nv)
     cost[o_s:o_t] = -1.0
-    # a tie export is honored before local load, as in the engine's balance (ties are held fixed in
-    # the model); curtailing it costs EXPORT_PENALTY per MW, so it only happens when an island can't
-    # physically make it
+    # as in the engine's balance, an island short of supply stops exporting before it cuts its own
+    # customers: an export is kept when it costs no load (a tiny EXPORT_PENALTY per MW curtailed)
     cost[o_t:] = np.where(g.tie[Tb] < 0, EXPORT_PENALTY, 0.0)
     for method in ("highs-ds", "highs-ipm"):
         try:
@@ -1640,7 +1639,12 @@ def _recovery(c: _Case, B: _Budget, inc: dict, event: dict) -> dict | None:
             else "line limits not applied (connectivity only)"
         ),
         "damaged_lines": D,
-        "still_out_after_all": int(waves[-1]["people_out"]) if waves and waves[-1]["lines_total"] == D and waves[-1]["method"] == "lp" else None,
+        # people still dark with every line rebuilt (a heat wave's own shortfall), when it's material
+        "still_out_after_all": (
+            int(waves[-1]["people_out"])
+            if waves and waves[-1]["lines_total"] == D and waves[-1]["method"] == "lp" and waves[-1]["people_out"] >= max(1000, 0.01 * ev_people)
+            else None
+        ),
         "wave0_people_back": None,
         "waves": waves,
         "hardening": hardening,
