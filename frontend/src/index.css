@@ -1028,6 +1028,85 @@ a {
   }
 }
 
+/* smooth destruction (shell/CascadeFX): each failure scheduled once, timed inside its step */
+.fx-trip {
+  stroke: #ffffff;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+  animation: fx-trip 750ms ease-out both;
+}
+
+.fx-dark {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fx-dark 900ms ease-in both;
+}
+
+.fx-flicker {
+  fill: var(--lit);
+  opacity: 0;
+  animation: fx-flicker 420ms linear both;
+}
+
+@keyframes fx-trip {
+  0% {
+    opacity: 1;
+    stroke: #ffffff;
+    stroke-width: 6px;
+  }
+  35% {
+    opacity: 1;
+    stroke: var(--overload);
+    stroke-width: 4px;
+  }
+  100% {
+    opacity: 0;
+    stroke: var(--tripped);
+    stroke-width: 2px;
+  }
+}
+
+@keyframes fx-dark {
+  from {
+    opacity: 0;
+    transform: scale(0.25);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* a light flickering out */
+@keyframes fx-flicker {
+  0% {
+    opacity: 0.95;
+  }
+  20% {
+    opacity: 0.15;
+  }
+  40% {
+    opacity: 0.8;
+  }
+  65% {
+    opacity: 0.1;
+  }
+  80% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fx {
+    display: none;
+  }
+}
+
 /* the data centers: white, larger than any light, pulsing — nothing else on the map looks like them */
 .site-dot {
   fill: #ffffff;
@@ -1228,4 +1307,86 @@ a {
     right: var(--space-2);
     bottom: var(--space-2);
   }
+}
+
+/* time of day you can see (App sets .mc--night / --morning / --peak / --heat from the load level) */
+.mc--night .ln--calm {
+  stroke-opacity: 0.12;
+}
+
+.mc--night .sub {
+  fill-opacity: 0.35;
+}
+
+.mc--morning .ln--calm {
+  stroke-opacity: 0.2;
+}
+
+.mc--heat .ln--calm {
+  stroke: #d9a15e;
+  stroke-opacity: 0.4;
+}
+
+.mc--heat .ln--warm {
+  stroke: var(--strain);
+  stroke-opacity: 0.8;
+}
+
+.mc--heat .sub {
+  fill: #ffd9a8;
+}
+
+.ln--calm,
+.ln--warm,
+.sub {
+  transition: stroke 1.2s ease, stroke-opacity 1.2s ease, fill 1.2s ease, fill-opacity 1.2s ease;
+}
+
+/* real Florida proposals (CampusPanel) */
+.real__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.real__list > li {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.real__pick {
+  flex: 1;
+  display: grid;
+  text-align: left;
+  font: inherit;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--glass-hi);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.real__pick:hover {
+  border-color: var(--accent);
+}
+
+.real__name {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.real__meta,
+.real__note {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.real__src {
+  align-self: center;
+  font-size: 0.75rem;
+  padding: 0 0.3rem;
 }

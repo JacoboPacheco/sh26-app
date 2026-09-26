@@ -16,7 +16,9 @@ import { fmt, headroomClass, loadClass } from './geo'
 const Ctx = createContext(null)
 export const useOverload = () => useContext(Ctx)
 
-export const STEP_MS = 600 // one cascade step on screen
+export const STEP_MS = 1400 // default step length (use stepMsFor(n))
+// paced so the destruction can be watched: a cascade of n steps takes at least ~12 s, a step 1.1-1.8 s
+export const stepMsFor = (n) => Math.round(Math.min(1800, Math.max(1100, 12000 / Math.max(n || 1, 1))))
 export const HOMES_PER_MW = 700 // matches backend/powerflow.py; an estimate (~1.4 kW per home)
 export const SEED_MARK = '(demo scenario)' // matches backend/seed.py
 
@@ -166,7 +168,7 @@ export function OverloadProvider({ user, children }) {
       const next = step + 1
       setStepState(next)
       if (next >= cascade.steps.length) setPlaying(false)
-    }, STEP_MS)
+    }, stepMsFor(cascade.steps.length))
     return () => clearTimeout(t)
   }, [playing, step, cascade])
 
@@ -228,12 +230,12 @@ export function OverloadProvider({ user, children }) {
 
   // Run the cascade for the current case; `extra` overrides case fields for this run (e.g. a hurricane's trip list).
   const startCascade = useCallback(
-    async (extra = {}) => {
+    async (extra = {}, pending = null) => {
       const id = ++cascadeReq.current
       setCascading(true)
       setCascadeError(null)
       try {
-        const c = await runCascade({ ...caseBody, ...extra })
+        const c = await (pending || runCascade({ ...caseBody, ...extra })) // `pending`: a cascade already computing (the hurricane starts it while the storm crosses)
         if (id !== cascadeReq.current) return null
         setCascade(c)
         setStepState(0)

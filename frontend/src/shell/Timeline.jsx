@@ -1,5 +1,5 @@
 import { fmt } from '../geo'
-import { STEP_MS, useOverload } from '../store'
+import { stepMsFor, useOverload } from '../store'
 import { Button, ErrorBanner } from '../ui'
 
 // The bottom bar: the one place the cascade is started, played and scrubbed, in every mode.
@@ -53,7 +53,7 @@ export default function Timeline() {
             <div className="flowbar">
               <div
                 className="flowbar__fill"
-                style={{ width: `${(step / n) * 100}%`, transitionDuration: playing ? `${STEP_MS}ms` : '0ms' }}
+                style={{ width: `${(step / n) * 100}%`, transitionDuration: playing ? `${stepMsFor(n)}ms` : '0ms' }}
               />
               <ol className="flowbar__marks" aria-label="Cascade steps">
                 {Array.from({ length: n + 1 }, (_, i) => (

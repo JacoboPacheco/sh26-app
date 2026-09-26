@@ -7,6 +7,7 @@ import { useOverload } from '../../store'
 import { Button, ErrorBanner, Field, Loading } from '../../ui'
 import './hurricane.css'
 import { getPresets, trackHits } from './hurricaneApi'
+import { runCascade } from '../../api'
 import { STORM_MS, getHurricane, liveOverload as live, reducedMotion, setHurricane, useHurricane } from './hurricaneStore'
 import { MIN_TRACK_KM, distKm, framePoints, lengthKm, simplify, toLonLat } from './trackGeom'
 
@@ -125,12 +126,15 @@ export default function HurricanePanel() {
     if (stale()) return
     const quick = reducedMotion()
     setHurricane({ phase: 'storm', hits: res, stormAt: performance.now() })
+    // the cascade computes while the storm crosses, so it's ready the moment it makes landfall
+    const pending = runCascade({ ...live.current.caseBody, trip: res.trip })
+    pending.catch(() => {}) // startCascade reports the error if it fails
     await sleep(quick ? 400 : STORM_MS + 800) // a beat after landfall before the cascade
     if (stale()) return
     // the storm has passed: its lines join the case, then the regular cascade plays out
     live.current.setTrip(res.trip)
     setHurricane({ phase: 'landed' })
-    await live.current.startCascade({ trip: res.trip })
+    await live.current.startCascade({ trip: res.trip }, pending)
   }
 
   function clearStorm() {

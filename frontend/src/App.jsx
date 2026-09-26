@@ -10,6 +10,7 @@ import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
 import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
+import CascadeFX from './shell/CascadeFX'
 import ImpactPanel from './shell/ImpactPanel'
 import ScenarioBar from './shell/ScenarioBar'
 import Timeline from './shell/Timeline'
@@ -64,7 +65,9 @@ function App() {
 // The whole screen is the map; everything else floats over it.
 function MissionControl({ user }) {
   const o = useOverload()
-  const { grid, gridError, loadGrid, view, site, result, extraSites, mode, setMode, mapTool, mapRef, place, headroomOn, headroom } = o
+  const { grid, gridError, loadGrid, view, site, result, extraSites, mode, setMode, mapTool, mapRef, place, headroomOn, headroom, loadFactor } = o
+  // the grid's mood follows the time of day: dim and calm at night, hot in a heat wave
+  const level = loadFactor < 0.7 ? 'night' : loadFactor < 0.9 ? 'morning' : loadFactor > 1.001 ? 'heat' : 'peak'
   const Panel = MODES.find((m) => m.id === mode)?.Panel || CampusPanel
   const sites = [
     ...(site ? [{ lat: result?.sub_lat ?? site.lat, lon: result?.sub_lon ?? site.lon, primary: true }] : []),
@@ -77,7 +80,7 @@ function MissionControl({ user }) {
       : null
 
   return (
-    <div className="mc">
+    <div className={`mc mc--${level}`}>
       {grid ? (
         <GridMap
           ref={mapRef}
@@ -91,6 +94,7 @@ function MissionControl({ user }) {
           tool={mapTool}
           overlay={(refs) => <FlowCanvas {...refs} />}
         >
+          <CascadeFX />
           <ImpactLayer />
           <HurricaneLayer />
           <BoomLayer />

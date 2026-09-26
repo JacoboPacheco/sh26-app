@@ -1,3 +1,4 @@
+import floridaFive from '../data/florida_five.json'
 import { fmt } from '../geo'
 import { HOMES_PER_MW, SEED_MARK, useOverload } from '../store'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../ui'
@@ -31,6 +32,7 @@ export default function CampusPanel() {
         hint={`About as much power as ${fmt(mw * HOMES_PER_MW)} homes use (estimate)`}
       />
 
+      <RealProposals />
       <Scenarios />
 
       <ErrorBanner error={whatifError} />
@@ -163,4 +165,39 @@ export function overLimitText(overloaded) {
   if (lines) parts.push(`${lines} ${lines === 1 ? 'line' : 'lines'}`)
   if (xfmrs) parts.push(`${xfmrs} ${xfmrs === 1 ? 'transformer' : 'transformers'}`)
   return `${parts.join(' and ')} over limit`
+}
+
+// The real, large Florida proposals (sourced): click one to test a campus of its reported size at its
+// location. Facts only, each with its source; the test is on a synthetic model (see the note).
+function RealProposals() {
+  const { setMw, place, setMode } = useOverload()
+  return (
+    <div className="stack real">
+      <h3 className="panel-h">Real Florida proposals</h3>
+      <ul className="real__list">
+        {floridaFive.entries.map((e) => (
+          <li key={e.id}>
+            <button
+              type="button"
+              className="real__pick"
+              onClick={() => {
+                setMode('campus')
+                setMw(e.mw)
+                place(e.lat, e.lon)
+              }}
+            >
+              <span className="real__name">{e.name}</span>
+              <span className="real__meta">
+                {e.place} · {fmt(e.mw)} MW reported · {e.status}
+              </span>
+            </button>
+            <a className="real__src" href={e.sources[0]?.url} target="_blank" rel="noreferrer" title={e.sources[0]?.title}>
+              Source
+            </a>
+          </li>
+        ))}
+      </ul>
+      <p className="real__note">Reported sizes from news and company sources. Each test runs on a synthetic grid model: not a prediction about the real project or utility.</p>
+    </div>
+  )
 }

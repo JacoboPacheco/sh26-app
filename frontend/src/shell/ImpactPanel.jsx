@@ -2,7 +2,7 @@ import Bulletin from '../features/bulletin/Bulletin'
 import MapLegend from '../features/flow/MapLegend'
 import TownsFeed from '../features/impact/TownsFeed'
 import { fmt } from '../geo'
-import { STEP_MS, useOverload } from '../store'
+import { stepMsFor, useOverload } from '../store'
 import useCountUp from './useCountUp'
 
 // The right-hand column: who is affected. The giant counter is the one loud thing on the screen.
@@ -23,7 +23,7 @@ export default function ImpactPanel() {
   const worst = n ? Math.max(...cascade.steps.map((s) => s[key] ?? 0)) : 0
   const target = playing && n ? Math.max(peak, Math.round((worst * Math.min(step + 1, n)) / n)) : peak
   // never below zero: an island can end with slightly more supply than load (a tiny negative loss)
-  const homes = Math.max(0, useCountUp(Math.max(0, target), playing ? STEP_MS : 500, { linear: playing }))
+  const homes = Math.max(0, useCountUp(Math.max(0, target), playing ? stepMsFor(n) : 500, { linear: playing }))
   return (
     <div className="stack panel-body impact">
       <div className="counter" aria-live="polite">

@@ -1,0 +1,100 @@
+{
+ "note": "Real, large Florida data-center proposals at their publicly reported sizes (see sources). Each test places a campus of that size at that location on a SYNTHETIC grid model; it is not a prediction about the real project or the real utility.",
+ "entries": [
+  {
+   "id": "stonebridge-fort-meade",
+   "name": "Fort Meade campus",
+   "place": "Fort Meade",
+   "lat": 27.752,
+   "lon": -81.8018,
+   "mw": 1200,
+   "status": "announced",
+   "sources": [
+    {
+     "title": "Fort Meade moves forward with controversial $2.6B data center project despite community op",
+     "url": "https://www.fox13news.com/news/fort-meade-data-center-project-community-opposition"
+    },
+    {
+     "title": "Proposals for massive data centers are popping up across Florida (WUSF)",
+     "url": "https://www.wusf.org/environment/2026-02-16/proposals-massive-data-centers-across-florida-are-local-governments-prepared"
+    }
+   ]
+  },
+  {
+   "id": "atlas-compute-fort-pierce",
+   "name": "Atlas Compute AI campus",
+   "place": "Fort Pierce",
+   "lat": 27.4467,
+   "lon": -80.3256,
+   "mw": 1000,
+   "status": "announced",
+   "sources": [
+    {
+     "title": "Atlas Compute Secures Land and Utilities for 240 MW AI Data Center Campus in Central Flori",
+     "url": "https://www.globenewswire.com/news-release/2025/11/06/3182873/0/en/Atlas-Compute-Secures-Land-and-Utilities-for-240-MW-AI-Data-Center-Campus-in-Central-Florida-with-1-GW-Expansion-Capacity.html"
+    },
+    {
+     "title": "Atlas Compute - project overview",
+     "url": "https://atlascompute.ai/project-overview"
+    }
+   ]
+  },
+  {
+   "id": "sentinel-grove-fort-pierce",
+   "name": "Sentinel Grove (Project Jarvis)",
+   "place": "near Fort Pierce",
+   "lat": 27.4467,
+   "lon": -80.3256,
+   "mw": 1000,
+   "status": "paused/canceled",
+   "sources": [
+    {
+     "title": "Officials fail to back plans for 1GW data center campus in Florida - DCD",
+     "url": "https://www.datacenterdynamics.com/en/news/officials-fail-to-back-plans-for-1gw-data-center-campus-in-florida/"
+    },
+    {
+     "title": "St. Lucie County Data Centers \u2014 Sentinel Grove, Project Jarvis, Atlas Compute | FloridaDat",
+     "url": "https://floridadatacenters.org/st-lucie-county"
+    }
+   ]
+  },
+  {
+   "id": "pba-holdings-loxahatchee",
+   "name": "Project Tango",
+   "place": "Loxahatchee",
+   "lat": 26.7,
+   "lon": -80.37,
+   "mw": 600,
+   "status": "paused/canceled",
+   "sources": [
+    {
+     "title": "'Not compatible': Palm Beach County rejects controversial Project Tango AI data center (WL",
+     "url": "https://www.wlrn.org/government-politics/2026-07-16/project-tango-ai-data-center-palm-beach-rejected"
+    },
+    {
+     "title": "Project Tango fuels debate over Florida's first hyperscale AI data center (Local 10)",
+     "url": "https://www.local10.com/news/local/2026/07/15/project-tango-fuels-debate-over-floridas-first-hyperscale-ai-data-center/"
+    }
+   ]
+  },
+  {
+   "id": "nextnrg-near-jacksonville-international-airport",
+   "name": "NextNRG Nassau County campus",
+   "place": "Nassau County",
+   "lat": 30.4941,
+   "lon": -81.6879,
+   "mw": 200,
+   "status": "paused/canceled",
+   "sources": [
+    {
+     "title": "Concerns grow over proposed AI data center in Nassau County | Jacksonville Today",
+     "url": "https://jaxtoday.org/2026/06/01/data-center-nassau-county/"
+    },
+    {
+     "title": "NextNRG Nassau County Data Center & Energy Campus \u2014 Florida (Compute Atlas)",
+     "url": "https://www.compute-atlas.com/facilities/nextnrg-nassau-county-data-center-energy-campus-fl"
+    }
+   ]
+  }
+ ]
+}
