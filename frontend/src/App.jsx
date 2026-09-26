@@ -31,6 +31,8 @@ const loadNext = import.meta.glob('./features/app/NextApp.jsx')['./features/app/
 const NEXT = loadNext ? lazy(loadNext) : null
 // Build plans (Sperry GridLock): a full page with its own map at #/plans
 const PLANS = lazy(() => import('./features/gridlock/BuildPlansPage'))
+// Before the vote: look up a proposed data center, what to ask, where to speak (#/vote, #/vote/<id>)
+const VOTE = lazy(() => import('./features/vote/VotePage'))
 
 function useHashPrefix(prefix) {
   const [on, setOn] = useState(() => window.location.hash.startsWith(prefix))
@@ -68,6 +70,7 @@ function App() {
   const { user } = useAuth()
   const next = useIsNext()
   const plans = useHashPrefix('#/plans')
+  const vote = useHashPrefix('#/vote')
   if (plans)
     return (
       <Suspense fallback={<Loading />}>
@@ -75,6 +78,14 @@ function App() {
           <PLANS extra={<a href="#/">Back to Overload</a>} />
         </div>
       </Suspense>
+    )
+  if (vote)
+    return (
+      <OverloadProvider user={user}>
+        <Suspense fallback={<Loading />}>
+          <VOTE />
+        </Suspense>
+      </OverloadProvider>
     )
   return (
     <OverloadProvider user={user}>
@@ -155,6 +166,9 @@ function MissionControl({ user }) {
         <ScenarioBar />
         <div className="mc-top__right">
           <HeatClock />
+          <a className="plans-link" href="#/vote">
+            Before the vote: look up a proposed data center
+          </a>
           <a className="plans-link" href="#/plans">
             Build plans: are neighboring utilities building together?
           </a>
