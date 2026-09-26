@@ -289,7 +289,7 @@ def register(ctx):
         assert ai["verified"] == (ai["status"] in ("beat", "matched")), (ai["status"], ai["verified"])
         firm = c["firm"]
         configured = ctx.request("GET", "/api/ai/status")["configured"]
-        if not configured:
+        if not configured and not state["r"].get("baked"):  # a baked study (backend/baked.py) keeps Gemini's recorded challenge
             assert ai["status"] in ("not_configured", "skipped"), f"no key, but the challenge says {ai['status']}"
             assert ai["calls"] == 0 and not ai["trace"] and not ai["placements"], ai["calls"]
             assert not ai["sentence"] or ("isn't set up" in ai["sentence"] and "the engine's plan stands" in ai["sentence"]), ai["sentence"]
@@ -406,8 +406,10 @@ def register(ctx):
         c = state["r"]["capacity"]
         # before it runs, the fold names the cases it will run (never a hardcoded count)
         planned = [x["id"] for x in c["sensitivity"].get("cases") or []]
+        if not planned and c["sensitivity"]["status"] == "done":  # a baked study arrives with the cases already run
+            planned = [r["id"] for r in c["sensitivity"]["rows"][1:]]
         assert planned and set(planned) <= SENS_IDS - {"shipped"}, c["sensitivity"]
-        assert all(x["label"] and x["phrase"] for x in c["sensitivity"]["cases"]), c["sensitivity"]["cases"]
+        assert all(x["label"] and x["phrase"] for x in c["sensitivity"].get("cases") or []), c["sensitivity"].get("cases")
         if c["sensitivity"]["status"] in ("not_run", "error"):
             assert c["sensitivity"].get("estimate_s", 1) > 0, c["sensitivity"]
             p = ctx.request("POST", "/api/unlock/sensitivity", {"region": "FL", "mw": MW, "load_factor": 1.0})

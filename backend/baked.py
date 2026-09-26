@@ -55,6 +55,7 @@ def load() -> int:
             d["result"]["capacity"] = cap = {**cap, "n1": {**cap["n1"], "status": "error"}}
         if (cap.get("sensitivity") or {}).get("status") == "pending":
             d["result"]["capacity"] = cap = {**cap, "sensitivity": {**cap["sensitivity"], "status": "not_run"}}
+        d["result"]["baked"] = True  # its Gemini parts were recorded with a key, whatever this server has
         with unlock._cache_lock:
             unlock._cache[key] = d["result"]
         getattr(unlock, "_PINNED", set()).add(key)  # never evicted, like the warmed study
