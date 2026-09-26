@@ -1,0 +1,471 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { assetUrl } from '../../api'
+import { useOverload } from '../../store'
+import { Badge, ErrorBanner, Loading } from '../../ui'
+import BriefingDoc from './BriefingDoc'
+import Captions from './Captions'
+import MapOverlay from './MapOverlay'
+import Progress from './Progress'
+import Slide from './Slide'
+import './briefing.css'
+import { cleanBody, notLive } from './briefingApi'
+import { stepIndexOf, transcriptText } from './stage'
+import { T } from './text'
+import useDeck from './useDeck'
+import useNarration, { reducedMotion } from './useNarration'
+import { getDownload } from './voiceApi'
+
+// The Ask box (features/ask), when that track has shipped it; a short note until then.
+const ASK_MOD = import.meta.glob('../ask/index.js', { eager: true })['../ask/index.js']
+const AskBox = ASK_MOD?.AskBox || null
+
+// THE REVIEW STAGE: a full-screen, slide-by-slide presentation of what happened, over the live map.
+// The presenter voice drives it: slides advance when their narration ends, the analyst calls each
+// cascade step while the map trips that line, the camera flies to each area as it is named, and the
+// captions follow the words. "Full briefing" swaps the slide for the whole written report.
+//   body       the case under review (CaseIn + optional preset)
+//   loadReplay load the report's cascade into the map (a preset, a saved scenario, a route)
+//   autoPlay   start narrating once the deck is in (the click that opened the stage counts as a gesture)
+export default function ReviewStage({ body, onClose, autoPlay = false, startView = 'slides', startAsk = false, allowFixture = false, loadReplay = false }) {
+  const o = useOverload()
+  const [lang, setLang] = useState('en')
+  const [cc, setCc] = useState(true)
+  const [view, setView] = useState(startView)
+  const [askOpen, setAskOpen] = useState(startAsk)
+  const [transcript, setTranscript] = useState(false)
+  const [dl, setDl] = useState({ open: false, data: null, error: null, busy: false })
+  const [fx, setFx] = useState({ hl: [], hlTone: 'hl', fix: false, apply: null, wave: 0, rings: [] })
+  const reduced = useMemo(() => reducedMotion(), [])
+  const locked = useRef(false)
+  const rootRef = useRef(null)
+  const { report, deck, error, fixture, retry } = useDeck(body, { allowFixture, locked })
+
+  const oRef = useRef(o)
+  const reportRef = useRef(report)
+  const deckRef = useRef(deck)
+  useEffect(() => {
+    oRef.current = o
+    reportRef.current = report
+    deckRef.current = deck
+  })
+
+  // ------------------------------------------------------------------ the map follows the slides
+  const camera = useCallback((cam) => {
+    const O = oRef.current
+    if (!cam || cam.type === 'none') return
+    if (cam.type === 'region') return O.mapRef.current?.reset()
+    const pts = [...(cam.points || [])]
+    ;(cam.line_ids || []).forEach((id) => {
+      const b = O.branchById.get(Number(id))
+      if (b) pts.push(O.subPos(b.from_sub), O.subPos(b.to_sub))
+    })
+    ;(cam.sub_ids || []).slice(0, 400).forEach((id) => pts.push(O.subPos(id)))
+    const p = pts.filter(Boolean)
+    if (p.length || cam.center) O.focus(p, cam.center || undefined)
+  }, [])
+
+  // entering slide i: the camera, the map's moment (calm / replay / final), what the overlay draws
+  const enter = useCallback(
+    (i, playing) => {
+      const slide = deckRef.current?.slides?.[i]
+      if (!slide) return
+      const O = oRef.current
+      const c = O.cascade
+      const map = slide.map || {}
+      const last = c?.steps?.length || 0
+      if (c) {
+        if (map.mode === 'replay') O.setStep(playing ? (map.step_from > 0 ? (stepIndexOf(c, map.step_from) ?? 0) : 0) : (stepIndexOf(c, map.step_to) ?? last))
+        else if (map.mode === 'calm' || map.mode === 'cause' || map.mode === 'fix') O.setStep(0)
+        else if (map.mode === 'final' || map.mode === 'restore') O.setStep(last)
+      }
+      camera(slide.camera)
+      const waves = reportRef.current?.recovery?.waves?.length || 0
+      setFx({
+        hl: map.highlight_lines || [],
+        hlTone: map.mode === 'fix' ? 'fix' : 'hl',
+        fix: map.mode === 'fix' && !playing, // playing: shown when the narration says so
+        apply: map.apply || null,
+        wave: map.mode === 'restore' ? (playing ? 0 : waves) : 0,
+        rings: [],
+      })
+    },
+    [camera],
+  )
+
+  const focusArea = useCallback(
+    (name) => {
+      const O = oRef.current
+      const key = String(name).toLowerCase()
+      const a = reportRef.current?.areas?.find((x) => String(x.area).toLowerCase() === key)
+      let pts = []
+      let center = a?.center || null
+      if (a?.bbox) pts = [[a.bbox[0], a.bbox[1]], [a.bbox[2], a.bbox[3]]]
+      if (!pts.length) pts = (O.grid?.subs || []).filter((s) => String(s.area).toLowerCase() === key).map((s) => [s.lon, s.lat])
+      if (!pts.length && !center) return
+      if (!center) center = [pts.reduce((n, p) => n + p[0], 0) / pts.length, pts.reduce((n, p) => n + p[1], 0) / pts.length]
+      if (!reduced) O.focus(pts, center)
+      setFx((f) => ({ ...f, rings: [{ center, key: `${key}-${performance.now()}` }] }))
+    },
+    [reduced],
+  )
+
+  const onCue = useCallback(
+    (name, value) => {
+      const O = oRef.current
+      if (name === 'step') {
+        const c = O.cascade
+        if (!c) return
+        O.setStep(stepIndexOf(c, value) ?? Math.min(Math.max(0, Number(value) || 0), c.steps.length))
+      } else if (name === 'area') focusArea(value)
+      else if (name === 'line') setFx((f) => ({ ...f, hl: [...f.hl, Number(value)], hlTone: 'hl' }))
+      else if (name === 'fix') setFx((f) => ({ ...f, fix: true }))
+      else if (name === 'wave') {
+        const n = Number(value) || 0
+        const w = reportRef.current?.recovery?.waves?.find((x) => x.n === n)
+        const areas = reportRef.current?.areas || []
+        const rings = (w?.areas_relit || [])
+          .map((nm) => areas.find((a) => a.area === nm)?.center)
+          .filter(Boolean)
+          .map((center, j) => ({ center, key: `w${n}-${j}` }))
+        setFx((f) => ({ ...f, wave: n, rings }))
+      }
+    },
+    [focusArea],
+  )
+
+  const narr = useNarration({ deck, lang, onCue, onEnter: enter })
+  const { idx, playing } = narr
+  useEffect(() => {
+    if (playing) locked.current = true // Gemini's deck no longer replaces the one being played
+  }, [playing])
+
+  // a slide change while paused (and a new cascade in the map) re-stages the map
+  const cascadeNow = o.cascade
+  useEffect(() => {
+    if (!narr.playingRef.current) enter(idx, false)
+  }, [idx, deck, cascadeNow, enter, narr.playingRef])
+
+  // autoplay once the deck is in (Play briefing)
+  const autoDone = useRef(false)
+  const { play } = narr
+  useEffect(() => {
+    if (!autoPlay || autoDone.current || !deck) return
+    autoDone.current = true
+    play()
+  }, [autoPlay, deck, play])
+
+  // a preset / saved scenario / route: its cascade goes into the map, paused before it starts
+  const replayKey = useRef(null)
+  useEffect(() => {
+    if (!loadReplay || !body) return
+    const key = JSON.stringify(cleanBody(body))
+    if (replayKey.current === key) return
+    const O = oRef.current
+    if (report?.replay) {
+      replayKey.current = key
+      O.startCascade({}, Promise.resolve(report.replay)).then(() => oRef.current.setStep(0))
+    } else if ((report || deck) && !body.preset) {
+      replayKey.current = key
+      O.startCascade(cleanBody(body)).then(() => oRef.current.setStep(0))
+    }
+  }, [loadReplay, body, report, deck])
+
+  // ------------------------------------------------------------------ chrome
+  useEffect(() => {
+    const el = document.documentElement
+    el.classList.add('review-open')
+    const prev = document.activeElement
+    rootRef.current?.querySelector('[data-autofocus]')?.focus()
+    return () => {
+      el.classList.remove('review-open')
+      if (prev?.isConnected) prev.focus?.()
+    }
+  }, [])
+
+  const t = T[lang]
+  // the slide writer isn't live but the engine is: the written briefing alone
+  const docOnly = !deck && !!report && !!error && notLive(error)
+  const slides = deck?.slides || []
+  const slide = slides[Math.min(idx, slides.length - 1)]
+
+  const apply = useCallback(
+    (delta) => {
+      if (!delta) return
+      const O = oRef.current
+      const full = { ...cleanBody(body), ...delta }
+      delete full.preset
+      // the map's case becomes the reviewed case with the fix, then its cascade runs (and stays calm)
+      if (full.mw != null) O.setMw(full.mw)
+      if (full.lat != null && full.lon != null) O.place(full.lat, full.lon)
+      else if ('lat' in delta && delta.lat == null) O.clearSite() // "don't build it here"
+      O.setLoadFactor(full.load_factor ?? 1)
+      O.setTrip(full.trip || [])
+      O.setUpgrades(full.upgrades || {})
+      O.setExtraSites((full.sites || []).map((s, i) => ({ id: `brief-${i}`, ...s })))
+      O.setFirm(!!full.firm)
+      onClose()
+      O.startCascade(full)
+    },
+    [body, onClose],
+  )
+
+  const openAsk = useCallback(() => {
+    setAskOpen(true)
+    setTimeout(() => rootRef.current?.querySelector('.rs-ask input, .rs-ask textarea')?.focus(), 0)
+  }, [])
+
+  // keyboard: → / PageDown next · ← / PageUp previous · Space play/pause · Esc close · C captions · L language · / ask
+  const { next, prev, toggle } = narr
+  useEffect(() => {
+    const onKey = (e) => {
+      const el = e.target
+      const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(el?.tagName || '') || el?.isContentEditable
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        if (typing) return el.blur()
+        if (transcript) return setTranscript(false)
+        if (dl.open) return setDl((d) => ({ ...d, open: false }))
+        return onClose()
+      }
+      if (e.key === 'Tab') return trapFocus(e, rootRef.current)
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return
+      const onControl = /^(BUTTON|A)$/.test(el?.tagName || '')
+      if (e.key === 'ArrowRight' || e.key === 'PageDown') {
+        e.preventDefault()
+        next()
+      } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+        e.preventDefault()
+        prev()
+      } else if (e.key === ' ' && !onControl) {
+        e.preventDefault()
+        toggle()
+      } else if (e.key === 'c' || e.key === 'C') setCc((v) => !v)
+      else if (e.key === 'l' || e.key === 'L') setLang((l) => (l === 'en' ? 'es' : 'en'))
+      else if (e.key === '/') {
+        e.preventDefault()
+        openAsk()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [next, prev, toggle, onClose, openAsk, transcript, dl.open])
+
+  const toggleDownload = async () => {
+    if (dl.open) return setDl((d) => ({ ...d, open: false }))
+    setDl({ open: true, data: null, error: null, busy: true })
+    try {
+      const data = await getDownload(deck.deck_key, lang)
+      setDl({ open: true, data, error: null, busy: false })
+    } catch (err) {
+      setDl({ open: true, data: null, error: err, busy: false })
+    }
+  }
+
+  // ------------------------------------------------------------------ what the map overlay draws
+  const waves = useMemo(() => report?.recovery?.waves || [], [report])
+  const overlay = useMemo(() => {
+    const lines = []
+    if (fx.hlTone === 'hl' || fx.fix) fx.hl.forEach((id) => lines.push({ id, tone: fx.hlTone }))
+    if (fx.fix && fx.apply?.upgrades) Object.keys(fx.apply.upgrades).forEach((id) => lines.push({ id, tone: 'fix' }))
+    waves.filter((w) => w.n <= fx.wave).forEach((w) => (Array.isArray(w.lines) ? w.lines : []).forEach((id) => lines.push({ id, tone: 'fix' })))
+    const ghost = fx.fix && fx.apply?.lat != null && fx.apply?.lon != null ? { lat: fx.apply.lat, lon: fx.apply.lon } : null
+    return { lines, ghost, rings: fx.rings }
+  }, [fx, waves])
+
+  const voiceBadge = (() => {
+    const p = narr.provider
+    if (p === 'timer') return <Badge tone="warn">{narr.muted ? t.voiceMuted : t.voiceNone}</Badge>
+    if (p === 'browser' || narr.segFellBack) return <Badge tone="warn">{t.voiceBrowser}</Badge>
+    if (p === 'elevenlabs' || narr.voice?.configured) return <Badge>{narr.voice?.attribution || t.voiceEleven}</Badge>
+    return <Badge tone="warn">{t.voiceBrowser}</Badge>
+  })()
+
+  return createPortal(
+    <div className={`rs${view === 'document' ? ' rs--doc' : ''}`} ref={rootRef} role="dialog" aria-modal="true" aria-label={deck?.title?.[lang] || 'Simulation briefing'}>
+      <header className="rs-top">
+        <div className="rs-top__row">
+          <span className="rs-sim">{t.sim}</span>
+          <h1 className="rs-title">{deck?.title?.[lang] || (lang === 'es' ? 'Simulacro informativo' : 'Simulation briefing')}</h1>
+          <div className="rs-tools">
+            <div className="rs-seg" role="group" aria-label="Language">
+              {['en', 'es'].map((l) => (
+                <button key={l} type="button" className="rs-seg__btn" aria-pressed={lang === l} onClick={() => setLang(l)} aria-label={l === 'en' ? 'English' : 'Español'}>
+                  {l.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="rs-tool" aria-pressed={cc} onClick={() => setCc((v) => !v)} aria-label={t.captions}>
+              CC
+            </button>
+            <button type="button" className="rs-tool" aria-pressed={!narr.muted} onClick={() => narr.setMuted(!narr.muted)} aria-label={t.sound}>
+              {narr.muted ? `${t.sound}: off` : `${t.sound}: on`}
+            </button>
+            {voiceBadge}
+            <button type="button" className="rs-tool" aria-pressed={transcript} onClick={() => setTranscript((v) => !v)} disabled={!deck}>
+              {t.transcript}
+            </button>
+            <div className="rs-dl">
+              <button type="button" className="rs-tool" aria-expanded={dl.open} onClick={toggleDownload} disabled={!deck}>
+                {t.download}
+              </button>
+              {dl.open && <DownloadMenu dl={dl} deck={deck} lang={lang} />}
+            </div>
+            <div className="rs-seg" role="group" aria-label="View">
+              <button type="button" className="rs-seg__btn" aria-pressed={view === 'slides'} onClick={() => setView('slides')}>
+                {t.slides}
+              </button>
+              <button type="button" className="rs-seg__btn" aria-pressed={view === 'document'} onClick={() => setView('document')}>
+                {t.document}
+              </button>
+            </div>
+            <button type="button" className="rs-close" onClick={onClose} aria-label={t.close}>
+              ×
+            </button>
+          </div>
+        </div>
+        {slides.length > 0 && <Progress slides={slides} idx={idx} progress={narr.progress} lang={lang} onJump={narr.goto} />}
+        <p className="rs-banner">{deck?.banner || report?.banner || 'SIMULATION · synthetic grid model · every people and cost number is an estimate.'}</p>
+      </header>
+
+      <main className={view === 'document' || docOnly ? 'rs-panel rs-panel--doc' : 'rs-panel'}>
+        {docOnly ? (
+          <BriefingDoc report={report} deck={null} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={apply} fixture={fixture} />
+        ) : error ? (
+          <ErrorBanner error={error} onRetry={retry} />
+        ) : !deck ? (
+          <Loading label={t.preparing} />
+        ) : view === 'document' ? (
+          <BriefingDoc report={report} deck={deck} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={apply} fixture={fixture} />
+        ) : (
+          slide && <Slide key={`${slide.id}-${lang}`} slide={slide} report={report} deck={deck} lang={lang} wave={fx.wave} onApply={apply} fixture={fixture} />
+        )}
+      </main>
+
+      {cc && view === 'slides' && <Captions caption={narr.caption} lang={lang} reduced={reduced} />}
+
+      <nav className="rs-controls" aria-label="Briefing controls">
+        <button type="button" className="rs-ctl" onClick={narr.prev} disabled={!deck || idx === 0} aria-label={t.prev}>
+          ‹
+        </button>
+        <button type="button" className="rs-ctl rs-ctl--play" onClick={narr.toggle} disabled={!deck} aria-label={playing ? t.pause : t.play} data-autofocus>
+          {playing ? t.pause : t.play}
+        </button>
+        <button type="button" className="rs-ctl" onClick={narr.next} disabled={!deck || idx >= slides.length - 1} aria-label={t.next}>
+          ›
+        </button>
+        <span className="rs-count" aria-live="polite">
+          {slides.length ? `${idx + 1} / ${slides.length}` : ''}
+        </span>
+        <button type="button" className="rs-tool" aria-expanded={askOpen} onClick={() => (askOpen ? setAskOpen(false) : openAsk())}>
+          {t.ask}
+        </button>
+      </nav>
+
+      {askOpen && (
+        <aside className="rs-ask" aria-label={t.ask}>
+          <div className="rs-ask__head">
+            <strong>{t.ask}</strong>
+            <button type="button" className="rs-close" onClick={() => setAskOpen(false)} aria-label="Close">
+              ×
+            </button>
+          </div>
+          {AskBox ? <AskBox case={cleanBody(body)} body={cleanBody(body)} lang={lang} reportKey={report?.key} /> : <p className="muted">{t.askSoon}</p>}
+        </aside>
+      )}
+
+      {transcript && deck && <Transcript deck={deck} lang={lang} onClose={() => setTranscript(false)} />}
+
+      <MapOverlay lines={overlay.lines} ghost={overlay.ghost} rings={overlay.rings} />
+    </div>,
+    document.body,
+  )
+}
+
+function trapFocus(e, root) {
+  if (!root) return
+  const els = [...root.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), textarea, select, [tabindex]:not([tabindex="-1"])')].filter(
+    (x) => x.offsetParent !== null,
+  )
+  if (!els.length) return
+  const first = els[0]
+  const last = els[els.length - 1]
+  if (!root.contains(document.activeElement)) {
+    e.preventDefault()
+    first.focus()
+  } else if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+function Transcript({ deck, lang, onClose }) {
+  const t = T[lang]
+  return (
+    <section className="rs-transcript" role="region" aria-label={t.transcript}>
+      <div className="rs-ask__head">
+        <strong>{t.transcript}</strong>
+        <button type="button" className="rs-close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+      </div>
+      <p className="rs-transcript__banner">{deck.banner}</p>
+      <ol>
+        {deck.slides.map((s) => (
+          <li key={s.id}>
+            <h3>{s.headline?.[lang]}</h3>
+            {(s.narration?.[lang] || []).map((g) => (
+              <p key={g.key}>
+                <span className="rs-transcript__who">{g.role === 'analyst' ? t.analyst : t.presenter}</span> {g.text}
+              </p>
+            ))}
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+function DownloadMenu({ dl, deck, lang }) {
+  const t = T[lang]
+  const local = useMemo(() => {
+    const blob = new Blob([transcriptText(deck, lang)], { type: 'text/plain;charset=utf-8' })
+    return URL.createObjectURL(blob)
+  }, [deck, lang])
+  useEffect(() => () => URL.revokeObjectURL(local), [local])
+  const d = dl.data
+  const region = String(deck.region || 'fl').toLowerCase()
+  return (
+    <div className="rs-menu" role="menu">
+      {dl.busy && <Loading label="…" />}
+      {d?.mp3_url ? (
+        <a role="menuitem" href={assetUrlSafe(d.mp3_url)} download>
+          {t.mp3}
+        </a>
+      ) : (
+        !dl.busy && <p className="rs-menu__note">{t.noAudio}</p>
+      )}
+      {d?.vtt_url && (
+        <a role="menuitem" href={assetUrlSafe(d.vtt_url)} download>
+          {t.vtt}
+        </a>
+      )}
+      {d?.txt_url ? (
+        <a role="menuitem" href={assetUrlSafe(d.txt_url)} download>
+          {t.txt}
+        </a>
+      ) : (
+        !dl.busy && (
+          <a role="menuitem" href={local} download={`overload-briefing-${region}-${lang}.txt`}>
+            {t.txtLocal}
+          </a>
+        )
+      )}
+    </div>
+  )
+}
+
+const assetUrlSafe = (p) => (/^https?:/.test(p) ? p : assetUrl(p))
