@@ -1,0 +1,136 @@
+{
+  "extraKnownMarketplaces": {
+    "anthropic-agent-skills": { "source": { "source": "github", "repo": "anthropics/skills" } },
+    "claude-code-plugins": { "source": { "source": "github", "repo": "anthropics/claude-code" } }
+  },
+  "enabledPlugins": {
+    "example-skills@anthropic-agent-skills": true,
+    "frontend-design@claude-code-plugins": true
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "node \"${CLAUDE_PROJECT_DIR:-.}/scripts/statusline.mjs\"",
+    "padding": 1
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:devpost.com)",
+      "WebFetch(domain:*.devpost.com)",
+      "Bash(bash scripts/check.sh*)",
+      "Bash(node scripts/unsplash.mjs *)",
+      "Bash(npm run *)",
+      "Bash(npm install)",
+      "Bash(npm install *)",
+      "Bash(npm ci)",
+      "Bash(npx oxlint *)",
+      "Bash(npx playwright *)",
+      "Bash(python -m venv venv)",
+      "Bash(python -m venv backend/venv)",
+      "Bash(python -m pip install playwright)",
+      "Bash(python -m playwright install chromium)",
+      "Bash(python frontend/e2e/smoke.py*)",
+      "Bash(python frontend/e2e/demo_path.py*)",
+      "Bash(python scratch/*)",
+      "Bash(date)",
+      "Bash(date *)",
+      "Bash(venv/Scripts/pip install *)",
+      "Bash(venv/bin/pip install *)",
+      "Bash(backend/venv/Scripts/pip install *)",
+      "Bash(backend/venv/bin/pip install *)",
+      "Bash(venv/Scripts/pip install -r requirements.txt)",
+      "Bash(venv/Scripts/python -m uvicorn main:app*)",
+      "Bash(venv/Scripts/python smoke_test.py*)",
+      "Bash(venv/Scripts/python seed.py*)",
+      "Bash(venv/Scripts/python -m py_compile *)",
+      "Bash(backend/venv/Scripts/python backend/smoke_test.py*)",
+      "Bash(backend/venv/Scripts/python backend/seed.py*)",
+      "Bash(backend/venv/Scripts/python -m uvicorn main:app*)",
+      "Bash(venv/bin/pip install -r requirements.txt)",
+      "Bash(venv/bin/python -m uvicorn main:app*)",
+      "Bash(venv/bin/python smoke_test.py*)",
+      "Bash(venv/bin/python seed.py*)",
+      "Bash(backend/venv/bin/python backend/smoke_test.py*)",
+      "Bash(backend/venv/bin/python backend/seed.py*)",
+      "Bash(curl -s http://localhost*)",
+      "Bash(curl -sf http://localhost*)",
+      "Bash(curl http://localhost*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git rev-parse*)",
+      "Bash(git ls-files*)",
+      "Bash(git grep*)",
+      "Bash(git branch)",
+      "Bash(git branch -a*)",
+      "Bash(git branch --show-current)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push)",
+      "Bash(git push origin *)",
+      "Bash(git revert *)",
+      "Bash(cd *)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git checkout .)",
+      "Bash(git checkout -- .)",
+      "Bash(git restore .)",
+      "Bash(git restore -- .)",
+      "Bash(git clean -f*)",
+      "Bash(git clean -d*)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)",
+      "Bash(git branch -D*)",
+      "Bash(git branch -f*)",
+      "Bash(git checkout -b*)",
+      "Bash(git switch -c*)",
+      "Bash(git switch --create*)",
+      "Bash(gh pr create*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/usage-context.mjs\"",
+            "shell": "bash",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/push-reminder.mjs\"",
+            "shell": "bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hooks/lint-edited.mjs\"",
+            "shell": "bash",
+            "timeout": 30,
+            "statusMessage": "Checking edited file"
+          }
+        ]
+      }
+    ]
+  }
+}

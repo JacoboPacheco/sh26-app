@@ -1,0 +1,26 @@
+# Render's free tier spins the backend down after ~15 min idle and the next
+# request waits 30s or more — a judge's first click. This pings it every 10 minutes
+# so it stays awake (every 5 min on paper — GitHub often delays scheduled runs
+# by 5–15 min, so this is what actually keeps it under the 15-min idle cutoff).
+# Enable it by setting a repository variable:
+#   GitHub → repo → Settings → Secrets and variables → Actions → Variables → New:
+#   RENDER_URL = https://<your-service>.onrender.com
+# Delete the variable (or this file) after the event.
+name: Keep backend warm
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    if: ${{ vars.RENDER_URL != '' }}
+    steps:
+      - run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 "${RENDER_URL%/}/api/health")
+          echo "backend answered $code"
+          [ "$code" = "200" ]
+        env:
+          RENDER_URL: ${{ vars.RENDER_URL }}

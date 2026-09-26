@@ -1,0 +1,17 @@
+node_modules/
+dist/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.db
+server.log
+frontend.log
+check-server.log
+check-preview.log
+check-app.log*
+.claude/tmp/
+.claude/settings.local.json
+scratch/
