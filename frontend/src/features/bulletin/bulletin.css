@@ -1,0 +1,142 @@
+/* AI emergency bulletin (features/bulletin): a broadcast-alert card in the impact column.
+   Tokens only (index.css); the hazard stripe and the live dot are the only loud parts. */
+.bulletin {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  padding: calc(var(--space-3) + 5px) var(--space-3) var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  min-width: 0;
+  animation: bulletin-in 320ms ease-out both;
+}
+
+/* the hazard stripe of an emergency broadcast */
+.bulletin::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  background: repeating-linear-gradient(-45deg, var(--overload) 0 7px, transparent 7px 13px);
+  opacity: 0.9;
+}
+
+.bulletin__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.bulletin__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-stretch: 72%;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+
+.bulletin__dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--overload);
+  animation: bulletin-pulse 1.6s ease-out infinite;
+}
+
+.bulletin__body {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* ghost and typed text share one grid cell: the box has its final height from the first frame */
+.bulletin__text {
+  display: grid;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.bulletin__ghost,
+.bulletin__typed {
+  grid-area: 1 / 1;
+}
+
+.bulletin__ghost {
+  visibility: hidden;
+}
+
+.bulletin__caret {
+  display: inline-block;
+  width: 0.45em;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--sodium);
+  animation: bulletin-blink 0.8s steps(1) infinite;
+}
+
+.bulletin__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.bulletin__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.bulletin__note {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+@keyframes bulletin-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes bulletin-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--overload) 70%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 0.5rem color-mix(in srgb, var(--overload) 0%, transparent);
+  }
+}
+
+@keyframes bulletin-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bulletin,
+  .bulletin__dot,
+  .bulletin__caret {
+    animation: none;
+  }
+}
