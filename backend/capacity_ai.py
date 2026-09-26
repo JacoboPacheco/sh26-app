@@ -932,6 +932,7 @@ async def challenge(study) -> dict:
 
         v = await run_in_threadpool(run)
         outcome = case.judge(p, v)
+        llm.note_check("unlock", outcome in ("beat", "matched"), "a capacity plan the engine re-solved: " + {"empty": "no site it could place", "shed": "the plants can't supply it", "fails": "a line over its rating", "trips": "the full cascade trips a line", "fewer": "fewer campuses than the bar", "dearer": "it holds but costs more than the engine's plan"}.get(outcome, outcome), f"{v['over'][0]['pct']:g}%" if outcome == "fails" and v.get("over") else None)
         attempts.append({"round": rnd + 1, "p": p, "v": v, "outcome": outcome})
         _verdict_row(tr, case, rnd + 1, p, v, outcome)
         if outcome == "beat":

@@ -43,7 +43,7 @@ import voice
 from costs import outage_label
 from grid import REGIONS, CaseIn, _case_header, check_case, grid_at, region_code
 from limiter import limiter
-from llm import complete_json
+from llm import complete_json, note_check
 from llm import configured as ai_configured
 from powerflow import area_of
 
@@ -2618,6 +2618,7 @@ async def ai_bodies(report: dict, composed: dict, length: str) -> tuple[dict, di
             if text and _same(text, sl["template"]):
                 continue  # Gemini returned the draft unchanged: it stays labeled a template
             ok, why, n = await run_in_threadpool(validate_ai, w, sl["id"], sl["lang"], text, sl["max"], sl["template"])
+            note_check("deck", ok, f"a presenter paragraph: {why}")
             if ok:
                 bodies[(sl["id"], sl["lang"])] = text
                 checked += n
