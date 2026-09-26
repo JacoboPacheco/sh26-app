@@ -13,6 +13,7 @@ import { fmt } from '../geo'
 import { useOverload } from '../store'
 import './bomb.css'
 import { leapIndexAt, titleCase } from './cascadeSchedule'
+import SiteVerdict from './SiteVerdict'
 
 // The right-hand column: who is affected and what it costs. Before the cascade runs, "Where the people
 // are": how hard the grid is strained, the overloaded lines and the people their power reaches. Once it
@@ -20,7 +21,7 @@ import { leapIndexAt, titleCase } from './cascadeSchedule'
 // blast front reaches a town (estimates, from the engine: backend powerflow.hits, and the case's cost:
 // backend/costs.py). Incident-room look: no pops, no glow, one short hard jolt per leap.
 export default function ImpactPanel() {
-  const { view, cascade, step, result, fx, playing } = useOverload()
+  const { view, cascade, step, site, result, fx, playing } = useOverload()
   const rate = useLossRate()
   const n = cascade?.steps.length || 0
   const live = !!(fx && playing)
@@ -31,8 +32,11 @@ export default function ImpactPanel() {
   const [more, setMore] = useState(false)
   return (
     <div className="stack panel-body impact">
-      {result && !cascade ? (
-        <WhereThePeopleAre rate={rate} />
+      {site && !cascade ? (
+        <>
+          <SiteVerdict />
+          {result && <WhereThePeopleAre rate={rate} />}
+        </>
       ) : live ? (
         <LiveCounter key={fx.startedAt} fx={fx} calm={calm} rate={calm ? null : rate} />
       ) : (
@@ -288,7 +292,7 @@ function WhereThePeopleAre({ rate }) {
         return { id: r.id, name, pct: pct.get(r.id) ?? null, mw: r.mw, people: r.people }
       })
       .sort((a, b) => b.people - a.people)
-      .slice(0, 6)
+      .slice(0, 4)
   }, [result, branchById, subName])
   const peak = useMemo(() => busiest(result), [result])
   const aim = (id) => window.dispatchEvent(new CustomEvent('overload:aim-line', { detail: { id } }))
@@ -317,10 +321,7 @@ function WhereThePeopleAre({ rate }) {
           <div className="risk__lead">
             <span className="risk__big">{fmt(inPath)}</span>
             <span className="risk__k">people in the path (estimate)</span>
-            <p className="risk__text">
-              The power on these overloaded lines flows on to them, each counted once. If one trips, everyone its power reaches is hit, and
-              the next line takes the strain.
-            </p>
+            <p className="risk__text">If one of these lines trips, everyone its power reaches is hit, each counted once.</p>
           </div>
           <ol className="risk__list">
             {rows.map((r) => (
@@ -353,9 +354,8 @@ function WhereThePeopleAre({ rate }) {
             ))}
           </ol>
           <p className="risk__note">
-            People: everyone served where each line&apos;s power flows on to, from the state&apos;s population over its model load. The
-            lines share people and a cascade rarely reaches all of them, so the cost is priced for the whole case
-            {region !== 'FL' ? ' once the cascade runs' : ', below'}. Estimates on a synthetic grid model.
+            Lines share people, so the case is priced once{region !== 'FL' ? ', after the cascade runs' : ', below'}. Estimates on a synthetic
+            grid model.
           </p>
         </>
       ) : (

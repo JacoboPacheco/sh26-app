@@ -1,9 +1,9 @@
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
 import floridaFive from '../data/florida_five.json'
 import { fmt } from '../geo'
-import { MAX_POINTS, SEED_MARK, useOverload } from '../store'
-import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../ui'
+import { MAX_POINTS, useOverload } from '../store'
+import { Button, ErrorBanner, Field, Loading } from '../ui'
 import DangerPanel from '../features/danger/DangerPanel'
 import SiteReport from '../features/site/SitePanel'
 import './campus.css'
@@ -31,11 +31,13 @@ function fmtPeople(n) {
   return fmt(n)
 }
 
-// Campus mode: the data center you drop — its size, the saved scenarios, and what it does to the
-// lines around it. The cascade itself runs from the timeline at the bottom.
+// Campus mode: the data center you drop — its size, the planned data centers to test, the site report and
+// the headroom map. What it does to the lines around it shows in the results column (shell/SiteVerdict);
+// the cascade itself runs from the timeline at the bottom.
 export default function CampusPanel() {
   const o = useOverload()
-  const { mw, setMw, site, result, solving, whatifError, subName } = o
+  const { mw, setMw } = o
+  useDropLink()
   const peoplePerMw = o.grid?.meta?.people_per_mw || PEOPLE_PER_MW_FALLBACK
   const custom = mw < SLIDER_MIN || mw > SLIDER_MAX || mw % SLIDER_STEP !== 0
   const people = `as much power as ${fmtPeople(mw * peoplePerMw)} people use (estimate)`
@@ -66,85 +68,11 @@ export default function CampusPanel() {
       <ExtraPoints />
       <DangerPanel />
 
-      <RealProposals />
-      <Scenarios />
+      <PlannedProposals />
 
-      <ErrorBanner error={whatifError} />
-      {!site ? null : !result ? (
-        !whatifError && <Loading label="Solving the grid…" />
-      ) : (
-        <div className="stack site-result">
-          <p>
-            Connected at <strong>{result.sub_name}</strong> ({fmt(result.kv)} kV){solving && <span className="muted"> · updating…</span>}
-          </p>
-          {result.overloaded.length > 0 ? (
-            <>
-              <p className="verdict verdict--bad">{overLimitText(result.overloaded)}</p>
-              <ul className="over-list">
-                {result.overloaded.slice(0, 5).map((o2) => (
-                  <li key={o2.id}>
-                    <span>
-                      {o2.from === o2.to ? `${subName(o2.from)} transformer` : `${subName(o2.from)} → ${subName(o2.to)}`}
-                    </span>
-                    <Badge tone="warn">{o2.pct.toFixed(0)} %</Badge>
-                  </li>
-                ))}
-              </ul>
-              {result.overloaded.length > 5 && <p className="muted">…and {result.overloaded.length - 5} more</p>}
-            </>
-          ) : (
-            <p className="verdict verdict--ok">No line over limit.</p>
-          )}
-          <p>
-            This site can take <strong>{fmt(result.headroom_mw)} MW</strong> before the first line overloads.
-          </p>
-        </div>
-      )}
       <SiteReport />
 
       <HeadroomToggle />
-    </div>
-  )
-}
-
-function Scenarios() {
-  const { user, scenarios, scenarioError, loadScenarios, pickScenario, removeScenario, canSave, saveSite, saving } = useOverload()
-  if (user === null) return null
-  return (
-    <div className="stack scenarios">
-      <h3 className="panel-h">Saved sites</h3>
-      <ErrorBanner error={scenarioError} onRetry={loadScenarios} />
-      {scenarios === undefined ? (
-        !scenarioError && <Loading />
-      ) : scenarios.length === 0 ? (
-        <EmptyState title="No saved sites">Drop the data center, then save the site.</EmptyState>
-      ) : (
-        <ul className="chips">
-          {scenarios.map((sc) => (
-            <li
-              key={sc.id}
-              title={sc.summary ? `${sc.summary.overloaded} over limit · ${fmt(sc.summary.headroom_mw)} MW headroom` : undefined}
-            >
-              <Button variant="secondary" onClick={() => pickScenario(sc)}>
-                {sc.name}
-              </Button>
-              {/* everyone shares the demo account: the seeded demo scenarios can't be deleted from the page */}
-              {!sc.note.includes(SEED_MARK) && (
-                <Button variant="danger" onClick={() => removeScenario(sc.id)} aria-label={`Delete ${sc.name}`}>
-                  ×
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {canSave && (
-        <div className="row">
-          <Button variant="secondary" busy={saving} onClick={saveSite}>
-            {saving ? 'Saving…' : 'Save this site'}
-          </Button>
-        </div>
-      )}
     </div>
   )
 }
@@ -236,6 +164,34 @@ function ExtraPoints() {
   )
 }
 
+// #/?at=26.6406,-81.8723&mw=1500 opens Watch it fail with that campus dropped: a link straight to a case (the
+// hero, for the demo and its check). Read on load and on a hash change, then the address goes back to #/.
+function useDropLink() {
+  const o = useOverload()
+  const latest = useRef(o)
+  latest.current = o
+  useEffect(() => {
+    const read = () => {
+      const m = window.location.hash.match(/^#\/\?(.+)$/)
+      if (!m) return
+      const q = new URLSearchParams(m[1])
+      window.history.replaceState(null, '', '#/')
+      const at = (q.get('at') || '').split(',').map(Number)
+      if (at.length !== 2 || !at.every(Number.isFinite)) return
+      const mw = Number(q.get('mw'))
+      const size = mw >= 1 && mw <= CUSTOM_MAX ? Math.round(mw) : undefined
+      const { grid, region, setMw, setRegion, place } = latest.current
+      if (grid) {
+        if (size) setMw(size)
+        place(at[0], at[1])
+      } else setRegion(region, { place: at, mw: size }) // dropped as soon as the state's grid is in
+    }
+    read()
+    window.addEventListener('hashchange', read)
+    return () => window.removeEventListener('hashchange', read)
+  }, [])
+}
+
 function CustomSize() {
   const { mw, setMw } = useOverload()
   const id = useId()
@@ -296,11 +252,11 @@ function CustomSize() {
   )
 }
 
-// The real, sourced data centers of the state on the map: pick one to test a campus of its reported size
+// The planned (announced, reported) data centers of the state on the map, each real and sourced: pick one to test a campus of its reported size
 // at its reported place. Florida leads with its five largest proposals (data/florida_five.json); every
 // other state lists the national catalog's entries for it (features/catalog). Each test runs on a
 // synthetic grid model: not a prediction about the real project or utility. Sources are shown as reported.
-function RealProposals() {
+function PlannedProposals() {
   const { setMw, place, setMode, region, grid } = useOverload()
   const [pickedId, setPickedId] = useState('')
   const [places, setPlaces] = useState({}) // state code -> its data centers (GET /api/catalog/places: nothing is computed)
@@ -327,12 +283,12 @@ function RealProposals() {
   }, [region, places, stateName])
   const picked = entries.find((e) => e.id === pickedId)
   const src = picked?.sources?.[0]
-  if (region === 'US') return <p className="real__note">Click a state on the map, or pick one above, to see its real data centers.</p>
+  if (region === 'US') return <p className="real__note">Click a state on the map, or pick one above, to see its planned data centers.</p>
   return (
     <div className="stack real">
       <Field
         as="select"
-        label={`Real data centers in ${stateName}`}
+        label={`Planned data centers in ${stateName}`}
         value={picked ? pickedId : ''}
         onChange={(ev) => {
           const e = entries.find((x) => x.id === ev.target.value)
@@ -343,14 +299,14 @@ function RealProposals() {
           place(e.lat, e.lon)
         }}
       >
-        <option value="">{loaded ? 'Pick a real data center…' : 'Loading…'}</option>
+        <option value="">{loaded ? 'Pick a planned data center…' : 'Loading…'}</option>
         {entries.map((e) => (
           <option key={e.id} value={e.id}>
             {e.name} — {e.place}, {fmt(e.mw)} MW reported ({e.status})
           </option>
         ))}
       </Field>
-      {loaded && !entries.length && <p className="real__note">No sourced data centers for {stateName} in the catalog yet.</p>}
+      {loaded && !entries.length && <p className="real__note">No sourced planned data centers for {stateName} in the catalog yet.</p>}
       {picked && (
         <p className="real__status">
           <span className="real__meta">

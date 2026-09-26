@@ -437,3 +437,65 @@
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------ where it connects (shell/SiteVerdict) */
+.sv {
+  display: grid;
+  gap: 0.35rem;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--glass-hi);
+}
+
+.sv__at {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.sv__at strong {
+  color: var(--ink);
+}
+
+.sv__kv {
+  font-variant-numeric: tabular-nums;
+}
+
+.sv__verdict {
+  font-size: 1.05rem;
+}
+
+/* the size asked against the room here, one scale: the room in quiet ink, what goes past it in red */
+.sv__bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--glass-hi);
+  overflow: hidden;
+}
+
+.sv__room {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--hr-ok);
+  opacity: 0.85;
+}
+
+.sv--over .sv__room {
+  background: var(--ink-2);
+}
+
+.sv__past {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(135deg, var(--loss) 0 4px, transparent 4px 7px);
+}
+
+.sv__room-text {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.sv__room-text strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}

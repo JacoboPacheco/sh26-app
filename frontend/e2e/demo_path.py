@@ -5,7 +5,7 @@ scripts/check.sh runs it on every change.
     python frontend/e2e/demo_path.py [frontend-url]     (default http://localhost:4173)
 
 Needs the demo auto-login (VITE_DEMO_EMAIL/VITE_DEMO_PASSWORD at build time) and a seeded
-backend (the "Fort Myers · 1,500 MW" scenario). Creates nothing, so it is safe against the deployed app.
+backend. Opens the hero with its link (#/?at=26.6406,-81.8723&mw=1500). Creates nothing, so it is safe against the deployed app.
 """
 
 import os
@@ -29,8 +29,9 @@ with sync_playwright() as p:
         expect(page.locator(".pill", has_text="Synthetic grid model")).to_be_visible()
         expect(page.locator("line.ln").first).to_be_attached(timeout=15000)
 
-        # 2 — drop 1,500 MW at Fort Myers (the saved scenario replays the same site and size): lines over limit.
-        page.get_by_role("button", name="Fort Myers · 1,500 MW", exact=True).click()
+        # 2 — drop 1,500 MW at Fort Myers (the hero link drops the same site and size): lines over limit.
+        page.goto(URL + "/#/?at=26.6406,-81.8723&mw=1500", wait_until="load", timeout=30000)
+        page.wait_for_function("() => !!localStorage.getItem('token')", timeout=15000)
         expect(page.get_by_text("over limit").first).to_be_visible(timeout=15000)
         expect(page.get_by_text("before the first line overloads")).to_be_visible()
         expect(page.locator("line.ln--over").first).to_be_attached()
