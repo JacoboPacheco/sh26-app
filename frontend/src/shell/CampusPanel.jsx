@@ -1,15 +1,43 @@
+import { useId, useState } from 'react'
 import floridaFive from '../data/florida_five.json'
 import { fmt } from '../geo'
-import { HOMES_PER_MW, SEED_MARK, useOverload } from '../store'
+import { SEED_MARK, useOverload } from '../store'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../ui'
+import './campus.css'
+
+// The slider covers the usual campus sizes; the custom box goes past it (the backend takes 1–50,000 MW).
+const SLIDER_MIN = 100
+const SLIDER_MAX = 2000
+const SLIDER_STEP = 50
+const CUSTOM_MAX = 50000
+const QUICK_SIZES = [5000, 20000, 50000]
+const PEOPLE_PER_MW_FALLBACK = 500 // used only until /api/grid's meta.people_per_mw arrives
+
+// 500 -> "500 MW", 1,500 -> "1,500 MW", 2,000 -> "2 GW", 2,500 -> "2.5 GW", 50,000 -> "50 GW"
+function fmtSize(mw) {
+  const n = Math.round(mw)
+  if (n >= 1000 && (n % 1000 === 0 || n > SLIDER_MAX)) {
+    return `${(n / 1000).toLocaleString('en-US', { maximumFractionDigits: n >= 10000 ? 1 : 2 })} GW`
+  }
+  return `${fmt(n)} MW`
+}
+
+// 26,000,000 -> "26 million"; smaller counts in full
+function fmtPeople(n) {
+  if (n >= 1e6) return `${(n / 1e6).toLocaleString('en-US', { maximumFractionDigits: 1 })} million`
+  return fmt(n)
+}
 
 // Campus mode: the data center you drop — its size, the saved scenarios, and what it does to the
 // lines around it. The cascade itself runs from the timeline at the bottom.
 export default function CampusPanel() {
   const o = useOverload()
   const { mw, setMw, site, result, solving, whatifError, subName } = o
+  const peoplePerMw = o.grid?.meta?.people_per_mw || PEOPLE_PER_MW_FALLBACK
+  const custom = mw < SLIDER_MIN || mw > SLIDER_MAX || mw % SLIDER_STEP !== 0
+  const people = `as much power as ${fmtPeople(mw * peoplePerMw)} people use (estimate)`
   return (
-    <div className="stack panel-body">
+    <div className="stack panel-body campus-panel">
       <div
         className="dc-chip"
         draggable
@@ -18,19 +46,20 @@ export default function CampusPanel() {
           e.dataTransfer.effectAllowed = 'copy'
         }}
       >
-        <span className="dc-chip__mw">{fmt(mw)} MW</span>
+        <span className="dc-chip__mw">{fmtSize(mw)}</span>
         <span className="dc-chip__hint">AI campus — drag it onto Florida, or click the map</span>
       </div>
       <Field
         label="Size (MW)"
         type="range"
-        min={100}
-        max={2000}
-        step={50}
-        value={mw}
+        min={SLIDER_MIN}
+        max={SLIDER_MAX}
+        step={SLIDER_STEP}
+        value={Math.min(SLIDER_MAX, Math.max(SLIDER_MIN, mw))}
         onChange={(e) => setMw(Number(e.target.value))}
-        hint={`About as much power as ${fmt(mw * HOMES_PER_MW)} homes use (estimate)`}
+        hint={custom ? `Custom size ${fmt(mw)} MW: about ${people}` : `About ${people}`}
       />
+      <CustomSize />
 
       <RealProposals />
       <Scenarios />
@@ -122,7 +151,7 @@ export function HeadroomToggle() {
     <div className="stack headroom">
       <div className="row">
         <Button variant={headroomOn ? 'primary' : 'secondary'} aria-pressed={headroomOn} onClick={toggleHeadroom}>
-          Where can {fmt(mw)} MW go?
+          Where can {fmtSize(mw)} go?
         </Button>
       </div>
       <ErrorBanner error={headroomError} onRetry={fetchHeadroom} />
@@ -132,13 +161,13 @@ export function HeadroomToggle() {
           <strong>Headroom before the first overload</strong>
           <ul>
             <li>
-              <span className="swatch swatch--ok" aria-hidden="true" /> Takes {fmt(mw)} MW or more{n('ok')}
+              <span className="swatch swatch--ok" aria-hidden="true" /> Takes {fmtSize(mw)} or more{n('ok')}
             </li>
             <li>
-              <span className="swatch swatch--mid" aria-hidden="true" /> {fmt(mw / 2)}–{fmt(mw)} MW{n('mid')}
+              <span className="swatch swatch--mid" aria-hidden="true" /> {fmtSize(mw / 2)} to {fmtSize(mw)}{n('mid')}
             </li>
             <li>
-              <span className="swatch swatch--low" aria-hidden="true" /> Under {fmt(mw / 2)} MW{n('low')}
+              <span className="swatch swatch--low" aria-hidden="true" /> Under {fmtSize(mw / 2)}{n('low')}
             </li>
           </ul>
         </div>
@@ -167,36 +196,108 @@ export function overLimitText(overloaded) {
   return `${parts.join(' and ')} over limit`
 }
 
-// The real, large Florida proposals (sourced): click one to test a campus of its reported size at its
+// Optional size past the slider (up to 50 GW): type a number and Set (or Enter), or a quick pick.
+function CustomSize() {
+  const { mw, setMw } = useOverload()
+  const id = useId()
+  const errId = `${id}-err`
+  const [draft, setDraft] = useState('')
+  const [error, setError] = useState(null)
+  const apply = (v) => {
+    setDraft(String(v))
+    setError(null)
+    setMw(v)
+  }
+  const submit = (ev) => {
+    ev.preventDefault()
+    const v = Number(draft)
+    if (draft.trim() === '' || !Number.isFinite(v) || v < 1 || v > CUSTOM_MAX) {
+      setError(`Enter a size from 1 to ${fmt(CUSTOM_MAX)} MW.`)
+      return
+    }
+    apply(Math.round(v))
+  }
+  return (
+    <form className="campus-custom" onSubmit={submit} noValidate>
+      <div className="campus-custom__row">
+        <Field
+          id={id}
+          label="Custom size (MW)"
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={CUSTOM_MAX}
+          step={1}
+          placeholder={`Optional, up to ${fmt(CUSTOM_MAX)}`}
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            if (error) setError(null)
+          }}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errId : undefined}
+        />
+        <Button type="submit" variant="secondary">
+          Set
+        </Button>
+      </div>
+      {error && (
+        <p className="campus-custom__err" id={errId} role="alert">
+          {error}
+        </p>
+      )}
+      <div className="campus-custom__quick" role="group" aria-label="Quick sizes">
+        {QUICK_SIZES.map((v) => (
+          <Button key={v} variant="secondary" aria-pressed={mw === v} onClick={() => apply(v)}>
+            {fmtSize(v)}
+          </Button>
+        ))}
+      </div>
+    </form>
+  )
+}
+
+// The real, large Florida proposals (sourced): pick one to test a campus of its reported size at its
 // location. Facts only, each with its source; the test is on a synthetic model (see the note).
 function RealProposals() {
   const { setMw, place, setMode } = useOverload()
+  const [pickedId, setPickedId] = useState('')
+  const picked = floridaFive.entries.find((e) => e.id === pickedId)
+  const src = picked?.sources?.[0]
   return (
     <div className="stack real">
-      <h3 className="panel-h">Real Florida proposals</h3>
-      <ul className="real__list">
+      <Field
+        as="select"
+        label="Real Florida proposal"
+        value={pickedId}
+        onChange={(ev) => {
+          const e = floridaFive.entries.find((x) => x.id === ev.target.value)
+          setPickedId(ev.target.value)
+          if (!e) return
+          setMode('campus')
+          setMw(e.mw)
+          place(e.lat, e.lon)
+        }}
+      >
+        <option value="">Pick a real proposal…</option>
         {floridaFive.entries.map((e) => (
-          <li key={e.id}>
-            <button
-              type="button"
-              className="real__pick"
-              onClick={() => {
-                setMode('campus')
-                setMw(e.mw)
-                place(e.lat, e.lon)
-              }}
-            >
-              <span className="real__name">{e.name}</span>
-              <span className="real__meta">
-                {e.place} · {fmt(e.mw)} MW reported · {e.status}
-              </span>
-            </button>
-            <a className="real__src" href={e.sources[0]?.url} target="_blank" rel="noreferrer" title={e.sources[0]?.title}>
+          <option key={e.id} value={e.id}>
+            {e.name} — {e.place}, {fmt(e.mw)} MW reported ({e.status})
+          </option>
+        ))}
+      </Field>
+      {picked && (
+        <p className="real__status">
+          <span className="real__meta">
+            {picked.place} · {fmt(picked.mw)} MW reported · {picked.status}
+          </span>
+          {src?.url && (
+            <a className="real__src" href={src.url} target="_blank" rel="noreferrer" title={src.title}>
               Source
             </a>
-          </li>
-        ))}
-      </ul>
+          )}
+        </p>
+      )}
       <p className="real__note">Reported sizes from news and company sources. Each test runs on a synthetic grid model: not a prediction about the real project or utility.</p>
     </div>
   )

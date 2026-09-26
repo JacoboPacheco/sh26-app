@@ -1,0 +1,57 @@
+/* Data center panel (CampusPanel.jsx): the optional custom size and the real-proposal picker.
+   Scoped under .campus-panel; colors come from the tokens at the top of index.css. */
+
+.campus-panel .campus-custom {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* the number box and its Set button share one line; the button lines up with the box, not the label */
+.campus-panel .campus-custom__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+}
+
+.campus-panel .campus-custom__row .btn {
+  padding-block: var(--space-2);
+}
+
+.campus-panel .campus-custom input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.campus-panel .campus-custom__err {
+  color: var(--danger);
+  font-size: 0.8125rem;
+}
+
+.campus-panel .campus-custom__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.campus-panel .campus-custom__quick .btn {
+  padding: 0.2rem 0.65rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/* the chosen proposal: where, how big, its status, and the source */
+.campus-panel .real__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+}
+
+.campus-panel .real__status .real__src {
+  padding: 0;
+}
+
+.campus-panel .real select {
+  text-overflow: ellipsis;
+}
