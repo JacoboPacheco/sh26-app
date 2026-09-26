@@ -127,7 +127,10 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
           <h3 id="rs-doc-cost">What it costs (estimate)</h3>
           <dl className="rs-facts">
             {report.cost.blackout_usd != null && (
-              <Fact k={`The blackout, if it lasts ${report.cost.duration_h_assumed} hours (assumed)`} v={`${usd(report.cost.blackout_usd)} (estimate)`} />
+              <Fact
+                k={`The blackout, if it lasts ${report.cost.duration_h_assumed} hours (assumed)`}
+                v={`${usd(report.cost.blackout_usd)} (estimate${report.cost.ranges?.blackout_usd ? `; range ${range(report.cost.ranges.blackout_usd, 'USD')}` : ''})`}
+              />
             )}
             {report.cost.upgrade_usd != null && <Fact k="The upgrades that prevent it" v={`${usd(report.cost.upgrade_usd)} (estimate)`} />}
             {report.cost.campus_bill_usd_per_year != null && <Fact k="The data center's power bill per year" v={`${usd(report.cost.campus_bill_usd_per_year)} (estimate)`} />}
@@ -137,10 +140,27 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
             <ul className="rs-notes">
               {report.cost.assumptions.map((a) => (
                 <li key={a.key}>
-                  {a.note || a.key}: {typeof a.value === 'number' ? num(a.value) : a.value} {a.unit}
+                  {String(a.note || a.key).replace(/[.\s]+$/, '')}: {range(a.value, a.unit)}
                 </li>
               ))}
             </ul>
+          )}
+          {report.cost.sources?.length > 0 && (
+            <p className="rs-notes">
+              Source:{' '}
+              {report.cost.sources.map((src, i) => (
+                <span key={src.url || i}>
+                  {i > 0 && '; '}
+                  {src.url ? (
+                    <a href={src.url} target="_blank" rel="noreferrer">
+                      {src.name}
+                    </a>
+                  ) : (
+                    src.name
+                  )}
+                </span>
+              ))}
+            </p>
           )}
         </section>
       )}
@@ -258,6 +278,13 @@ function darkList(list) {
   const top = [...list].sort((a, b) => (b.people || 0) - (a.people || 0))
   const shown = top.slice(0, 6).map((d) => `${d.area} (${num(d.people)})`)
   return top.length > 6 ? `${shown.join(', ')} and ${top.length - 6} more areas` : shown.join(', ')
+}
+
+// an assumption's value: a number, or a [low, high] range; dollars as dollars
+function range(v, unit) {
+  const one = (x) => (unit === 'USD' ? usd(x) : typeof x === 'number' ? num(x) : String(x))
+  const tail = unit === 'USD' ? '' : ` ${unit || ''}`
+  return Array.isArray(v) ? `${one(v[0])} to ${one(v[1])}${tail}` : `${one(v)}${tail}`
 }
 
 const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '')

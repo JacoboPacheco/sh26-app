@@ -60,7 +60,7 @@ export default function ReviewCard() {
         )}
         <div className="review-card__actions">
           <Button onClick={() => open({})}>Review the incident</Button>
-          <Button variant="secondary" onClick={() => open({ autoPlay: true })}>
+          <Button variant="secondary" onClick={() => open({ autoPlay: true, short: true })}>
             Play briefing
           </Button>
         </div>

@@ -101,7 +101,7 @@ export default function Preview() {
           <Button onClick={() => (last ? setStage(last) : pick(CASES[0]))} disabled={!ready}>
             Open the review stage
           </Button>
-          <Button variant="secondary" onClick={() => (last ? setStage({ ...last, autoPlay: true }) : pick(CASES[0], { autoPlay: true }))} disabled={!ready}>
+          <Button variant="secondary" onClick={() => (last ? setStage({ ...last, autoPlay: true, short: true }) : pick(CASES[0], { autoPlay: true, short: true }))} disabled={!ready}>
             Play briefing
           </Button>
         </div>

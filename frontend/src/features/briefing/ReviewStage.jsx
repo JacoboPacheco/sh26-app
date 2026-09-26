@@ -24,7 +24,7 @@ import { getDownload } from './voiceApi'
 //   body       the case under review (CaseIn + optional preset)
 //   loadReplay load the report's cascade into the map (a preset, a saved scenario, a route)
 //   autoPlay   start narrating once the deck is in (the click that opened the stage counts as a gesture)
-export default function ReviewStage({ body, onClose, autoPlay = false, startView = 'slides', startAsk = false, allowFixture = false, loadReplay = false }) {
+export default function ReviewStage({ body, onClose, autoPlay = false, short: startShort = false, startView = 'slides', startAsk = false, allowFixture = false, loadReplay = false }) {
   const o = useOverload()
   const [lang, setLang] = useState('en')
   const [cc, setCc] = useState(true)
@@ -36,7 +36,14 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
   const reduced = useMemo(() => reducedMotion(), [])
   const locked = useRef(false)
   const rootRef = useRef(null)
-  const { report, deck, error, fixture, retry } = useDeck(body, { allowFixture, locked })
+  const { report, deck: fullDeck, error, fixture, retry } = useDeck(body, { allowFixture, locked })
+  // the short version (about a minute: event, chain, areas, the fix, the bottom line) is the same deck, fewer slides
+  const [short, setShort] = useState(startShort)
+  const canShort = !!fullDeck?.short?.length && fullDeck.short.length < fullDeck.slides.length
+  const deck = useMemo(
+    () => (short && canShort ? { ...fullDeck, slides: fullDeck.slides.filter((s) => fullDeck.short.includes(s.id)) } : fullDeck),
+    [fullDeck, short, canShort],
+  )
 
   const oRef = useRef(o)
   const reportRef = useRef(report)
@@ -132,6 +139,14 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
   )
 
   const narr = useNarration({ deck, lang, onCue, onEnter: enter })
+  // switching between the short and the full version starts from the first slide
+  const shortSeen = useRef(short)
+  const { goto } = narr
+  useEffect(() => {
+    if (shortSeen.current === short) return
+    shortSeen.current = short
+    goto(0)
+  }, [short, goto])
   const { idx, playing } = narr
   useEffect(() => {
     if (playing) locked.current = true // Gemini's deck no longer replaces the one being played
@@ -209,6 +224,12 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
     },
     [base, onClose],
   )
+  // closing leaves the map where the incident ended (the review card shows again under it)
+  const close = useCallback(() => {
+    const O = oRef.current
+    if (O.cascade) O.setStep(O.cascade.steps.length)
+    onClose()
+  }, [onClose])
   const onApply = base ? apply : null // a catastrophe's fixes are listed, not applied (too many lines out for the map)
 
   const askInput = useRef(null)
@@ -229,7 +250,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
         if (typing) return el.blur()
         if (transcript) return setTranscript(false)
         if (dl.open) return setDl((d) => ({ ...d, open: false }))
-        return onClose()
+        return close()
       }
       if (e.key === 'Tab') return trapFocus(e, rootRef.current)
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return
@@ -252,7 +273,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [next, prev, toggle, onClose, openAsk, transcript, dl.open])
+  }, [next, prev, toggle, close, openAsk, transcript, dl.open])
 
   const toggleDownload = async () => {
     if (dl.open) return setDl((d) => ({ ...d, open: false }))
@@ -323,7 +344,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
                 {t.document}
               </button>
             </div>
-            <button type="button" className="rs-close" onClick={onClose} aria-label={t.close}>
+            <button type="button" className="rs-close" onClick={close} aria-label={t.close}>
               ×
             </button>
           </div>
@@ -364,6 +385,11 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
         <span className="rs-count" aria-live="polite">
           {slides.length ? `${idx + 1} / ${slides.length}` : ''}
         </span>
+        {canShort && (
+          <button type="button" className="rs-tool" aria-pressed={short} onClick={() => setShort((v) => !v)} title={t.shortHint}>
+            {t.short}
+          </button>
+        )}
         <button type="button" className="rs-tool" aria-expanded={askOpen} onClick={() => (askOpen ? setAskOpen(false) : openAsk())}>
           {t.ask}
         </button>

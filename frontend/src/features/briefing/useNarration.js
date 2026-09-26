@@ -57,6 +57,8 @@ function sentencesOf(text) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// dev-only trace for browser checks: set window.__nl = [] and read it back
+const dbg = (...a) => import.meta.env.DEV && window.__nl?.push([Math.round(performance.now()), ...a])
 
 function voicesReady(timeout = 900) {
   if (!canSpeak) return Promise.resolve([])
@@ -378,6 +380,7 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
       let s = segStart
       const first = deckRef.current?.slides?.[i]
       await decide(first)
+      dbg('play', token, start, segStart, providerRef.current)
       if (token !== run.current) return
       while (token === run.current) {
         const slide = deckRef.current?.slides?.[i]
@@ -389,7 +392,9 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
         for (; s < segs.length; s++) {
           segRef.current = s
           const k = s
+          dbg('seg', i, s, segs[s].text.length)
           await speak(segs[s], slide, token, (f) => setProgress((k + f) / segs.length))
+          dbg('seg end', i, s, token === run.current)
           if (token !== run.current) return
           if (s < segs.length - 1) await sleep(GAP_MS)
           if (token !== run.current) return
@@ -403,6 +408,7 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
         segRef.current = 0
         setIndex(i)
       }
+      dbg('loop end', token === run.current, i)
       if (token === run.current) {
         setPlay(false)
         setCaption(null)
