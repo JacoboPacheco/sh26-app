@@ -31,6 +31,7 @@ import CapacityMeter from './CapacityMeter'
 import CapacityPlan from './CapacityPlan'
 import GeminiChallenge from './GeminiChallenge'
 import StudyProgress from './StudyProgress'
+import SureFold from './SureFold'
 import UpgradeCard from './UpgradeCard'
 import UpgradeTable from './UpgradeTable'
 import { SIZES } from './unlockApi'
@@ -196,6 +197,7 @@ export default function StrengthenPage() {
             gem={gm ? r.capacity.ai : null}
           />
         )}
+        {hasPlan && !gm && <SureFold r={r} flex={u.flex} />}
         {!national && (
           <div className="st-controls">
             <Segmented
@@ -267,8 +269,8 @@ export default function StrengthenPage() {
             <p>The engine works on one state’s grid model at a time. Choose a state in the menu at the top, or click one on the map.</p>
             <p>
               For a {sizeLabel(u.size)} data center it connects one campus after another where each fits with all the others, finds the cheapest upgrades that make room for
-              the next one, and checks the finished set through the full cascade. Florida’s 1 GW study is ready now; another state takes from a few seconds to about two
-              minutes.
+              the next one, checks the finished set through the cascade engine with every line in service, then screens single outages. Florida’s 1 GW study is ready
+              now; another state takes from a few seconds to about two minutes.
             </p>
             <Button onClick={() => o.setRegion('FL')}>Open Florida</Button>
           </div>
@@ -623,6 +625,15 @@ function Folds({ r, flex }) {
       <details className="st-fold">
         <summary>How it works, sources and limits</summary>
         <p>{c.method}</p>
+        <N1How n1={c.n1} />
+        {c.ratings && c.ratings.estimated > 0 && (
+          <p>
+            Ratings: {fmt(c.ratings.estimated)} of the model’s {fmt(c.ratings.branches)} lines and transformers have a rating the build step estimated, because the dataset
+            gives none: its voltage class’s default or 30 % above its base flow, whichever is larger. {fmt(c.ratings.plan_upgrades_estimated)} of the always-on plan’s{' '}
+            {fmt(c.ratings.plan_upgrades)} upgrades and {fmt(c.ratings.plan_blocks_estimated)} of the {fmt(c.ratings.plan_blocks)} limits that stopped a campus are on one; the
+            plan and the card mark them “rating estimated”.
+          </p>
+        )}
         <p>
           This search tried {fmt(c.try_sites)} of {fmt(c.sites)} candidate sites for each campus and took {Math.max(1, Math.round(c.seconds))} s; the whole study ran{' '}
           {fmt(l.solves)} power-flow solves and {fmt((l.cascades || 0) + (l.verify_cascades || 0))} full cascades.
@@ -643,6 +654,34 @@ function Folds({ r, flex }) {
         </ul>
       </details>
     </div>
+  )
+}
+
+// The single-outage screen in "How it works": what it is, what it found, and where it stops.
+function N1How({ n1 }) {
+  if (!n1 || n1.status === 'skipped') return null
+  if (n1.status !== 'done') {
+    return (
+      <p>
+        {n1.status === 'pending'
+          ? 'Single-outage screen (N-1): running on the always-on plan’s headline campuses…'
+          : 'The single-outage screen (N-1) didn’t run for this study: the count above is checked with every line in service (N-0) only.'}
+      </p>
+    )
+  }
+  const w = n1.worst
+  return (
+    <>
+      <p>
+        {n1.sentence}
+        {w ? ` The worst with the headline’s ${fmt(n1.campuses)}: losing the ${w.outage.short} puts the ${w.overloaded.short} at ${fmt(Math.round(w.pct))} % of its rating.` : ''}
+      </p>
+      <p>
+        {n1.method} {fmt(n1.screened)} of {fmt(n1.outages)} single outages screened ({fmt(n1.skipped_radial)} radial ones that strand load skipped;{' '}
+        {fmt(n1.plants_cut_off)} cut off only a plant), in {n1.seconds < 1 ? 'under a second' : `${fmt(n1.seconds)} s`}. A screen, not an interconnection study: DC flows
+        only, no operator action after the outage, no voltage or stability limits.
+      </p>
+    </>
   )
 }
 
@@ -673,7 +712,8 @@ function RunCard({ where, size, estimate, loadFactor, onRun }) {
       <p>
         The engine tests a {sizeLabel(size)} campus at {estimate?.sites ? `each of ${fmt(estimate.sites)} towns` : 'every town'} on {where}’s synthetic grid model, then
         connects campuses one after another where each fits with all the others, and finds the cheapest upgrades that make room for the next one. The finished set runs
-        through the full cascade. Gemini proposes other upgrade bundles; the engine keeps only the ones it confirms.
+        through the cascade engine with every line in service, then a single-outage screen. Gemini proposes other upgrade bundles; the engine keeps only the ones it
+        confirms.
         {level !== 100 ? ` At ${level} % of normal demand.` : ''}
       </p>
       <Button onClick={onRun}>Run the study for {where}</Button>

@@ -6,6 +6,14 @@ POST /api/unlock/start      {region, mw, load_factor} -> {id, status, cached}: a
 GET  /api/unlock/jobs/{id}  -> {status, progress, partial (sites tested, weak points), result | error}
 GET  /api/unlock/peek?region=&mw=&load_factor= -> {state: done | queued | running | none, id, estimate_s, sites}:
      what the Strengthen page can show at once (a finished or running study) without starting one
+POST /api/unlock/sensitivity {region, mw, load_factor} -> {status, sensitivity}: "How sure is this number?" for a
+     finished study (capacity.sensitivity: the always-on search again under other assumptions), in the background
+
+After a study is published, its capacity section gets two more parts without holding it back (like Gemini's challenge):
+the single-outage (N-1) screen of the always-on plan's headline campuses and its whole set (capacity.n1, every study,
+about a second) and, for the warm
+study only (LAZY), the sensitivity cases; elsewhere those run when the page's fold asks. Every line or transformer the
+page names carries `rate_est` (and `rate_note`) when the build step made its rating up (the dataset gives none).
 
 Outside Florida nothing runs until someone presses the button (LAZY): the study is a background job with
 progress, cached per (region, size rounded to 50 MW, load level). One study computes at a time (CPU-bound).
@@ -76,7 +84,7 @@ import costs
 import danger
 from grid import DEFAULT_REGION, LOAD_FACTOR_MAX, LOAD_FACTOR_MIN, REGIONS, grid_at, region_code
 from limiter import limiter
-from llm import complete_json, configured
+from llm import complete_json, configured, note_check
 from powerflow import OVER_PCT, Grid, area_of
 
 router = APIRouter(tags=["unlock"])
@@ -152,6 +160,49 @@ def _circuit(g: Grid, i: int) -> int:
     return table.get(i, 0)
 
 
+_rate_notes: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()  # model -> (estimated?, why) per branch
+RATE_NOTE = {
+    1: "estimated (the dataset gives none)",
+    2: "raised to carry the dataset's own flow",
+}
+
+
+def _rate_est(g: Grid) -> tuple[np.ndarray, np.ndarray]:
+    """Per branch: did the build step make its rating up (build_grid.py flags it `rate_est`), and why: 1 the dataset
+    gives none (rating 0, "unlimited": the kV-class default or 30 % above its base flow), 2 the dataset's rating was
+    below its own solved flow (raised to that flow + 10 %). Read from the committed grid JSON; cached per model."""
+    key = model_key(g)
+    hit = _rate_notes.get(key)
+    if hit is None:
+        est = np.zeros(g.m, dtype=bool)
+        why = np.zeros(g.m, dtype=np.int8)
+        for k, b in enumerate(g._data["branches"]):
+            if not b.get("rate_est"):
+                continue
+            est[k] = True
+            rate, pf = float(b["rate"]), abs(float(b.get("pf_ref", 0.0)))
+            raised = pf > 0 and abs(rate - round(pf * 1.1, 1)) < 0.051 and abs(rate - round(pf * 1.3, 1)) >= 0.051
+            why[k] = 2 if raised else 1
+        hit = _rate_notes[key] = (est, why)
+        while len(_rate_notes) > MODEL_CACHE:
+            _rate_notes.popitem(last=False)
+    return hit
+
+
+MODEL_CACHE = 16  # per-model tables kept (a state's model can be evicted and loaded again: grid.MAX_LOADED)
+
+
+def model_key(g: Grid) -> tuple:
+    """A key for one state model's topology: its parsed JSON's identity plus its size and first and last branch ids (the
+    dataset's branch ids are unique across states), so a table cached for an evicted model never serves another."""
+    return (id(g._data), int(g.m), int(g.br_ids[0]) if g.m else 0, int(g.br_ids[-1]) if g.m else 0)
+
+
+def _rating_fields(g: Grid, i: int) -> dict:
+    est, why = _rate_est(g)
+    return {"rate_est": True, "rate_note": RATE_NOTE[int(why[i])]} if est[i] else {"rate_est": False}
+
+
 def _label(g: Grid, i: int) -> str:
     """ "the Fort Myers to Cape Coral line", "the Naples 3 transformer" (", circuit 2" / ", unit 2" for a twin)."""
     fs, ts = _ends(g, i)
@@ -207,6 +258,7 @@ def _branch(g: Grid, i: int) -> dict:
         "from": a,
         "to": b,
         "mid": [round((a["lat"] + b["lat"]) / 2, 4), round((a["lon"] + b["lon"]) / 2, 4)],
+        **_rating_fields(g, i),  # rate_est: its rating was made up by the build step (the dataset gives none)
     }
 
 
@@ -763,6 +815,7 @@ class Study:
             "rating_before_mva": round(before, 1),
             "rating_after_mva": round(after, 1),
             "rating_original_mva": round(float(g.rate[i]), 1),
+            **_rating_fields(g, i),  # the original rating is an estimate when the dataset gives none
             "cost": {"low": round(lo - lo0), "high": round(hi - hi0), "method": it["method"] if it else None, "miles": it["miles"] if it else None},
             "owner": b["from"]["area"] or _title(b["from"]["name"]),  # the substation's area: there is no real utility
             "window": None,  # the build window: empty until a later feature schedules it
@@ -988,6 +1041,7 @@ async def _ai(study: Study, report) -> dict:
         for b in [x for x in (listed or []) if isinstance(x, dict)][:AI_BUNDLES]:
             clean = study.clean_bundle(b, allowed)
             if clean is None:
+                note_check("unlock", False, "a bundle of upgrades that named no line it could raise")
                 continue
             asked += 1
             report("ai", asked, AI_BUNDLES * AI_ROUNDS, f"The engine is checking Gemini's bundle '{clean[1]}'")
@@ -997,6 +1051,7 @@ async def _ai(study: Study, report) -> dict:
                     return study.check_bundle(*clean)
 
             out, fb = await run_in_threadpool(run)
+            note_check("unlock", out is not None, "a bundle of upgrades the engine re-scanned: it unlocked no site")
             if out is None:
                 failed.append(fb)
                 rejected.append(fb)
@@ -1149,6 +1204,87 @@ async def _land_challenge(key: tuple, task: "asyncio.Future") -> None:
     log.info("unlock: Gemini's capacity challenge for %s at %.0f MW: %s", key[0], key[1], (cap_ai or {}).get("status"))
 
 
+_EXTRAS = ("n1", "sensitivity")  # capacity fields filled in after the study is published
+_sens_running: set[tuple] = set()  # studies whose sensitivity cases are computing
+_sens_lock = threading.Lock()
+SENS_RUNNING_MAX = 2  # sensitivity runs at once (each holds the engine a few seconds per case)
+
+
+def _with_cap(result: dict | None, fields: dict) -> dict | None:
+    """A fresh result with `fields` merged into its capacity section (the old dicts are never changed in place)."""
+    if result is None or result.get("capacity") is None:
+        return result
+    return {**result, "capacity": {**result["capacity"], **fields}}
+
+
+def _attach_cap(key: tuple, study: "Study | None", fields: dict) -> None:
+    """The N-1 screen or the sensitivity cases have landed (or are now pending): into the study (a new capacity dict, so a
+    later Gemini retry's result carries them), the cached study for `key`, and every finished job that shows it."""
+    if study is not None and getattr(study, "capacity", None) is not None:
+        study.capacity = {**study.capacity, **fields}
+    with _cache_lock:
+        cur = _cache.get(key)
+        if cur is not None:
+            _cache[key] = _with_cap(cur, fields)
+    with _jobs_lock:
+        for j in list(_jobs.values()):
+            if j.key == key and j.status == "done" and j.result is not None:
+                j.result = _with_cap(j.result, fields)
+
+
+def _keep_extras(new: dict, cur: dict | None) -> dict:
+    """A rebuilt result (a Gemini retry) keeps the N-1 screen and sensitivity cases that landed meanwhile."""
+    cap, old = (new or {}).get("capacity"), (cur or {}).get("capacity")
+    if not cap or not old:
+        return new
+    keep = {k: old[k] for k in _EXTRAS if (old.get(k) or {}).get("status") == "done" and (cap.get(k) or {}).get("status") != "done"}
+    return _with_cap(new, keep) if keep else new
+
+
+def _run_sensitivity(key: tuple, cands: list, firm: dict, study: "Study | None") -> None:
+    """capacity.sensitivity for `key` (a thread: each case holds the engine's lock only for its own search)."""
+    code, mw, lf = key
+    try:
+        out = capacity.sensitivity(code, mw, lf, cands, firm, lock=_compute_lock)
+    except Exception:  # noqa: BLE001 — the plan stands without it; the fold says it didn't finish (and can try again)
+        log.exception("unlock: sensitivity cases failed")
+        try:
+            cases = capacity.planned_cases(grid_at(lf, code))
+        except Exception:  # noqa: BLE001 — the words only
+            cases = []
+        out = {"status": "error", "cases": cases, "estimate_s": capacity.sens_estimate(firm.get("seconds"), len(cases) or 4, code)}
+    _attach_cap(key, study, {"sensitivity": out})
+    with _sens_lock:
+        _sens_running.discard(key)
+    log.info("unlock: sensitivity for %s at %.0f MW: %s in %s s", code, mw, out.get("status"), out.get("seconds"))
+
+
+def _extras(key: tuple, study: "Study", sens: bool) -> None:
+    """After the study is published: the single-outage screen of the firm plan's headline set and whole set (every study:
+    about a second), then the
+    sensitivity cases for a warm study (elsewhere they run on request: POST /api/unlock/sensitivity)."""
+    try:
+        with _compute_lock:
+            out = capacity.n1(study)
+    except Exception:  # noqa: BLE001 — the plan stands without it; the card says the screen didn't run
+        log.exception("unlock: N-1 screen failed")
+        out = {"status": "error", "emergency_pct": capacity.EMERGENCY_PCT}
+    _attach_cap(key, study, {"n1": out})
+    log.info("unlock: N-1 screen for %s at %.0f MW: %s in %s s", key[0], key[1], out.get("status"), out.get("seconds"))
+    if sens:
+        with _sens_lock:
+            if key in _sens_running:
+                return
+            _sens_running.add(key)
+        _run_sensitivity(key, study.cands, study.capacity["firm"], study)
+
+
+def _start_extras(key: tuple, study: "Study") -> None:
+    if getattr(study, "capacity", None) is None or study.baseline is not None:
+        return
+    threading.Thread(target=_extras, args=(key, study, key in _PINNED), name="unlock-extras", daemon=True).start()
+
+
 def _retry_ai(key: tuple, hit: dict) -> None:
     """A warm study whose Gemini step fell back (the free tier's per-minute quota, the network, the timeout) tries
     that step again in the background, at most every AI_RETRY_S; the engine's plan and its numbers are unchanged,
@@ -1173,7 +1309,7 @@ def _retry_ai(key: tuple, hit: dict) -> None:
             now_ai = ((_cache.get(key) or {}).get("capacity") or {}).get("ai")
             if now_ai is not None and (cap_ai is None or cap_ai.get("status") in _AI_FELL + ("pending",)):
                 cap_ai = now_ai
-            _cache[key] = _with_cap_ai(result, cap_ai)
+            _cache[key] = _keep_extras(_with_cap_ai(result, cap_ai), _cache.get(key))
         log.info("unlock: Gemini steps retried for %s at %.0f MW: %s, %d bundles; capacity challenge %s", key[0], key[1], ai["status"], len(ai["bundles"]), (cap_ai or {}).get("status"))
 
     def run():
@@ -1211,7 +1347,8 @@ def _compute(job: _Job) -> Study:
             # how many campuses the grid carries at once, and the cheapest upgrades for one more (capacity.py)
             report("capacity", 0, 1, f"Placing {mw:,.0f} MW campuses together, then the cheapest upgrade for each next one")
             try:
-                s.capacity = capacity.study(s)
+                # the N-1 screen and (warm studies only: LAZY) the sensitivity cases land after the study is published
+                s.capacity = capacity.study(s, sensitivity_pending=job.key in _PINNED)
             except Exception:  # noqa: BLE001 — the site-by-site study still stands without it
                 logging.getLogger("uvicorn.error").exception("capacity study failed")
                 s.capacity = None
@@ -1256,6 +1393,7 @@ async def _run_job(job: _Job) -> None:
         job.progress = {"phase": "done", "done": 1, "total": 1, "message": f"Done in {result['learned']['seconds']:.0f} s"}
         job.status = "done"
         log.info("unlock: %s at %.0f MW (load %.2f) in %.1f s", job.key[0], job.key[1], job.key[2], result["learned"]["seconds"])
+        _start_extras(job.key, study)  # the N-1 screen (and a warm study's sensitivity cases) land in the published study
     except HTTPException as e:
         job.error = e.detail if isinstance(e.detail, str) else "The study could not run"
         job.status = "error"
@@ -1329,6 +1467,38 @@ def peek(
         return {**out, "state": "none", "id": None}
     job, _ = found
     return {**out, "state": job.status, "id": job.id}
+
+
+@router.post("/api/unlock/sensitivity")
+@limiter.limit("30/minute")
+def sensitivity(request: Request, body: UnlockIn):
+    """How sure is the number: the firm search again under other assumptions (capacity.sensitivity), for a finished
+    study. The warm Florida study has it already; elsewhere it runs on request (LAZY), in the background: the answer
+    lands in the study's result (poll its job, as for Gemini's challenge)."""
+    key = _key_of(body)
+    with _cache_lock:
+        cur = _cache.get(key)
+    cap = (cur or {}).get("capacity")
+    if cap is None or not (cap.get("firm") or {}).get("steps"):
+        raise HTTPException(status_code=409, detail="Run the study first: this re-checks its plan under other assumptions.")
+    sv = cap.get("sensitivity") or {}
+    if sv.get("status") in ("pending", "done"):
+        return {"status": sv["status"], "sensitivity": sv}
+    with _sens_lock:
+        if key not in _sens_running and len(_sens_running) >= SENS_RUNNING_MAX:
+            raise HTTPException(status_code=429, detail="The engine is busy with other checks. Try again in a minute.")
+        started = key not in _sens_running
+        _sens_running.add(key)
+    code, _, lf = key
+    cases = sv.get("cases") or capacity.planned_cases(grid_at(lf, code))
+    est_s = sv.get("estimate_s") or capacity.sens_estimate((cap.get("firm") or {}).get("seconds"), len(cases), code)
+    pending = {"status": "pending", "estimate_s": est_s, "cases": cases, "requested": True}
+    study = _studies.get(key)
+    _attach_cap(key, study, {"sensitivity": pending})
+    if started:
+        cands = study.cands if study is not None else danger.candidates(grid_at(lf, code), code)
+        threading.Thread(target=_run_sensitivity, args=(key, cands, cap["firm"], study), name="unlock-sensitivity", daemon=True).start()
+    return {"status": "pending", "sensitivity": pending}
 
 
 # ---------------------------------------------------------------------------------- warm-up

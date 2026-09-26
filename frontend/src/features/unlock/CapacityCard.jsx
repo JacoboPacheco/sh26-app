@@ -138,6 +138,7 @@ export default function CapacityCard({ r, m, n, flex, target, onBudget }) {
                 <span className="st-card__meta">
                   {fmt(p.kv)} kV {p.kind}, {fmt(p.rating_before_mva)} → <strong>{fmt(p.rating_after_mva)}</strong> MVA, {moneyRange(p.cost.low, p.cost.high)}
                 </span>
+                {p.rate_est && <span className="cc-est">Rating {p.rate_note || 'estimated'}</span>}
                 {p.cost.method && <span className="cc-how">{p.cost.method.charAt(0).toUpperCase() + p.cost.method.slice(1)}</span>}
                 {raisedAgain(m, p, n) && (
                   <span className="cc-how">
@@ -160,6 +161,7 @@ export default function CapacityCard({ r, m, n, flex, target, onBudget }) {
             <dd>
               The {shortName(b)}, {fmt(b.kv)} kV, reached its rating first at {b.blocks === b.of ? `all ${fmt(b.of)}` : `${fmt(b.blocks)} of the ${fmt(b.of)}`} sites closest
               to fitting{most ? '.' : '; at the others, other lines and transformers did.'}
+              {b.rate_est && <span className="cc-est">Its rating is {b.rate_note || 'estimated'}: a different rating moves this limit.</span>}
             </dd>
           </div>
         )}
@@ -174,9 +176,10 @@ export default function CapacityCard({ r, m, n, flex, target, onBudget }) {
         <div>
           <dt>Checked</dt>
           <dd>
-            Placed with an exact power-flow solve with every campus before it: no line or transformer over its rating.
-            {v?.calm ? ` The whole set of ${fmt(v.campuses)}, with every upgrade, ran through the full cascade engine: nothing trips, no one loses power.` : ''}
-            {flex ? ' Flexible campuses are checked twice: at full size at 90 % of this load, and at half size at it.' : ''}
+            N-0 (every line in service): no line or transformer over its rating with every campus connected
+            {v?.calm ? `; the whole set of ${fmt(v.campuses)} with its upgrades also ran through the cascade engine and nothing trips` : ''}.
+            {flex ? ' Flexible campuses are checked twice: at full size at 90 % of this load, and at half size at it.' : ''}{' '}
+            <N1Line n1={r.capacity?.n1} flex={flex} n={n} />
           </dd>
         </div>
       </dl>
@@ -192,6 +195,38 @@ export default function CapacityCard({ r, m, n, flex, target, onBudget }) {
       </button>
     </aside>
   )
+}
+
+// The single-outage screen of the always-on plan (capacity.n1), landing after the plan: the headline's campuses (the
+// count the meter sells) and, when the search went further, its whole set. Its counts are single OUTAGES, not overloads
+// (one outage can push several lines past their rating); a plant cut off that the others can't make up counts apart.
+// `n` (a campus card): the whole set's clause only for a campus past the headline's count; without it, always.
+export function N1Line({ n1, flex = false, n = null }) {
+  if (!n1 || n1.status === 'skipped') return null
+  const of = `${flex ? ' of the always-on plan' : ''}, with the headline’s ${n1.campuses ? `${fmt(n1.campuses)} ${n1.campuses === 1 ? 'campus' : 'campuses'}` : 'campuses'}`
+  if (n1.status === 'pending') return <span className="cc-n1">Single-outage screen (N-1){of}: running…</span>
+  if (n1.status !== 'done') return <span className="cc-n1">The single-outage screen (N-1) didn’t run for this study.</span>
+  const w = n1.worst
+  const f = n1.full && (n == null || flex || n > n1.campuses) ? n1.full : null // (a flexible campus's n counts another plan)
+  const pct = fmt(n1.emergency_pct)
+  const k = n1.new_overloads ?? n1.new
+  return (
+    <span className="cc-n1">
+      Single-outage screen (N-1){of} and their upgrades: {fmt(k)} single {k === 1 ? 'outage pushes' : 'outages push'} a line or transformer past {pct} % of its rating where the
+      model alone doesn’t, or {k === 1 ? 'pushes' : 'push'} it further (the model alone has {fmt(n1.baseline_violations)} such outages){shortWords(n1, '; and ')}
+      {w ? `. The worst: losing the ${w.outage.short} puts the ${w.overloaded.short} at ${fmt(Math.round(w.pct))} % of its rating` : ''}.
+      {f
+        ? ` With all ${fmt(f.campuses)} campuses of the search: ${fmt(f.new_overloads ?? f.new)} such ${(f.new_overloads ?? f.new) === 1 ? 'outage' : 'outages'}${shortWords(f, ', and ')}.`
+        : ''}
+    </span>
+  )
+}
+
+// the outages where a plant is cut off and the other plants can't make up its output (short of generation)
+function shortWords(v, lead) {
+  if (!v?.short) return ''
+  const cut = v.short_shed ? ` (${fmt(v.short_shed)} of them cut customers, up to ${fmt(v.short_shed_max_mw)} MW)` : ' (the state would have to stop exporting)'
+  return `${lead}${fmt(v.short)} more where the other plants can’t make up a plant the outage cuts off${cut}`
 }
 
 // the rating a line or transformer ends at in the whole plan (its last raise), and how many times it is raised

@@ -153,8 +153,8 @@ export default function UpgradeCard({ r, selected, bundle, target, budget, onBud
               <dt>Checked</dt>
               <dd>
                 {st.verified === st.newly_count
-                  ? 'every site it unlocks re-run through the full cascade: nothing trips, no one loses power'
-                  : `${fmt(st.verified)} of ${fmt(st.newly_count)} sites re-run through the full cascade so far`}
+                  ? 'every site it unlocks re-run through the cascade engine with every line in service (N-0): nothing trips, no one loses power'
+                  : `${fmt(st.verified)} of ${fmt(st.newly_count)} sites re-run through the cascade engine (N-0) so far`}
               </dd>
             </div>
           </dl>

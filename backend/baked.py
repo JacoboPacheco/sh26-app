@@ -48,7 +48,13 @@ def load() -> int:
             # baked before Gemini's challenge landed (scripts/bake_strengthen.py waits for it): nothing will finish it here
             import capacity_ai
 
-            d["result"]["capacity"] = {**cap, "ai": capacity_ai._empty("offline", "Gemini's challenge hadn't finished when this study was saved; the engine's plan stands.", bar=cap["ai"].get("bar"))}
+            d["result"]["capacity"] = cap = {**cap, "ai": capacity_ai._empty("offline", "Gemini's challenge hadn't finished when this study was saved; the engine's plan stands.", bar=cap["ai"].get("bar"))}
+        # the same for the single-outage screen (the page says it didn't run) and the sensitivity cases (the fold offers
+        # to run them on request, which works without the study object): nothing here would finish a "pending" one
+        if (cap.get("n1") or {}).get("status") == "pending":
+            d["result"]["capacity"] = cap = {**cap, "n1": {**cap["n1"], "status": "error"}}
+        if (cap.get("sensitivity") or {}).get("status") == "pending":
+            d["result"]["capacity"] = cap = {**cap, "sensitivity": {**cap["sensitivity"], "status": "not_run"}}
         with unlock._cache_lock:
             unlock._cache[key] = d["result"]
         getattr(unlock, "_PINNED", set()).add(key)  # never evicted, like the warmed study

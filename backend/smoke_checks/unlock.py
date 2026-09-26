@@ -11,7 +11,11 @@ plan's upgrades. The Strengthen page's fields (plain names, per-step strain and 
 the budget's running cost) and the peek route (shows a study without starting one) are checked too, and so is Gemini's
 try at beating the capacity plan (capacity_ai.py): published as "pending" without holding the study back, then a
 known status in the same job; a win only when the engine verified it, re-run here through the cascade route; savings
-only for a verified plan; with no key, not_configured and copy that claims nothing."""
+only for a verified plan; with no key, not_configured and copy that claims nothing. After the study is published, the
+single-outage (N-1) screen of the always-on plan lands in the same job, on the headline's campuses (the count the meter
+sells) and the search's whole set (outages, not overloads, against the model's own baseline; plants short of generation apart),
+and the sensitivity cases land too: by themselves for the warm study, or on request (POST /api/unlock/sensitivity, LAZY;
+on Render UNLOCK_WARM=0, so this check asks); the plan never changes while they land. Estimated ratings are flagged."""
 
 import math
 import time
@@ -19,9 +23,31 @@ import time
 MW = 1000
 DONE_S = 150  # the study's own bound (60 s on Florida) + Gemini + a slow host
 PENDING_S = 150  # Gemini's challenge lands after the study is published: two rounds of Gemini + the engine's checks
+N1_S = 90  # the single-outage screen lands after the study is published (about a second; the engine may be busy)
+SENS_S = 240  # the sensitivity cases: up to four always-on searches (~12 s on a laptop, slower on a small host)
 POLL_S = 1.5
 AI_STATUS = {"used", "not_configured", "offline", "none_verified", "skipped", "error"}
 CAP_AI_STATUS = {"beat", "matched", "lost", "not_configured", "offline", "error", "skipped"}
+SENS_IDS = {"shipped", "pro_rata", "limit_90", "est_x2", "est_tight"}
+DEFAULT_CAP_BUDGET = 50e6  # frontend capacity.js: the page opens at the largest stop at or under this
+
+
+def headline_n(steps):
+    """The meter's headline count (capacity.js defaultCapBudget + capWithin): what the N-1 screen checks."""
+    stops = [0.0]
+    for st in steps:
+        if not st["free"] and st["cum_cost"]["high"] > stops[-1] + 0.5:
+            stops.append(float(st["cum_cost"]["high"]))
+    if len(stops) < 2:
+        return len(steps)  # every step fits with no upgrade
+    within = [v for v in stops if v <= DEFAULT_CAP_BUDGET]
+    money = within[-1] if len(within) > 1 else stops[1]
+    n = 0
+    for st in steps:
+        if st["cum_cost"]["high"] > money + 0.5:
+            break
+        n = st["n"]
+    return n
 
 
 def register(ctx):
@@ -108,6 +134,8 @@ def register(ctx):
         for x in pts + [pj for st in steps for pj in st["projects"]]:
             assert x["short"] and not x["short"].startswith("the ") and x["short"].endswith(("line", "transformer", ")")), x["short"]
             assert x["where"], x
+            # a rating the build step made up says so (build_grid.py flags it; the dataset gives none)
+            assert isinstance(x["rate_est"], bool) and (not x["rate_est"] or x["rate_note"]), (x["short"], x.get("rate_est"))
         highs = [st["cum_cost"]["high"] for st in steps]
         assert highs == sorted(highs), "the plan's running cost goes down somewhere (the budget slices it)"
         prev = r["headline"]["strain"]["line_overloads_before"]
@@ -206,7 +234,16 @@ def register(ctx):
                 assert st["free"] or (st["cost"]["high"] > 0 and st["blocked_by"]), (mode, st["n"])
                 assert st["busiest_pct"] <= 100.0 + 1e-6, (mode, st["n"], st["busiest_pct"])
             assert m["verified"] and m["verified"]["calm"] is True and m["verified"]["campuses"] == len(m["steps"]), m["verified"]
+            assert m["verified"].get("n0") is True, "the cascade check is N-0 (every line in service) and says so"
+            for st in m["steps"]:
+                for x in st["projects"] + ([st["blocked_by"]] if st["blocked_by"] else []):
+                    assert isinstance(x["rate_est"], bool) and (not x["rate_est"] or x["rate_note"]), (mode, st["n"], x["short"])
         assert c["firm"]["today"] >= 1 and c["flexible"]["today"] >= c["firm"]["today"], (c["firm"]["today"], c["flexible"]["today"])
+        assert "N-0" in c["method"] and "N-1" in c["method"], "the method says the cascade check is N-0 only"
+        ra = c["ratings"]
+        assert 0 <= ra["plan_upgrades_estimated"] <= ra["plan_upgrades"] and 0 <= ra["estimated"] < ra["branches"], ra
+        assert c["n1"]["status"] in ("pending", "done", "error", "skipped") and c["n1"]["emergency_pct"] == 115.0, c["n1"]
+        assert c["sensitivity"]["status"] in ("pending", "done", "not_run", "error", "skipped"), c["sensitivity"]
         pl = c["plants"]
         assert 0 <= pl["room_mw"] <= pl["spare_mw"] and pl["reserve_pct"] == 15.0, pl
         assert any("NERC" in x["name"] for x in c["sources"]) and any("Rethinking Load Growth" in x["name"] for x in c["sources"])
@@ -312,6 +349,96 @@ def register(ctx):
             assert after["total_steps"] == 0 and int(after.get("people_hit", after["people"]) or 0) == 0, (n, after["total_steps"])
             assert after["lost_mw"] <= 0.5, after["lost_mw"]
 
+    def landed(field, limit_s):
+        """Poll the Florida study's job until capacity[field] is no longer pending (it lands after the study is
+        published); the study's own numbers never change meanwhile."""
+        t0 = time.monotonic()
+        while True:
+            s = ctx.request("GET", f"/api/unlock/jobs/{state['id']}")
+            assert s["status"] == "done", s["status"]
+            assert s["result"]["headline"] == state["r"]["headline"], f"the study changed while {field} landed"
+            assert s["result"]["capacity"]["firm"]["steps"] == state["r"]["capacity"]["firm"]["steps"], f"the plan changed while {field} landed"
+            v = s["result"]["capacity"][field]
+            if v["status"] != "pending":
+                return s["result"]["capacity"]
+            assert time.monotonic() - t0 < limit_s, f"{field} still pending after {limit_s} s"
+            time.sleep(POLL_S)
+
+    def n1():
+        # the single-outage screen of the always-on plan: the HEADLINE's set (the count the meter sells) and, when the
+        # search went further, its whole set; outages (not overloads) against the model's own baseline
+        c = landed("n1", N1_S)
+        x = c["n1"]
+        assert x["status"] == "done", x
+        assert x["emergency_pct"] == 115.0 and x["kv_min"] == 100.0 and x["method"] and "115 %" in x["sentence"] and "headline" in x["sentence"], x
+        steps = c["firm"]["steps"]
+        head = headline_n(steps)
+        assert x["set"] == "headline" and x["campuses"] == head, (x["campuses"], head, len(steps))
+        assert 0 < x["screened"] <= x["outages"] and x["screened"] + x["skipped_radial"] == x["outages"], x
+        assert 0 <= x["baseline_violations"] <= x["screened"] and x["pairs"]["baseline"] >= x["baseline_violations"] - x["baseline_short"], x
+
+        def one(v, n):
+            assert v["campuses"] == n, (v["campuses"], n)
+            assert 0 <= v["new"] <= v["with_plan_violations"] <= x["screened"], v
+            # an outage short of generation has its flows unjudged, so the two kinds never overlap
+            assert v["new"] == v["new_overloads"] + v["short"] and 0 <= v["short_shed"] <= v["short"], v
+            assert (v["short_shed_max_mw"] > 0) == (v["short_shed"] > 0), v
+            assert v["pairs"]["new"] <= v["pairs"]["with_plan"], v["pairs"]
+            if v["new_overloads"]:
+                w = v["worst"]
+                assert w and w["pct"] > 115.0 and w["outage"]["short"] and w["overloaded"]["short"], w
+                assert w["outage"]["branch_id"] != w["overloaded"]["branch_id"], w
+            else:
+                assert v["worst"] is None, v["worst"]
+
+        one(x, head)
+        if len(steps) > head:
+            one(x["full"], len(steps))
+            assert f"all {len(steps)} campuses" in x["sentence"], x["sentence"]
+        else:
+            assert x["full"] is None, x["full"]
+
+    def sensitivity():
+        # how sure is the number: the always-on search again under other assumptions. Warm locally (it lands by itself);
+        # on Render (UNLOCK_WARM=0) and elsewhere it runs on request (LAZY)
+        ctx.request("POST", "/api/unlock/sensitivity", {"region": "FL", "mw": 50}, expect=422)
+        ctx.request("POST", "/api/unlock/sensitivity", {"region": "RI", "mw": 4950, "load_factor": 1.4}, expect=409)  # never studied: nothing to re-check
+        c = state["r"]["capacity"]
+        # before it runs, the fold names the cases it will run (never a hardcoded count)
+        planned = [x["id"] for x in c["sensitivity"].get("cases") or []]
+        assert planned and set(planned) <= SENS_IDS - {"shipped"}, c["sensitivity"]
+        assert all(x["label"] and x["phrase"] for x in c["sensitivity"]["cases"]), c["sensitivity"]["cases"]
+        if c["sensitivity"]["status"] in ("not_run", "error"):
+            assert c["sensitivity"].get("estimate_s", 1) > 0, c["sensitivity"]
+            p = ctx.request("POST", "/api/unlock/sensitivity", {"region": "FL", "mw": MW, "load_factor": 1.0})
+            assert p["status"] in ("pending", "done"), p
+            assert [x["id"] for x in p["sensitivity"].get("cases") or []] == planned, p["sensitivity"]
+        c = landed("sensitivity", SENS_S)
+        sv = c["sensitivity"]
+        assert sv["status"] == "done", sv
+        rows = sv["rows"]
+        ids = [r["id"] for r in rows]
+        assert ids[0] == "shipped" and set(ids) <= SENS_IDS and len(ids) >= 3 and ids[1:] == planned, (ids, planned)
+        # each case gets the firm search's own time limit, and a case that ran out says so
+        assert sv["time_s"] >= 30 and sv["timed_out"] == [r["id"] for r in rows if r["stop"] == "time"], (sv["time_s"], sv["timed_out"])
+        if "est_x2" in ids:  # estimated ratings are tested on both sides
+            assert "est_tight" in ids, ids
+        firm = c["firm"]
+        sh = rows[0]
+        assert sh["today"] == firm["today"] and sh["campuses"] == len(firm["steps"]), (sh, firm["today"])
+        assert sh["budget"]["campuses"] == sv["headline_campuses"] and sh["headline"]["campuses"] == sv["headline_campuses"], sh
+        assert sv["headline_campuses"] == headline_n(firm["steps"]) == c["n1"]["campuses"], (sv["headline_campuses"], c["n1"].get("campuses"))
+        assert abs(sh["budget"]["money"] - sv["budget"]) <= 1, (sh["budget"], sv["budget"])
+        for r in rows:
+            assert r["label"] and r["detail"] and r["today"] >= 0 and r["campuses"] >= r["today"] and r["seconds"] >= 0, r
+            assert r["budget"]["campuses"] >= r["today"] and r["budget"]["cost_high"] <= sv["budget"] + 1, r
+            assert r["headline"]["cost_high"] is None or r["headline"]["cost_high"] >= 0, r
+            assert r["calm"] in (True, None), r  # every case's final set passes the same N-0 cascade check
+        for b in sv["binds_every_case"]:
+            assert set(b["cases"]) == set(ids) and b["short"] and isinstance(b["rate_est"], bool), b
+        again = ctx.request("POST", "/api/unlock/sensitivity", {"region": "FL", "mw": MW, "load_factor": 1.0})
+        assert again["status"] == "done" and again["sensitivity"]["rows"] == rows, "a second request re-ran the cases"
+
     ctx.check("unlock: bad sizes, the national map, unknown states and jobs are refused", validation)
     ctx.check("unlock: Florida at 1,000 MW finds weak points and a verified plan", study)
     ctx.check("unlock: the cascade route agrees a site the plan unlocks now holds", engine_agrees)
@@ -319,3 +446,5 @@ def register(ctx):
     ctx.check("unlock: peek shows the finished Florida study at once and starts nothing elsewhere", peek)
     ctx.check("unlock: capacity — campuses at once, costs that add up, verified calm, and the cascade route agrees", capacity)
     ctx.check("unlock: Gemini's try at beating the capacity plan — a known status, a win only when the engine and the cascade route agree", capacity_ai)
+    ctx.check("unlock: the single-outage (N-1) screen lands after the plan, against the model's own baseline", n1)
+    ctx.check("unlock: how sure is the number — the sensitivity cases land (warm) or run on request (LAZY)", sensitivity)

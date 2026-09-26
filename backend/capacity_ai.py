@@ -983,7 +983,7 @@ def _verdict_row(tr: _Trace, case: _Case, rnd: int, p: dict, v: dict, outcome: s
     tone = "holds" if outcome in ("beat", "matched") else "muted"
     title = f"Engine solved all {_count(n)} campuses at once: it holds"
     tr.add(round=rnd, actor="engine", kind="verify", tone=tone, holds=True, ms=v.get("ms"), title=title,
-           detail=f"{price} Full cascade: nothing trips. {compare}")
+           detail=f"{price} Full cascade with every line in service (N-0): nothing trips. {compare}")
 
 
 def _sentence(case: _Case, best: dict, status: str, attempts: list[dict], offline_at: int | None) -> str:
@@ -1052,7 +1052,7 @@ def _finish(case: _Case, tr: _Trace, attempts: list[dict], bar: dict, calls: int
         v = best["v"]
         tr.add(final=True, round=rounds, actor="engine", kind="result", tone="holds",
                title=f"Gemini beat the engine's plan: {_campuses(v['campuses'])} at once for {_m(v['cost']['high'])}",
-               detail=f"Verified by the engine: one solve with every campus and raise, then the full cascade (nothing trips). {tally}")
+               detail=f"Verified by the engine: one solve with every campus and raise, then the full cascade with every line in service (N-0: nothing trips). {tally}")
     elif status == "matched":
         tr.add(final=True, round=rounds, actor="engine", kind="result", tone="info", title="Gemini matched the engine's plan, but didn't beat it",
                detail=f"Verified by the engine; the same cost within {TOL_SHARE * 100:.0f} %. {tally}")

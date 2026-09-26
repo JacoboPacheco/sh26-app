@@ -1474,9 +1474,219 @@
   opacity: 0.85;
 }
 
+/* a rating the build step made up (the dataset gives none): said in small type wherever the line is named */
+.cc-est {
+  display: block;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: color-mix(in srgb, var(--strain) 55%, var(--ink-2));
+}
+
+.cp-est {
+  font-size: 0.68rem;
+  color: color-mix(in srgb, var(--strain) 55%, var(--ink-2));
+  white-space: nowrap;
+}
+
+.cc-n1 {
+  display: block;
+  margin-top: 4px;
+}
+
 .cc-facts div {
   grid-template-columns: minmax(0, 1fr);
   gap: 1px;
+}
+
+/* ------------------------------------------------------------------ "How sure is this number?" (SureFold.jsx) */
+.st-sure {
+  margin: -4px 0 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.st-sure summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  width: fit-content;
+  max-width: 100%;
+  cursor: pointer;
+  list-style: none;
+}
+
+.st-sure summary::-webkit-details-marker {
+  display: none;
+}
+
+.st-sure summary::before {
+  content: '';
+  align-self: center;
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform 0.15s;
+}
+
+.st-sure[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.st-sure__q {
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: underline dotted color-mix(in srgb, var(--ink-2) 60%, transparent);
+  text-underline-offset: 3px;
+}
+
+.st-sure__hint {
+  font-variant-numeric: tabular-nums;
+}
+
+.st-sure__body {
+  display: grid;
+  gap: 8px;
+  max-width: 880px;
+  margin-top: 8px;
+  padding: 10px 12px 12px;
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+}
+
+.st-sure__body p {
+  margin: 0;
+}
+
+.st-sure__body strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.st-sure__scroll {
+  overflow-x: auto;
+}
+
+.st-sure__t {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-sure__t th,
+.st-sure__t td {
+  padding: 5px 8px;
+  text-align: right;
+  vertical-align: top;
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.st-sure__t thead th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.st-sure__t th[scope='row'],
+.st-sure__t thead th:first-child {
+  text-align: left;
+  padding-left: 0;
+}
+
+.st-sure__t tbody th {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.st-sure__t td {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.st-sure__t tr.is-shipped th,
+.st-sure__t tr.is-shipped td {
+  background: color-mix(in srgb, var(--hr-ok) 7%, transparent);
+}
+
+.st-sure__t tr.is-shipped th {
+  box-shadow: inset 2px 0 0 var(--hr-ok);
+  padding-left: 8px;
+}
+
+.st-sure__d {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.68rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--ink-2);
+  white-space: normal;
+}
+
+/* a case that ran out of time: said plainly, in the strain tone, never read as a smaller answer */
+.st-sure__late {
+  color: color-mix(in srgb, var(--strain) 55%, var(--ink-2));
+}
+
+.st-sure__foot,
+.st-sure__n1 {
+  font-size: 0.7rem;
+}
+
+.st-sure__wait {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.st-sure__wait p {
+  margin: 0;
+}
+
+/* a phone: each case's name and what it assumes on a line of its own, its three figures under the column heads */
+@media (max-width: 560px) {
+  .st-sure__t,
+  .st-sure__t thead,
+  .st-sure__t tbody {
+    display: block;
+  }
+
+  .st-sure__t tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 3.4rem 5.6rem 4.8rem;
+    align-items: start;
+    border-bottom: 1px solid var(--glass-edge);
+  }
+
+  .st-sure__t th,
+  .st-sure__t td {
+    padding: 4px 4px;
+    border-bottom: 0;
+  }
+
+  .st-sure__t tbody th[scope='row'] {
+    grid-column: 1 / -1;
+    padding: 6px 4px 0 0;
+  }
+
+  .st-sure__t tr.is-shipped th {
+    padding-left: 8px;
+  }
+
+  .st-sure__t tbody td:first-of-type {
+    grid-column: 2;
+  }
+
+  .st-sure__t thead th:first-child {
+    visibility: hidden;
+  }
 }
 
 .cc-facts dt {

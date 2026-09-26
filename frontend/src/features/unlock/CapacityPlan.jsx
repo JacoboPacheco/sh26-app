@@ -2,6 +2,7 @@
 // then one row per campus that needs upgrades (where it goes, what it takes in plain words, what it adds to the
 // bill), the budget's line between what it buys and what it doesn't, and why the search ends. The number badge is
 // the same campus as the meter's cell and the map's marker. A row click flies the map there and opens its card.
+// A line or transformer whose rating the build step made up (the dataset gives none) says "rating estimated".
 import { useEffect, useRef } from 'react'
 import { fmt } from '../../geo'
 import { moneyRange } from '../cost/money'
@@ -86,6 +87,7 @@ export default function CapacityPlan({ m, target, shown, playing, budget, select
                 ) : (
                   <span className="cp-what">
                     {upgradeWords(lead, raisedAgain(m, lead, n))}
+                    {lead.rate_est && <span className="cp-est"> (rating estimated)</span>}
                     {st.projects.length > 1 && (
                       <span className="cp-more">
                         {' '}
@@ -95,7 +97,10 @@ export default function CapacityPlan({ m, target, shown, playing, budget, select
                   </span>
                 )}
                 {most && (
-                  <span className="cp-block">Stopped first by the {shortName(b)}</span>
+                  <span className="cp-block">
+                    Stopped first by the {shortName(b)}
+                    {b.rate_est && <span className="cp-est"> (rating estimated)</span>}
+                  </span>
                 )}
               </span>
               <span className={`cp-cost${st.free ? ' cp-cost--none' : ''}`} title={st.free ? 'No added cost' : `${moneyRange(st.cost.low, st.cost.high)} (low to high end)`}>

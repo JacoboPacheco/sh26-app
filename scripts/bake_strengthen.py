@@ -41,9 +41,10 @@ def main():
         if s["status"] != "done":
             print(f"{case}: {s.get('error')}")
             continue
-        # Gemini's challenge to the capacity plan lands after the study is published ("pending" until then): wait for it
+        # Gemini's challenge to the capacity plan, the single-outage (N-1) screen and (the warm study's) sensitivity cases
+        # land after the study is published ("pending" until then): wait for them, or a baked "pending" never finishes
         t1 = time.time()
-        while ((s["result"].get("capacity") or {}).get("ai") or {}).get("status") == "pending" and time.time() - t1 < 180:
+        while any((((s["result"].get("capacity") or {}).get(f) or {}).get("status") == "pending") for f in ("ai", "n1", "sensitivity")) and time.time() - t1 < 300:
             time.sleep(2)
             s = call("GET", f"/api/unlock/jobs/{job['id']}")
         r = s["result"]
@@ -53,7 +54,8 @@ def main():
         path.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
         cap = (r.get("capacity") or {}).get("firm") or {}
         cap_ai = ((r.get("capacity") or {}).get("ai") or {}).get("status")
-        print(f"{case}: {time.time() - t0:.0f} s, {path.stat().st_size / 1e3:.0f} kB, AI {(r.get('ai') or {}).get('status')}, capacity challenge {cap_ai}, capacity today {cap.get('today')} / {len(cap.get('steps') or [])} steps")
+        extras = ", ".join(f"{f} {((r.get('capacity') or {}).get(f) or {}).get('status')}" for f in ("n1", "sensitivity"))
+        print(f"{case}: {time.time() - t0:.0f} s, {path.stat().st_size / 1e3:.0f} kB, AI {(r.get('ai') or {}).get('status')}, capacity challenge {cap_ai}, {extras}, capacity today {cap.get('today')} / {len(cap.get('steps') or [])} steps")
 
 
 if __name__ == "__main__":

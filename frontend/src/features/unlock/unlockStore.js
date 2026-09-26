@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { defaultBudget, stepsWithin } from './budget'
 import { aiCapPlan, capOf, capWithin, defaultCapBudget } from './capacity'
-import { DEFAULT_SIZE, getUnlockJob, peekUnlock, startUnlock } from './unlockApi'
+import { DEFAULT_SIZE, getUnlockJob, peekUnlock, startSensitivity, startUnlock } from './unlockApi'
 
 // State the Strengthen page and its map layer share: the study (a background job on the backend), what is on
 // screen (the capacity view: campuses connected at once, or the site-by-site plan), the capacity budget and its
@@ -160,13 +160,15 @@ async function refreshAi(region, loadFactor) {
   }
 }
 
-// Gemini's challenge to the capacity plan never holds the study back: the study arrives with capacity.ai "pending"
-// and the verdict lands in the same job on the server a few seconds later; the page picks it up here (the plan, its
-// numbers and the build-up on screen stay as they are).
+// Three parts of the capacity section never hold the study back: Gemini's challenge to the plan (capacity.ai), the
+// single-outage screen (capacity.n1) and the sensitivity cases (capacity.sensitivity: a warm study's, or one the
+// viewer asked for). The study arrives with them "pending" and each lands in the same job on the server a few seconds
+// later; the page picks each up here as it lands (the plan, its numbers and the build-up on screen stay as they are).
 const PENDING_POLL_MS = 1500
-const PENDING_MAX_MS = 180000
+const PENDING_MAX_MS = 240000
 let pendTimer = null
-const capPending = (r) => r?.capacity?.ai?.status === 'pending'
+const pendingCount = (r) => [r?.capacity?.ai, r?.capacity?.n1, r?.capacity?.sensitivity].filter((x) => x?.status === 'pending').length
+const capPending = (r) => pendingCount(r) > 0
 function stopPending() {
   clearTimeout(pendTimer)
   pendTimer = null
@@ -194,16 +196,33 @@ function watchPending() {
         }
       }
       if (state.key !== key || state.status !== 'done') return
-      if (s?.status === 'done' && s.result && !capPending(s.result)) {
-        set({ result: s.result })
-        return
-      }
+      // a part landed: show it (the rest keep polling)
+      if (s?.status === 'done' && s.result && pendingCount(s.result) < pendingCount(state.result)) set({ result: s.result })
+      if (!capPending(state.result)) return
     } catch {
       // try again on the next tick
     }
     if (state.key === key && !pendTimer) pendTimer = setTimeout(tick, PENDING_POLL_MS)
   }
   pendTimer = setTimeout(tick, PENDING_POLL_MS)
+}
+
+// "How sure is this number?" outside the warm study (LAZY): the viewer asks, the server re-runs the always-on search
+// under the other assumptions in the background, and the cases land in the study like the parts above.
+const withSens = (s, sensitivity) => ({ result: { ...s.result, capacity: { ...s.result.capacity, sensitivity } } })
+export async function requestSensitivity() {
+  const { key, result } = state
+  if (state.status !== 'done' || !result?.capacity) return
+  const was = result.capacity.sensitivity || {}
+  set((s) => withSens(s, { ...was, status: 'pending', requested: true }))
+  try {
+    const p = await startSensitivity({ region: result.region, mw: result.mw, loadFactor: result.load_factor })
+    if (state.key !== key || !state.result?.capacity) return
+    set((s) => withSens(s, p.sensitivity))
+    if (p.status === 'pending' && !pendTimer) watchPending()
+  } catch (error) {
+    if (state.key === key && state.result?.capacity) set((s) => withSens(s, { ...was, status: 'error', error: error?.message || 'The check did not start' }))
+  }
 }
 
 export async function runStudy({ region, loadFactor }) {
