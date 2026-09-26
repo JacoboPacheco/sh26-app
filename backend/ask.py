@@ -133,17 +133,48 @@ def _mw(v) -> str:
 
 def _pct(v) -> str:
     v = float(v)
-    return f"{v:.0f}" if v >= 10 else f"{v:.1f}"
+    return f"{v:,.0f}" if v >= 10 else f"{v:.1f}"
 
 
 def _about(n, lang: str = "en") -> str:
-    """A count that follows "about": 8,876,614 -> '8.88 million', 43,212 -> '43,000'."""
+    """A count that follows "about": 8,876,614 -> '8.9 million', 43,212 -> '43,000'."""
     n = int(round(float(n)))
     if n >= 1_000_000:
-        return f"{n / 1e6:.2f}".rstrip("0").rstrip(".") + (" million" if lang == "en" else " millones")
+        return f"{n / 1e6:.1f}".rstrip("0").rstrip(".") + (" million" if lang == "en" else " millones")
     if n >= 10_000:
         return f"{round(n, -3):,}"
     return f"{n:,}"
+
+
+def _steps(n, lang: str = "en") -> str:
+    n = int(n)
+    if lang == "es":
+        return f"{n} paso" if n == 1 else f"{n} pasos"
+    return f"{n} step" if n == 1 else f"{n} steps"
+
+
+def _lc(s: str) -> str:
+    """An engine action ('Shrink the data center to 550 MW') inside a sentence: first letter lowercase
+    unless it starts an acronym or a name-like word ('AI', 'MW')."""
+    s = str(s or "")
+    return s[0].lower() + s[1:] if len(s) > 1 and s[0].isupper() and not s[1].isupper() else s
+
+
+LEVEL_WHEN = {  # the load level as a time phrase: "at 3 AM", "during a heat wave"
+    0.62: ("at 3 AM", "a las 3 AM"),
+    0.82: ("at 9 AM", "a las 9 AM"),
+    1.0: ("at the 4 PM summer peak", "en el pico de las 4 PM de verano"),
+    1.04: ("during a heat wave", "durante una ola de calor"),
+    1.08: ("in extreme heat", "con calor extremo"),
+}
+
+
+def level_when(f: float, lang: str = "en") -> str:
+    w = LEVEL_WHEN.get(round(float(f), 2))
+    if w:
+        return w[0 if lang == "en" else 1]
+    pct = round(float(f) * 100)
+    return f"at {pct}% of the summer peak load" if lang == "en" else f"al {pct}% de la carga del pico de verano"
 
 
 def _money(v, lang: str = "en") -> str:
@@ -213,11 +244,14 @@ def fix_action(f: dict, lang: str = "en") -> str:
         return f"recortarlo a {_mw(d['mw'])} MW en el pico"
     if fam == "upgrade" and d.get("mva"):
         k = d.get("lines") if isinstance(d.get("lines"), int) else d.get("count")
-        return f"reforzar {k} líneas (+{_n(d['mva'])} MVA)" if k else f"reforzar líneas (+{_n(d['mva'])} MVA)"
+        if not k:
+            return f"reforzar líneas (+{_n(d['mva'])} MVA)"
+        return f"reforzar {k} {'equipo' if k == 1 else 'equipos'} de la red (+{_n(d['mva'])} MVA)"
     if fam == "onsite" and d.get("onsite_mw"):
         return f"generar {_mw(d['onsite_mw'])} MW en el sitio"
     if fam == "combo" and d.get("mw") and d.get("mva"):
-        return f"reducirlo a {_mw(d['mw'])} MW y reforzar {d.get('lines')} líneas (+{_n(d['mva'])} MVA)"
+        k = d.get("lines")
+        return f"reducirlo a {_mw(d['mw'])} MW y reforzar {k} {'equipo' if k == 1 else 'equipos'} de la red (+{_n(d['mva'])} MVA)"
     if fam == "remove":
         return "no construir el centro de datos aquí"
     if fam == "time_of_day":
@@ -1174,20 +1208,29 @@ def run_tool(ctx: _Ctx, name: str, args: dict, n: int = 1) -> dict:
                 facts.append(fact(f"{p}.headroom_mw", "What-if: room at that substation before the first overload", float(result["headroom_mw"]), "MW"))
             if name == "whatif_size":
                 what = f"{_mw(mw)} MW en {result.get('area')}" if es else f"{_mw(mw)} MW at {result.get('area')}"
-                lead = f"Con {what}" if es else f"At {what}"
+                fct = args.get("factor")
+                size_word = {0.5: ("half the size", "la mitad del tamaño"), 2.0: ("twice the size", "el doble del tamaño"),
+                             0.25: ("a quarter of the size", "un cuarto del tamaño")}.get(fct)
+                tail = f" ({size_word[1 if es else 0]})" if size_word else ""
+                lead = (f"Con el centro de datos a {_mw(mw)} MW{tail}" if es else f"Re-run with the data center at {_mw(mw)} MW{tail}")
             elif name == "whatif_move":
-                what = f"{_mw(mw)} MW en {result['sub']} ({result['area']})" if es else f"{_mw(mw)} MW at {result['sub']} ({result['area']})"
-                lead = (f"Con los mismos {_mw(mw)} MW en la subestación {result['sub']} ({result['area']})" if es
-                        else f"With the same {_mw(mw)} MW at the {result['sub']} substation ({result['area']})")
+                sub, where = result.get("sub"), result.get("area") or args.get("area")
+                if sub:  # a local re-run names the substation; the engine's (a preset case) only the town
+                    what = f"{_mw(mw)} MW en {sub} ({where})" if es else f"{_mw(mw)} MW at {sub} ({where})"
+                    lead = (f"Con los mismos {_mw(mw)} MW en la subestación {sub} ({where})" if es
+                            else f"Re-run with the same {_mw(mw)} MW at the {sub} substation ({where})")
+                else:
+                    what = f"{_mw(mw)} MW en {where}" if es else f"{_mw(mw)} MW at {where}"
+                    lead = (f"Con los mismos {_mw(mw)} MW en {where}" if es else f"Re-run with the same {_mw(mw)} MW at {where}")
             else:
                 what = level_word(lv, ctx.lang) + (f", {_mw(mw)} MW" if (mw and ctx.has_sites) else "")
-                lead = f"A {level_word(lv, 'es')}" if es else f"At {level_word(lv)}"
+                lead = (f"Simulado de nuevo {level_when(lv, 'es')}" if es else f"Re-run {level_when(lv)}")
                 if mw and ctx.has_sites:
                     lead += f", con los mismos {_mw(mw)} MW" if es else f", with the same {_mw(mw)} MW"
             result["lead"] = lead
             label = (
-                f"Motor ejecutado: {what} → {result['steps']} pasos, {_n(result['people'])} personas"
-                if es else f"Ran the engine: {what} → {result['steps']} steps, {_n(result['people'])} people"
+                f"Motor ejecutado: {what} → {_steps(result['steps'], 'es')}, {_n(result['people'])} personas"
+                if es else f"Ran the engine: {what} → {_steps(result['steps'])}, {_n(result['people'])} people"
             )
     elif name == "fix_best":
         b = ctx.report.get("best_fix")
@@ -1249,7 +1292,7 @@ _TOPIC = re.compile(
     r"safe|risk|happen|start|first|worst|estimat|number|realistic|accurate|how long|duration|"
     r"\bred\b|linea|electric|centro de datos|cascada|paso|personas|gente|apagon|oscur|sin luz|\bluz\b|perd|pierd|arregl|evit|prevenir|"
     r"soluci|costo|coste|cuesta|dinero|megavat|tormenta|huracan|calor|carga|demanda|subestacion|transformador|reconstru|restaur|"
-    r"reparar|simul|modelo|sintetic|por que|que pasa|cuant|donde|cual|zona|ciudad|pueblo|falla|limite|capacidad|tamano|mitad|"
+    r"reparar|simul|modelo|sintetic|por que|que pasa|cuant|donde|zona|ciudad|pueblo|falla|limite|capacidad|tamano|mitad|"
     r"doble|mover|noche|manana|tarde|riesgo|primer|peor|cuanto tiempo|duracion"
 )
 _INTENTS = [
@@ -1268,6 +1311,9 @@ _INTENTS = [
     ("happened", re.compile(r"what happen|explain|summar|steps|cascade|chain|timeline|trip|que paso|que ocurrio|explica|resum|pasos|cascada|cadena")),
     ("model", re.compile(r"real|accurate|synthetic|model|data|source|trust|how do you know|verdad|preciso|sintetic|modelo|datos|fuente|confiar")),
 ]
+
+
+_INTENT_RX = dict(_INTENTS)
 
 
 def _mentioned_area(ctx: _Ctx) -> str | None:
@@ -1340,14 +1386,22 @@ def suggestions(ctx: _Ctx) -> list[str]:
             qs.append("¿Qué habría que reconstruir primero?" if es else "What should be rebuilt first?")
         qs.append("¿Se puede arreglar?" if es else "Can this be fixed?")
     if ev.get("steps", 0) > 0 or ev.get("people", 0) > 0:
-        if ctx.has_sites:
-            qs.append("¿Y si fuera de la mitad del tamaño?" if es else "What if it were half the size?")
         if areas:
             qs.append(f"¿Por qué se quedó {areas[0]['area']} sin luz?" if es else f"Why did {areas[0]['area']} go dark?")
+        if r.get("verdict") != "no_fix":
+            qs.append("¿Cómo se podría evitar?" if es else "How could this be prevented?")
+        # a town the engine verified takes this campus: the what-if re-runs it there (a demo-safe engine run)
+        mv = next((f for f in r.get("fixes") or [] if f.get("family") == "move" and f.get("verdict") == "holds"), None)
+        towns = ((mv or {}).get("detail") or {}).get("towns") or ((mv or {}).get("detail") or {}).get("sites") or []
+        here = _fold(ctx.main_area)
+        town = next((t.get("town") for t in towns if t.get("town") and _fold(t["town"]) != here), None)
+        if ctx.has_main and town:
+            qs.append(f"¿Y si estuviera en {town}?" if es else f"What if it were in {town}?")
+        if ctx.has_sites:
+            qs.append("¿Y si fuera de la mitad del tamaño?" if es else "What if it were half the size?")
         qs.append("¿Qué zonas se quedan sin luz primero?" if es else "Which areas lose power first?")
         if r.get("cost"):
             qs.append("¿Cuánto costaría la solución?" if es else "How much would the fix cost?")
-        qs.append("¿Cómo se podría evitar?" if es else "How could this be prevented?")
         qs.append("¿Y si pasara a las 3 AM?" if es else "What if it happened at 3 AM?")
         qs.append("¿Cuántas personas se quedaron sin luz?" if es else "How many people lost power?")
     else:
@@ -1361,6 +1415,12 @@ def suggestions(ctx: _Ctx) -> list[str]:
     return list(dict.fromkeys(qs))[:4]
 
 
+def names_real_world(ctx: _Ctx) -> bool:
+    """The question names a real storm, utility or agency (a bare number like a year doesn't count)."""
+    m = _FORBIDDEN.search(_strip_names(ctx.question, ctx.report))
+    return bool(m) and not m.group(0).strip().isdigit()
+
+
 def pattern_answer(ctx: _Ctx) -> dict:
     """The deterministic answer from the fact sheet (and at most one engine run). Returns
     {answer, cited, tool_calls, tool_facts, declined}."""
@@ -1372,7 +1432,15 @@ def pattern_answer(ctx: _Ctx) -> dict:
     people, peak, steps = int(ev.get("people") or 0), int(ev.get("peak_people") or 0), int(ev.get("steps") or 0)
     if not on_topic(ctx):
         return {"answer": DECLINE[ctx.lang], "cited": [], "tool_calls": [], "tool_facts": [], "declined": True}
+    if names_real_world(ctx):
+        a = ("Esta simulación no modela tormentas, empresas eléctricas ni agencias reales: solo un modelo sintético de la red y escenarios hipotéticos." if es
+             else "This simulation doesn't model real storms, utilities or agencies: only a synthetic grid model and hypothetical scenarios.")
+        return {"answer": a, "cited": ["meta.model"], "tool_calls": [], "tool_facts": [], "declined": True}
     intent = _intent(ctx)
+    if intent is None and not ctx.has_sites and _INTENT_RX["size"].search(_fold(ctx.question)):
+        a = ("Este escenario no tiene un centro de datos cuyo tamaño cambiar; coloca uno en el mapa y pregunta de nuevo." if es
+             else "This scenario has no data center to resize; place one on the map and ask again.")
+        return {"answer": a, "cited": [], "tool_calls": [], "tool_facts": [], "declined": False}
     area_hit = next((x for x in areas if x["area"] == _mentioned_area(ctx)), None)
     if intent == "people" and area_hit:
         s = _slug(area_hit["area"])
@@ -1391,7 +1459,7 @@ def pattern_answer(ctx: _Ctx) -> dict:
     cited: list[str] = []
     fixes = r.get("fixes") or []
     best = fixes[r["best_fix"]] if r.get("best_fix") is not None and r["best_fix"] < len(fixes) else None
-    rc = r.get("root_cause")
+    rc = r.get("root_cause") if (r.get("root_cause") or {}).get("line") else None  # the engine sends line=None when nothing overloads
 
     if intent == "people":
         cited = ["event.people_out"]
@@ -1399,16 +1467,19 @@ def pattern_answer(ctx: _Ctx) -> dict:
             a = ("En esta simulación nadie se queda sin luz: todas las líneas se mantienen dentro de su límite." if es
                  else "In this simulation no one loses power: every line stays within its limit.")
         else:
-            a = (f"En esta simulación, {_n(people)} personas quedan sin electricidad al final (estimación)" if es
-                 else f"In this simulation, {_n(people)} people are without power at the end (estimate)")
-            if peak > people:
-                a += f"; en el peor momento fueron {_n(peak)}." if es else f"; at the worst moment it was {_n(peak)}."
-                cited.append("event.peak_people")
-            else:
-                a += "."
-            if ev.get("people_share_pct") is not None and float(ev["people_share_pct"]) >= 0.1:
-                a += (f" Es el {_pct(ev['people_share_pct'])}% de la población de {rn}." if es else f" That is {_pct(ev['people_share_pct'])}% of {rn}'s population.")
+            share = ev.get("people_share_pct")
+            share_txt = ""
+            if share is not None and float(share) >= 0.1:
+                share_txt = (f", el {_pct(share)}% de la población de {rn}" if es else f", {_pct(share)}% of {rn}'s population")
                 cited.append("event.people_share_pct")
+            a = (f"Se estima que {_n(people)} personas se quedan sin electricidad cuando termina la cascada{share_txt}." if es
+                 else f"An estimated {_n(people)} people are without power when the cascade ends{share_txt}.")
+            if peak > people:
+                a += (f" En el peor momento eran {_n(peak)}." if es else f" At the worst moment it was {_n(peak)}.")
+                cited.append("event.peak_people")
+            if areas:
+                a += (f" La zona más afectada es {areas[0]['area']}." if es else f" The hardest-hit area is {areas[0]['area']}.")
+                cited.append(f"area.{_slug(areas[0]['area'])}.people")
     elif intent == "areas":
         if not areas:
             a = "Ninguna zona se queda sin luz en esta simulación." if es else "No area loses power in this simulation."
@@ -1417,13 +1488,28 @@ def pattern_answer(ctx: _Ctx) -> dict:
             groups: dict = {}
             for x in order:  # areas that go dark in the same step are named together
                 groups.setdefault(x.get("first_step"), []).append(x["area"])
-            parts = [
-                (f"en el paso {n}, {_join(g_, 'es')}" if es else f"at step {n}, {_join(g_)}") if n is not None else _join(g_, ctx.lang)
-                for n, g_ in groups.items()
-            ]
+            def part(n, names, first):
+                together = len(names) > 1
+                if n == 0:
+                    return (f"la tormenta deja sin luz a {_join(names, 'es')}" if es else f"the storm itself cuts off {_join(names)}")
+                if n is None:
+                    return _join(names, ctx.lang)
+                if es:
+                    return f"en el paso {n}{' y a la vez' if together and first else ''}, {_join(names, 'es')}"
+                return f"at step {n}, {_join(names)}" + (" all at once" if together and first else "")
+
+            parts = [part(n, g_, i == 0) for i, (n, g_) in enumerate(groups.items())]
             top = areas[0]
-            a = (f"Primero se quedan sin luz: {'; '.join(parts)}. La más afectada es {top['area']}, con {_n(top['people'])} personas sin electricidad (estimación)." if es
-                 else f"First to lose power: {'; '.join(parts)}. Hardest hit is {top['area']}, with {_n(top['people'])} people without power (estimate).")
+            if es:
+                lead = parts[0][0].upper() + parts[0][1:]
+                a = (f"Primero se quedan sin luz, {parts[0]}" if parts[0].startswith("en el paso") else lead)
+                a += ("; después, " + "; ".join(parts[1:]) if len(parts) > 1 else "") + "."
+                a += f" La más afectada es {top['area']}, con unas {_n(top['people'])} personas sin electricidad (estimación)."
+            else:
+                lead = parts[0][0].upper() + parts[0][1:]
+                a = f"First to go dark: {parts[0]}" if parts[0].startswith("at step") else lead
+                a += ("; then " + "; ".join(parts[1:]) if len(parts) > 1 else "") + "."
+                a += f" Hardest hit is {top['area']}, with an estimated {_n(top['people'])} people without power."
             cited = [f"area.{_slug(x['area'])}.first_step" for x in order] + [f"area.{_slug(top['area'])}.people"]
     elif intent == "why":
         area = _mentioned_area(ctx)
@@ -1458,15 +1544,47 @@ def pattern_answer(ctx: _Ctx) -> dict:
                     cited += ["cause.line", "cause.pct_with"]
         elif rc:
             lab = _line_es(rc["line"]["label"]) if es else rc["line"]["label"]
+            kind = rc.get("cause")
+            share = _pct(rc.get("campus_share_pct") or 0)
+            with_, wo = _pct(rc["pct_with"]), (_pct(rc["pct_without"]) if rc.get("pct_without") is not None else None)
+            storm_n = int(ev.get("storm_lines_out") or 0)
+            cited = ["cause.line", "cause.pct_with"]
             if es:
-                a = f"La primera línea en superar su límite fue {lab}, al {_pct(rc['pct_with'])}% de su capacidad."
-                if ctx.has_sites and rc.get("pct_without") is not None:
-                    a += f" Sin el centro de datos llevaría el {_pct(rc['pct_without'])}%; el centro de datos aporta el {_pct(rc.get('campus_share_pct') or 0)}% de su flujo."
+                a = f"La primera línea en superar su límite fue {lab}, al {with_}% de su capacidad."
+                if kind == "storm" and storm_n:
+                    a = f"La tormenta derribó {storm_n} líneas; después, {lab} fue la primera en sobrecargarse, al {with_}%."
+                    if ctx.has_sites:
+                        a += (" El centro de datos no cambia nada." if float(rc.get("campus_share_pct") or 0) < 0.5
+                              else f" El centro de datos apenas cuenta: el {share}% de su flujo.")
+                elif ctx.has_sites and wo is not None and kind == "campus":
+                    a += f" Sin el centro de datos llevaría el {wo}%: el centro de datos, el {share}% de su flujo, la empujó por encima del límite."
+                elif ctx.has_sites and wo is not None and kind == "last_straw":
+                    a += f" Ya estaba al {wo}% sin el centro de datos; el centro de datos, el {share}% de su flujo, fue la gota que colmó el vaso."
+                elif ctx.has_sites and wo is not None:
+                    a += (f" Sin el centro de datos llevaría el {wo}%: la demanda por sí sola la sobrecarga." if float(rc["pct_without"]) > OVER_PCT
+                          else f" Sin el centro de datos llevaría el {wo}%.")
+                elif kind == "heat":
+                    a += " La demanda por sí sola la sobrecarga."
             else:
-                a = f"The first line over its limit was {lab}, at {_pct(rc['pct_with'])}% of its rating."
-                if ctx.has_sites and rc.get("pct_without") is not None:
-                    a += f" Without the data center it would carry {_pct(rc['pct_without'])}%; the data center makes up {_pct(rc.get('campus_share_pct') or 0)}% of its flow."
-            cited = ["cause.line", "cause.pct_with", "cause.pct_without", "cause.campus_share_pct"]
+                a = f"The first line over its limit was {lab}, at {with_}% of its rating."
+                if kind == "storm" and storm_n:
+                    a = f"The storm knocked out {storm_n} lines; {lab} was the first to overload afterwards, at {with_}% of its rating."
+                    if ctx.has_sites:
+                        a += (" The data center makes no difference to it." if float(rc.get("campus_share_pct") or 0) < 0.5
+                              else f" The data center barely matters: {share}% of its flow.")
+                elif ctx.has_sites and wo is not None and kind == "campus":
+                    a += f" Without the data center it would carry {wo}%: the data center, {share}% of its flow, pushed it over."
+                elif ctx.has_sites and wo is not None and kind == "last_straw":
+                    a += f" It was already at {wo}% without the data center; the data center, {share}% of its flow, was the last straw."
+                elif ctx.has_sites and wo is not None:
+                    a += (f" Without the data center it would still carry {wo}%: demand alone overloads it." if float(rc["pct_without"]) > OVER_PCT
+                          else f" Without the data center it would carry {wo}%.")
+                elif kind == "heat":
+                    a += " Demand alone overloads it."
+            if kind == "storm" and storm_n:
+                cited.append("event.storm_lines_out")
+            if ctx.has_sites and wo is not None:
+                cited += ["cause.pct_without", "cause.campus_share_pct"]
         else:
             a = ("Ninguna línea superó su límite en esta simulación." if es else "No line went over its limit in this simulation.")
             cited = ["event.steps"]
@@ -1475,21 +1593,28 @@ def pattern_answer(ctx: _Ctx) -> dict:
         if not cost:
             a = "Los costos no se estiman en este escenario." if es else "Costs are not estimated for this scenario."
         else:
+            dur = cost.get("duration_h_assumed")
             bits = []
-            if cost.get("upgrade_usd"):
-                bits.append(f"las mejoras que lo evitan, unos {_money(cost['upgrade_usd'], ctx.lang)}" if es else f"the upgrades that prevent it about {_money(cost['upgrade_usd'])}")
-                cited.append("cost.upgrade_usd")
             if cost.get("blackout_usd"):
-                bits.append(f"el apagón, unos {_money(cost['blackout_usd'], ctx.lang)}" if es else f"the blackout about {_money(cost['blackout_usd'])}")
+                if es:
+                    bits.append(f"el apagón cuesta unos {_money(cost['blackout_usd'], ctx.lang)}" + (f" si dura {_n(dur)} horas" if dur else ""))
+                else:
+                    bits.append(f"the blackout costs about {_money(cost['blackout_usd'])}" + (f" if it lasts {_n(dur)} hours" if dur else ""))
                 cited.append("cost.blackout_usd")
+                if dur:
+                    cited.append("cost.duration_h_assumed")
+            if cost.get("upgrade_usd"):
+                bits.append(f"las mejoras de la red que lo evitan, unos {_money(cost['upgrade_usd'], ctx.lang)}" if es
+                            else f"the grid upgrades that prevent it, about {_money(cost['upgrade_usd'])}")
+                cited.append("cost.upgrade_usd")
             if not bits:
                 a = "Los costos no se estiman en este escenario." if es else "Costs are not estimated for this scenario."
             else:
-                dur = cost.get("duration_h_assumed")
-                pre = (f"Estimación, suponiendo {_n(dur)} horas sin luz: " if es else f"Estimate, assuming {_n(dur)} hours without power: ") if dur else ("Estimación: " if es else "Estimate: ")
-                a = pre + _join(bits, ctx.lang) + "."
-                if dur:
+                a = ("Estimaciones: " if es else "Estimates: ") + "; ".join(bits) + "."
+                if dur and not cost.get("blackout_usd"):
+                    a += (f" Suponen {_n(dur)} horas sin luz." if es else f" They assume {_n(dur)} hours without power.")
                     cited.append("cost.duration_h_assumed")
+                a += (" La duración no se modela; es un supuesto." if es else " The duration is an assumption, not modeled.") if dur else ""
                 if not cost.get("upgrade_usd") and re.search(r"fix|upgrad|prevent|solution|arregl|soluci|evit|mejora|reforz", _fold(ctx.question)):
                     a = ("El costo de la solución no se estima en este escenario. " if es else "The cost of the fix is not estimated for this scenario. ") + a
     elif intent == "hospital":
@@ -1513,10 +1638,29 @@ def pattern_answer(ctx: _Ctx) -> dict:
     elif intent == "rebuild":
         if (r.get("recovery") or {}).get("waves"):
             t, tool_facts, calls = with_tool("rebuild_first", {})
+            rec = r.get("recovery") or {}
             w = t["result"].get("wave") or {}
-            a = (f"Primero: reconstruir {w.get('lines_n', 0)} líneas, que devuelven la luz a {_n(w.get('people_back') or 0)} personas (estimación)." if es
-                 else f"First: rebuild {w.get('lines_n', 0)} lines, which bring {_n(w.get('people_back') or 0)} people back (estimate).")
-            cited = [f"recovery.wave.{w.get('n', 1)}.lines", f"recovery.wave.{w.get('n', 1)}.people_back"] + [f["key"] for f in tool_facts]
+            wn = w.get("n", 1)
+            nl, km, back = int(w.get("lines_n") or 0), w.get("km_n"), int(w.get("people_back") or 0)
+            dmg = rec.get("damaged_lines") if isinstance(rec.get("damaged_lines"), int) else len(rec.get("damaged_lines") or []) or None
+            lp = rec.get("method") == "lp"
+            km_txt = f" ({_mw(km)} km)" if km else ""
+            of_txt = (f" de las {_n(dmg)} fuera de servicio" if es else f" of the {_n(dmg)} lines out") if dmg else ""
+            if es:
+                how = ", con los límites de las líneas comprobados)." if lp else "; sin aplicar los límites de las líneas)."
+                a = f"El plan de reparación empieza por {nl} líneas{of_txt}{km_txt}: reconstruirlas devuelve la luz a unas {_n(back)} personas (estimación{how}"
+            else:
+                how = " (line limits checked)." if lp else " (line limits not applied)."
+                what = f"{nl}{of_txt}" if dmg else f"{nl} lines"
+                a = f"The repair plan starts with {what}{km_txt}: rebuilding them brings an estimated {_n(back)} people back{how}"
+            cited = [k for k in (f"recovery.wave.{wn}.lines", f"recovery.wave.{wn}.km", f"recovery.wave.{wn}.people_back", "recovery.method") if k in ctx.by_key]
+            base_n, better = ctx.by_key.get("recovery.baseline.repairs"), ctx.by_key.get("recovery.baseline.plan_better_by")
+            if base_n and better and isinstance(better.get("value"), (int, float)) and better["value"] > 0:
+                a += (f" Tras {_n(base_n['value'])} reparaciones, este orden devuelve la luz a {_n(better['value'])} personas más que reparar primero las líneas más grandes." if es
+                      else f" After {_n(base_n['value'])} repairs, this order has {_n(better['value'])} more people back than rebuilding the biggest lines first.")
+                cited += ["recovery.baseline.repairs", "recovery.baseline.plan_better_by"]
+            if not cited:
+                cited = [f["key"] for f in tool_facts]
         else:
             a = ("No hay plan de reparación para este escenario: solo las tormentas y catástrofes tienen uno." if es
                  else "There is no repair plan for this scenario: only storms and catastrophes get one.")
@@ -1534,18 +1678,26 @@ def pattern_answer(ctx: _Ctx) -> dict:
                 towns = ((fx or {}).get("detail") or {}).get("towns") or ((fx or {}).get("detail") or {}).get("sites") or []
                 if towns:
                     names = _join([x["town"] for x in towns], ctx.lang)
-                    a = (f"Sitios verificados que lo aguantan: subestaciones con el nombre de {names} en el modelo sintético." if es
-                         else f"Verified sites that take it: substations named after {names} in the synthetic model.")
-                    return {"answer": a, "cited": ["fix.move.towns", "fix.move.verdict"], "tool_calls": [], "tool_facts": [], "declined": False}
+                    mw0 = _mw(ctx.case["mw"])
+                    a = (f"Comprobado en el motor: los mismos {mw0} MW caben en subestaciones con el nombre de {names}, sin ninguna línea sobre su límite. "
+                         "Son subestaciones de un modelo sintético, no direcciones reales." if es
+                         else f"Checked in the engine: the same {mw0} MW fits at substations named after {names}, with no line over its limit. "
+                         "These are substations in a synthetic model, not real addresses.")
+                    return {"answer": a, "cited": ["fix.move.towns", "fix.move.verdict", "event.campus_mw"], "tool_calls": [], "tool_facts": [], "declined": False}
                 t = run_tool(ctx, "best_sites", {})
                 towns = t["result"].get("towns") or []
                 if towns:
                     names = _join([x["town"] for x in towns], ctx.lang)
-                    a = (f"Comprobado en el motor: las subestaciones con el nombre de {names} aguantan los mismos {_mw(ctx.case['mw'])} MW sin sobrecargar ninguna línea." if es
-                         else f"Checked in the engine: substations named after {names} take the same {_mw(ctx.case['mw'])} MW with no line over its limit.")
+                    a = (f"Comprobado en el motor: los mismos {_mw(ctx.case['mw'])} MW caben en subestaciones con el nombre de {names}, sin ninguna línea sobre su límite. "
+                         "Son subestaciones de un modelo sintético, no direcciones reales." if es
+                         else f"Checked in the engine: the same {_mw(ctx.case['mw'])} MW fits at substations named after {names}, with no line over its limit. "
+                         "These are substations in a synthetic model, not real addresses.")
                 else:
-                    a = (f"Ninguna de las {t['result'].get('tried', 0)} ciudades con más margen aguanta {_mw(ctx.case['mw'])} MW a esta hora." if es
-                         else f"None of the {t['result'].get('tried', 0)} roomiest towns takes {_mw(ctx.case['mw'])} MW at this time of day.")
+                    when = level_when(ctx.case.get("load_factor", 1.0), ctx.lang)
+                    a = (f"Comprobado en el motor: ninguna de las {t['result'].get('tried', 0)} ciudades con más margen aguanta {_mw(ctx.case['mw'])} MW {when} sin sobrecargar una línea. "
+                         "Pregunta «¿Cómo se podría evitar?» para ver las soluciones verificadas." if es
+                         else f"Checked in the engine: none of the {t['result'].get('tried', 0)} roomiest towns takes {_mw(ctx.case['mw'])} MW {when} without an overload. "
+                         "Ask “How could this be prevented?” for the fixes that were verified.")
                 return {"answer": a, "cited": [f["key"] for f in t["facts"]], "tool_calls": [t["call"]], "tool_facts": t["facts"], "declined": False}
             t, tool_facts, calls = with_tool("whatif_move", {"area": area})
         res = t["result"]
@@ -1553,69 +1705,133 @@ def pattern_answer(ctx: _Ctx) -> dict:
             a = t["call"]["label"] + "."
         else:
             lead = res.get("lead") or ""
-            if res["steps"] == 0 and res["people"] == 0:
-                a = (f"{lead}, la red aguanta: 0 pasos y nadie se queda sin luz." if es else f"{lead}, the grid holds: 0 steps, no one loses power.")
+            rs, rp = int(res["steps"]), int(res["people"])
+            if rs == 0 and rp == 0:
+                a = (f"{lead}: ninguna línea se desconecta y nadie se queda sin luz." if es else f"{lead}: no line trips and no one loses power.")
+            elif rs == 0:
+                a = (f"{lead}: ninguna línea más se desconecta, pero unas {_n(rp)} personas siguen sin electricidad (estimación)." if es
+                     else f"{lead}: no further line trips, but an estimated {_n(rp)} people are still without power.")
             else:
-                a = (f"{lead}: {res['steps']} pasos y {_n(res['people'])} personas sin electricidad (estimación)." if es
-                     else f"{lead}: {res['steps']} steps and {_n(res['people'])} people without power (estimate).")
-            if people and people != res["people"]:
-                a += (f" En este escenario son {_n(people)}." if es else f" This scenario has {_n(people)}.")
+                a = (f"{lead}: la cascada dura {_steps(rs, 'es')} y deja sin electricidad a unas {_n(rp)} personas (estimación)." if es
+                     else f"{lead}: the cascade runs {_steps(rs)} and leaves an estimated {_n(rp)} people without power.")
+            # the comparison with the scenario on screen (its people figure is a fact)
+            c0 = r.get("case") or {}
+            if intent == "size" and ctx.case.get("mw") is not None:
+                base = (f"con {_mw(ctx.case['mw'])} MW" if es else f"at {_mw(ctx.case['mw'])} MW")
+                cited.append("event.campus_mw")
+            elif intent == "time":
+                base = level_when(ctx.case.get("load_factor", 1.0), ctx.lang)
+            else:
+                here = c0.get("sub_area") or area_of(c0.get("sub_name") or "")
+                base = (f"en {here}" if es else f"at {here}") if here else ("en el sitio actual" if es else "at the current site")
+            if rp == people and people > 0:
+                a += (f" Es la misma cifra que {base}." if es else f" That is the same as {base}.")
+                if intent == "size":
+                    a += (" El tamaño del centro de datos no cambia el resultado aquí." if es else " The data center's size doesn't change the outcome here.")
                 cited.append("event.people_out")
-                if intent == "size" and res["people"] > people and float(res.get("mw") or 0) < float(ctx.case.get("mw") or 0):
+            elif people > 0:
+                more = rp > people
+                if es:
+                    a += f" Son {'más' if more else 'menos'} que las {_n(people)} {base}."
+                else:
+                    a += f" That is {'more' if more else 'fewer'} than the {_n(people)} {base}."
+                cited.append("event.people_out")
+                if intent == "size" and more and float(res.get("mw") or 0) < float(ctx.case.get("mw") or 0):
                     a += (" Más pequeño no siempre es más seguro en este modelo: la cascada toma otro camino." if es
                           else " Smaller is not always safer in this model: the cascade takes a different path.")
+            elif rp > 0:
+                a += f" {base[0].upper()}{base[1:]}, " + ("nadie se queda sin luz." if es else "no one loses power.")
+                cited.append("event.people_out")
         # cite what the sentence states: the run's steps and people (and the comparison), not every field
-        cited = [f["key"] for f in tool_facts if f["key"].endswith((".steps", ".people", ".people_saved", ".people_more", ".error"))] + cited
+        cited = [f["key"] for f in tool_facts if f["key"].endswith((".steps", ".people", ".error"))] + cited
     elif intent == "room":
         c = r.get("case") or {}
         if ctx.has_main and c.get("headroom_mw") is not None:
             sub = _cap(c.get("sub_name") or "")
-            a = (f"La subestación {sub} puede recibir unos {_mw(c['headroom_mw'])} MW antes de que la primera línea se sobrecargue, a {level_word(ctx.case['load_factor'], 'es')}." if es
-                 else f"The {sub} substation can take about {_mw(c['headroom_mw'])} MW before the first line overloads, at {level_word(ctx.case['load_factor'])}.")
+            a = (f"La subestación {sub} puede recibir unos {_mw(c['headroom_mw'])} MW antes de que la primera línea se sobrecargue, {level_when(ctx.case['load_factor'], 'es')} (estimación)." if es
+                 else f"The {sub} substation can take about {_mw(c['headroom_mw'])} MW before the first line overloads {level_when(ctx.case['load_factor'])} (estimate).")
             cited = ["site.headroom_mw", "case.time"]
+            if ctx.case.get("mw") and float(ctx.case["mw"]) > float(c["headroom_mw"]):
+                a += (f" Este centro de datos pide {_mw(ctx.case['mw'])} MW." if es else f" This data center asks for {_mw(ctx.case['mw'])} MW.")
+                cited.append("event.campus_mw")
         else:
             a = ("Este escenario no tiene un centro de datos; coloca uno para ver su margen." if es else "This scenario has no data center; place one to see its room.")
     elif intent == "fix" or (intent is None and re.search(r"can .* (?:be )?(?:fixed|saved)|se puede", _fold(ctx.question))):
         if r.get("verdict") == "no_fix" and r.get("no_fix"):
             nf = r["no_fix"]
-            a = (f"No existe solución para unas {_about(nf['people'], 'es')} de personas: aun con líneas de capacidad ilimitada y sin el centro de datos, siguen aisladas. Solo reconstruir las líneas dañadas les devuelve la luz."
-                 if es and nf["people"] >= 1_000_000 else
-                 f"No existe solución para unas {_about(nf['people'], 'es')} personas: aun con líneas de capacidad ilimitada y sin el centro de datos, siguen aisladas. Solo reconstruir las líneas dañadas les devuelve la luz." if es
-                 else f"No fix exists for about {_about(nf['people'])} people: even with unlimited line ratings and no data center they stay cut off. Only rebuilding the damaged lines brings them back.")
+            big = nf["people"] >= 1_000_000
+            if es:
+                a = (f"No existe solución para {'unos' if big else 'unas'} {_about(nf['people'], 'es')}{' de' if big else ''} personas (estimación): "
+                     "aun con líneas de capacidad ilimitada y sin el centro de datos, siguen aisladas. Solo reconstruir las líneas dañadas les devuelve la luz.")
+            else:
+                a = (f"No fix exists for an estimated {_about(nf['people'])} people: even with unlimited line ratings and no data center, "
+                     "they stay cut off. Only rebuilding the damaged lines brings them back.")
             cited = ["bound.people", "verdict"]
-            if best:
-                a += (f" Para el resto: {fix_action(best, 'es')} ({VERDICT_ES.get(best['verdict'], best['verdict'])})." if es
-                      else f" For the rest: {best['action']} ({best['verdict']}).")
-                cited.append(f"fix.{best['family']}.action")
+            if best and best["family"] != "remove" and best.get("verdict") in ("holds", "partly"):
+                holds = best["verdict"] == "holds"
+                if es:
+                    a += f" Para el resto, una solución verificada {'detiene la cascada' if holds else 'ayuda en parte'}: {fix_action(best, 'es')}."
+                else:
+                    a += f" For the rest, a verified fix {'stops the cascade' if holds else 'partly helps'}: {_lc(best['action'])}."
+                cited += [f"fix.{best['family']}.action", f"fix.{best['family']}.verdict"]
         elif r.get("verdict") == "nothing_happened":
             a = ("No hay nada que arreglar: todas las líneas se mantienen dentro de su límite." if es else "Nothing to fix: every line stays within its limit.")
             cited = ["verdict"]
         elif best:
             o = best.get("outcome") or {}
+            op, os_ = int(o.get("people", 0) or 0), int(o.get("steps", 0) or 0)
             if es:
-                a = f"La mejor solución verificada: {fix_action(best, 'es')}. Funciona: {o.get('steps', 0)} pasos, {_n(o.get('people', 0))} personas sin luz."
+                res_txt = "ninguna línea se desconecta y nadie se queda sin luz" if (op == 0 and os_ == 0) else f"{_steps(os_, 'es')} y unas {_n(op)} personas sin luz (estimación)"
+                a = (f"La única solución verificada es no construir el centro de datos aquí: sin él, {res_txt}." if best["family"] == "remove"
+                     else f"La mejor solución verificada es {fix_action(best, 'es')}: al volver a simularlo, {res_txt}.")
             else:
-                a = f"The best verified fix: {best['action']}. It holds: {o.get('steps', 0)} steps, {_n(o.get('people', 0))} people without power."
-            also = [fix_action(f, ctx.lang) for f in fixes if f["verdict"] == "holds" and f is not best and f["family"] != "remove"][:2]
+                res_txt = "no line trips and no one loses power" if (op == 0 and os_ == 0) else f"{_steps(os_)} and an estimated {_n(op)} people without power"
+                a = (f"The only verified fix is not to build the data center here: re-run without it, {res_txt}." if best["family"] == "remove"
+                     else f"The best verified fix is to {_lc(best['action'])}: re-run in the engine, {res_txt}.")
+            also = [f for f in fixes if f["verdict"] == "holds" and f is not best and f["family"] != "remove"][:2]
             if also:
-                a += (f" También funciona: {_join(also, 'es')}." if es else f" Also holds: {_join(also)}.")
-            cited = [f"fix.{best['family']}.action", f"fix.{best['family']}.verdict", f"fix.{best['family']}.people"]
+                a += (f" También funcionan (verificado): {'; '.join(fix_action(f, 'es') for f in also)}." if es
+                      else f" Also verified to hold: {'; '.join(_lc(f['action']) for f in also)}.")
+            if best.get("verdict") != "holds":
+                a += (" Ayuda solo en parte." if es else " It only partly helps.")
+            cited = [f"fix.{best['family']}.action", f"fix.{best['family']}.verdict", f"fix.{best['family']}.people"] + [f"fix.{f['family']}.action" for f in also]
         else:
             a = ("Ninguna solución probada funciona por completo en este escenario." if es else "No fix that was tried fully holds in this scenario.")
             cited = ["verdict"]
     elif intent == "happened":
-        tl = [s for s in r.get("timeline") or [] if s.get("lines")]
+        tl = [s for s in r.get("timeline") or [] if s.get("lines") and s.get("n", 0) > 0 and s.get("action", "trip") != "storm"]
         if steps == 0:
             a = ("No se desconectó ninguna línea: la red se mantiene dentro de sus límites." if es else "No line tripped: the grid stays within its limits.")
             cited = ["event.steps"]
         else:
             first = tl[0]["lines"][0] if tl else None
             lab = (_line_es(first["label"]) if es else first["label"]) if first else ""
+            pct = first.get("pct_before") if first else None
+            storm_n = int(ev.get("storm_lines_out") or 0)
+            top = [x["area"] for x in areas[:3]]
+            cited = ["event.steps", "event.people_out"]
             if es:
-                a = f"Una cascada de {steps} pasos: primero se desconectó {lab}; después, una línea tras otra. Al final, {_n(people)} personas sin electricidad (estimación)."
+                a = (f"La tormenta derribó {storm_n} líneas y siguió una cascada de {_steps(steps, 'es')}" if storm_n
+                     else f"Una cascada de {_steps(steps, 'es')}")
+                if lab:
+                    a += f": primero se desconectó {lab}" + (f", al {_pct(pct)}% de su capacidad" if pct else "") + ", y su flujo sobrecargó la siguiente línea, y la siguiente"
+                a += f". Al final, unas {_n(people)} personas quedan sin electricidad (estimación)"
+                a += (f", sobre todo en {_join(top, 'es')}." if top else ".")
+                if ev.get("capped"):
+                    a += f" Las protecciones seguían desconectando líneas cuando el modelo se detuvo en el paso {steps}."
             else:
-                a = f"A {steps}-step cascade: {lab} tripped first, then one line after another. At the end, {_n(people)} people are without power (estimate)."
-            cited = ["event.steps", f"step.{tl[0]['n']}.line" if tl else "event.steps", "event.people_out"]
+                a = (f"The storm knocked out {storm_n} lines, then a {steps}-step cascade followed" if storm_n else f"A {steps}-step cascade")
+                if lab:
+                    a += f": {lab} tripped first" + (f" at {_pct(pct)}% of its rating" if pct else "") + ", and its flow overloaded the next line, and the next"
+                a += f". When it ended, an estimated {_n(people)} people were without power"
+                a += (f", most of them in {_join(top)}." if top else ".")
+                if ev.get("capped"):
+                    a += f" Protection was still tripping lines when the model stopped at {steps} steps."
+            if storm_n:
+                cited.append("event.storm_lines_out")
+            if tl:
+                cited += [f"step.{tl[0]['n']}.line"] + ([f"step.{tl[0]['n']}.pct_before"] if pct else [])
+            cited += [f"area.{_slug(x)}.people" for x in top]
     elif intent == "model":
         a = ("Es una simulación en un modelo sintético de la red de " + rn + " (Breakthrough Energy / Texas A&M, CC-BY 4.0), no la red de ninguna empresa. Las cifras de personas son estimaciones." if es
              else f"This is a simulation on a synthetic grid model of {rn} (Breakthrough Energy / Texas A&M, CC-BY 4.0), not any utility's network. People counts are estimates.")
@@ -1711,6 +1927,8 @@ async def _gemini(ctx: _Ctx) -> dict | None:
 def es_us_numbers(text: str) -> str:
     """Spanish answers in the es-US number style the validator reads: '632,4' -> '632.4' (a comma
     before one or two digits is a decimal), '783.883' / '1.003.110' -> '783,883' / '1,003,110'."""
+    # '1.343,5' (thousands dots and a decimal comma) -> '1,343.5'
+    text = re.sub(r"(?<![\d.,])(\d{1,3}(?:\.\d{3})+),(\d+)(?![\d.,]\d)", lambda m: m.group(1).replace(".", ",") + "." + m.group(2), text)
     text = re.sub(r"(?<![\d.,])(\d{1,3}(?:\.\d{3})+)(?![\d.,]\d)", lambda m: m.group(1).replace(".", ","), text)
     return re.sub(r"(?<![\d.,])(\d+),(\d{1,2})(?!\d)", r"\1.\2", text)
 
@@ -1824,6 +2042,11 @@ async def ask(request: Request, body: AskIn):
         hit = _ANSWERS.get(ck)
     if hit is not None and (body.ai or hit["source"] != "gemini"):
         return {**hit, "question": body.question, "cached": True, "voice_key": _voice_key(hit["answer"], body.lang)}
+
+    if names_real_world(ctx):  # a real storm / utility / agency: the fixed answer, no AI call
+        res = _respond(ctx, pattern_answer(ctx), "pattern", False, 0, engine)
+        _remember(_ANSWERS, ck, res, ANSWER_CACHE)
+        return res
 
     if not on_topic(ctx):  # clearly not about the scenario: no AI call
         res = _respond(ctx, {"answer": DECLINE[ctx.lang], "declined": True}, "pattern", False, 0, engine)

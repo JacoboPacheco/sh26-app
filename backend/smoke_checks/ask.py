@@ -76,6 +76,25 @@ def register(ctx):
         first_word = re.sub(r"^the ", "", line.split(":")[-1].strip()).split(" ")[0]
         assert first_word in r["answer"], (line, r["answer"])
 
+    def real_world_names_get_the_fixed_answer():
+        r = ask("Tell me about Hurricane Ian and FPL", ai=True)
+        assert r["declined"] is True and r["source"] == "pattern" and r["tool"] is None, r
+        assert "synthetic" in r["answer"] and not FORBIDDEN.search(r["answer"]), r["answer"]
+
+    def no_fix_states_the_bound():
+        # a statewide catastrophe: the answer states the engine's no-fix bound (or the engine's 503
+        # while its patch is missing; never a 500)
+        body = {"case": {**case, "preset": "fl-cat5-statewide"}, "question": "Can this be fixed?", "ai": False}
+        try:
+            r = ctx.request("POST", "/api/ask", body)
+        except AssertionError as e:
+            assert "503" in str(e), e
+            return
+        bound = next((c for c in r["cited"] if c["key"] == "bound.people"), None)
+        assert bound and "No fix exists" in r["answer"], r
+        people = float(re.search(r"\d[\d,]*", bound["text"]).group(0).replace(",", ""))
+        assert any(abs(v - people) <= 0.03 * people for v in _numbers(r["answer"])), (people, r["answer"])
+
     def ask_rejects_bad_input():
         ctx.request("POST", "/api/ask", {"case": case, "question": "hi"}, expect=422)
         ctx.request("POST", "/api/ask", {"case": case, "question": "x" * 301}, expect=422)
@@ -90,4 +109,6 @@ def register(ctx):
     ctx.check("ask: off-topic questions are declined", off_topic_is_declined)
     ctx.check("ask: answers in Spanish", spanish_answer)
     ctx.check("ask: 'why' names the first line over its limit", why_names_the_first_line)
+    ctx.check("ask: a real storm or utility named gets the fixed answer, no AI", real_world_names_get_the_fixed_answer)
+    ctx.check("ask: a no-fix catastrophe states the engine's bound", no_fix_states_the_bound)
     ctx.check("ask: bad input is a 422", ask_rejects_bad_input)

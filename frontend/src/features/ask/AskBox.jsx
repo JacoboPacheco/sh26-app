@@ -266,13 +266,14 @@ function Answer({ res, t, speech }) {
   )
 }
 
-// A short chip name for a cited fact: its label (in the answer's language), without the
-// "What-if:" / "Simulación:" prefix.
+// A short chip name for a cited fact: its label in the answer's language, sentence case. An engine
+// re-run's facts keep a short "Re-run" prefix so they don't read like the scenario's own numbers.
 function factName(c, lang) {
-  const label = factLabel(c.label || c.key, lang)
-    .replace(/^(What-if|Simulación):\s*/i, '')
+  let label = factLabel(c.label || c.key, lang)
+    .replace(/^What-if:\s*/i, 'Re-run: ')
     .replace(/^Fix \(([^)]+)\)\s*/i, 'Fix, $1 ')
-  return label.length > 42 ? `${label.slice(0, 40)}…` : label
+  label = label.charAt(0).toUpperCase() + label.slice(1)
+  return label.length > 44 ? `${label.slice(0, 42)}…` : label
 }
 
 const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window && typeof window.SpeechSynthesisUtterance === 'function'
