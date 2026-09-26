@@ -1,0 +1,68 @@
+{
+  "note": "Hypothetical catastrophe presets for the incident briefing (backend/briefing.py). Every track is invented and generic: never a real storm's name, path or date. Tracks are [lon, lat] points; a line between two substations within radius_km of a track is knocked out (no 400-line cap). The campus, when present, is the hero data center, there to show it is not the cause.",
+  "presets": [
+    {
+      "id": "fl-gulf-fort-myers",
+      "region": "FL",
+      "name": "Gulf landfall near Fort Myers, with the data center",
+      "description": "A storm comes ashore from the Gulf near Fort Myers and heads northeast, while the 1,500 MW data center at Fort Myers is running.",
+      "tracks": [
+        {"points": [[-82.9, 25.95], [-82.25, 26.35], [-81.85, 26.7], [-81.4, 27.25], [-80.95, 27.85], [-80.5, 28.45]], "radius_km": 20}
+      ],
+      "load_factor": 1.0,
+      "campus": {"lat": 26.64, "lon": -81.87, "mw": 1500}
+    },
+    {
+      "id": "fl-cat5-statewide",
+      "region": "FL",
+      "name": "A Category 5 crosses all of Florida",
+      "description": "A hypothetical Category 5 storm comes ashore in the southwest and crosses the whole peninsula to the northeast, 60 km wide on each side of its path.",
+      "tracks": [
+        {"points": [[-83.3, 25.2], [-82.2, 26.2], [-81.5, 27.3], [-81.3, 28.4], [-81.6, 29.6], [-82.2, 30.8]], "radius_km": 60}
+      ],
+      "load_factor": 1.0,
+      "campus": {"lat": 26.64, "lon": -81.87, "mw": 1500}
+    },
+    {
+      "id": "fl-season-20",
+      "region": "FL",
+      "name": "Twenty Category 5 storms in one season",
+      "description": "Twenty hypothetical Category 5 storms cross the peninsula from west to east, one after another from the Keys to the north; all of their damage is counted at once.",
+      "tracks": [
+        {"points": [[-83.6, 25.4], [-81.7, 25.55], [-79.9, 25.7]], "radius_km": 25},
+        {"points": [[-83.6, 25.6632], [-81.7, 25.8132], [-79.9, 25.9632]], "radius_km": 25},
+        {"points": [[-83.6, 25.9263], [-81.7, 26.0763], [-79.9, 26.2263]], "radius_km": 25},
+        {"points": [[-83.6, 26.1895], [-81.7, 26.3395], [-79.9, 26.4895]], "radius_km": 25},
+        {"points": [[-83.6, 26.4526], [-81.7, 26.6026], [-79.9, 26.7526]], "radius_km": 25},
+        {"points": [[-83.6, 26.7158], [-81.7, 26.8658], [-79.9, 27.0158]], "radius_km": 25},
+        {"points": [[-83.6, 26.9789], [-81.7, 27.1289], [-79.9, 27.2789]], "radius_km": 25},
+        {"points": [[-83.6, 27.2421], [-81.7, 27.3921], [-79.9, 27.5421]], "radius_km": 25},
+        {"points": [[-83.6, 27.5053], [-81.7, 27.6553], [-79.9, 27.8053]], "radius_km": 25},
+        {"points": [[-83.6, 27.7684], [-81.7, 27.9184], [-79.9, 28.0684]], "radius_km": 25},
+        {"points": [[-83.6, 28.0316], [-81.7, 28.1816], [-79.9, 28.3316]], "radius_km": 25},
+        {"points": [[-83.6, 28.2947], [-81.7, 28.4447], [-79.9, 28.5947]], "radius_km": 25},
+        {"points": [[-83.6, 28.5579], [-81.7, 28.7079], [-79.9, 28.8579]], "radius_km": 25},
+        {"points": [[-83.6, 28.8211], [-81.7, 28.9711], [-79.9, 29.1211]], "radius_km": 25},
+        {"points": [[-83.6, 29.0842], [-81.7, 29.2342], [-79.9, 29.3842]], "radius_km": 25},
+        {"points": [[-83.6, 29.3474], [-81.7, 29.4974], [-79.9, 29.6474]], "radius_km": 25},
+        {"points": [[-83.6, 29.6105], [-81.7, 29.7605], [-79.9, 29.9105]], "radius_km": 25},
+        {"points": [[-83.6, 29.8737], [-81.7, 30.0237], [-79.9, 30.1737]], "radius_km": 25},
+        {"points": [[-83.6, 30.1368], [-81.7, 30.2868], [-79.9, 30.4368]], "radius_km": 25},
+        {"points": [[-83.6, 30.4], [-81.7, 30.55], [-79.9, 30.7]], "radius_km": 25}
+      ],
+      "load_factor": 1.0,
+      "campus": {"lat": 26.64, "lon": -81.87, "mw": 1500}
+    },
+    {
+      "id": "fl-heatdome-gulf",
+      "region": "FL",
+      "name": "Heat dome + Gulf storm",
+      "description": "A hypothetical heat dome pushes every load to 130% of the summer peak while a storm comes ashore near Fort Myers. No data center.",
+      "tracks": [
+        {"points": [[-82.9, 25.95], [-82.25, 26.35], [-81.85, 26.7], [-81.4, 27.25], [-80.95, 27.85], [-80.5, 28.45]], "radius_km": 20}
+      ],
+      "load_factor": 1.3,
+      "campus": null
+    }
+  ]
+}
