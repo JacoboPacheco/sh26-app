@@ -1,0 +1,784 @@
+/* Build agreement: the draft coordination proposal beside the map (AgreementDoc.jsx), the "Draft agreement"
+   buttons in the ranked list, and the print copy. Sober incident-room look: plain tabular figures, hairlines,
+   sentence case; green (--hr-ok) only for the savings. Reads the app's tokens and gridlock.css's .gl ones. */
+
+/* ------------------------------------------------------------------ page layout with the document open */
+.gl-page {
+  position: relative;
+}
+
+.gl-page.gl-page--doc {
+  grid-template-columns: 360px minmax(0, 1fr) minmax(460px, 38vw);
+}
+
+.gl-doc {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--surface);
+  border-left: 1px solid var(--glass-edge);
+  animation: gl-doc-in 0.28s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes gl-doc-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+.gl-doc__bar {
+  display: grid;
+  gap: 8px;
+  padding: 12px 18px 10px;
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.gl-doc__bar-top,
+.gl-doc__bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gl-doc__bar-row {
+  justify-content: space-between;
+}
+
+.gl-doc__module {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.gl-doc__lang {
+  display: inline-flex;
+  margin-left: auto;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.gl-doc__lang button {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 3px 9px;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.gl-doc__lang button + button {
+  border-left: 1px solid var(--glass-edge);
+}
+
+.gl-doc__lang button.is-on {
+  color: var(--ink);
+  background: var(--glass-hi);
+}
+
+.gl-doc__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gl-doc__pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: gl-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes gl-pulse {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.gl-doc__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.gl-doc__actions .btn {
+  font-size: 0.8125rem;
+  padding: 0.3rem 0.7rem;
+}
+
+.gl-doc__scroll {
+  overflow-y: auto;
+  padding: 20px 24px 48px;
+  min-height: 0;
+}
+
+/* ------------------------------------------------------------------ the document */
+.gl-paper {
+  max-width: 66ch;
+  display: grid;
+  gap: 18px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.gl-paper__banner {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--glass-edge);
+  border-left: 3px solid var(--ink-2);
+  border-radius: var(--radius);
+  background: var(--glass-hi);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.gl-paper__eyebrow {
+  margin: 0 0 -10px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-paper__title {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.2;
+  font-weight: 750;
+  text-wrap: balance;
+}
+
+.gl-paper__parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.gl-party {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  padding: 8px 10px;
+  border: 1px solid var(--gl-hair);
+  border-left: 3px solid var(--gl-ga);
+  border-radius: var(--radius);
+}
+
+.gl-party--desc {
+  border-left-color: var(--gl-desc);
+}
+
+.gl-party--gpc {
+  border-left-color: var(--gl-gpc);
+}
+
+.gl-party__who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-party__proj {
+  font-size: 0.875rem;
+  line-height: 1.3;
+}
+
+.gl-party__meta {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-party__meta a,
+.gl-paper a {
+  color: var(--current);
+}
+
+.gl-paper__summary {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.gl-paper__sec {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gl-hair);
+}
+
+.gl-paper__sec h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.gl-paper__n {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.gl-paper__sec p {
+  margin: 0;
+}
+
+.gl-paper__list,
+.gl-paper__steps {
+  margin: 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: 6px;
+}
+
+.gl-paper__list--fine {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.gl-paper__rule {
+  font-weight: 600;
+}
+
+/* small source links after a sentence */
+.gl-refs {
+  white-space: normal;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+}
+
+.gl-ref {
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ink-2) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+a.gl-ref,
+.gl-ref--plain a {
+  color: var(--ink-2);
+}
+
+.gl-ref:hover,
+a.gl-ref:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+
+.gl-ref--plain {
+  text-decoration: none;
+  cursor: default;
+}
+
+/* who does what */
+.gl-roles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+}
+
+.gl-role--both {
+  grid-column: 1 / -1;
+}
+
+.gl-role h4 {
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* cost split: one bar in the two utilities' colors */
+.gl-split {
+  display: flex;
+  height: 22px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--glass-edge);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.gl-split__part {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--accent-text);
+  background: var(--gl-ga);
+}
+
+.gl-split__part--desc {
+  background: var(--gl-desc);
+}
+
+.gl-split__part--gpc {
+  background: var(--gl-gpc);
+}
+
+.gl-split__part + .gl-split__part {
+  border-left: 1px solid var(--surface);
+}
+
+/* savings: the one green figure on the page */
+.gl-save {
+  margin: 0;
+}
+
+.gl-save__range {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--hr-ok);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.gl-save__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.gl-save__items li {
+  display: grid;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--gl-hair);
+}
+
+.gl-save__line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.gl-save__line strong {
+  color: var(--hr-ok);
+  white-space: nowrap;
+}
+
+/* facts appendix + the checker's removals */
+.gl-paper__facts ol {
+  margin: 8px 0 0;
+  padding-left: 1.3em;
+  display: grid;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+}
+
+.gl-paper__facts li {
+  border-radius: 4px;
+  transition: background-color 0.4s;
+}
+
+.gl-paper__facts li.is-flash {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.gl-paper__rejected li {
+  font-size: 0.78rem;
+}
+
+.gl-paper__foot {
+  border-top: 1px solid var(--gl-hair);
+  padding-top: 10px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  display: grid;
+  gap: 4px;
+}
+
+.gl-paper__foot p {
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ joint window timeline */
+.gl-tl {
+  --tl-who: 96px;
+  display: grid;
+  gap: 2px;
+}
+
+.gl-tl__grid {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  padding-top: 20px;
+}
+
+.gl-tl__row {
+  display: grid;
+  grid-template-columns: var(--tl-who) minmax(0, 1fr);
+  align-items: start;
+}
+
+.gl-tl__who {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  padding-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gl-tl__track {
+  position: relative;
+  height: 32px;
+}
+
+.gl-tl__bar {
+  position: absolute;
+  top: 3px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--gl-ga);
+  transform-origin: left center;
+  animation: gl-grow 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes gl-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.gl-tl__bar--desc {
+  --c: var(--gl-desc);
+  background: var(--gl-desc);
+}
+
+.gl-tl__bar--gpc {
+  --c: var(--gl-gpc);
+  background: var(--gl-gpc);
+}
+
+.gl-tl__bar--derived {
+  background: repeating-linear-gradient(135deg, var(--c, var(--gl-ga)) 0 4px, transparent 4px 7px);
+  box-shadow: inset 0 0 0 1px var(--c, var(--gl-ga));
+}
+
+.gl-tl__dates {
+  position: absolute;
+  z-index: 1;
+  top: 15px;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+  padding-right: 3px;
+  background: var(--surface);
+}
+
+.gl-tl__joint {
+  position: absolute;
+  top: 16px;
+  bottom: -2px;
+  border-left: 1px solid var(--ink);
+  border-right: 1px solid var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  pointer-events: none;
+}
+
+.gl-tl__joint-label {
+  position: absolute;
+  bottom: 100%;
+  left: -1px;
+  padding-bottom: 2px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.gl-tl__joint.is-right .gl-tl__joint-label {
+  left: auto;
+  right: -1px;
+}
+
+/* the filings' shared months ended before the draft's date: reported, not proposed */
+.gl-tl__joint.is-past {
+  border-left-style: dashed;
+  border-right-style: dashed;
+  border-color: var(--ink-2);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink-2) 12%, transparent) 0 3px, transparent 3px 7px);
+}
+
+.gl-tl__joint.is-past .gl-tl__joint-label {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+/* the draft's date */
+.gl-tl__now {
+  position: absolute;
+  top: 16px;
+  bottom: -2px;
+  width: 0;
+  border-left: 1.5px solid var(--ink);
+  pointer-events: none;
+}
+
+.gl-tl__axis {
+  position: relative;
+  height: 16px;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+  border-top: 1px solid var(--gl-hair);
+}
+
+.gl-tl.has-now .gl-tl__axis {
+  height: 30px;
+}
+
+.gl-tl__axis span {
+  position: absolute;
+  top: 1px;
+  transform: translateX(-50%);
+}
+
+.gl-tl__axis span.is-last {
+  transform: translateX(-100%);
+}
+
+.gl-tl__axis .gl-tl__now-label {
+  top: 15px;
+  color: var(--ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.gl-tl__axis .gl-tl__now-label.is-right {
+  transform: translateX(-100%);
+}
+
+.gl-tl__axis .gl-tl__now-label.is-left {
+  transform: none;
+}
+
+/* ------------------------------------------------------------------ the ranked list's "Draft agreement" */
+.gl-li {
+  position: relative;
+}
+
+.gl-li .gl-item__time {
+  padding-right: 122px;
+}
+
+.gl-draftbtn {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.gl-draftbtn:hover,
+.gl-draftbtn:focus-visible {
+  border-color: var(--accent);
+}
+
+.gl-draftbtn.is-on {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.gl-card .gl-sec > .btn {
+  justify-self: start;
+}
+
+/* ------------------------------------------------------------------ narrower screens */
+@media (max-width: 1199px) and (min-width: 761px) {
+  .gl-page.gl-page--doc {
+    grid-template-columns: 340px minmax(0, 1fr);
+  }
+
+  .gl-page.gl-page--doc .gl-doc {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(560px, calc(100% - 340px));
+    z-index: 5;
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45);
+  }
+}
+
+@media (max-width: 760px) {
+  .gl-doc {
+    border-left: 0;
+    border-top: 1px solid var(--glass-edge);
+    scroll-margin-top: calc(var(--appbar-h, 0px) + 8px);
+  }
+
+  .gl-doc__scroll {
+    overflow: visible;
+    padding: 16px 16px 32px;
+  }
+
+  .gl-doc__bar {
+    padding: 12px 16px 10px;
+  }
+
+  .gl-paper__parties,
+  .gl-roles {
+    grid-template-columns: 1fr;
+  }
+
+  .gl-tl {
+    --tl-who: 78px;
+  }
+
+  .gl-tl__joint-label {
+    max-width: calc(100vw - 150px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .gl-li .gl-item__time {
+    padding-right: 0;
+  }
+
+  .gl-draftbtn {
+    position: static;
+    margin: 0 8px 10px 42px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-doc,
+  .gl-tl__bar,
+  .gl-doc__pulse {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ print: the document alone, black on white */
+.gl-print {
+  display: none;
+}
+
+@media print {
+  html:has(body.gl-printing),
+  body.gl-printing {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  body.gl-printing > *:not(.gl-print) {
+    display: none !important;
+  }
+
+  body.gl-printing .gl-print {
+    display: block;
+    color: #000;
+    background: #fff;
+  }
+
+  .gl-print .gl-paper {
+    max-width: none;
+    font-size: 10.5pt;
+    gap: 12px;
+  }
+
+  .gl-print,
+  .gl-print * {
+    color: #000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    animation: none !important;
+  }
+
+  .gl-print .gl-paper__banner {
+    border: 1.5px solid #000 !important;
+  }
+
+  .gl-print .gl-party,
+  .gl-print .gl-paper__sec,
+  .gl-print .gl-paper__foot,
+  .gl-print .gl-save__items li,
+  .gl-print .gl-tl__axis {
+    border-color: #999 !important;
+  }
+
+  .gl-print .gl-tl__bar {
+    background: #9a9a9a !important;
+  }
+
+  .gl-print .gl-tl__bar--derived {
+    background: repeating-linear-gradient(135deg, #777 0 3px, #fff 3px 6px) !important;
+    box-shadow: inset 0 0 0 1px #000 !important;
+  }
+
+  .gl-print .gl-tl__joint {
+    border-color: #000 !important;
+    background: rgba(0, 0, 0, 0.06) !important;
+  }
+
+  .gl-print .gl-tl__joint.is-past {
+    border-color: #777 !important;
+    background: transparent !important;
+  }
+
+  .gl-print .gl-tl__now {
+    border-left-color: #000 !important;
+  }
+
+  .gl-print .gl-split__part {
+    background: #d6d6d6 !important;
+  }
+
+  .gl-print .gl-split__part + .gl-split__part {
+    background: #efefef !important;
+    border-left: 1px solid #000;
+  }
+
+  .gl-print .gl-split,
+  .gl-print .gl-swatch {
+    border: 1px solid #000 !important;
+  }
+
+  .gl-print .gl-paper__sec,
+  .gl-print .gl-party,
+  .gl-print .gl-save__items li {
+    break-inside: avoid;
+  }
+
+  .gl-print .gl-details > summary {
+    list-style: none;
+    font-weight: 700;
+  }
+
+  .gl-print a {
+    text-decoration: none;
+  }
+
+  @page {
+    margin: 16mm 14mm;
+  }
+}

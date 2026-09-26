@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Badge, EmptyState, ErrorBanner, Loading } from '../../ui'
+import { Badge, Button, EmptyState, ErrorBanner, Loading } from '../../ui'
 import { useGridlock } from './context'
 import {
   KIND_LABEL,
@@ -95,6 +95,7 @@ function OpportunityCard({ sel }) {
       <section className="gl-sec">
         <h3>What they could share</h3>
         <p className="gl-share-line">{share}</p>
+        <Button onClick={() => g.openDraft(o)}>Draft agreement</Button>
       </section>
 
       <section className="gl-sec">

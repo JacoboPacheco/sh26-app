@@ -13,15 +13,19 @@ export default function BuildPlansPanel({ extra }) {
     <div className="gl gl-side">
       <header className="gl-head">
         <div className="gl-head__top">
-          <span className="gl-module">Build plans</span>
+          <span className="gl-module">Two utilities&apos; public construction plans</span>
           {g.conn.status === 'ready' && !g.fallback && <Badge>Real public filings</Badge>}
           {g.fallback && <Badge tone="warn">Sperry&apos;s worked example</Badge>}
           {extra}
         </div>
-        <h1 className="gl-story">The AI boom is forcing the grid to grow. Are neighbors building it together?</h1>
+        <h1 className="gl-story">Build agreement</h1>
+        <p className="gl-lede gl-lede--why">
+          FERC&apos;s Order 1920 (2024) asks for more coordinated, long-term transmission planning because neighboring utilities have
+          planned in isolation. Where their plans overlap, building together can share crews, equipment and outage windows.
+        </p>
         <p className="gl-lede">
-          Utilities on both sides of the Savannah River publish their planned transmission work. We read both filings, place every
-          project on the map, and rank the pairs that could be built together.
+          We read Dominion Energy South Carolina&apos;s and Georgia&apos;s filings, place every project on the map and rank the pairs that
+          overlap. Pick one and <strong>Draft agreement</strong> writes the coordination proposal, every figure sourced.
         </p>
         <SourcesLine />
         {g.fallback && (
@@ -281,8 +285,9 @@ function RankedList() {
               const a = byId[o.a]
               const b = byId[o.b]
               const on = sel?.kind === 'overlap' && sel.id === o.id
+              const drafting = g.draft?.id === o.id
               return (
-                <li key={o.id}>
+                <li key={o.id} className="gl-li">
                   <button
                     type="button"
                     className={`gl-item gl-item--${o.tier}${on ? ' gl-item--on' : ''}`}
@@ -310,6 +315,15 @@ function RankedList() {
                         {o.sperry && <span className="gl-sperrytag">In Sperry&apos;s example ({o.sperry})</span>}
                       </span>
                     </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`gl-draftbtn${drafting ? ' is-on' : ''}`}
+                    aria-pressed={drafting}
+                    aria-label={`Draft agreement for opportunity ${o.displayRank ?? o.rank}: ${a?.name || o.a} and ${b?.name || o.b}`}
+                    onClick={() => (drafting ? g.closeDraft() : g.openDraft(o))}
+                  >
+                    Draft agreement
                   </button>
                 </li>
               )

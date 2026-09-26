@@ -156,10 +156,19 @@ export function GridlockProvider({ children }) {
     [byId],
   )
 
+  // Build agreement: the draft document open beside the map ({id, overlap} | null). Opening it selects the
+  // pair on the map; the page flies to it once the map has made room for the document. While a draft is
+  // open, picking another opportunity (list or map) drafts that one instead.
+  const [draft, setDraft] = useState(null)
+  const drafting = useRef(false)
+  useEffect(() => {
+    drafting.current = !!draft
+  }, [draft])
   const openOverlap = useCallback(
     (o, { fly = true } = {}) => {
       setSel({ kind: 'overlap', id: o.id, overlap: o })
-      if (fly) mapApi.current?.flyTo(boundsForOverlap(o), { card: true })
+      if (drafting.current) setDraft((cur) => (cur?.id === o.id ? cur : { id: o.id, overlap: o }))
+      else if (fly) mapApi.current?.flyTo(boundsForOverlap(o), { card: true })
     },
     [boundsForOverlap],
   )
@@ -174,6 +183,14 @@ export function GridlockProvider({ children }) {
   )
   const close = useCallback(() => setSel(null), [])
   const back = useCallback(() => setSel((cur) => cur?.back || null), [])
+
+  const openDraft = useCallback((o) => {
+    setHover(null)
+    setSel({ kind: 'overlap', id: o.id, overlap: o })
+    setDraft({ id: o.id, overlap: o })
+  }, [])
+  const closeDraft = useCallback(() => setDraft(null), [])
+  const flyToOverlap = useCallback((o) => mapApi.current?.flyTo(boundsForOverlap(o), { card: false }), [boundsForOverlap])
 
   const value = {
     conn,
@@ -205,6 +222,10 @@ export function GridlockProvider({ children }) {
     openProject,
     close,
     back,
+    draft,
+    openDraft,
+    closeDraft,
+    flyToOverlap,
     hover,
     setHover,
     tab,

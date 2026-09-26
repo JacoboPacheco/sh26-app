@@ -1,0 +1,1329 @@
+"""Build agreement (Sperry GridLock): pick an overlap between two utilities' public construction plans and
+get a DRAFT COORDINATION PROPOSAL for it: the shared scope, one joint build window, who does what, a cost
+split, the estimated savings, next steps and conditions, every figure tied to the fact it comes from.
+
+  GET /api/agreement/{overlap_id}?window_months=24&lang=en&ai=true
+
+Everything numeric comes from backend/gridlock.py (the same overlap record, timeline and estimate the
+Build plans module shows; nothing is re-derived here). Gemini only WORDS the draft from a fact sheet;
+the checker below then reads every number it wrote (money, km, miles, kV, dates, months, days, counts,
+project numbers) and each one must appear in the facts. An item that fails is stripped and listed in
+`rejected`; a draft that fails badly (its summary, a whole section, or over a third of its items) falls back
+to the deterministic template, and the response says why. The template is checked the same way.
+
+Honesty (CLAUDE.md -> Decisions GRIDLOCK, NO DEFAMATION): these are real public filings of real utilities.
+The draft is "a draft coordination proposal for discussion, generated from public filings", never an
+agreement the utilities made; it never says either utility did or failed to do anything, and it invents
+no person, contact, commitment, price or date. Savings are the module's own sourced low-high ranges.
+"""
+
+import asyncio
+import copy
+import logging
+import math
+import re
+import threading
+import time
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from datetime import date
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+
+import gridlock as gl
+from limiter import limiter
+from llm import complete_json
+from llm import configured as ai_configured
+
+router = APIRouter(tags=["agreement"])
+log = logging.getLogger("uvicorn.error")
+
+DISCLAIMER = "Draft for discussion, generated from public filings; not an agreement between the utilities."
+DISCLAIMER_ES = "Borrador para discusión, generado a partir de documentos públicos; no es un acuerdo entre las empresas."
+AI_TIMEOUT_S = 10  # per Gemini call (complete_json may ask twice on bad JSON)
+AI_DEADLINE_S = 22  # the whole AI step, then the template answers
+CACHE_MAX = 128
+MAX_ITEM_CHARS = 420
+MAX_SUMMARY_CHARS = 800
+LANGS = ("en", "es")
+
+_cache: "OrderedDict[tuple, dict]" = OrderedDict()
+_cache_lock = threading.Lock()
+
+# ----------------------------------------------------------------------------- the number checker
+# Every figure in a draft must be one of the facts' numbers. A figure may be rounded the way a person
+# would round it ("about 15 km" for 14.81 km, "$61K" for 61,000), never changed.
+
+_NUM = re.compile(r"\d+(?:[,.]\d+)*")
+ROUND_TOL = 0.03
+_SCALE_WORD = re.compile(r"\b(million|millions|billion|billions|thousand|thousands|mill[oó]n|millones|mil)\b", re.I)
+# wording a draft must never use: it would claim an agreement exists, judge a utility, or invent a contact
+_FORBIDDEN = re.compile(
+    r"(?i:\bhereby\b|\b(?:have|has|had)\s+(?:already\s+)?agreed\b|\bagreed\s+to\b|\bbinding\b|\bcommitted\s+to\b|\bhave\s+committed\b"
+    r"|\bfailed\s+to\b|\bfailure\s+to\b|\brefus\w*|\bnegligen\w*|\bviolat\w*|\billegal\w*|\bmismanag\w*|\bwasteful\b|\bincompeten\w*"
+    r"|\bguarantee\w*|\bwill\s+save\b|\bhan\s+acordado\b|\bacordaron\b|\bvinculante\b|\bgarantiza\w*"
+    r"|\bMr\.|\bMrs\.|\bMs\.|\bDr\.|\bSr\.|\bSra\.)"
+    r"|[\w.+-]+@[\w-]+\.[\w.]+|https?://|www\.|\(\d{3}\)\s*\d{3}-\d{4}|\b\d{3}-\d{3}-\d{4}\b"
+)
+
+
+def _norm(v: float) -> str:
+    s = f"{v:.6f}".rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def _forms(v) -> set[str]:
+    """The printed forms a value may take: itself, rounded to 0-2 decimals, and coarser roundings (and
+    thousands / millions / billions) only when they stay within ROUND_TOL of the value."""
+    out: set[str] = set()
+    try:
+        a = abs(float(v))
+    except (TypeError, ValueError):
+        return out
+    if not math.isfinite(a):
+        return out
+    for d in (0, 1, 2):
+        out.add(_norm(round(a, d)))
+    out.add(_norm(math.floor(a)))
+    for k in range(1, 7):
+        r = round(a, -k)
+        if r > 0 and abs(r - a) <= ROUND_TOL * a:
+            out.add(_norm(r))
+    for s in (1e3, 1e6, 1e9):
+        x = a / s
+        for d in (0, 1, 2):
+            r = round(x, d)
+            if r > 0 and abs(r - x) <= ROUND_TOL * x:
+                out.add(_norm(r))
+    return out
+
+
+def _token_values(tok: str) -> list[float]:
+    """A printed number's possible values: 1,389 and 14.81 (en) and 1.389 / 14,81 (es) are all read."""
+    t = tok.strip(",.")
+    vals = []
+    try:
+        vals.append(float(t.replace(",", "")))
+    except ValueError:
+        pass
+    if re.fullmatch(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?", t):
+        vals.append(float(t.replace(".", "").replace(",", ".")))
+    if re.fullmatch(r"\d+,\d{1,2}", t):
+        vals.append(float(t.replace(",", ".")))
+    return vals
+
+
+# A figure's CONTEXT decides what it may match (a number that happens to equal some fact is not enough):
+#   money   ($61K, 17,520,000 USD, 5 million, 61 mil dólares) -> the USD facts' values (save.*, *.cost, *.scale)
+#   a rate  ($2.00M per mile, $6,000/acre, $250,000 each)     -> the money figures written in the facts' texts
+#   percent (50 %, 50 percent, 50 por ciento)                  -> split.rule's shares, nothing else
+#   a plain number (14.81 km, 1,389 days, 230 kV, p. 187)      -> any fact's number, and 0-10 as counts
+_SCALE_ALT = r"mil\s+millones|millones|mill[oó]n|millions?|billions?|thousands?|mil|bn|mn|MM|[KMB]"
+SCALE_MULT = {"k": 1e3, "thousand": 1e3, "thousands": 1e3, "mil": 1e3, "m": 1e6, "mm": 1e6, "mn": 1e6, "million": 1e6,
+              "millions": 1e6, "millón": 1e6, "millon": 1e6, "millones": 1e6, "b": 1e9, "bn": 1e9, "billion": 1e9, "billions": 1e9}
+_MONEY_BEFORE = re.compile(r"(?:US)?\$\s?$")
+_SCALE_AFTER = re.compile(rf"\s?({_SCALE_ALT})\b", re.I)
+_CURRENCY_AFTER = re.compile(r"\s?(?:USD|dollars?|d[oó]lares)\b", re.I)
+_PCT_AFTER = re.compile(r"\s?(?:%|percent\b|per\s?cent\b|por\s+ciento\b)", re.I)
+_RATE_AFTER = re.compile(
+    rf"(?:\s*(?:-|–|to|a)\s*(?:US)?\$?\s?\d[\d.,]*\s?(?:(?:{_SCALE_ALT})\b)?)?\s*(?:USD\s*)?(?:per\b|por\b|/\s*[a-z]|each\b|cada\b|a\s+(?:mile|acre)\b)",
+    re.I,
+)
+MONEY_TOL = 0.05  # "$10K" for 10,400: the template's own rounding to thousands is within 5 %
+
+# The as-of rule: a date before the draft's date must be said as past ("as filed", "has passed", "ended").
+_MONTH_RX = (
+    r"(jan(?:uary)?|ene(?:ro)?|feb(?:ruary|rero)?|mar(?:ch|zo)?|apr(?:il)?|abr(?:il)?|may(?:o)?|jun(?:e|io)?|jul(?:y|io)?"
+    r"|aug(?:ust)?|ago(?:sto)?|sep(?:tember|tiembre|t)?|oct(?:ober|ubre)?|nov(?:ember|iembre)?|dec(?:ember)?|dic(?:iembre)?)"
+)
+_MONTH_NO = {"jan": 1, "ene": 1, "feb": 2, "mar": 3, "apr": 4, "abr": 4, "may": 5, "jun": 6, "jul": 7, "aug": 8, "ago": 8,
+             "sep": 9, "oct": 10, "nov": 11, "dec": 12, "dic": 12}
+_DATE_MDY = re.compile(rf"\b{_MONTH_RX}\.?\s+(?:(\d{{1,2}}),?\s+)?(?:de\s+|del\s+)?(\d{{4}})\b", re.I)
+_DATE_DMY = re.compile(rf"\b(\d{{1,2}})\s+de\s+{_MONTH_RX}\s+(?:de\s+|del\s+)?(\d{{4}})\b", re.I)
+_PAST_WORDS = re.compile(
+    r"(?i)\b(as filed|passed|past|ended|ran|was|were|had|began|begun|started|since|already|overlapped|expired"
+    r"|ya|pasado|pas[oó]|pasaron|termin[oó]|terminaron|fue|fueron|era|eran|estaba|estaban|comenz[oó]|empez[oó]|desde"
+    r"|seg[uú]n lo publicado|como se public[oó])\b"
+)
+
+
+@dataclass
+class Allowed:
+    plain: set[str] = field(default_factory=set)  # every fact's numbers in their printed forms, plus 0-10
+    money: list[float] = field(default_factory=list)  # the USD facts' values
+    rates: list[float] = field(default_factory=list)  # the money figures written in the facts' texts (unit costs)
+    pct: list[float] = field(default_factory=list)  # split.rule's shares
+    as_of: date | None = None  # the draft's date (the as_of fact)
+
+
+def _context(text: str, m: re.Match) -> tuple[str, float]:
+    """('money' | 'rate' | 'pct' | 'plain', multiplier) for the number matched at m."""
+    before, after = text[max(0, m.start() - 4): m.start()], text[m.end(): m.end() + 60]
+    if re.search(r"[A-Za-z]-?$", before):
+        return "plain", 1.0  # part of an identifier (DESC-0139MN, GA-21116): never money or a percentage
+    if _PCT_AFTER.match(after):
+        return "pct", 1.0
+    mult, rest, money = 1.0, after, bool(_MONEY_BEFORE.search(before))
+    sm = _SCALE_AFTER.match(rest)
+    if sm:
+        word = re.sub(r"\s+", " ", sm.group(1).lower())
+        mult = 1e9 if word == "mil millones" else SCALE_MULT.get(word, 1.0)
+        rest, money = rest[sm.end():], True
+    cm = _CURRENCY_AFTER.match(rest)
+    if cm:
+        rest, money = rest[cm.end():], True
+    if not money:
+        return "plain", 1.0
+    return ("rate" if _RATE_AFTER.match(rest) else "money"), mult
+
+
+def _money_in(text: str) -> list[float]:
+    out = []
+    for m in _NUM.finditer(text or ""):
+        kind, mult = _context(text, m)
+        if kind in ("money", "rate"):
+            out += [v * mult for v in _token_values(m.group(0))]
+    return out
+
+
+def _near(v: float, pool: list[float], tol: float) -> bool:
+    return any(abs(v - x) <= max(tol * abs(x), 0.5) for x in pool)
+
+
+def allowed_numbers(facts: list[dict]) -> Allowed:
+    """What a draft may print, by context (see above). Plain numbers: each fact's value and every number in
+    its text, in the rounded forms _forms gives, plus 0-10 (list counts, "two utilities", "one window")."""
+    a = Allowed(plain={str(i) for i in range(0, 11)})
+    for f in facts:
+        v = f.get("value")
+        vals = v if isinstance(v, list) else [v]
+        for x in vals:
+            if isinstance(x, bool) or x is None:
+                continue
+            if isinstance(x, (int, float)):
+                a.plain |= _forms(x)
+                if f.get("unit") == "USD":
+                    a.money.append(float(x))
+                elif f.get("key") == "split.rule":
+                    a.pct.append(float(x))
+            elif isinstance(x, str):
+                for tok in _NUM.findall(x):
+                    for tv in _token_values(tok):
+                        a.plain |= _forms(tv)
+        text = str(f.get("text") or "")
+        for tok in _NUM.findall(text):
+            for tv in _token_values(tok):
+                a.plain |= _forms(tv)
+        a.rates += _money_in(text)
+        if f.get("key") == "as_of" and isinstance(v, str):
+            try:
+                a.as_of = date.fromisoformat(v)
+            except ValueError:
+                pass
+    return a
+
+
+def _past_dates(text: str, as_of: date) -> list[str]:
+    """The dates in text (Jan 2024, Dec 31, 2025, 31 de diciembre de 2025, junio de 2025) before as_of."""
+    out = []
+    for rx, order in ((_DATE_MDY, "mdy"), (_DATE_DMY, "dmy")):
+        for m in rx.finditer(text):
+            if order == "mdy":
+                mon, day, year = m.group(1), m.group(2), m.group(3)
+            else:
+                day, mon, year = m.group(1), m.group(2), m.group(3)
+            mo = _MONTH_NO.get(mon[:3].lower())
+            if not mo:
+                continue
+            y = int(year)
+            if day:
+                try:
+                    past = date(y, mo, int(day)) < as_of
+                except ValueError:
+                    past = (y, mo) < (as_of.year, as_of.month)
+            else:
+                past = (y, mo) < (as_of.year, as_of.month)
+            if past:
+                out.append(m.group(0))
+    return out
+
+
+def check_text(text: str, facts: list[dict], allowed: Allowed | None = None, max_chars: int | None = None) -> tuple[bool, str | None, int]:
+    """(ok, reason, numbers checked): no forbidden wording, a scale word only after a figure, every number one
+    of the facts' numbers IN ITS CONTEXT (money, rate, percentage or plain), a date before the draft's date said
+    as past, and (for an AI item) not longer than max_chars."""
+    if not isinstance(text, str) or not text.strip():
+        return False, "empty text", 0
+    if max_chars and len(text) > max_chars:
+        return False, f"longer than {max_chars} characters", 0
+    m = _FORBIDDEN.search(text)
+    if m:
+        return False, f"wording not allowed in a draft: {m.group(0)!r}", 0
+    for sm in _SCALE_WORD.finditer(text):
+        before = text[: sm.start()].rstrip()
+        if not before or not before[-1].isdigit():
+            return False, f"'{sm.group(0)}' must follow a figure", 0
+    allowed = allowed if allowed is not None else allowed_numbers(facts)
+    matches = list(_NUM.finditer(text))
+    for m in matches:
+        tok = m.group(0).strip(",.")
+        kind, mult = _context(text, m)
+        vals = _token_values(m.group(0))
+        if kind == "money":
+            if not any(_near(v * mult, allowed.money, MONEY_TOL) for v in vals):
+                return False, f"money figure {tok} is not one of the facts' dollar amounts", len(matches)
+        elif kind == "rate":
+            if not any(_near(v * mult, allowed.rates, MONEY_TOL) for v in vals):
+                return False, f"unit cost {tok} is not one of the facts' unit costs", len(matches)
+        elif kind == "pct":
+            if not any(abs(v - p) < 0.5 for v in vals for p in allowed.pct):
+                return False, f"percentage {tok} % is not the proposed split", len(matches)
+        elif not any(_norm(v) in allowed.plain for v in vals):
+            return False, f"number {tok} is not in the facts", len(matches)
+    if allowed.as_of:
+        past = _past_dates(text, allowed.as_of)
+        if past and not _PAST_WORDS.search(text):
+            return False, f"{past[0]} is before this draft's date ({_day(allowed.as_of)}) but isn't said as past", len(matches)
+    return True, None, len(matches)
+
+
+# ----------------------------------------------------------------------------- formatting
+
+MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+KIND_WORDS = {
+    "new_line": "new line",
+    "line_rebuild": "line rebuild",
+    "reconductor": "reconductoring",
+    "substation": "substation work",
+    "tap": "line tap",
+    "other": "grid work",
+}
+SHORT = {"DESC": "DESC", "GPC": "Georgia Power", "GTC": "GTC", "MEAG": "MEAG Power", "DU": "Dalton Utilities"}
+SERTP_MEMBERS = {"GPC", "GTC", "MEAG"}  # founding sponsors of SERTP named in Sperry's challenge brief
+
+
+def _day(d: date | None) -> str:
+    return f"{MONTHS[d.month - 1]} {d.day}, {d.year}" if d else "no date"
+
+
+def _month(d: date | None) -> str:
+    return f"{MONTHS[d.month - 1]} {d.year}" if d else "no date"
+
+
+def _usd(v: float | None) -> str:
+    if v is None:
+        return "not given"
+    a = abs(v)
+    if a >= 1e6:
+        return f"${v / 1e6:.2f}M"
+    if a >= 1e4:
+        return f"${v / 1e3:,.0f}K"
+    return f"${v:,.0f}"
+
+
+def _usd_range(lo, hi) -> str:
+    if lo is None and hi is None:
+        return "not estimated"
+    if lo == hi or hi is None:
+        return _usd(lo)
+    return f"{_usd(lo)}-{_usd(hi)}"
+
+
+def _num(v: float, d: int = 2) -> str:
+    return f"{v:,.{d}f}"
+
+
+def _display_name(name: str) -> str:
+    """Georgia's table prints names in capitals: give them title case (numbers and kV untouched)."""
+    if not name or name.upper() != name:
+        return name
+    small = {"and", "of", "to", "on", "at", "the", "for"}
+    words = []
+    for i, w in enumerate(name.lower().split(" ")):
+        if re.fullmatch(r"\d+kv", w):
+            words.append(w[:-2] + "kV")
+        elif i and w in small:
+            words.append(w)
+        elif w.startswith("mc") and len(w) > 3 and w[2:3].isalpha():
+            words.append("Mc" + w[2].upper() + w[3:])
+        else:
+            words.append(w[:1].upper() + w[1:])
+    return " ".join(words)
+
+
+def _kv_text(p: dict) -> str:
+    kv = [int(k) for k in (p.get("kv") or []) if isinstance(k, (int, float)) and k > 0]
+    return " / ".join(str(k) for k in kv) + " kV" if kv else ""
+
+
+def _places(p: dict) -> list[str]:
+    return [e.get("name") for e in p.get("endpoints") or [] if e.get("name")]
+
+
+# ----------------------------------------------------------------------------- sources
+
+ENGINE_SOURCE = {
+    "id": "engine",
+    "kind": "engine",
+    "label": "Overload comparison",
+    "title": "Overload's comparison of the two filings: closest points between the located projects, build windows from the filings (backend/gridlock.py)",
+    "url": None,
+}
+PROPOSAL_SOURCE = {
+    "id": "proposal",
+    "kind": "proposal",
+    "label": "Proposed in this draft",
+    "title": "A rule this draft proposes from the filed figures; not a fact from either filing",
+    "url": None,
+}
+BRIEF_SOURCE = {
+    "id": "sperry_brief",
+    "kind": "brief",
+    "label": "Sperry's challenge brief",
+    "title": "Sperry Tech, The GridLock Challenge brief (ShellHacks 2026), glossary: SERTP",
+    "url": None,
+}
+ESTIMATE_SOURCE = {
+    "id": "estimate",
+    "kind": "estimate",
+    "label": "Build plans estimate",
+    "title": "The Build plans module's rough estimate for this pair (backend/gridlock.py): each item's basis and public source is listed with it",
+    "url": None,
+}
+EST_LABELS = {"miso24": "MISO MTEP24 cost guide", "miso18": "MISO 2018 cost guide", "usda26": "USDA land values 2026", "sce_wod": "SCE West of Devers PEA"}
+
+
+def _est_source(title: str | None) -> dict:
+    for sid, s in gl.SOURCES.items():
+        if s["title"] == title:
+            return {"id": sid, "kind": "estimate", "label": EST_LABELS.get(sid, s["title"]), "title": s["title"], "url": s["url"]}
+    return {"id": "estimate", "kind": "estimate", "label": "Rough estimate", "title": title or "The module's rough estimate", "url": None}
+
+
+def _filing_source(st: dict, p: dict) -> dict:
+    prov = p.get("provenance") or {}
+    srcs = {s.get("id"): s for s in st["doc"].get("sources") or [] if isinstance(s, dict)}
+    s = srcs.get(prov.get("source")) or {}
+    page, detail = prov.get("page"), prov.get("detail_page")
+    url = s.get("url")
+    if url and page and re.search(r"\.pdf($|[?#])", url, re.I):
+        url = f"{url}#page={page}"
+    short = {"desc": "DESC project list", "ga_irp": "Georgia 2025 IRP Vol. 3", "sperry_example": "Sperry's worked example"}.get(
+        prov.get("source"), s.get("title") or "the filing"
+    )
+    label = short + (f", p. {page}" if page else "") + (f" (detail p. {detail})" if detail else "")
+    return {
+        "id": prov.get("source") or "filing",
+        "kind": "filing",
+        "label": label,
+        "title": s.get("title") or prov.get("source") or "the filing",
+        "url": url,
+        "page": page,
+        "detail_page": detail,
+        "file": s.get("file"),
+        "publisher": s.get("publisher"),
+    }
+
+
+# ----------------------------------------------------------------------------- the case
+
+
+def _resolve(overlap_id: str, months: int):
+    """The overlap record, timeline and estimate gridlock.py computes for this pair (404 like /estimate)."""
+    st = gl._load()
+    parts = (overlap_id or "").split("~")
+    if len(parts) != 2 or parts[0] not in st["index"] or parts[1] not in st["index"]:
+        raise HTTPException(status_code=404, detail="No overlap with that id")
+    i, j = st["index"][parts[0]], st["index"][parts[1]]
+    if st["util"][i] == st["util"][j] or st["closest_km"][i, j] > gl.MAX_KM_CAP:
+        raise HTTPException(status_code=404, detail=f"Those two projects aren't a cross-utility pair within {gl.MAX_KM_CAP:g} km")
+    rec = gl._overlap_record(st, i, j, months, "closest")
+    est = gl._estimate(st, i, j, months)
+    pa, pb = st["placed"][i], st["placed"][j]
+    tl = gl._timeline(pa, pb, months)
+    rank = None
+    try:
+        prm = gl._params(gl.MAX_KM_DEFAULT, months, "closest", pa["utility"], pb["utility"])
+        rows = gl._compute(st, prm)["overlaps"]
+        hit = next((r for r in rows if {r["a"], r["b"]} == {pa["id"], pb["id"]}), None)
+        if hit:
+            rank = {"rank": hit["rank"], "of": len(rows), "a": pa["utility"], "b": pb["utility"], "max_km": gl.MAX_KM_DEFAULT}
+    except HTTPException:
+        rank = None
+    return st, pa, pb, rec, est, tl, rank
+
+
+def _project_view(st: dict, p: dict, side: str, window) -> dict:
+    """A project's public fields, as filed (and the build window the comparison uses)."""
+    bw = p.get("build_window") if isinstance(p.get("build_window"), dict) else None
+    return {
+        "side": side,
+        "id": p["id"],
+        "utility": p["utility"],
+        "utility_name": p.get("utility_name") or gl.UTILITIES.get(p["utility"], (p["utility"],))[0],
+        "utility_short": SHORT.get(p["utility"], p["utility"]),
+        "state": p.get("state"),
+        "name": p.get("name"),
+        "display_name": _display_name(p.get("name") or p["id"]),
+        "kv": p.get("kv") or [],
+        "kind": p.get("kind"),
+        "kind_label": KIND_WORDS.get(p.get("kind"), "grid work"),
+        "places": _places(p),
+        "status": p.get("status"),
+        "in_service": p.get("in_service"),
+        "in_service_raw": p.get("in_service_raw"),
+        "build_window_filed": bw,
+        "window": {"start": window[0].isoformat(), "end": window[1].isoformat(), "basis": window[2], "assumed": gl._window_assumed(p)} if window else None,
+        "cost_usd": p.get("cost_usd"),
+        "cost_redacted": p.get("cost_usd") is None and p["utility"] in gl.GEORGIA_ITS,
+        "miles": p.get("miles"),
+        "teams_no": p.get("teams_no"),
+        "zone": p.get("zone"),
+        "description": p.get("description"),
+        "confidence": p.get("confidence"),
+        "geometry": p.get("geometry"),
+        "source": _filing_source(st, p),
+    }
+
+
+def _split(pa: dict, pb: dict) -> dict:
+    """The proposed cost split: each project's share of the combined FILED length when both filings give
+    one, else equal shares. A rule the draft proposes, not a fact."""
+    ma, mb = pa.get("miles"), pb.get("miles")
+    if isinstance(ma, (int, float)) and isinstance(mb, (int, float)) and ma > 0 and mb > 0:
+        pct_a = round(100 * ma / (ma + mb))
+        return {
+            "basis": "length",
+            "pct": [pct_a, 100 - pct_a],
+            "miles": [ma, mb],
+            "rule": (
+                f"Shared costs split by each project's share of the combined filed length: {SHORT.get(pa['utility'], pa['utility'])} "
+                f"{ma:g} mi ({pct_a} %), {SHORT.get(pb['utility'], pb['utility'])} {mb:g} mi ({100 - pct_a} %)."
+            ),
+            "rationale": "Crews, equipment and yards are used roughly in proportion to the miles of line each project builds, and both lengths are in the filings. Each utility keeps paying for its own project's scope.",
+        }
+    have = [SHORT.get(p["utility"], p["utility"]) for p, m in ((pa, ma), (pb, mb)) if isinstance(m, (int, float)) and m > 0]
+    why = (
+        f"Only {have[0]}'s filing gives a length, so there is no common measure yet"
+        if len(have) == 1
+        else "Neither filing gives a length for its scope, so there is no common measure yet"
+    )
+    return {
+        "basis": "equal",
+        "pct": [50, 50],
+        "miles": [ma, mb],
+        "rule": "Shared costs split equally (50 % each) until both scopes are sized.",
+        "rationale": f"{why}. Each utility keeps paying for its own project's scope.",
+    }
+
+
+def _joint_status(tl: dict, as_of: date) -> dict:
+    """Where the draft's date falls against the filed windows: the joint window (both windows open) is
+    'future', 'open' (started, not ended: months left) or 'past' (ended before the draft's date), and which
+    sides' own windows have already ended."""
+    wa, wb = tl["windows"]
+    joint = status = left = None
+    if wa and wb and tl["same_window"]:
+        s, e = max(wa[0], wb[0]), min(wa[1], wb[1])
+        joint = (s, e)
+        if e < as_of:
+            status = "past"
+        elif s <= as_of:
+            status = "open"
+            left = max(1, round((e - as_of).days / 30.44))
+        else:
+            status = "future"
+    past_sides = [side for side, w in (("a", wa), ("b", wb)) if w and w[1] < as_of]
+    return {"joint": joint, "status": status, "months_left": left, "as_of": as_of, "past_sides": past_sides}
+
+
+def _facts(st, pa, pb, rec, est, tl, rank, split, as_of: date) -> tuple[list[dict], dict]:
+    """The fact sheet: every figure the draft may use, each with its source."""
+    facts: list[dict] = []
+    src_a, src_b = _filing_source(st, pa), _filing_source(st, pb)
+    js = _joint_status(tl, as_of)
+
+    def add(key, text, value=None, unit=None, source=None):
+        facts.append({"key": key, "text": text, "value": value, "unit": unit, "source": source or ENGINE_SOURCE})
+
+    add("as_of", f"This draft is dated {_day(as_of)}: any date before it has passed", as_of.isoformat(), "date")
+    for side, p, src in (("a", pa, src_a), ("b", pb, src_b)):
+        who = SHORT.get(p["utility"], p["utility"])
+        add(f"{side}.utility", f"Utility {side.upper()}: {p.get('utility_name') or gl.UTILITIES[p['utility']][0]} ({p['utility']})", p["utility"], None, src)
+        add(f"{side}.project", f"{who}'s project {p['id']}: {p.get('name')}", p.get("name"), None, src)
+        kv = _kv_text(p)
+        if kv:
+            add(f"{side}.kv", f"{who}'s project is {kv} {KIND_WORDS.get(p.get('kind'), 'grid work')}", p.get("kv"), "kV", src)
+        places = _places(p)
+        if places:
+            add(f"{side}.places", f"{who}'s project names {', '.join(places)} ({p.get('state') or ''})".replace(" ()", ""), places, None, src)
+        ins = gl._date(p.get("in_service"))
+        if ins:
+            raw = p.get("in_service_raw")
+            add(f"{side}.in_service", f"{who}'s planned in-service date: {_day(ins)}" + (f" (filed as {raw})" if raw and raw != p.get("in_service") else ""), p.get("in_service"), "date", src)
+        fs = _filing_source(st, p)
+        add(f"{side}.filed_at", f"{who}'s project is listed in {fs['label']}", fs.get("page"), None, src)
+        if p.get("status"):
+            add(f"{side}.status", f"{who}'s project status as filed: {p['status']}", p["status"], None, src)
+        if isinstance(p.get("miles"), (int, float)):
+            add(f"{side}.miles", f"{who}'s project length as filed: {p['miles']:g} mi", p["miles"], "mi", src)
+        if p.get("cost_usd"):
+            add(f"{side}.cost", f"{who}'s filed estimated project cost: {_usd(p['cost_usd'])} ({p['cost_usd']:,.0f} USD)", p["cost_usd"], "USD", src)
+        elif p["utility"] in gl.GEORGIA_ITS:
+            add(f"{side}.cost", f"{who}'s project cost is redacted in the public filing", None, None, src)
+        if p.get("teams_no"):
+            add(f"{side}.teams_no", f"{who}'s TEAMS project number: {p['teams_no']}", p["teams_no"], None, src)
+        if p.get("description"):
+            add(f"{side}.description", f"{who}'s filed description: {p['description']}", None, None, src)
+        add(
+            f"{side}.confidence",
+            f"{p['id']} was placed on the map with {p.get('confidence') or 'low'} confidence (from name matches on OpenStreetMap)",
+            p.get("confidence") or "low",
+            None,
+            ENGINE_SOURCE,
+        )
+        w = tl["windows"][0 if side == "a" else 1]
+        if w:
+            assumed = gl._window_assumed(p)
+            add(
+                f"{side}.window",
+                f"{who}'s build window: {_month(w[0])} to {_month(w[1])} ({'derived: ' if assumed else ''}{w[2]})",
+                [w[0].isoformat(), w[1].isoformat()],
+                "dates",
+                src if not assumed else ENGINE_SOURCE,
+            )
+            if side in js["past_sides"]:
+                add(
+                    f"{side}.window_past",
+                    f"As filed, {who}'s build window ended {_month(w[1])}, before this draft's date: the project's current status is not in the filing",
+                    w[1].isoformat(),
+                    "date",
+                )
+
+    km, mi = rec["distance_km"], rec["distance_mi"]
+    add(
+        "pair.distance",
+        "The two projects cross" if rec["crosses"] else f"Closest points {_num(km)} km ({_num(mi)} mi) apart",
+        km,
+        "km",
+    )
+    add("pair.distance_mi", f"Closest points {_num(mi)} mi apart", mi, "mi")
+    add("pair.center_mi", f"Centers {_num(rec['center_distance_mi'])} mi apart (Sperry's center method)", rec["center_distance_mi"], "mi")
+    add("pair.tier", f"Distance tier: {rec['tier_label']} ({gl.TIER_BY_ID[rec['tier']][5]})", rec["tier_label"])
+    if js["status"] == "past":
+        s, e = js["joint"]
+        years = f"{s.year}" if s.year == e.year else f"{s.year}-{e.year}"
+        add(
+            "pair.share",
+            f"What the distance allows them to share: {_share_base(rec)}; as filed, both were to be under construction in {years}, a period that has passed",
+            rec["share"],
+        )
+    else:
+        add("pair.share", f"What the distance and timing allow them to share: {rec['share']}", rec["share"])
+    add("pair.score", f"Coordination score {rec['score']:g} out of 100", rec["score"])
+    if rank:
+        add(
+            "pair.rank",
+            f"Ranked #{rank['rank']} of {rank['of']} flagged {SHORT.get(rank['a'], rank['a'])} x {SHORT.get(rank['b'], rank['b'])} pairs within {rank['max_km']:g} km",
+            rank["rank"],
+        )
+    if rec.get("sperry"):
+        add("pair.sperry", f"One of the six overlaps in Sperry's worked example ({rec['sperry']})", rec["sperry"])
+    if tl["time_gap_days"] is not None:
+        add("pair.gap_days", f"In service {tl['time_gap_days']:,} days apart", tl["time_gap_days"], "days")
+    wa, wb = tl["windows"]
+    joint = js["joint"]
+    if joint:
+        s, e = joint
+        months_ov = tl["windows_overlap_months"]
+        span = [s.isoformat(), e.isoformat()]
+        if js["status"] == "past":
+            add("pair.joint_window", f"As filed, both build windows were open {_month(s)} to {_month(e)}, a period that has passed", span, "dates")
+            add("pair.overlap_months", f"As filed, the build windows overlapped by {months_ov:g} months", months_ov, "months")
+        elif js["status"] == "open":
+            add("pair.joint_window", f"Both build windows have been open since {_month(s)} and run to {_month(e)}", span, "dates")
+            add("pair.overlap_months", f"The build windows overlap by {months_ov:g} months", months_ov, "months")
+            add("pair.months_left", f"About {js['months_left']} months of the shared window are left, to {_month(e)}", js["months_left"], "months")
+        else:
+            add("pair.joint_window", f"Both build windows are open {_month(s)} to {_month(e)}", span, "dates")
+            add("pair.overlap_months", f"The build windows overlap by {months_ov:g} months", months_ov, "months")
+    elif wa and wb:
+        gap = tl["window_gap_days"] or 0
+        add("pair.window_gap", f"The build windows don't overlap: {gl._span(gap)} apart", gap, "days")
+    if est.get("shared_km"):
+        add("pair.shared_km", f"{_num(est['shared_km'])} km of the two routes run within 1.6 km of each other", est["shared_km"], "km")
+
+    for it in est.get("items") or []:
+        unit = it.get("unit")
+        rng = _usd_range(it["low"], it["high"]) if unit == "USD" else f"{it['low']:g}-{it['high']:g} {unit}"
+        add(f"save.{it['id']}", f"{it['label']}: {rng} ({it['basis']})", [it["low"], it["high"]], unit, _est_source(it.get("source")))
+    add(
+        "save.total",
+        f"Rough estimate of what sharing could save: {_usd_range(est.get('total_low'), est.get('total_high'))}",
+        [est.get("total_low"), est.get("total_high")],
+        "USD",
+        ESTIMATE_SOURCE,
+    )
+    for c in est.get("context") or []:
+        side = "a" if c["project"] == pa["id"] else "b"
+        if c.get("cost_low") is not None and not (side == "a" and pa.get("cost_usd")) and not (side == "b" and pb.get("cost_usd")):
+            add(f"{side}.scale", f"Rough scale of {c['project']}: {_usd_range(c['cost_low'], c['cost_high'])} ({c['basis']})", [c["cost_low"], c["cost_high"]], "USD", _est_source(c.get("source")))
+
+    add("split.rule", split["rule"], split["pct"], "%", PROPOSAL_SOURCE)
+    if pa["utility"] == "DESC" and pb["utility"] in SERTP_MEMBERS or pb["utility"] == "DESC" and pa["utility"] in SERTP_MEMBERS:
+        add("forum.sertp", "Sperry's brief: Georgia Power is a founding sponsor of SERTP (Southeastern Regional Transmission Planning) and DESC is joining it", None, None, BRIEF_SOURCE)
+    return facts, js
+
+
+def _share_base(rec: dict) -> str:
+    """gridlock's own share line for the tier, without the timing clause (for a window that has passed)."""
+    return gl.SHARE_LINE.get(rec["tier"], rec["share"])
+
+
+def _lc(s: str) -> str:
+    return s[:1].lower() + s[1:]
+
+
+# ----------------------------------------------------------------------------- the template draft
+
+
+def _it(text: str, *keys: str) -> dict:
+    return {"text": text, "facts": [k for k in keys if k]}
+
+
+def _template(pa, pb, rec, est, tl, rank, split, facts, extra) -> dict:
+    have = {f["key"] for f in facts}
+    k = lambda key: key if key in have else None  # noqa: E731  (cite only facts that exist)
+    A, B = SHORT.get(pa["utility"], pa["utility"]), SHORT.get(pb["utility"], pb["utility"])
+    na, nb = _display_name(pa.get("name") or pa["id"]), _display_name(pb.get("name") or pb["id"])
+    ka, kb = _kv_text(pa), _kv_text(pb)
+    joint, status, left = extra["joint"], extra["status"], extra["months_left"]
+    wa, wb = tl["windows"]
+    # the as-of rule: a filed window that ended before the draft's date is said as past, never proposed
+    ended = status == "past" or (not joint and bool(extra["past_sides"]))
+    past_keys = [k(f"{s}.window_past") for s in extra["past_sides"]]
+    ended_text = " and ".join(
+        f"{SHORT.get(p['utility'], p['utility'])}'s build window ended {_month(w[1])}" for s, p, w in (("a", pa, wa), ("b", pb, wb)) if s in extra["past_sides"]
+    )
+    km, mi = rec["distance_km"], rec["distance_mi"]
+    where = "cross each other" if rec["crosses"] else f"come within {_num(km)} km ({_num(mi)} mi) of each other"
+    if joint and status == "past":
+        when = f"as filed, their build windows were both open from {_month(joint[0])} to {_month(joint[1])} ({tl['windows_overlap_months']:g} months), a period that has passed"
+    elif joint and status == "open":
+        when = f"their build windows have both been open since {_month(joint[0])} and run to {_month(joint[1])} (about {left} months left)"
+    elif joint:
+        when = f"their build windows are both open from {_month(joint[0])} to {_month(joint[1])} ({tl['windows_overlap_months']:g} months)"
+    elif tl["window_gap_days"] is not None:
+        when = f"their build windows are {gl._span(tl['window_gap_days'])} apart"
+    else:
+        when = "their timing is not in both filings"
+    share = (
+        f"If both projects still have work ahead, they could share {_lc(_share_base(rec))}."
+        if ended
+        else f"This draft proposes that the two projects could share {_lc(rec['share'])}."
+    )
+    total = _usd_range(est.get("total_low"), est.get("total_high"))
+    summary = _it(
+        f"{A}'s {na} ({', '.join(x for x in (ka, KIND_WORDS.get(pa.get('kind'))) if x)}) and {B}'s {nb} "
+        f"({', '.join(x for x in (kb, KIND_WORDS.get(pb.get('kind'))) if x)}) {where}, and {when}. "
+        f"{share} "
+        f"The rough estimate of what that could save is {total}.",
+        "a.project", k("a.kv"), "b.project", k("b.kv"), "pair.distance", k("pair.distance_mi"), k("pair.joint_window"), k("pair.overlap_months"),
+        k("pair.months_left"), k("pair.window_gap"), "pair.share", "save.total",
+    )
+    scope = [
+        _it(
+            f"{gl.TIER_BY_ID[rec['tier']][4]}: {_lc(_share_base(rec))}, if both projects still have work ahead."
+            if ended
+            else f"{gl.TIER_BY_ID[rec['tier']][4]}: {_lc(rec['share'])}.",
+            "pair.tier", "pair.share",
+        )
+    ]
+    for it in est.get("items") or []:
+        rng = _usd_range(it["low"], it["high"]) if it["unit"] == "USD" else f"{it['low']:g}-{it['high']:g} {it['unit']}"
+        needs = f" Needs {it['needs']}." if it.get("needs") else ""
+        scope.append(_it(f"{it['label']}: {rng}.{needs}", f"save.{it['id']}"))
+    why = [
+        _it(
+            ("The two projects cross" if rec["crosses"] else f"Closest points {_num(km)} km ({_num(mi)} mi) apart")
+            + f"; centers {_num(rec['center_distance_mi'])} mi apart (Sperry's center method).",
+            "pair.distance", "pair.center_mi",
+        ),
+        _it(
+            (
+                f"As filed, the build windows overlapped by {tl['windows_overlap_months']:g} months ({_month(joint[0])} to {_month(joint[1])}), a period that has passed"
+                if joint and status == "past"
+                else f"Build windows overlap by {tl['windows_overlap_months']:g} months ({_month(joint[0])} to {_month(joint[1])}); the shared window is already open, about {left} months left"
+                if joint and status == "open"
+                else f"Build windows overlap by {tl['windows_overlap_months']:g} months ({_month(joint[0])} to {_month(joint[1])})"
+                if joint
+                else (f"Build windows don't overlap ({gl._span(tl['window_gap_days'])} apart)" if tl["window_gap_days"] is not None else "Timing unknown: at least one filing gives no in-service date")
+            )
+            + (f"; in service {tl['time_gap_days']:,} days apart." if tl["time_gap_days"] is not None else "."),
+            k("pair.overlap_months"), k("pair.joint_window"), k("pair.months_left"), k("pair.window_gap"), k("pair.gap_days"),
+        ),
+        _it(
+            f"Locations: {pa['id']} {pa.get('confidence') or 'low'} confidence, {pb['id']} {pb.get('confidence') or 'low'} confidence (placed from name matches on OpenStreetMap; the real routes are not public).",
+            "a.confidence", "b.confidence",
+        ),
+    ]
+    if rank:
+        why.append(_it(f"Ranked #{rank['rank']} of {rank['of']} flagged {A} x {B} pairs within {rank['max_km']:g} km (coordination score {rec['score']:g} out of 100).", "pair.rank", "pair.score"))
+    if rec.get("sperry"):
+        why.append(_it(f"One of the six overlaps in Sperry's worked example ({rec['sperry']}), found here from the raw filings.", "pair.sperry"))
+
+    # who does what: the project further along (earlier build start) hosts what is shared
+    a_first = not (wa and wb) or wa[0] <= wb[0]
+    host, guest = (pa, pb) if a_first else (pb, pa)
+    H, G = SHORT.get(host["utility"], host["utility"]), SHORT.get(guest["utility"], guest["utility"])
+    hs, gs = ("a", "b") if a_first else ("b", "a")
+    during = (
+        "if both projects still have work ahead"
+        if ended
+        else "during the months left in the joint window"
+        if status == "open"
+        else "during the joint window"
+        if joint
+        else "if the schedules can be aligned"
+    )
+    hosted = {
+        "touching": "would draft the one outage plan and the structure design where the projects meet",
+        "row": "would lead right-of-way, access and permitting along the shared stretch",
+        "site": "would host the shared laydown yard and material deliveries",
+        "crews": "would host the shared mobilization of line crews and heavy equipment",
+    }[rec["tier"]]
+    joined = {
+        "touching": "would review that plan and schedule its own outages inside it",
+        "row": "would share its survey and routing data for the shared stretch",
+        "site": f"would stage its materials in the shared yard {during}",
+        "crews": f"would bring its work into the shared mobilization {during}",
+    }[rec["tier"]]
+
+    def own(p, side):
+        bits = [x for x in (_kv_text(p), KIND_WORDS.get(p.get("kind"))) if x]
+        extra_bits = []
+        if isinstance(p.get("miles"), (int, float)):
+            extra_bits.append(f"{p['miles']:g} mi")
+        ins = gl._date(p.get("in_service"))
+        if ins:
+            extra_bits.append(f"in service {_day(ins)} as filed")
+        return _it(
+            f"Leads its own project, {_display_name(p.get('name') or p['id'])} ({', '.join(bits)}{'; ' + ', '.join(extra_bits) if extra_bits else ''}).",
+            f"{side}.project", k(f"{side}.kv"), k(f"{side}.miles"), k(f"{side}.in_service"),
+        )
+
+    host_w = wa if host is pa else wb
+    first_why = (
+        ("its build window started first" if host_w[0] < extra["as_of"] else "its build window starts first") if (wa and wb) else "a shared effort needs one host"
+    )
+    roles = [
+        {"party": host["utility"], "name": host.get("utility_name"), "side": hs, "does": [own(host, hs), _it(f"{H} {hosted}, because {first_why}.", "pair.tier", k(f"{hs}.window"), k(f"{gs}.window"))]},
+        {"party": guest["utility"], "name": guest.get("utility_name"), "side": gs, "does": [own(guest, gs), _it(f"{G} {joined}.", "pair.tier", k("pair.joint_window"))]},
+        {
+            "party": "both",
+            "name": "Both utilities",
+            "side": "both",
+            "does": [
+                _it("Each names a coordination contact (this draft names no one) and shares its detailed construction schedule.", None),
+                _it("Together they confirm which of the estimate's shared items apply and refine them with their own costs.", "save.total"),
+            ],
+        },
+    ]
+    if host is pb:
+        roles = [roles[1], roles[0], roles[2]]  # keep A before B on the page
+
+    if joint and status == "past":
+        jw_text = (
+            f"As filed, both build windows were open {_month(joint[0])} to {_month(joint[1])}; that period has passed, so these filings can't support a joint window. "
+            "Each project's current status, which the filings don't give, would decide whether any shared work is still ahead."
+        )
+        jw_facts = ["pair.joint_window", "pair.overlap_months", *past_keys, k("a.window"), k("b.window")]
+    elif joint and status == "open":
+        jw_text = (
+            f"The joint window is already open: both build windows have run since {_month(joint[0])}, with about {left} months left, to {_month(joint[1])}. "
+            "Crews, equipment and any outages still ahead on both projects would be scheduled together inside it."
+        )
+        jw_facts = ["pair.joint_window", "pair.months_left", "pair.overlap_months", k("a.window"), k("b.window")]
+    elif joint:
+        jw_text = (
+            f"Proposed joint window: {_month(joint[0])} to {_month(joint[1])}, the {tl['windows_overlap_months']:g} months both build windows share. "
+            "Crews, equipment and any outages on both projects would be scheduled together inside it."
+        )
+        jw_facts = ["pair.joint_window", "pair.overlap_months", k("a.window"), k("b.window")]
+    elif wa and wb and ended:
+        jw_text = (
+            f"The build windows don't overlap: they are {gl._span(tl['window_gap_days'] or 0)} apart. As filed, {ended_text}, so these filings can't support a joint window; "
+            "each project's current status comes first."
+        )
+        jw_facts = [k("pair.window_gap"), *past_keys, k("a.window"), k("b.window")]
+    elif wa and wb:
+        jw_text = (
+            f"The build windows don't overlap: they are {gl._span(tl['window_gap_days'] or 0)} apart. A joint window would need one schedule to move, "
+            "which only the utilities can judge; this draft proposes comparing detailed schedules first."
+        )
+        jw_facts = [k("pair.window_gap"), k("a.window"), k("b.window")]
+    else:
+        jw_text = "At least one filing gives no in-service date, so no joint window can be proposed yet; this draft proposes comparing schedules first."
+        jw_facts = []
+    assumed = [s for s, p in (("a", pa), ("b", pb)) if gl._window_assumed(p) and (wa if s == "a" else wb)]
+    if assumed:
+        jw_text += " " + " ".join(
+            f"{SHORT.get(p['utility'], p['utility'])}'s build start is not filed, so its window is derived ({(wa if s == 'a' else wb)[2]})."
+            for s, p in (("a", pa), ("b", pb))
+            if s in assumed
+        )
+
+    steps = [
+        _it(
+            f"Each utility checks this draft's project data against its own filing: {A}'s {_filing_source_label(pa)}, {B}'s {_filing_source_label(pb)}.",
+            "a.filed_at", "b.filed_at",
+        ),
+        _it(
+            f"Confirm where the projects run: they were placed from name matches ({_conf_pair(pa, pb)}), and the real routes are not public.",
+            "a.confidence", "b.confidence",
+        ),
+        (
+            _it(f"Check each project's current status: the filed build windows shared {_month(joint[0])} to {_month(joint[1])}, and that period has passed.", "pair.joint_window", *past_keys)
+            if joint and status == "past"
+            else _it(f"Compare detailed construction schedules for the months left in the joint window, to {_month(joint[1])}.", "pair.joint_window", "pair.months_left")
+            if joint and status == "open"
+            else _it(f"Compare detailed construction schedules for {_month(joint[0])} to {_month(joint[1])}.", "pair.joint_window")
+            if joint
+            else _it(f"Check each project's current status: as filed, {ended_text}.", *past_keys)
+            if ended
+            else _it("Compare detailed construction schedules to see whether either could move.", None)
+        ),
+        _it(f"Replace the planning-level savings range ({total}) with the utilities' own cost figures.", "save.total"),
+    ]
+    if "forum.sertp" in have:
+        steps.append(_it("Raise the overlap in regional planning: Sperry's brief notes Georgia Power is a founding sponsor of SERTP and DESC is joining it.", "forum.sertp"))
+    steps.append(_it("If it holds up, the utilities write and approve their own coordination agreement; this draft is only a starting point.", None))
+
+    return {
+        "summary": summary,
+        "scope": scope,
+        "why": why,
+        "roles": roles,
+        "joint_window_text": _it(jw_text, *jw_facts),
+        "cost_split_text": _it(split["rationale"], "split.rule", k("a.miles"), k("b.miles")),
+        "next_steps": steps,
+    }
+
+
+def _conf_pair(pa: dict, pb: dict) -> str:
+    ca, cb = pa.get("confidence") or "low", pb.get("confidence") or "low"
+    return f"both {ca} confidence" if ca == cb else f"{ca} and {cb} confidence"
+
+
+def _filing_source_label(p: dict) -> str:
+    prov = p.get("provenance") or {}
+    page, detail = prov.get("page"), prov.get("detail_page")
+    if prov.get("source") == "desc":
+        return f"project list page {page}" if page else "project list"
+    if prov.get("source") == "ga_irp":
+        return f"2025 IRP Volume 3 page {page}" + (f" (detail page {detail})" if detail else "") if page else "2025 IRP Volume 3"
+    return "worked example row" if prov.get("source") == "sperry_example" else "filing"
+
+
+def _conditions(pa, pb, facts) -> list[dict]:
+    have = {f["key"] for f in facts}
+    out = [
+        _it(DISCLAIMER + " Nothing here states what either utility plans or has done.", None),
+        _it("Savings are planning-level ranges from public unit costs (MISO cost guides, USDA land values), not bids; local costs differ.", "save.total"),
+        _it(f"Locations come from name matches on OpenStreetMap ({_conf_pair(pa, pb)}); straight lines stand in for routes that are not public.", "a.confidence", "b.confidence"),
+    ]
+    if "a.cost" in have and pa.get("cost_usd") is None or "b.cost" in have and pb.get("cost_usd") is None:
+        out.append(_it("Georgia's project costs are redacted in the public filing; only unredacted fields are used.", "a.cost" if pa.get("cost_usd") is None else "b.cost"))
+    out.append(_it("The cost split is a rule this draft proposes, not a figure from either filing.", "split.rule"))
+    return out
+
+
+# ----------------------------------------------------------------------------- Gemini
+
+AI_SYSTEM = (
+    "You draft a short coordination proposal between two electric utilities, working only from a fact sheet computed from "
+    "their public transmission construction filings. It is a DRAFT FOR DISCUSSION, not an agreement: never say the utilities "
+    "agreed, committed, decided, failed, refused or did anything; write 'could', 'would', 'proposed'. Never judge either utility. "
+    "Use ONLY the facts given. Every number you write (money, km, miles, kV, dates, years, months, days, percentages, counts, "
+    "project numbers) must be copied from a fact; round only the way a person would ('about 15 km'). Do not invent people, names, "
+    "contacts, emails, phone numbers, prices, dates, outages or commitments. No URLs, no markdown, sentence case, short sentences. "
+    "Money only as the dollar amounts in the facts; a percentage only as the proposed split in split.rule. "
+    "The as_of fact is today's date. A filed date or window that ended before it has passed: say it as filed and past "
+    "('as filed, both windows were open Jun 2025 to Aug 2026; that period has passed'), never propose it or ask anyone to plan inside it; "
+    "for a passed window the next step is to check each project's current status. A window that has started but not ended is open now: "
+    "say so and give the months left (pair.months_left). "
+    "For every item, list the keys of the facts it uses."
+)
+
+_ITEM = {"type": "object", "properties": {"text": {"type": "string"}, "facts": {"type": "array", "items": {"type": "string"}}}, "required": ["text", "facts"]}
+AI_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": _ITEM,
+        "scope": {"type": "array", "items": _ITEM},
+        "why": {"type": "array", "items": _ITEM},
+        "roles_a": {"type": "array", "items": _ITEM},
+        "roles_b": {"type": "array", "items": _ITEM},
+        "roles_both": {"type": "array", "items": _ITEM},
+        "cost_split": _ITEM,
+        "next_steps": {"type": "array", "items": _ITEM},
+    },
+    "required": ["summary", "scope", "why", "roles_a", "roles_b", "roles_both", "cost_split", "next_steps"],
+}
+_NONE = {"_none": True}
+
+
+def _prompt(facts: list[dict], pa: dict, pb: dict, rec: dict, lang: str, tpl: dict, status: str | None = None, past_sides: list | None = None) -> str:
+    lines = "\n".join(f"- {f['key']}: {f['text']}" for f in facts)
+    a_name = f"{pa.get('utility_name')} ({pa['utility']})"
+    b_name = f"{pb.get('utility_name')} ({pb['utility']})"
+    language = "Spanish (numbers in the same digits as the facts)" if lang == "es" else "English"
+    as_of = next((f["value"] for f in facts if f["key"] == "as_of"), None)
+    timing = {
+        "past": "The joint window in the filings ENDED before today: say it only as filed and past; the next steps check each project's current status.",
+        "open": "The joint window is OPEN NOW (it started before today): say so and give the months left.",
+        "future": "The joint window starts after today: it can be proposed.",
+    }.get(status) or (
+        "At least one filed build window ended before today: say it as filed and past." if past_sides else "The build windows don't share any months."
+    )
+    return (
+        f"Today (as_of): {as_of}. {timing}\n"
+        f"Utility A: {a_name}, project {pa['id']}. Utility B: {b_name}, project {pb['id']}.\n"
+        f"Overlap tier: {rec['tier_label']}.\n\nFACTS (key: text):\n{lines}\n\n"
+        f"Write the draft in {language} as JSON with these fields, each item {{\"text\", \"facts\": [keys]}}:\n"
+        "- summary: 2-3 sentences: the two projects, why they overlap (distance, timing), what they could share and the savings range.\n"
+        "- scope: 2-5 items: what the two projects could share (use the pair.share, pair.tier and save.* facts).\n"
+        "- why: 2-4 items: why this pair (distance, timing, location confidence, rank).\n"
+        f"- roles_a: 1-3 items: what {pa['utility']} would do. roles_b: 1-3 items: what {pb['utility']} would do. "
+        "roles_both: 1-3 items: what both would do (each names a contact, shares schedules; name no one).\n"
+        "- cost_split: 1-2 sentences explaining the proposed split in split.rule (a proposal, not a fact).\n"
+        "- next_steps: 3-5 items, starting with each utility checking the draft against its own filing.\n"
+        "Keep each item under 300 characters and don't repeat a figure within one item.\n"
+        f"The plain version, for reference (improve its wording, keep its facts and its roles):\nSummary: {tpl['summary']['text']}\n"
+        + "\n".join(f"Role of {r['party']}: " + " ".join(it["text"] for it in r["does"]) for r in tpl["roles"])
+    )
+
+
+def _clean_item(raw, keys: set[str], facts: list[dict], allowed: set[str], where: str, rejected: list, max_chars: int = MAX_ITEM_CHARS) -> dict | None:
+    if not isinstance(raw, dict):
+        rejected.append({"where": where, "text": str(raw)[:200], "reason": "not an item"})
+        return None
+    text = raw.get("text")
+    text = text.strip() if isinstance(text, str) else ""
+    ok, reason, _ = check_text(text, facts, allowed, max_chars)
+    if not ok:
+        rejected.append({"where": where, "text": text[:300], "reason": reason})
+        return None
+    cited = [k for k in (raw.get("facts") or []) if isinstance(k, str) and k in keys]
+    return {"text": text, "facts": list(dict.fromkeys(cited))}
+
+
+def _clean_ai(raw: dict, facts: list[dict], tpl: dict, pa: dict, pb: dict) -> tuple[dict | None, list, str | None]:
+    """Gemini's draft, item by item through the checker. Returns (parts or None, rejected, why it fell back)."""
+    rejected: list = []
+    if not isinstance(raw, dict) or raw.get("_none"):
+        return None, rejected, "no answer"
+    keys = {f["key"] for f in facts}
+    allowed = allowed_numbers(facts)
+    total = 0
+
+    def one(name, max_chars=MAX_ITEM_CHARS):
+        nonlocal total
+        total += 1
+        return _clean_item(raw.get(name), keys, facts, allowed, name, rejected, max_chars)
+
+    def many(name, lo, hi):
+        nonlocal total
+        items = raw.get(name) if isinstance(raw.get(name), list) else []
+        out = []
+        for n, r in enumerate(items[:hi]):
+            total += 1
+            c = _clean_item(r, keys, facts, allowed, f"{name}[{n}]", rejected)
+            if c:
+                out.append(c)
+        return out if len(out) >= lo else None
+
+    summary = one("summary", MAX_SUMMARY_CHARS)
+    cost = one("cost_split")
+    parts = {
+        "summary": summary,
+        "cost_split_text": cost,
+        "scope": many("scope", 1, 6),
+        "why": many("why", 1, 5),
+        "roles_a": many("roles_a", 1, 4),
+        "roles_b": many("roles_b", 1, 4),
+        "roles_both": many("roles_both", 0, 4) or [],
+        "next_steps": many("next_steps", 2, 6),
+    }
+    if summary is None:
+        return None, rejected, "its summary failed the checks"
+    if cost is None:
+        return None, rejected, "its cost-split sentence failed the checks"
+    empty = [k for k in ("scope", "why", "roles_a", "roles_b", "next_steps") if not parts[k]]
+    if empty:
+        return None, rejected, f"too little survived the checks in: {', '.join(empty)}"
+    if total and len(rejected) > total / 3:
+        return None, rejected, f"{len(rejected)} of {total} items failed the checks"
+    return parts, rejected, None
+
+
+def _assemble(pa, pb, rec, est, tl, split, facts, extra, parts: dict, lang: str) -> dict:
+    """The draft document: Gemini's or the template's words around the engine's structure."""
+    A, B = SHORT.get(pa["utility"], pa["utility"]), SHORT.get(pb["utility"], pb["utility"])
+    na, nb = _display_name(pa.get("name") or pa["id"]), _display_name(pb.get("name") or pb["id"])
+    wa, wb = tl["windows"]
+    joint = extra["joint"]
+    roles = parts["roles"]
+    title = (
+        f"Borrador de propuesta de coordinación: {na} ({A}) y {nb} ({B})" if lang == "es" and parts.get("by") == "gemini" else f"Draft coordination proposal: {na} ({A}) and {nb} ({B})"
+    )
+    return {
+        "title": title,
+        "parties": [
+            {"side": "a", "code": pa["utility"], "name": pa.get("utility_name"), "short": A, "project_id": pa["id"], "project": na},
+            {"side": "b", "code": pb["utility"], "name": pb.get("utility_name"), "short": B, "project_id": pb["id"], "project": nb},
+        ],
+        "summary": parts["summary"],
+        "sections": [
+            {"id": "scope", "heading": "Compartido" if lang == "es" and parts.get("by") == "gemini" else "Shared scope", "items": parts["scope"]},
+            {"id": "why", "heading": "Por qué estos dos proyectos" if lang == "es" and parts.get("by") == "gemini" else "Why these two projects", "items": parts["why"]},
+        ],
+        "joint_window": {
+            "overlap": bool(joint),
+            # the as-of rule: 'past' = the filings' shared months ended before the draft's date (not proposed),
+            # 'open' = started, months_left to go, 'future' = proposed as is, None = no shared months
+            "status": extra["status"],
+            "proposed": extra["status"] in ("open", "future"),
+            "as_of": extra["as_of"].isoformat(),
+            "months_left": extra["months_left"],
+            "past_sides": extra["past_sides"],
+            "start": joint[0].isoformat() if joint else None,
+            "end": joint[1].isoformat() if joint else None,
+            "months": tl["windows_overlap_months"] if joint else 0,
+            "gap_days": tl["window_gap_days"],
+            "a": {"start": wa[0].isoformat(), "end": wa[1].isoformat(), "basis": wa[2], "assumed": gl._window_assumed(pa)} if wa else None,
+            "b": {"start": wb[0].isoformat(), "end": wb[1].isoformat(), "basis": wb[2], "assumed": gl._window_assumed(pb)} if wb else None,
+            **parts["joint_window_text"],
+        },
+        "roles": roles,
+        "cost_split": {
+            "basis": split["basis"],
+            "rule": split["rule"],
+            "rationale": parts["cost_split_text"]["text"],
+            "facts": parts["cost_split_text"]["facts"],
+            "shares": [
+                {"side": "a", "party": pa["utility"], "short": A, "pct": split["pct"][0], "miles": split["miles"][0]},
+                {"side": "b", "party": pb["utility"], "short": B, "pct": split["pct"][1], "miles": split["miles"][1]},
+            ],
+            "proposal": True,
+        },
+        "savings": {
+            "label": est.get("label") or "Rough estimate",
+            "low": est.get("total_low"),
+            "high": est.get("total_high"),
+            "unit": est.get("unit") or "USD",
+            "items": est.get("items") or [],
+            "context": est.get("context") or [],
+            "assumptions": est.get("assumptions") or [],
+            "sources": est.get("sources") or [],
+            "basis": "The Build plans module's rough estimate for this pair (backend/gridlock.py): public unit costs, each item with its basis and source.",
+            "facts": ["save.total"],
+        },
+        "next_steps": parts["next_steps"],
+        "conditions": _conditions(pa, pb, facts),
+    }
+
+
+def _roles_from_ai(parts: dict, tpl_roles: list, pa: dict, pb: dict) -> list:
+    by_side = {r["side"]: r for r in tpl_roles}
+    out = [
+        {**by_side["a"], "does": parts["roles_a"]},
+        {**by_side["b"], "does": parts["roles_b"]},
+        {**by_side["both"], "does": parts["roles_both"] or by_side["both"]["does"]},
+    ]
+    return out
+
+
+def _verify_template(tpl: dict, facts: list[dict]) -> list:
+    """The template goes through the same checker; a failure here is a bug, logged and reported."""
+    allowed = allowed_numbers(facts)
+    bad = []
+    items = [("summary", tpl["summary"]), ("joint_window", tpl["joint_window_text"]), ("cost_split", tpl["cost_split_text"])]
+    items += [(f"scope[{n}]", x) for n, x in enumerate(tpl["scope"])] + [(f"why[{n}]", x) for n, x in enumerate(tpl["why"])]
+    items += [(f"next_steps[{n}]", x) for n, x in enumerate(tpl["next_steps"])]
+    for r in tpl["roles"]:
+        items += [(f"roles.{r['side']}[{n}]", x) for n, x in enumerate(r["does"])]
+    for where, it in items:
+        ok, reason, _ = check_text(it["text"], facts, allowed)
+        if not ok:
+            bad.append({"where": where, "text": it["text"][:300], "reason": reason})
+    return bad
+
+
+def draft_texts(doc: dict) -> list[tuple[str, str]]:
+    """Every sentence a draft shows, with where it sits (for the checker and the smoke test)."""
+    d = doc["draft"]
+    out = [("summary", d["summary"]["text"]), ("joint_window", d["joint_window"]["text"]), ("cost_split", d["cost_split"]["rationale"])]
+    for s in d["sections"]:
+        out += [(f"{s['id']}[{n}]", it["text"]) for n, it in enumerate(s["items"])]
+    for r in d["roles"]:
+        out += [(f"roles.{r['side']}[{n}]", it["text"]) for n, it in enumerate(r["does"])]
+    out += [(f"next_steps[{n}]", it["text"]) for n, it in enumerate(d["next_steps"])]
+    out += [(f"conditions[{n}]", it["text"]) for n, it in enumerate(d["conditions"])]
+    return out
+
+
+# ----------------------------------------------------------------------------- the route
+
+
+def _base(overlap_id: str, months: int, as_of: date | None = None) -> dict:
+    """Everything but the words: the overlap, the facts, the template draft (computed, cheap, sync).
+    as_of is the draft's date (today): a filed window that ended before it is said as past."""
+    as_of = as_of or date.today()
+    st, pa, pb, rec, est, tl, rank = _resolve(overlap_id, months)
+    split = _split(pa, pb)
+    facts, extra = _facts(st, pa, pb, rec, est, tl, rank, split, as_of)
+    tpl = _template(pa, pb, rec, est, tl, rank, split, facts, extra)
+    wa, wb = tl["windows"]
+    overlap = {
+        "id": rec["id"],
+        "tier": rec["tier"],
+        "tier_label": rec["tier_label"],
+        "distance_km": rec["distance_km"],
+        "distance_mi": rec["distance_mi"],
+        "center_distance_mi": rec["center_distance_mi"],
+        "crosses": rec["crosses"],
+        "closest_points": rec["closest_points"],
+        "time_gap_days": rec["time_gap_days"],
+        "windows_overlap_months": rec["windows_overlap_months"],
+        "window_gap_days": rec["window_gap_days"],
+        "same_window": rec["same_window"],
+        "score": rec["score"],
+        "rank": rank,
+        "share": rec["share"],
+        "sperry": rec.get("sperry"),
+        "reasons": rec["reasons"],
+        "projects": [_project_view(st, pa, "a", wa), _project_view(st, pb, "b", wb)],
+    }
+    sources = []
+    seen = set()
+    for f in facts:
+        s = f["source"]
+        sid = (s.get("id"), s.get("page"))
+        if sid not in seen:
+            seen.add(sid)
+            sources.append(s)
+    return {
+        "st_key": st["key"], "pa": pa, "pb": pb, "rec": rec, "est": est, "tl": tl, "rank": rank, "split": split, "facts": facts,
+        "extra": extra, "tpl": tpl, "overlap": overlap, "sources": sources, "fallback_data": st["fallback"], "as_of": as_of,
+    }
+
+
+def _respond(b: dict, parts: dict, by: str, rejected: list, fallback_reason: str | None, lang: str, months: int, t0: float) -> dict:
+    doc = {
+        "overlap_id": b["overlap"]["id"],
+        "overlap": b["overlap"],
+        "facts": b["facts"],
+        "draft": _assemble(b["pa"], b["pb"], b["rec"], b["est"], b["tl"], b["split"], b["facts"], b["extra"], parts, lang),
+        "by": by,
+        "verified": False,
+        "rejected": rejected,
+        "stripped": len(rejected) if by == "gemini" else 0,
+        "fallback_reason": fallback_reason,
+        "lang": lang if by == "gemini" else "en",
+        "lang_requested": lang,
+        "window_months": months,
+        "disclaimer": DISCLAIMER_ES if (lang == "es" and by == "gemini") else DISCLAIMER,
+        "disclaimer_en": DISCLAIMER,
+        "sources": b["sources"],
+        "sample_data": b["fallback_data"],
+        "generated_from": "Public filings: Dominion Energy South Carolina's 2024-2028 project list (SCRTP) and the Georgia ITS 10-year plan in Georgia Power's 2025 IRP Volume 3, public-disclosure version (unredacted fields only).",
+    }
+    # the final gate: every sentence on the page, whoever wrote it, through the checker
+    allowed = allowed_numbers(b["facts"])
+    bad = [(w, t, r) for w, t in draft_texts(doc) for ok, r, _ in [check_text(t, b["facts"], allowed)] if not ok]
+    doc["verified"] = not bad
+    if bad:
+        log.warning("agreement: %d sentence(s) failed the final check: %s", len(bad), bad[:3])
+        doc["rejected"] = rejected + [{"where": w, "text": t[:300], "reason": r} for w, t, r in bad]
+    doc["ms"] = round((time.perf_counter() - t0) * 1000)
+    return doc
+
+
+def _tpl_parts(b: dict) -> dict:
+    t = b["tpl"]
+    return {**t, "roles": t["roles"], "by": "template"}
+
+
+@router.get("/api/agreement/{overlap_id}")
+@limiter.limit("30/minute")
+async def agreement(
+    request: Request,
+    overlap_id: str,
+    window_months: int = Query(gl.WINDOW_DEFAULT),
+    lang: str = Query("en"),
+    ai: bool = Query(True),
+):
+    """A draft coordination proposal for one overlap: the facts (each with its source), the draft (Gemini's
+    words when configured and every number checks out, else the template), and what the checker rejected."""
+    t0 = time.perf_counter()
+    if not (0 <= window_months <= gl.WINDOW_MAX):
+        raise HTTPException(status_code=422, detail=f"window_months must be between 0 and {gl.WINDOW_MAX}")
+    lang = (lang or "").strip().lower()
+    if lang not in LANGS:
+        raise HTTPException(status_code=422, detail="lang must be 'en' or 'es'")
+    if len(overlap_id) > 200:
+        raise HTTPException(status_code=422, detail="overlap id is too long")
+    b = await run_in_threadpool(_base, overlap_id, window_months)
+    key = (b["st_key"], b["overlap"]["id"], window_months, lang, bool(ai), b["as_of"].isoformat())
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit is not None:
+            _cache.move_to_end(key)
+    if hit is not None:
+        out = copy.deepcopy(hit)
+        out["cached"] = True
+        out["ms"] = round((time.perf_counter() - t0) * 1000)
+        return out
+
+    tpl_bad = _verify_template(b["tpl"], b["facts"])
+    if tpl_bad:
+        log.warning("agreement: template sentence(s) failed the checker for %s: %s", overlap_id, tpl_bad[:3])
+
+    if not ai:
+        out = _respond(b, _tpl_parts(b), "template", [], "Plain version requested", lang, window_months, t0)
+        cacheable = True
+    else:
+        prompt = _prompt(b["facts"], b["pa"], b["pb"], b["rec"], lang, b["tpl"], b["extra"]["status"], b["extra"]["past_sides"])
+        reason = None
+        try:
+            raw, offline = await asyncio.wait_for(
+                complete_json(prompt, system=AI_SYSTEM, fallback=_NONE, timeout=AI_TIMEOUT_S, schema=AI_SCHEMA, cache=True, surface="agreement"),
+                AI_DEADLINE_S,
+            )
+        except asyncio.TimeoutError:
+            raw, offline, reason = _NONE, True, "Gemini too slow"
+        if offline:
+            reason = reason or ("Gemini not configured" if not ai_configured() else "Gemini unavailable")
+            out = _respond(b, _tpl_parts(b), "template", [], reason, lang, window_months, t0)
+            cacheable = False  # a transient miss: try Gemini again next time
+        else:
+            parts, rejected, why = _clean_ai(raw, b["facts"], b["tpl"], b["pa"], b["pb"])
+            if parts is None:
+                out = _respond(b, _tpl_parts(b), "template", rejected, f"Gemini's draft failed the checks ({why})", lang, window_months, t0)
+            else:
+                parts["roles"] = _roles_from_ai(parts, b["tpl"]["roles"], b["pa"], b["pb"])
+                parts["joint_window_text"] = b["tpl"]["joint_window_text"]
+                parts["by"] = "gemini"
+                out = _respond(b, parts, "gemini", rejected, None, lang, window_months, t0)
+                if not out["verified"]:  # the final gate caught something: never show it, show the template
+                    out = _respond(b, _tpl_parts(b), "template", out["rejected"], "Gemini's draft failed the final check", lang, window_months, t0)
+            cacheable = True  # Gemini's answer is itself cached by llm.py, so the same verdict would repeat
+    out["cached"] = False
+    if cacheable:
+        with _cache_lock:
+            _cache[key] = copy.deepcopy(out)
+            while len(_cache) > CACHE_MAX:
+                _cache.popitem(last=False)
+    return out

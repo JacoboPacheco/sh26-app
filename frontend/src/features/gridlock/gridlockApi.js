@@ -16,6 +16,10 @@ const live = {
   estimate: (id, window_months) =>
     api(`/api/gridlock/estimate/${encodeURIComponent(id)}${window_months != null ? `?window_months=${window_months}` : ''}`),
   sperryCheck: () => api('/api/gridlock/sperry-check'),
+  // Build agreement (backend/agreement.py): a draft coordination proposal for one overlap. ai=false is the
+  // plain template (instant); ai=true asks Gemini to word it and checks every number (a few seconds).
+  agreement: (id, { window_months, lang = 'en', ai = true } = {}) =>
+    api(`/api/agreement/${encodeURIComponent(id)}?${q({ window_months, lang, ai: ai ? 'true' : 'false' })}`),
 }
 
 // Resolves to {client, summary} once the engine answers /summary; rejects with the engine's error.
