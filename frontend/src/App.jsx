@@ -18,7 +18,7 @@ import ImpactPanel from './shell/ImpactPanel'
 import ScenarioBar from './shell/ScenarioBar'
 import Timeline from './shell/Timeline'
 import { OverloadProvider, useOverload } from './store'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ErrorBanner, Loading } from './ui'
 import useAuth from './useAuth'
 
@@ -94,9 +94,23 @@ function MissionControl({ user }) {
     site && result?.forSite === site && result.sub_lat != null
       ? { from: [site.lon, site.lat], to: [result.sub_lon, result.sub_lat], key: `${site.lat},${site.lon}` }
       : null
+  // a big leap of the people-hit counter shakes the map (shell/ImpactPanel dispatches it; bomb.css)
+  const rootRef = useRef(null)
+  useEffect(() => {
+    const quake = (e) => {
+      const el = rootRef.current
+      if (!el) return
+      el.style.setProperty('--quake', `${Math.min(16, 3 + Math.log10(Math.max(e.detail?.delta || 1, 1)) * 1.8).toFixed(1)}px`)
+      el.classList.remove('mc--quake')
+      void el.offsetWidth // restart the animation
+      el.classList.add('mc--quake')
+    }
+    window.addEventListener('overload:leap', quake)
+    return () => window.removeEventListener('overload:leap', quake)
+  }, [])
 
   return (
-    <div className={`mc mc--${level}`}>
+    <div className={`mc mc--${level}`} ref={rootRef}>
       {grid ? (
         <GridMap
           ref={mapRef}
@@ -157,7 +171,7 @@ function MissionControl({ user }) {
         <span className="pill">Synthetic grid model (Breakthrough Energy / Texas A&amp;M), not any utility&apos;s network</span>
         <span className="credit">
           Grid: Breakthrough Energy Sciences U.S. Test System, from Texas A&amp;M ACTIVSg synthetic grids (CC-BY 4.0). DC power flow.
-          Homes are estimates. Outline: U.S. Census Bureau.
+          People counts are estimates. Outline: U.S. Census Bureau.
         </span>
       </p>
       <Intro />

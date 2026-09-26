@@ -33,9 +33,9 @@ with sync_playwright() as p:
         expect(page.get_by_text("before the first line overloads")).to_be_visible()
         expect(page.locator("line.ln--over").first).to_be_attached()
 
-        # 3 — the cascade: the homes counter appears, steps play to an outcome, substations go dark.
+        # 3 — the cascade: the people-hit counter appears, steps play to an outcome, substations go dark.
         page.get_by_role("button", name="Run the cascade").click()
-        expect(page.get_by_text(re.compile(r"(People|Homes) without power")).first).to_be_visible(timeout=15000)
+        expect(page.get_by_text(re.compile(r"People hit|(People|Homes) without power")).first).to_be_visible(timeout=15000)
         expect(page.get_by_text("The grid split after").or_(page.get_by_text("Settled after"))).to_be_visible(timeout=30000)
         expect(page.locator("circle.sub--dark").first).to_be_attached()
 

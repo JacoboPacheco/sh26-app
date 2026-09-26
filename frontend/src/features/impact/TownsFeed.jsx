@@ -1,77 +1,92 @@
-import { useId, useMemo, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import './impact.css'
-import { homesText, nameList, roundHomes, useFlip, useFreshStep, useReducedMotion, useRestored, useTowns } from './towns'
+import { groupTowns, hitTowns, peopleText, roundPeople, useFlip, useHitEvents, useReducedMotion } from './towns'
 
 const MAX_ROWS = 8
-const SETTLE_MS = 1200 // how long a step's new towns stay pinned at the top before taking their place
 
-// Who loses power, by name: under the giant counter, the towns going dark as the cascade plays,
-// biggest first. A step's new towns slide in at the top with a short red flash, then settle into
-// their place by homes. Click a town to fly the map there. Renders nothing when no one is dark.
+// Who is hit, by name: under the counter, the towns in the order the blast reaches them — the
+// latest at the top. While the replay plays, a town appears the moment the blast front lands on it
+// (the same schedule as the counter's leap), with a red flash; a town hit again climbs back to the
+// top and its number grows. Paused or scrubbed: the towns hit up to that step. Before the cascade
+// (a storm that already cut lines): the towns without power. Click a town to fly the map there.
 export default function TownsFeed() {
-  const { cascade, step, focus, subPos } = useOverload()
-  const towns = useTowns()
+  const { cascade, step, fx, playing, focus, subPos, subById, view, peoplePerMw } = useOverload()
+  const events = useHitEvents()
   const reduced = useReducedMotion()
-  const fresh = useFreshStep(cascade, step, SETTLE_MS) && !reduced && step > 0
+  const live = !!(fx && playing)
   const listRef = useRef(null)
   const headId = useId()
 
-  const ordered = useMemo(() => {
-    if (!fresh) return towns
-    const isNew = (t) => t.arrival === step
-    return [...towns.filter(isNew), ...towns.filter((t) => !isNew(t))]
-  }, [towns, fresh, step])
+  // while playing: how many of the schedule's town leaps have landed (a render per landing, not per frame)
+  const [landed, setLanded] = useState({ fx: null, n: 0 })
+  useEffect(() => {
+    if (!live) return undefined
+    const leaps = fx.schedule.leaps.filter((l) => l.town)
+    const now = performance.now() - fx.startedAt
+    const timers = leaps.map((l, i) => setTimeout(() => setLanded({ fx, n: i + 1 }), Math.max(0, l.t - now)))
+    return () => timers.forEach(clearTimeout)
+  }, [live, fx])
 
-  const restored = useRestored(towns)
+  const { towns, hit } = useMemo(() => {
+    if (cascade && (live || step > 0)) {
+      let list
+      if (live) {
+        const n = landed.fx === fx ? landed.n : 0
+        const now = fx.schedule.leaps.filter((l) => l.town).slice(0, n).map((l) => l.town)
+        list = [...events.slice(0, fx.from).flat(), ...now]
+      } else list = events.slice(0, step).flat()
+      // the latest hit first
+      return { hit: true, towns: hitTowns(list, subById).sort((a, b) => b.last - a.last) }
+    }
+    return { hit: false, towns: groupTowns(view?.affected, subById, peoplePerMw) }
+  }, [cascade, live, step, landed, fx, events, subById, view, peoplePerMw])
+
   useFlip(listRef, reduced)
 
-  if (!towns.length && !restored.length) return null
-  const shown = ordered.slice(0, MAX_ROWS)
+  if (!towns.length) return null
+  const shown = towns.slice(0, MAX_ROWS)
   const more = towns.length - shown.length
-  const top = towns[0]?.homes || 1
+  const top = Math.max(...towns.map((t) => t.people), 1)
+  const latest = live ? Math.max(...towns.map((t) => t.last)) : -1
 
   return (
     <section className="towns" aria-labelledby={headId}>
       <div className="towns__head">
         <h2 id={headId} className="panel-h">
-          {/* the counter shows the worst moment; once some towns got power back, say this list is the end state */}
-          {restored.length ? 'Towns dark at the end (estimates)' : 'Towns losing power (estimates)'}
+          {hit ? 'Towns hit, latest first (estimates)' : 'Towns losing power (estimates)'}
         </h2>
-        <span className="towns__count">{towns.length ? `${fmt(towns.length)} ${towns.length === 1 ? 'town' : 'towns'}` : 'None now'}</span>
+        <span className="towns__count">{`${fmt(towns.length)} ${towns.length === 1 ? 'town' : 'towns'}`}</span>
       </div>
-      {towns.length > 0 && (
-        <ol className="towns__list" ref={listRef}>
-          {shown.map((t, i) => {
-            const isNew = fresh && t.arrival === step
-            const grew = fresh && !isNew && t.latest === step
-            const cls = `towns__item${isNew ? ' towns__item--new' : ''}${grew ? ' towns__item--grew' : ''}`
-            return (
-              <li key={t.name} data-key={t.name} className={cls} style={isNew ? { '--i': i } : undefined}>
-                <button
-                  type="button"
-                  className="towns__row"
-                  onClick={() => focus(t.subs.map(subPos))}
-                  aria-label={`${t.name}: about ${homesText(t.homes)} without power (estimate). Show it on the map.`}
-                >
-                  <span className="towns__name">{t.name}</span>
-                  <span className="towns__homes">
-                    {fmt(roundHomes(t.homes))} <span className="towns__unit">homes</span>
-                  </span>
-                  <span className="towns__bar" style={{ transform: `scaleX(${Math.max(t.homes / top, 0.02)})` }} aria-hidden="true" />
-                </button>
-              </li>
-            )
-          })}
-        </ol>
-      )}
+      <ol className="towns__list" ref={listRef}>
+        {shown.map((t) => {
+          const now = !reduced && t.last === latest
+          const cls = `towns__item${now && t.first === t.last ? ' towns__item--new' : ''}${now && t.first !== t.last ? ' towns__item--grew' : ''}`
+          return (
+            // keyed by name and hit: a town hit again re-mounts its row, so its flash plays again
+            <li key={now ? `${t.name}-${t.last}` : t.name} data-key={t.name} className={cls}>
+              <button
+                type="button"
+                className="towns__row"
+                onClick={() => focus(t.subs.map(subPos))}
+                aria-label={`${t.name}: about ${peopleText(t.people)} ${hit ? 'hit' : 'without power'} (estimate). Show it on the map.`}
+              >
+                <span className="towns__name">{t.name}</span>
+                <span className="towns__homes">
+                  {fmt(roundPeople(t.people))} <span className="towns__unit">people</span>
+                </span>
+                <span className="towns__bar" style={{ transform: `scaleX(${Math.max(t.people / top, 0.02)})` }} aria-hidden="true" />
+              </button>
+            </li>
+          )
+        })}
+      </ol>
       {more > 0 && (
         <p className="towns__more">
           and {fmt(more)} more {more === 1 ? 'town' : 'towns'}
         </p>
       )}
-      {restored.length > 0 && <p className="towns__back">Power came back to {nameList(restored)} as the grid split.</p>}
     </section>
   )
 }

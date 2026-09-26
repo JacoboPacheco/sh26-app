@@ -1,28 +1,52 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { fmt } from '../../geo'
-import { HOMES_PER_MW, townOf, useOverload } from '../../store'
+import { hitEvents } from '../../shell/cascadeSchedule'
+import { townOf, useOverload } from '../../store'
 
-// Who loses power, by town: the store's view.affected (sub id -> MW of existing load lost so far)
-// grouped by the town each synthetic substation is named after ("NAPLES 12" -> "Naples").
-// Homes are an estimate: MW x HOMES_PER_MW, the same constant as the counter.
+// Who is hit, by town. During a cascade: the engine's hit groups and darkness waves (backend
+// powerflow.hits / waves — everyone whose power ran through a failed line or went out, each person
+// counted once), grouped by the town each synthetic substation is named after ("NAPLES 12" ->
+// "Naples"). Before the cascade (a storm that already cut lines): the what-if's lost load per
+// substation x the state's people per MW. People are estimates.
 
-// The 1-based cascade step at which each substation first lost load (step i shows steps[i - 1]).
-// A storm's own step (n = 0) is already on screen before step 1 when the what-if solved the same
-// knocked-out lines, so those substations count as step 0 — they don't arrive twice.
-function arrivals(cascade, before) {
-  const at = new Map()
-  cascade?.steps.forEach((st, j) =>
-    st.newly_affected.forEach(([id]) => {
-      if (!at.has(id)) at.set(id, j === 0 && st.n === 0 && before?.[id] !== undefined ? 0 : j + 1)
-    }),
-  )
-  return at
+/** Each step's hit events (shell/cascadeSchedule.js hitEvents), for the cascade on screen. */
+export function useHitEvents() {
+  const { cascade, subById } = useOverload()
+  return useMemo(() => hitEvents(cascade, subById), [cascade, subById])
 }
 
-// [{name, homes, mw, subs, lat, lon, arrival, latest}] sorted by homes, most first.
-// arrival: the step the town first lost power (0 = before the cascade / unknown);
-// latest: the step one of its substations last joined (the town grew then).
-export function groupTowns(affected, subById, arrival) {
+/** Hit events (flat, in the order they land) -> towns [{name, people, subs, lat, lon, first, last}]:
+ *  first / last = the index of the event that first / last hit the town. Biggest first. */
+export function hitTowns(list, subById) {
+  const byTown = new Map()
+  list.forEach((e, i) => {
+    if (!e || !(e.people > 0)) return
+    const name = e.area || 'Unnamed area'
+    let t = byTown.get(name)
+    if (!t) {
+      t = { name, people: 0, subs: new Set(), lat: 0, lon: 0, w: 0, first: i, last: i }
+      byTown.set(name, t)
+    }
+    t.people += e.people
+    t.last = i
+    e.subs.forEach((id) => {
+      const s = subById.get(id)
+      if (!s || t.subs.has(id)) return
+      t.subs.add(id)
+      const w = Math.max(s.load_mw || 0, 0.5) // load-weighted: the label sits where the people are
+      t.lat += s.lat * w
+      t.lon += s.lon * w
+      t.w += w
+    })
+  })
+  return [...byTown.values()]
+    .filter((t) => t.w > 0)
+    .map(({ w, ...t }) => ({ ...t, subs: [...t.subs], lat: t.lat / w, lon: t.lon / w }))
+    .sort((a, b) => b.people - a.people || a.name.localeCompare(b.name))
+}
+
+/** The what-if's lost load (sub id -> MW) by town, as people (MW x people per MW). Biggest first. */
+export function groupTowns(affected, subById, peoplePerMw) {
   if (!affected?.size) return []
   const byTown = new Map()
   affected.forEach((mw, id) => {
@@ -31,48 +55,29 @@ export function groupTowns(affected, subById, arrival) {
     const name = townOf(s.name)
     let t = byTown.get(name)
     if (!t) {
-      t = { name, mw: 0, subs: [], lat: 0, lon: 0, arrival: Infinity, latest: 0 }
+      t = { name, mw: 0, subs: [], lat: 0, lon: 0, first: 0, last: 0 }
       byTown.set(name, t)
     }
-    const at = arrival.get(id) ?? 0
     t.mw += mw
     t.subs.push(id)
     t.lat += s.lat * mw // MW-weighted: the label sits where the darkness is
     t.lon += s.lon * mw
-    t.arrival = Math.min(t.arrival, at)
-    t.latest = Math.max(t.latest, at)
   })
   return [...byTown.values()]
-    .map((t) => ({ ...t, lat: t.lat / t.mw, lon: t.lon / t.mw, homes: Math.round(t.mw * HOMES_PER_MW) }))
-    .sort((a, b) => b.homes - a.homes || a.name.localeCompare(b.name))
+    .map((t) => ({ ...t, lat: t.lat / t.mw, lon: t.lon / t.mw, people: Math.round(t.mw * peoplePerMw) }))
+    .sort((a, b) => b.people - a.people || a.name.localeCompare(b.name))
 }
 
+/** The towns at the step on screen (the map labels): hit towns once the cascade is under way,
+ *  else the what-if's towns without power. Biggest first; `hit` says which. */
 export function useTowns() {
-  const { view, cascade, result, subById } = useOverload()
-  const before = result?.affected
-  const arrival = useMemo(() => arrivals(cascade, before), [cascade, before])
+  const { view, cascade, step, subById, peoplePerMw } = useOverload()
+  const events = useHitEvents()
   const affected = view?.affected
-  return useMemo(() => groupTowns(affected, subById, arrival), [affected, subById, arrival])
-}
-
-// Towns a step up to now announced as losing power that have it back at this step, most homes
-// first. It happens at the end of a cascade: once a split cuts the data center off, a region
-// that was short of power no longer is. (Earlier steps only add towns: the store accumulates.)
-export function useRestored(towns) {
-  const { cascade, step, subById } = useOverload()
   return useMemo(() => {
-    if (!cascade || step <= 0) return []
-    const now = new Set(towns.map((t) => t.name))
-    const peak = new Map()
-    cascade.steps.slice(0, step).forEach((st) =>
-      st.newly_affected.forEach(([id, mw]) => {
-        const s = subById.get(id)
-        const name = s && townOf(s.name)
-        if (name && !now.has(name)) peak.set(name, (peak.get(name) || 0) + mw)
-      }),
-    )
-    return [...peak.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name]) => name)
-  }, [cascade, step, subById, towns])
+    if (cascade && step > 0) return { hit: true, towns: hitTowns(events.slice(0, step).flat(), subById) }
+    return { hit: false, towns: groupTowns(affected, subById, peoplePerMw) }
+  }, [cascade, step, events, affected, subById, peoplePerMw])
 }
 
 // "A", "A and B", "A, B and 4 more towns"
@@ -82,14 +87,15 @@ export function nameList(names, max = 2) {
   return `${names.slice(0, max).join(', ')} and ${rest} more ${rest === 1 ? 'town' : 'towns'}`
 }
 
-// An estimate reads like one: nearest thousand from 10,000 up, nearest hundred from 1,000, else ten.
-export function roundHomes(h) {
-  if (h >= 10000) return Math.round(h / 1000) * 1000
-  if (h >= 1000) return Math.round(h / 100) * 100
-  return Math.max(10, Math.round(h / 10) * 10)
+// An estimate reads like one, on the higher end: up to the next thousand from 10,000, the next
+// hundred from 1,000, else the next ten.
+export function roundPeople(n) {
+  if (n >= 10000) return Math.ceil(n / 1000) * 1000
+  if (n >= 1000) return Math.ceil(n / 100) * 100
+  return Math.max(10, Math.ceil(n / 10) * 10)
 }
 
-export const homesText = (h) => `${fmt(roundHomes(h))} homes`
+export const peopleText = (n, unit = 'people') => `${fmt(roundPeople(n))} ${unit}`
 
 // ------------------------------------------------------------------ motion helpers
 const REDUCE = '(prefers-reduced-motion: reduce)'
@@ -104,17 +110,6 @@ export const useReducedMotion = () =>
     () => !!window.matchMedia?.(REDUCE).matches,
     () => false,
   )
-
-// True until `ms` after the cascade step last changed: while it's true the step's new towns ride
-// at the top of the feed, flashing; then they settle into their place by homes.
-export function useFreshStep(cascade, step, ms) {
-  const [settled, setSettled] = useState(null)
-  useEffect(() => {
-    const t = setTimeout(() => setSettled({ cascade, step }), ms)
-    return () => clearTimeout(t)
-  }, [cascade, step, ms])
-  return !(settled && settled.cascade === cascade && settled.step === step)
-}
 
 // FLIP: rows that change place glide there instead of jumping. Reads each child's layout position
 // (offsetTop, unaffected by transforms) after every render and animates the difference away.

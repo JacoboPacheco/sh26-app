@@ -3,14 +3,14 @@ import { useMapView } from '../../GridMap'
 import { CITIES } from '../../geo'
 import { useOverload } from '../../store'
 import './impact.css'
-import { homesText, textWidth, useTowns } from './towns'
+import { peopleText, textWidth, useTowns } from './towns'
 
-// Who loses power, on the map: the largest dark towns named where their darkness is (the
-// MW-weighted centre of their substations that lost load), in small condensed type with a dark
+// Who is hit, on the map (paused, scrubbed or done): the towns with the most people hit named where their people are (the
+// load-weighted centre of their substations; before a cascade, the towns without power), in small condensed type with a dark
 // halo so they read over the lights. They appear as the cascade reaches them. Sizes are screen
 // pixels (divided by the zoom), and labels never overlap each other, the map's city names, or a
 // data-center marker — a town whose label can't fit is skipped. A town the map already names
-// (Fort Myers, Miami…) gets just its homes, on the same line after the city's name.
+// (Fort Myers, Miami…) gets just its people, on the same line after the city's name.
 
 const MAX_LABELS = 6
 const LOOK_AT = 12 // towns tried, biggest first, until MAX_LABELS fit
@@ -28,7 +28,7 @@ const CITY_BY_NAME = new Map(CITIES.map((c) => [c.name, c]))
 const lineBox = (x, baseline, w, px) => ({ x0: x, y0: baseline - px * 0.8, x1: x + w, y1: baseline + px * 0.25 })
 const hits = (a, b, pad) => a.x0 - pad < b.x1 && b.x0 - pad < a.x1 && a.y0 - pad < b.y1 && b.y0 - pad < a.y1
 
-function placeLabels(towns, k, project, sites) {
+function placeLabels(towns, k, project, sites, unit) {
   const u = 1 / k // map units per screen px
   const taken = []
   CITIES.forEach((c) => {
@@ -44,13 +44,13 @@ function placeLabels(towns, k, project, sites) {
   const labels = []
   for (const t of towns.slice(0, LOOK_AT)) {
     if (labels.length >= MAX_LABELS) break
-    const homes = homesText(t.homes)
+    const homes = peopleText(t.people, unit)
     const wHomes = textWidth(homes, HOMES_PX, 650, 'condensed')
     let label = null
 
     const city = CITY_BY_NAME.get(t.name)
     if (city) {
-      // the map already names this city: its homes follow the name on the same line, or sit under it
+      // the map already names this city: its people follow the name on the same line, or sit under it
       const [cx, cy] = project(city.lon, city.lat).map((v) => v / u)
       const wCity = textWidth(city.name, CITY_PX, 500)
       for (const [x, base] of [
@@ -111,8 +111,8 @@ function placeLabels(towns, k, project, sites) {
 
 export default function ImpactLayer() {
   const { k, project } = useMapView()
-  const { site, result, extraSites, headroomOn, headroom } = useOverload()
-  const towns = useTowns()
+  const { site, result, extraSites, headroomOn, headroom, fx, playing } = useOverload()
+  const { towns, hit } = useTowns()
 
   // the data-center markers, where App draws them
   const sites = useMemo(
@@ -122,10 +122,11 @@ export default function ImpactLayer() {
     ],
     [site, result, extraSites],
   )
-  const labels = useMemo(() => (towns.length ? placeLabels(towns, k, project, sites) : []), [towns, k, project, sites])
+  const labels = useMemo(() => (towns.length ? placeLabels(towns, k, project, sites, hit ? 'hit' : 'people') : []), [towns, k, project, sites, hit])
 
-  // the heatmap asks a different question; keep the map to it
-  if (!labels.length || (headroomOn && headroom)) return null
+  // the heatmap asks a different question; keep the map to it. While the blast replays, each town
+  // gets its floating "+people" as the front lands (shell/CascadeFX); these labels return at the end.
+  if (!labels.length || (headroomOn && headroom) || (fx && playing)) return null
   return (
     <g className="impact-labels" aria-hidden="true" style={{ '--halo': `${3.2 / k}px` }}>
       {labels.map((l, i) => (

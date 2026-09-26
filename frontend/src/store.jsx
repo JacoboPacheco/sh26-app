@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { api, deleteScenario, listScenarios, runCascade, saveScenario, whatIf } from './api'
 import { US_BBOX, fmt, headroomClass, loadClass, regionAt, setProjectionFor } from './geo'
+import { buildSchedule } from './shell/cascadeSchedule'
 
 // The app's shared state and actions. Every feature reads and changes the scenario through
 // useOverload() — it never keeps its own copy of the grid, the case, or the results.
@@ -22,6 +23,8 @@ import { US_BBOX, fmt, headroomClass, loadClass, regionAt, setProjectionFor } fr
 const Ctx = createContext(null)
 export const useOverload = () => useContext(Ctx)
 
+// The main replay no longer uses a uniform step: it follows the blast schedule (shell/cascadeSchedule.js,
+// exposed as `fx`). These stay for the features that still pace their own replays by step.
 export const STEP_MS = 1400 // default step length (use stepMsFor(n))
 // paced so the destruction can be watched: a cascade of n steps takes at least ~12 s, a step 1.1-1.8 s
 export const stepMsFor = (n) => Math.round(Math.min(1800, Math.max(1100, 12000 / Math.max(n || 1, 1))))
@@ -72,6 +75,7 @@ export function OverloadProvider({ user, children }) {
   const [cascadeError, setCascadeError] = useState(null)
   const [step, setStepState] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [fx, setFx] = useState(null) // the replay on screen: {schedule, startedAt (performance.now()), from}; null when not playing
 
   // headroom heatmap (per region and load level)
   const [headroomOn, setHeadroomOn] = useState(false)
@@ -239,16 +243,34 @@ export function OverloadProvider({ user, children }) {
     return () => clearTimeout(t)
   }, [caseBody, hasCase, site, subPos, focus])
 
-  // Play the cascade one step at a time.
-  useEffect(() => {
-    if (!playing || !cascade) return undefined
-    const t = setTimeout(() => {
-      const next = step + 1
-      setStepState(next)
-      if (next >= cascade.steps.length) setPlaying(false)
-    }, stepMsFor(cascade.steps.length))
-    return () => clearTimeout(t)
-  }, [playing, step, cascade])
+  // Play the cascade as one slow-motion blast (shell/cascadeSchedule.js): when playback starts from
+  // step s the schedule is built once and published as `fx`; the map's effects and the counter run
+  // off its clock, and `step` advances to each tier's step at that tier's END. Pausing, scrubbing
+  // (setStep), clearing or a new cascade cancels the timers and clears fx.
+  const stepRef = useRef(0)
+  useLayoutEffect(() => {
+    stepRef.current = step
+  })
+  useLayoutEffect(() => {
+    const n = cascade?.steps?.length || 0
+    if (!playing || !n) {
+      setFx(null)
+      return undefined
+    }
+    const from = stepRef.current >= n ? 0 : stepRef.current
+    if (from !== stepRef.current) setStepState(0) // Play at the end replays from the top
+    const schedule = buildSchedule(cascade, subById, branchById, from)
+    const startedAt = performance.now()
+    setFx({ schedule, startedAt, from })
+    const timers = schedule.tiers.map((tier, i) =>
+      setTimeout(() => {
+        setStepState(tier.step)
+        if (i === schedule.tiers.length - 1) setPlaying(false)
+      }, tier.t1),
+    )
+    if (!schedule.tiers.length) setPlaying(false)
+    return () => timers.forEach(clearTimeout)
+  }, [playing, cascade, subById, branchById])
 
   // setters that also clear a cascade that no longer matches the case
   const placeHere = useCallback((lat, lon) => {
@@ -373,6 +395,7 @@ export function OverloadProvider({ user, children }) {
           })
           st.dark_subs.forEach((sid) => pts.push(subPos(sid)))
           st.newly_affected.forEach(([sid]) => pts.push(subPos(sid)))
+          st.hits?.forEach((h) => h.subs.forEach((sid) => pts.push(subPos(sid)))) // every town the blast reaches
         })
         // centered on the main site when there is one; the zoom fits everything the cascade touches
         if (pts.length) focus(pts, c.sub_lat != null ? [c.sub_lon, c.sub_lat] : undefined)
@@ -483,6 +506,10 @@ export function OverloadProvider({ user, children }) {
       grid.branches.forEach((b, i) => (lineClasses[i] = out.has(b.id) ? 'ln--tripped' : loadClass(base[i])))
       if (result?.affected) affected = new Map(Object.entries(result.affected).map(([k, v]) => [Number(k), v]))
     }
+    // the towns the blast reached so far: their lights burn as embers (the people there are counted).
+    // Not while the replay plays: its effects layer draws the embers then, and restyling ~100 lights
+    // at every step's end would make the browser repaint the map under them.
+    for (let j = 0; cascade && !playing && j < step; j++) (steps[j].hits || []).forEach((h) => h.subs.forEach((id) => (subClasses[id] = 'sub--hit')))
     // a substation that lost most of its load reads as dark; some of it, as dimmed
     affected.forEach((lost, id) => {
       const s = subById.get(id)
@@ -511,10 +538,19 @@ export function OverloadProvider({ user, children }) {
       people: cur ? (cur.people ?? 0) : result?.people || 0, // people without power at the step on screen (estimate)
       peopleMax, // the counter's number: the peak so far (estimate)
       peopleFinal: cascade ? (cascade.people ?? null) : null, // where the cascade ends — show it in the result
+      // the blast counter at the step on screen (estimates): everyone hit so far, each person once;
+      // everyone in the areas that lost power so far; those people in homes (2.5 per home)
+      // (an older engine without people_hit falls back to people_zone, then people; the last step
+      // never shows less than the cascade's own total)
+      peopleHit: cur
+        ? Math.max(cur.people_hit ?? cur.people_zone ?? cur.people ?? 0, step >= steps.length ? (cascade.people_hit ?? cascade.people_zone ?? cascade.people ?? 0) : 0)
+        : 0,
+      peopleZone: cur ? (cur.people_zone ?? cur.people ?? 0) : 0,
+      homesZone: cur ? (cur.homes_zone ?? 0) : 0,
       action: cur?.action || null, // the step on screen: 'storm' | 'trip' | 'shed' (firm: customers cut to hold a line)
       siteCutOff: !!(cascade && step >= steps.length && cascade.site_cut_off), // the campus itself lost power
     }
-  }, [grid, result, cascade, step, trip, headroomOn, headroom, mw, subById, loadFactor])
+  }, [grid, result, cascade, step, playing, trip, headroomOn, headroom, mw, subById, loadFactor])
 
   const value = {
     user,
@@ -564,7 +600,10 @@ export function OverloadProvider({ user, children }) {
     setPlaying,
     startCascade,
     clearCascade,
-    view, // {lineClasses, subClasses, flow, affected, homes, lostMw, people, peopleMax, peopleFinal, action, siteCutOff}
+    // the replay while it plays: {schedule (shell/cascadeSchedule.js buildSchedule), startedAt
+    // (performance.now() at play), from (the step it started from)}; null when paused or done
+    fx,
+    view, // {lineClasses, subClasses, flow, affected, homes, lostMw, people, peopleMax, peopleFinal, peopleHit, peopleZone, homesZone, action, siteCutOff}
     // headroom
     headroomOn,
     headroom,
