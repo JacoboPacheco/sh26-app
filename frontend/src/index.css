@@ -1,7 +1,6 @@
-/* Overload — "city lights at night". Florida seen the way satellites see it after dark:
-   substations glow warm like towns (sodium light), electricity is cool current, an overload
-   burns red, and a blackout is true black. The map is the whole screen; controls float on glass.
-   Components never hardcode a color: everything reads these tokens. */
+/* Overload — a quiet night map where color means trouble. Substations are small pale lights,
+   lines are faint; amber = a line near its limit, red = over it, black = no power. The interface
+   accent is one clear blue. Components never hardcode a color: everything reads these tokens. */
 :root {
   --font: 'Archivo Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 
@@ -11,9 +10,12 @@
   --coast: #22324a;
   --label: #7f93ae;
   /* meaning */
-  --sodium: #ffb547; /* a lit substation — people with power */
-  --current: #6fd3ff; /* electricity moving on a line */
-  --strain: #ff9b3d; /* a line near its limit */
+  --lit: #d6e2f1; /* a substation with power: pale and quiet */
+  --accent: #5ab4ff; /* the one interface accent: buttons, selection, focus */
+  --sodium: var(--accent); /* legacy name used by feature CSS: same as the accent */
+  --current: #a9d4ff; /* electricity moving on a line: pale, not a highlight */
+  --line: #7f98bd; /* a calm line */
+  --strain: #ffb03a; /* a line near its limit */
   --overload: #ff3d5e; /* a line past its limit */
   --tripped: #7a2a36; /* a line that has tripped */
   --blackout: #000000;
@@ -34,8 +36,7 @@
   --text: var(--ink);
   --muted: var(--ink-2);
   --border: #4a5d79; /* ≥ 3:1 against the surface (WCAG 1.4.11) */
-  --accent: var(--sodium);
-  --accent-text: #1c1204;
+  --accent-text: #041322;
   --danger: #ff6b81;
   --warn-bg: rgba(255, 61, 94, 0.16);
   --warn-text: #ffb3c0;
@@ -422,7 +423,7 @@ a {
   border-radius: var(--radius);
   padding: var(--space-2) var(--space-3);
   cursor: grab;
-  background: rgba(255, 181, 71, 0.06);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
 
 .dc-chip__mw {
@@ -711,13 +712,13 @@ a {
 }
 
 .ln--calm {
-  stroke: var(--current);
-  stroke-opacity: 0.22;
+  stroke: var(--line);
+  stroke-opacity: 0.28;
 }
 
 .ln--warm {
-  stroke: var(--current);
-  stroke-opacity: 0.55;
+  stroke: var(--line);
+  stroke-opacity: 0.6;
 }
 
 .ln--hot {
@@ -767,12 +768,12 @@ a {
 
 /* substations are the lights of the towns they serve */
 .light-core {
-  stop-color: var(--sodium);
-  stop-opacity: 0.5;
+  stop-color: var(--lit);
+  stop-opacity: 0.1;
 }
 
 .light-edge {
-  stop-color: var(--sodium);
+  stop-color: var(--lit);
   stop-opacity: 0;
 }
 
@@ -793,13 +794,14 @@ a {
 }
 
 .sub {
-  fill: var(--sodium);
-  fill-opacity: 0.9;
+  fill: var(--lit);
+  fill-opacity: 0.55;
   transition: fill 0.8s ease, fill-opacity 0.8s ease;
 }
 
 .sub--dim {
-  fill-opacity: 0.35;
+  fill: var(--strain);
+  fill-opacity: 0.5;
 }
 
 .sub--dark {
