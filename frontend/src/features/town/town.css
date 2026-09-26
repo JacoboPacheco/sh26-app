@@ -1,0 +1,487 @@
+/* Areas: "is my area at risk?" — search, the area card, the map's area ring and hover names.
+   Tokens from index.css only: the accent (blue) is selection, red (--overload) is people without
+   power, amber (--strain) is partial. */
+
+.area-finder {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* ------------------------------------------------------------------ search */
+.area-search {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.area-search__list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  max-height: 320px;
+  overflow: auto;
+}
+
+.area-search__list[hidden] {
+  display: none;
+}
+
+.area-search__cap {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.area-search__opt {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 0.4rem var(--space-2);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.area-search__opt--on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.area-search__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.area-search__people {
+  flex: none;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.area-search__none {
+  padding: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------------ progress */
+.area-progress {
+  display: grid;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.area-progress__bar {
+  position: relative;
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--glass-hi);
+}
+
+.area-progress__bar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  border-radius: 2px;
+  background: var(--accent);
+  animation: area-progress 1.1s ease-in-out infinite;
+}
+
+@keyframes area-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(290%);
+  }
+}
+
+/* ------------------------------------------------------------------ the area card */
+.area-card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  font-size: 0.875rem;
+}
+
+.area-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.area-card__title {
+  min-width: 0;
+}
+
+.area-card__name {
+  font-size: 1.375rem;
+  font-weight: 800;
+  font-stretch: 78%;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.area-card__sub {
+  margin-top: 0.15rem;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.area-card__close {
+  flex: none;
+  font: inherit;
+  font-size: 1.25rem;
+  line-height: 1;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-edge);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.area-card__close:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.area-card__people {
+  font-size: 0.9375rem;
+}
+
+.area-card__people strong {
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-stretch: 82%;
+  font-variant-numeric: tabular-nums;
+}
+
+.area-card__est {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.area-card__note {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  border-top: 1px solid var(--glass-edge);
+  padding-top: var(--space-2);
+}
+
+.area-sec {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.area-sec__h {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.area-sec__act {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.area-cliff {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 2px solid color-mix(in srgb, var(--overload) 55%, transparent);
+}
+
+.area-verdict {
+  font-size: 1rem;
+}
+
+.area-hit {
+  color: var(--overload);
+}
+
+.area-ok {
+  color: var(--ink);
+}
+
+.area-opened {
+  font-size: 0.75rem;
+  color: var(--current);
+}
+
+.area-opened:empty {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ the tests */
+.area-cases {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.area-case {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--glass-hi);
+}
+
+.area-case:hover,
+.area-case:focus-within {
+  border-color: var(--glass-edge);
+}
+
+.area-case--hit {
+  background: color-mix(in srgb, var(--overload) 9%, transparent);
+}
+
+.area-case__main {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.area-case__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.area-case__meta {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.area-case__result {
+  font-size: 0.8125rem;
+}
+
+.area-case--hit .area-case__result {
+  color: var(--warn-text);
+}
+
+.area-case__act {
+  flex: none;
+  display: grid;
+  justify-items: end;
+  gap: var(--space-1);
+}
+
+.area-case__act .btn {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8125rem;
+}
+
+.area-case__src {
+  font-size: 0.75rem;
+}
+
+.area-more > summary {
+  cursor: pointer;
+  padding: var(--space-1) 0;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.area-more > summary:hover {
+  color: var(--ink);
+}
+
+.area-more[open] > summary {
+  margin-bottom: var(--space-1);
+}
+
+.area-vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ most exposed */
+.area-rank {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.area-rank__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: var(--space-2);
+  width: 100%;
+  padding: 0.35rem var(--space-2);
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.area-rank__row:hover {
+  background: var(--glass-hi);
+}
+
+.area-rank__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.area-rank__n {
+  color: var(--overload);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.area-rank__people {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------------ on the map */
+.area-layer__ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-opacity: 0.9;
+}
+
+.area-layer__label {
+  fill: var(--ink);
+  font-family: var(--font);
+  font-weight: 700;
+  font-stretch: 80%;
+  paint-order: stroke;
+  stroke: var(--night);
+  stroke-linejoin: round;
+}
+
+.area-layer__case-ring {
+  fill: none;
+  stroke: var(--ink);
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+  animation: area-spin 6s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.area-layer__case-dot {
+  fill: var(--ink);
+}
+
+@keyframes area-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.area-hover__ring {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.9;
+}
+
+.area-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  display: grid;
+  gap: 0.05rem;
+  width: max-content;
+  max-width: 340px;
+  padding: 0.35rem 0.6rem 0.4rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-edge);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.area-tip__name {
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+
+.area-tip__status {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.area-tip__status--dark {
+  color: var(--overload);
+}
+
+.area-tip__status--dim {
+  color: var(--strain);
+}
+
+.area-tip__meta {
+  color: var(--ink-2);
+  font-size: 0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .area-progress__bar::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+
+  .area-layer__case-ring {
+    animation: none;
+  }
+}
