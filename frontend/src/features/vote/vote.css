@@ -792,3 +792,77 @@
     text-decoration: none;
   }
 }
+
+/* ------------------------------------------------------------------ the AI analyst and the AI's work */
+.vote-agnote {
+  display: block;
+}
+.vote-agnote .aib {
+  margin-right: 0.35rem;
+  vertical-align: 1px;
+}
+.vote-agt {
+  max-width: 76ch;
+  padding: var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+.agt-toggle .vote-agt {
+  margin-top: var(--space-1);
+}
+.vote-memo {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 76ch;
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--hr-ok);
+}
+.vote-memo__kicker {
+  margin: 0;
+}
+.vote-memo__head {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+.vote-memo__parts {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+.vote-memo__parts div {
+  display: grid;
+  grid-template-columns: minmax(10rem, 14rem) minmax(0, 1fr);
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--glass-edge);
+}
+.vote-memo__parts dt {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+.vote-memo__parts dd {
+  margin: 0;
+  font-size: 0.925rem;
+  line-height: 1.55;
+}
+@media (max-width: 640px) {
+  .vote-memo__parts div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .vote-memo {
+    animation: vote-memo-in 320ms ease-out both;
+  }
+  @keyframes vote-memo-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+}

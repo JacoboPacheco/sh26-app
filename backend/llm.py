@@ -26,6 +26,7 @@ import logging
 import os
 import time
 from collections import OrderedDict
+from pathlib import Path
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -67,8 +68,11 @@ def _take_daily_slot() -> bool:
 # served from the cache, calls that fell back, and the same per surface (a short label a call site passes).
 _stats: dict = {"ok": 0, "fallback": 0, "cached": 0, "by_surface": {}, "last_error": ""}
 _cache: "OrderedDict[str, tuple[float, str]]" = OrderedDict()
-CACHE_MAX = 256
-CACHE_TTL_S = 6 * 3600
+CACHE_MAX = 1024
+CACHE_TTL_S = 48 * 3600  # long enough for answers pre-run on Saturday to serve Sunday's judging
+# The cache also lives on disk (gitignored), so a restart doesn't throw away answers already paid for in quota,
+# and scripts/prewarm_ai.py can fill it for the demo's cases ahead of time. AI_CACHE_FILE= (empty) turns it off.
+CACHE_FILE = os.getenv("AI_CACHE_FILE", str(Path(__file__).parent / ".ai_cache.json"))
 
 
 def _note(surface: str | None, outcome: str) -> None:
@@ -79,8 +83,8 @@ def _note(surface: str | None, outcome: str) -> None:
         row[outcome] = row.get(outcome, 0) + 1
 
 
-def _cache_key(prompt: str, system: str | None, json_mode: bool, schema: dict | None) -> str:
-    raw = json.dumps([MODEL, system or "", prompt, json_mode, schema], sort_keys=True, default=str)
+def _cache_key(prompt: str, system: str | None, json_mode: bool, schema: dict | None, model: str | None = None) -> str:
+    raw = json.dumps([model or MODEL, system or "", prompt, json_mode, schema], sort_keys=True, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -100,6 +104,38 @@ def _cache_put(key: str, text: str) -> None:
     _cache.move_to_end(key)
     while len(_cache) > CACHE_MAX:
         _cache.popitem(last=False)
+    _save_disk()
+
+
+def _save_disk() -> None:
+    if not CACHE_FILE:
+        return
+    try:
+        tmp = CACHE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({k: [ts, text] for k, (ts, text) in _cache.items()}, f)
+        os.replace(tmp, CACHE_FILE)
+    except OSError as e:  # a read-only disk just means no persistence
+        logging.getLogger("uvicorn.error").warning("AI cache not saved: %s", e)
+
+
+def _load_disk() -> None:
+    if not CACHE_FILE:
+        return
+    try:
+        with open(CACHE_FILE, encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return
+    now = time.time()
+    for k, v in sorted(raw.items(), key=lambda kv: kv[1][0] if isinstance(kv[1], list) and kv[1] else 0):
+        if isinstance(v, list) and len(v) == 2 and isinstance(v[1], str) and now - float(v[0]) <= CACHE_TTL_S:
+            _cache[k] = (float(v[0]), v[1])
+    while len(_cache) > CACHE_MAX:
+        _cache.popitem(last=False)
+
+
+_load_disk()
 
 
 def usage() -> dict:
@@ -112,7 +148,34 @@ def usage() -> dict:
 # Flash-Lite: the free tier allows ~500 requests/day on Lite models vs ~20/day on
 # full Flash (as of Sept 2026) — a demo needs the 500. Override with GEMINI_MODEL.
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+# The model for agent steps (the analyst's tool choices, the proposer's plans): the same by default; set
+# GEMINI_AGENT_MODEL to a stronger model when its quota allows. Passed per call as complete_json(..., model=AGENT_MODEL).
+AGENT_MODEL = os.getenv("GEMINI_AGENT_MODEL", MODEL)
+# Agent steps run with thinking at its minimum (complete_json(..., thinking=AGENT_THINKING)): measured Sat 10:05 on the
+# proposer and analyst prompts, gemini-3.5-flash with its default thinking took 17-24 s (1,300-2,900 thought tokens),
+# past the 10 s / 18 s budgets, so every demo case fell back; at "minimal" it answered in 2-6.5 s. "minimal" is the
+# one setting all four models in the chain accept (thinkingBudget 0 is a 400 on gemini-3.5-flash-lite). Set
+# GEMINI_AGENT_THINKING= (empty) to let the agent model think, when its latency allows.
+AGENT_THINKING = os.getenv("GEMINI_AGENT_THINKING", "minimal").strip() or None
 TIMEOUT_SECONDS = 60
+# Models tried in order when a model's free quota is used up for the day (HTTP 429); each has its own quota.
+FALLBACK_MODELS = [m.strip() for m in os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.1-flash-lite,gemini-3.5-flash,gemini-3.6-flash").split(",") if m.strip()]
+_out_today: dict[str, str] = {}  # model -> the quota day its daily quota ran out
+_out_until: dict[str, float] = {}  # model -> when a per-minute limit (a burst) clears
+BURST_OUT_S = 60.0
+
+
+def _model_out(m: str) -> bool:
+    return _out_today.get(m) == datetime.now(QUOTA_TZ).date().isoformat() or _out_until.get(m, 0.0) > time.time()
+
+
+def _mark_out(m: str, detail: str = "") -> None:
+    """A 429: out for the rest of the quota day only when Google says the daily quota is gone ("PerDay" in its
+    quotaId); a per-minute burst limit clears in a minute."""
+    if "PerDay" in detail:
+        _out_today[m] = datetime.now(QUOTA_TZ).date().isoformat()
+    else:
+        _out_until[m] = time.time() + BURST_OUT_S
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 
@@ -139,8 +202,10 @@ async def complete(
     fallback: str | None = None,
     image: tuple[bytes, str] | None = None,
     timeout: float | None = None,
-    cache: bool = False,
+    cache: bool = True,
     surface: str | None = None,
+    model: str | None = None,
+    thinking: str | None = None,
 ) -> str:
     """`fallback`: a canned answer to return instead of raising if the AI is
     unconfigured, out of quota, unreachable, or slow — so a demo survives a dead API.
@@ -151,17 +216,19 @@ async def complete(
     `timeout`: seconds to wait for Gemini (default 60) — use ~10 on the demo path.
     `image`: (bytes, mime_type) to send alongside the prompt, e.g. the `contents`
     from an upload — Gemini reads photos, screenshots, whiteboards, receipts.
-    `cache`: serve an identical earlier answer (same model, system and prompt) from memory for six
-    hours instead of spending quota again; only for prompts built from a fact sheet, never for a
-    photo. `surface`: a short label for the AI panel's per-feature counters."""
-    key = _cache_key(prompt, system, json_mode, None) if cache and image is None else None
+    `cache` (on by default): serve an identical earlier answer (same model, system and prompt) from memory
+    and disk for 48 hours instead of spending quota again; every prompt here is built from a computed fact
+    sheet, and a call with an image is never cached. Pass cache=False for a call that must be fresh. `surface`: a short label for the AI panel's per-feature counters. `model`: this call's model
+    (default MODEL; agent steps pass AGENT_MODEL). `thinking`: the model's thinking level ("minimal", "low", ...;
+    None = the model's default); agent steps pass AGENT_THINKING."""
+    key = _cache_key(prompt, system, json_mode, None, model) if cache and image is None else None
     if key:
         hit = _cache_get(key)
         if hit is not None:
             _note(surface, "cached")
             return hit
     try:
-        text = await _complete(prompt, system, json_mode, image, timeout)
+        text = await _complete(prompt, system, json_mode, image, timeout, model=model, thinking=thinking)
     except HTTPException as e:
         _stats["last_error"] = str(e.detail)[:200]
         if fallback is not None:
@@ -182,8 +249,10 @@ async def complete_json(
     image: tuple[bytes, str] | None = None,
     timeout: float | None = None,
     schema: dict | None = None,
-    cache: bool = False,
+    cache: bool = True,
     surface: str | None = None,
+    model: str | None = None,
+    thinking: str | None = None,
 ) -> tuple[dict | list, bool]:
     """`complete` in JSON mode, parsed, returned as `(data, used_fallback)`. If the
     model returns invalid JSON it is asked once more; then `fallback` is returned
@@ -194,9 +263,9 @@ async def complete_json(
         return {**data, "fallback": offline}
     `schema`: a JSON Schema the reply must follow (Gemini structured output); a call that Google
     rejects with the schema is retried once without it, so a schema quirk never costs the answer.
-    `cache` and `surface`: as in `complete`."""
+    `cache`, `surface`, `model` and `thinking`: as in `complete`."""
     log = logging.getLogger("uvicorn.error")
-    key = _cache_key(prompt, system, True, schema) if cache and image is None else None
+    key = _cache_key(prompt, system, True, schema, model) if cache and image is None else None
     if key:
         hit = _cache_get(key)
         if hit is not None:
@@ -212,14 +281,14 @@ async def complete_json(
         nudge = "" if attempt == 0 else "\n\nYour previous answer was not valid JSON. Reply with ONLY valid JSON."
         err: HTTPException | None = None
         try:
-            text = await _complete(prompt + nudge, system, True, image, timeout, use_schema)
+            text = await _complete(prompt + nudge, system, True, image, timeout, use_schema, model=model, thinking=thinking)
         except HTTPException as e:
             err = e
         if err is not None and use_schema is not None and err.status_code == 502 and "(400)" in str(err.detail):
             use_schema = None  # Google refused the schema itself: ask again in plain JSON mode
             err = None
             try:
-                text = await _complete(prompt + nudge, system, True, image, timeout, None)
+                text = await _complete(prompt + nudge, system, True, image, timeout, None, model=model, thinking=thinking)
             except HTTPException as e:
                 err = e
         if err is not None:
@@ -252,6 +321,8 @@ async def _complete(
     image: tuple[bytes, str] | None,
     timeout: float | None,
     schema: dict | None = None,
+    model: str | None = None,
+    thinking: str | None = None,
 ) -> str:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
@@ -274,17 +345,46 @@ async def _complete(
         body["generationConfig"] = {"responseMimeType": "application/json"}
         if schema is not None:
             body["generationConfig"]["responseJsonSchema"] = schema
+    if thinking:
+        body.setdefault("generationConfig", {})["thinkingConfig"] = {"thinkingLevel": thinking}
 
-    url = f"{API_BASE}/models/{MODEL}:generateContent"
-    try:
-        data = await asyncio.to_thread(_post_json, url, body, key, timeout or TIMEOUT_SECONDS)
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")[:300]
-        raise HTTPException(status_code=502, detail=f"AI request failed ({e.code}): {detail}")
-    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
-        # URLError: unreachable; OSError: dropped connection; ValueError: non-JSON reply;
-        # HTTPException: truncated or malformed reply
-        raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
+    # Each Gemini model has its own free-tier quota: when this call's model answers 429 (quota used up for
+    # the day), the same request goes to the next model in FALLBACK_MODELS, skipping models already known
+    # to be out today, so one exhausted model doesn't turn every AI feature into its plain version.
+    chain = [model or MODEL] + [m for m in FALLBACK_MODELS if m != (model or MODEL)]
+    data = None
+    for i, m in enumerate(chain):
+        if _model_out(m) and i < len(chain) - 1:
+            continue
+        url = f"{API_BASE}/models/{m}:generateContent"
+        try:
+            data = await asyncio.to_thread(_post_json, url, body, key, timeout or TIMEOUT_SECONDS)
+            _stats["model_used"] = m
+            break
+        except urllib.error.HTTPError as e:
+            full = e.read().decode(errors="replace")  # whole: a 429's quotaId ("...PerDay...") sits past the first lines
+            detail = full[:300]
+            if e.code == 400 and (body.get("generationConfig") or {}).pop("thinkingConfig", None) is not None:
+                # a model that doesn't take this thinking level (400): the same model again at its default thinking
+                logging.getLogger("uvicorn.error").warning("AI: %s refused thinkingLevel=%s, retrying at its default", m, thinking)
+                try:
+                    data = await asyncio.to_thread(_post_json, url, body, key, timeout or TIMEOUT_SECONDS)
+                    _stats["model_used"] = m
+                    break
+                except urllib.error.HTTPError as e2:
+                    full = e2.read().decode(errors="replace")
+                    e, detail = e2, full[:300]
+                except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e2:
+                    raise HTTPException(status_code=502, detail=f"AI request failed: {e2}")
+            if e.code == 429 and i < len(chain) - 1:
+                _mark_out(m, full)
+                logging.getLogger("uvicorn.error").warning("AI: %s is out of quota, trying %s", m, chain[i + 1])
+                continue
+            raise HTTPException(status_code=502, detail=f"AI request failed ({e.code}): {detail}")
+        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
+            # URLError: unreachable; OSError: dropped connection; ValueError: non-JSON reply;
+            # HTTPException: truncated or malformed reply
+            raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
 
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -312,12 +412,25 @@ SURFACES = [
      "check": "Only facts from the case's fact sheet may be cited; other numbers are rejected.", "fallback": "Rule-based answers"},
     {"id": "planner", "name": "Siting planner", "gemini": "Chooses each next step of a siting plan (a headroom lookup, a what-if, a fix).",
      "check": "Every step runs on the engine, and the finished plan is re-checked: no line over its limit, nobody without power.", "fallback": "Greedy planner"},
+    {"id": "analyst", "name": "What it would take (AI analyst)",
+     "gemini": "An agent with tools: it chooses which engine runs to make for a proposal (a size what-if, the nearby substations, nearby sites that take it, the verified ways to build it, firm against flexible service, the time of day), reads each result, then writes a short memo.",
+     "check": "Every tool call runs on the power-flow engine; every number in the memo must match a tool result, or the plain memo built from the same results is used.",
+     "fallback": "Fixed tool plan and a template memo"},
+    {"id": "agreement", "name": "Build together",
+     "gemini": "Drafts a coordination proposal for two utilities' overlapping planned projects from their public filings.",
+     "check": "Every number in the draft must match the filings and the overlap pipeline, or the template draft is used.",
+     "fallback": "Template draft"},
+    {"id": "negotiation", "name": "Build together: two agents negotiate",
+     "gemini": "Two agents, each reading one utility's public filing only, trade proposals for a joint build window, the shared scope and the cost split until one accepts the other's terms.",
+     "check": "Every turn is verified before the other agent sees it: the window must sit inside both filed build windows and after today, the scope must be the estimate's items, the split one of the allowed rules adding to 100 %, every number from the facts; a rejected turn is revised once.",
+     "fallback": "A scripted negotiation over the same rules, labeled plain"},
 ]
 
 
 @router.get("/status")
 def status():
-    return {"configured": configured(), "model": MODEL, **usage(), "served": {k: _stats[k] for k in ("ok", "fallback", "cached")},
+    return {"configured": configured(), "model": MODEL, "agent_model": AGENT_MODEL, "agent_thinking": AGENT_THINKING, "fallback_models": FALLBACK_MODELS, "models_out_today": sorted(m for m in _out_today if _model_out(m)),
+            "model_last_used": _stats.get("model_used"), **usage(), "served": {k: _stats[k] for k in ("ok", "fallback", "cached")},
             "by_surface": _stats["by_surface"], "cached_answers": len(_cache), "surfaces": SURFACES}
 
 

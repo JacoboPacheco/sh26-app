@@ -1538,6 +1538,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
     n_opts = len(sol) if len(sol) <= 2 else max(2, min(len(sol), 1 + lv.checks))  # always more than one when more than one holds
     opts = sol[:n_opts]
     strain0 = (w.r.get("strain") or {}).get("with_campus")  # the grid's strain with the campus and no fix
+    agent = _agentic_block(w.r.get("agentic"))
     for lang in LANGS:
         en = lang == "en"
         where = w.where(lang) or w.place or ""
@@ -1549,7 +1550,8 @@ def s_fix(w: Writer, lv: Level) -> dict:
             intro = (f"How to fix it. If you want to build {size} here" + (f" at {where}" if where else "") + ", this is what you have to do." if en
                      else f"Cómo evitarlo. Si quieres construir {size} aquí" + (f", en {where}" if where else "") + ", esto es lo que tienes que hacer.")
         said_relief = ""
-        segs = [_seg("presenter", sentences([(intro, False), (("There is more than one way, and the engine re-ran every one." if en else "Hay más de una manera, y el motor probó cada una."), 2)], lv, PRESENTER_MAX[lang]))]
+        said_agent = _agent_say(agent, lang)  # what Gemini proposed and the engine verified: kept longer than the generic line
+        segs = [_seg("presenter", sentences([(intro, False), (said_agent or ("There is more than one way, and the engine re-ran every one." if en else "Hay más de una manera, y el motor probó cada una."), True if said_agent else 2)], lv, PRESENTER_MAX[lang]))]
         for k, fx in enumerate(opts):
             o = fx.get("outcome") or {}
             ph = _fix_phrase(w, fx, lang)
@@ -1621,9 +1623,37 @@ def s_fix(w: Writer, lv: Level) -> dict:
         site = w.site_pt()
         out["camera"] = cam("site", [site], center=site) if site else region_cam(w)
     out["strain"] = w.r.get("strain")  # {grid_alone, with_campus}: the before; each option has its own after
+    out["agentic"] = agent  # "Watch the AI work": Gemini's plans, the engine's verdict on each, the revisions (solutions.py)
     out["map"] = mapspec("fix", 0, 0, highlight=up_ids, apply=ap or None)
     out["facts_used"] = [k for k in w.facts if k.startswith("fix.")][:20]
     return out
+
+
+AGENT_KEYS = ("status", "asked", "verified", "added", "rounds", "calls", "ms", "model", "by")
+AGENT_TRACE_MAX = 40
+
+
+def _agentic_block(ag) -> dict | None:
+    """The AI proposer's run for the fix slide (solutions.py → report.agentic): its totals and its trace, a copy
+    (the report's own dict is replaced when the run ends, and its trace grows while it runs)."""
+    if not isinstance(ag, dict):
+        return None
+    out = {k: ag[k] for k in AGENT_KEYS if k in ag}
+    out["trace"] = [dict(x) for x in list(ag.get("trace") or [])[:AGENT_TRACE_MAX] if isinstance(x, dict)]
+    return out
+
+
+def _agent_say(agent: dict | None, lang: str) -> str | None:
+    """The presenter's line on what the AI did, once it has done it: "Gemini proposed five plans in two rounds;
+    the engine re-ran every one and verified three." Counts are spelled out (never mistaken for a fact)."""
+    if not agent or agent.get("status") != "done" or not int(agent.get("asked") or 0):
+        return None
+    asked, rounds, ok = int(agent["asked"]), max(1, int(agent.get("rounds") or 1)), int(agent.get("verified") or 0)
+    if lang == "en":
+        return (f"Gemini proposed {words(asked, 'en')} {'plan' if asked == 1 else 'plans'} in {words(rounds, 'en')} {'round' if rounds == 1 else 'rounds'}; "
+                f"the engine re-ran every one and verified {words(ok, 'en') if ok else 'none'}.")
+    return (f"Gemini propuso {words(asked, 'es', before_noun=True)} {'plan' if asked == 1 else 'planes'} en {words(rounds, 'es', fem=True)} {'ronda' if rounds == 1 else 'rondas'}; "
+            f"el motor probó cada uno y verificó {words(ok, 'es') if ok else 'ninguno'}.")
 
 
 FAMILY_SAY = {

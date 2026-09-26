@@ -1,8 +1,10 @@
 import { useEffect, useMemo } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
+import AgentTrace, { AgentTraceToggle } from '../ai/AgentTrace'
+import AiBadge from '../ai/AiBadge'
 import { Kicker } from './ShowBits'
-import { SOL, greenAt, haveTo, mustRows, optionBeatMs, optionSay, usdCompact } from './showDeck'
+import { AI_BEAT, SOL, agenticOf, aiBeatMs, aiItemsOf, aiTraceOf, greenAt, haveTo, mustRows, optionBeatMs, optionSay, usdCompact } from './showDeck'
 import { S } from './showText'
 import { clamp01, easeInOut, useElapsed } from './useShowClock'
 
@@ -16,14 +18,21 @@ function troubleLines(report, result) {
 
 // The solutions, one beat per option: "if you want to build this here, you have to do this" (line by line),
 // then the green reveal: the lines that broke cool from red to green, the upgrades draw in on the map, the
-// re-run counts the people out down to zero, and the cost (high end) and the "verified" tag land.
+// re-run counts the people out down to zero, and the cost (high end) and the "verified" tag land. Then, when the
+// AI proposer has run, "Watch the AI work": a few of its steps (a plan that failed, the engine's findings going
+// back, the revision that held), each one the engine's real verdict.
 export default function ShowSolutions({ slide, report, lang, animate, options, stage, live, agentic }) {
   const t = S[lang]
   const o = useOverload()
   const n = options.length
   const beats = useMemo(() => options.map((x) => optionBeatMs(x, lang)), [options, lang])
-  const total = SOL.intro + beats.reduce((a, b) => a + b, 0)
-  const clock = useElapsed(animate, total + 4000)
+  const ag = useMemo(() => aiTraceOf(slide, { agentic }), [slide, agentic])
+  const run = useMemo(() => agenticOf(slide, { agentic }), [slide, agentic]) // the paused view shows any finished run, even one where Gemini didn't answer
+  const aiN = useMemo(() => aiItemsOf(ag).length, [ag])
+  const optionsMs = SOL.intro + beats.reduce((a, b) => a + b, 0)
+  const total = optionsMs + aiBeatMs(ag)
+  // with a voice the options follow its cues, so the clock keeps running long enough for the AI beat after them
+  const clock = useElapsed(animate, total + (live.optionCues ? 90000 : 4000))
   const trouble = useMemo(() => troubleLines(report, o.result), [report, o.result])
   const before = Number(report?.event?.people) || 0
   const headline = haveTo(report, lang)
@@ -53,6 +62,21 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
       }
     }
   }
+  // the AI beat: after the last option's beat has run out
+  let aiLocal = -1
+  if (animate && aiN > 0) {
+    if (live.optionCues) {
+      if (live.option && cur === n - 1 && local >= beats[n - 1]) aiLocal = local - beats[n - 1]
+    } else if (clock >= optionsMs) aiLocal = clock - optionsMs
+  }
+  const aiOn = aiLocal >= 0
+  const aiShown = aiOn ? Math.max(0, Math.min(aiN, Math.floor((aiLocal - AI_BEAT.intro) / AI_BEAT.step) + 1)) : 0
+  useEffect(() => {
+    if (!aiOn || !ag) return
+    stage.say({ key: 'ai-work', text: t.aiWorkSay(ag.asked || 0, ag.verified || 0, ag.rounds || 1) })  // "sent back what still failed" only when it did
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiOn, lang])
+
   const opt = cur >= 0 ? options[cur] : null
   const tg = opt ? greenAt(opt, lang) : 0
   const green = !!opt && local >= tg
@@ -117,8 +141,37 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
           {headline}
         </h2>
         <OptionRows options={options} lang={lang} animate={false} />
-        <Frame agentic={agentic} options={options} lang={lang} />
+        <Frame agentic={run || agentic} options={options} lang={lang} />
+        {run && (
+          <AgentTraceToggle
+            trace={run.trace}
+            lang={lang}
+            label={run.asked > 0 ? `${t.aiWork} · ${t.aiWorkCount(run.asked, run.verified || 0, run.rounds || 1)}` : t.aiWork}
+            heading={false}
+            stepMs={420}
+            follow
+            className="sh-aitrace"
+          />
+        )}
       </>
+    )
+  }
+
+  if (aiOn) {
+    return (
+      <div className="sh-aiwork">
+        <div className="sh-headrow">
+          <Kicker tone="green">{t.aiWork}</Kicker>
+          <span className="sh-count">{t.aiWorkCount(ag.asked || 0, ag.verified || 0, ag.rounds || 1)}</span>
+        </div>
+        <h2 className="rs-headline sh-aiwork__h" id={`rs-h-${slide.id}`}>
+          {(ag.rounds || 1) > 1 ? t.aiWorkHead : t.aiWorkHead1}
+        </h2>
+        <AgentTrace trace={ag.trace} lang={lang} shown={aiShown} max={AI_BEAT.items} heading={false} stepMs={AI_BEAT.step} follow brief className="sh-aitrace" />
+        <p className="sh-aiwork__foot">
+          <AiBadge by="gemini" verified lang={lang} />
+        </p>
+      </div>
     )
   }
 

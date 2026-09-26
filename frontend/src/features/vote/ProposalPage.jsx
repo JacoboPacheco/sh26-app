@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Button, ErrorBanner, Loading } from '../../ui'
+import Analyst from './Analyst'
 import { Questions, Speak } from './Ask'
 import Money from './Money'
 import Safe from './Safe'
@@ -18,6 +19,7 @@ const SECTIONS = [
   ['money', 'The money'],
   ['grid', 'What it could do'],
   ['built', 'What would have to be built'],
+  ['take', 'What it would take (AI)'],
   ['ask', 'Ask before you vote'],
   ['speak', 'Where to speak'],
 ]
@@ -190,6 +192,10 @@ export default function ProposalPage({ id }) {
 
       <Section id="built" title="What would have to be built for this to be safe">
         <Safe safe={safe} sim={sim} />
+      </Section>
+
+      <Section id="take" title="What it would take: the AI analyst">
+        <Analyst key={e.id} entry={e} sim={sim} />
       </Section>
 
       <Section id="ask" title="Ask before you vote">

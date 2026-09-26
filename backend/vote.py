@@ -591,7 +591,7 @@ def _safe_block(rep: dict | None, sim: dict, reason: str | None = None) -> dict:
             }
         )
     ag = rep.get("agentic")
-    agentic = {"status": ag.get("status"), "added": ag.get("added", 0)} if isinstance(ag, dict) else None
+    agentic = _agentic(ag)
     if out:
         full = [s for s in out if s["full_size"]]
         headline = (
@@ -613,6 +613,23 @@ def _safe_block(rep: dict | None, sim: dict, reason: str | None = None) -> dict:
         "agentic": agentic,
         "note": "Simulated on the synthetic model. Every plan is re-run by the same engine before it is listed; costs are estimates from published per-mile and per-MVA figures.",
     }
+
+
+AGENT_KEYS = ("status", "asked", "verified", "added", "rounds", "calls", "ms", "model")
+
+
+def _agentic(ag) -> dict | None:
+    """The AI proposer's run (solutions.py → report.agentic) for "Watch the AI work": its totals and its trace (a copy:
+    the trace grows while the proposer runs, and the page polls until it is done). `configured` says whether a key is set."""
+    if not isinstance(ag, dict):
+        return None
+    from llm import configured
+
+    out = {k: ag[k] for k in AGENT_KEYS if k in ag}
+    out.setdefault("added", 0)
+    out["trace"] = [dict(x) for x in list(ag.get("trace") or [])[:40] if isinstance(x, dict)]
+    out["configured"] = configured()
+    return out
 
 
 def _report(e: dict, sim: dict):

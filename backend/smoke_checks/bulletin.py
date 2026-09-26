@@ -133,6 +133,36 @@ def register(ctx):
             blob = " ".join([s["headline"]["en"], *s["lines"]["en"], *(g["text"] for g in s["narration"]["en"])]).lower()
             assert "data center" not in blob and " it only at" not in blob, f"{s['id']} speaks of a data center with none placed: {blob[:200]}"
 
+    def test_agent_trace_in_deck():
+        # "Watch the AI work": the fix slide carries the AI proposer's run (solutions.py → report.agentic) with its trace.
+        # Without a key the proposer is off and the trace is empty; with one, once it is done, every round is in it.
+        import time
+
+        configured = ctx.request("GET", "/api/ai/status")["configured"]
+        d = ctx.request("POST", "/api/briefing/deck", {**case, "ai": False})
+        deadline = time.time() + 45
+        while configured and (d.get("agentic") or {}).get("status") in (None, "running") and time.time() < deadline:
+            time.sleep(3)
+            d = ctx.request("POST", "/api/briefing/deck", {**case, "ai": False})
+        fix = next(s for s in d["slides"] if s["id"] == "fix")
+        ag = fix.get("agentic")
+        assert isinstance(ag, dict) and isinstance(ag.get("trace"), list) and ag.get("status") in ("off", "running", "done", "error"), ag
+        if not configured:
+            assert ag["status"] == "off" and ag["trace"] == [], ag
+            return
+        if ag["status"] != "done" or not ag.get("asked"):
+            return  # Gemini unavailable or out of quota: the engine's own fixes stand, nothing to trace
+        tr = ag["trace"]
+        assert tr and len(tr) <= 40 and [t["n"] for t in tr] == list(range(1, len(tr) + 1)), [t.get("n") for t in tr]
+        assert tr[0]["kind"] == "ask" and tr[-1]["kind"] == "result", (tr[0]["kind"], tr[-1]["kind"])
+        assert all(t["actor"] in ("gemini", "engine") and t["title"]["en"] and t["title"]["es"] for t in tr), tr[0]
+        proposed = [t for t in tr if t["kind"] in ("propose", "revise")]
+        checked = [t for t in tr if t["kind"] == "verify"]
+        assert len(proposed) == ag["asked"] and len(checked) == len(proposed), (len(proposed), len(checked), ag["asked"])
+        assert all(("holds" in t) and t["tone"] in ("holds", "over") for t in checked), checked[:1]
+        assert sum(1 for t in checked if t["holds"] and not t.get("duplicate")) == ag["verified"], ag
+        assert d["agentic"]["trace"] == tr or len(d["agentic"]["trace"]) >= len(tr), "the deck's agentic and the fix slide's disagree"
+
     def test_validation():
         ctx.request("POST", "/api/briefing/deck", {}, expect=422)  # nothing happened
         ctx.request("POST", "/api/briefing/deck", {**case, "lat": 40}, expect=422)  # north of Florida
@@ -149,4 +179,5 @@ def register(ctx):
     ctx.check("briefing deck with AI: complete with or without a key, fixed opening kept", test_ai_deck)
     ctx.check("legacy /api/bulletin: a paragraph from the deck, with the engine's facts", test_legacy_bulletin)
     ctx.check("briefing deck: a storm reads 'no fix' (no upgrade 'prevents' it); a heat-only case never mentions a data center", test_honest_storm_and_heat)
+    ctx.check("briefing deck: the fix slide carries the AI proposer's trace (every plan, the engine's verdict on each, the revisions)", test_agent_trace_in_deck)
     ctx.check("briefing deck rejects an empty case, a point outside Florida, a size of 0, an unknown line, a bad length", test_validation)

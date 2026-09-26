@@ -59,10 +59,10 @@ if curl -sf "http://localhost:$PORT/api/health" >/dev/null 2>&1; then
   kill_port "$PORT"
 fi
 rm -f "$ROOT/backend/check.db"
-# GEMINI_API_KEY is blanked so the check never spends real quota or depends on the
+# GEMINI_API_KEY is blanked (and the on-disk AI cache off) so the check never spends real quota or depends on the
 # network: it verifies the deterministic "not configured" path instead.
 # exec so SERVER_PID is the server itself, not a wrapper subshell
-(cd "$ROOT/backend" && JWT_SECRET="${JWT_SECRET:-check-only-secret}" DATABASE_URL="sqlite:///./check.db" GEMINI_API_KEY="" \
+(cd "$ROOT/backend" && JWT_SECRET="${JWT_SECRET:-check-only-secret}" DATABASE_URL="sqlite:///./check.db" GEMINI_API_KEY="" AI_CACHE_FILE="" \
   ALLOWED_ORIGINS="http://localhost:$PREVIEW_PORT" LOG_FILE="check-app.log" \
   exec "$PY" -m uvicorn main:app --port "$PORT" > "$ROOT/backend/check-server.log" 2>&1) &
 SERVER_PID=$!

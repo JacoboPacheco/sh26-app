@@ -1689,3 +1689,25 @@
     display: none !important;
   }
 }
+
+/* "Watch the AI work": the AI proposer's own run after the options (a plan that failed, the findings sent back,
+   the revision that held), each verdict the engine's */
+.sh-aiwork {
+  display: grid;
+  gap: 0.6rem;
+}
+.sh-aiwork__h {
+  font-size: 1.15rem;
+}
+.sh-aiwork__foot {
+  margin: 0;
+}
+.sh-aitrace {
+  max-height: min(52vh, 460px);
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+.agt-toggle.sh-aitrace {
+  max-height: none;
+  overflow: visible;
+}

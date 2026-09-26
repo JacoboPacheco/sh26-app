@@ -12,7 +12,11 @@ the last resort. There is always more than one solution when more than one holds
     best_fix(fixes)             the index the report calls best (a verified fix, else the partial one that helps most)
     kick(key)                   start the AI proposer in the background for a cached report (once)
     propose(key)                the agentic loop: Gemini proposes plans, the engine re-runs each one, a failing plan is
-                                sent back once with what the engine found, only verified plans are added
+                                sent back once with what the engine found, only verified plans are added. Every round
+                                is recorded on the report as agentic.trace ("Watch the AI work"): what Gemini proposed
+                                (lines, MVA, keep %), what the engine found (holds, or which lines stay over and by how
+                                much, people still out), the feedback sent back and the revision, plus agentic totals
+                                (asked, verified, rounds, calls, ms). The trace is written live while the loop runs.
 
 Every plan the AI proposes is verified by the same cascade engine as every other fix: the AI never decides what
 holds. Everything is an estimate on a SYNTHETIC grid model, never a real utility's network.
@@ -27,6 +31,8 @@ the strain it removes, not only that it "holds".
 import asyncio
 import logging
 import math
+import re
+import time
 
 import numpy as np
 
@@ -40,10 +46,12 @@ MUST_LINES = 6  # upgrade lines spelled out in a "you have to do this" list
 PLANS_ASKED = 3
 MAX_PLAN_LINES = 12
 MAX_RERATE = 5.0  # a re-rating tops out at 5x (the Fix it search's own cap)
-AI_TIMEOUT_S = 10
+AI_TIMEOUT_S = 18  # the proposer runs in the background (no request waits on it): a slow answer still counts
 HOT_PCT = 90.0  # a line at or above this share of its rating is under strain
 STRAIN_FIXES = 8  # fixes measured per report (one solve each)
 MAX_ROUNDS = 3  # one proposal and up to two revisions after the engine's feedback
+TRACE_MAX = 40  # entries kept in agentic.trace (a round is about 7: the ask, three plans and their three checks)
+TRACE_LINES = 4  # upgraded lines named per proposed plan in the trace
 
 _running: set[str] = set()
 
@@ -351,11 +359,14 @@ SYSTEM = (
 
 
 _HYPE = {"aggressive", "maximum", "comprehensive", "ultimate", "robust", "massive", "optimal", "strategic", "full"}
+_TRAIL = {"near", "at", "for", "and", "with", "to", "of", "the", "a", "an", "in", "on", "by", "from", "plus", "&", "+", "-"}  # never the last word of a name
 
 
 def _plain_name(raw) -> str:
     """An AI plan's name in plain sentence case, at most six words, cut on a word boundary, no hype adjectives."""
     words = [w for w in str(raw or "").replace("_", " ").split() if w.lower().strip(",.:;") not in _HYPE][:6]
+    while len(words) > 1 and words[-1].lower().strip(",.:;") in _TRAIL:  # "Three transformers and four lines near" -> "...four lines"
+        words.pop()
     if not words:
         return "AI plan"
     out = [words[0][:1].upper() + (words[0][1:].lower() if words[0][1:].islower() or words[0][1:].istitle() else words[0][1:])]
@@ -364,6 +375,45 @@ def _plain_name(raw) -> str:
     while len(name) > 48 and " " in name:
         name = name.rsplit(" ", 1)[0]
     return name[:48]
+
+
+_NUMTOK = re.compile(r"\d+(?:[.,]\d+)*")
+
+
+def _canon_num(tok: str) -> str:
+    try:
+        v = float(tok.replace(",", ""))
+    except ValueError:
+        return tok
+    return str(int(round(v))) if abs(v - round(v)) < 1e-9 else f"{v:.2f}".rstrip("0").rstrip(".")
+
+
+def _why_numbers_ok(why: str, ups: dict[int, float], ratings: dict[int, float], keep: float) -> bool:
+    """Every number in Gemini's one-line reason is a voltage class, a rating, a line id or a size from this plan."""
+    allowed = {"0", "1", "2", "3", str(round(keep * 100)), "90", "100"}
+    for bid, to in ups.items():
+        allowed |= {str(int(bid)), _canon_num(str(round(to))), _canon_num(str(round(ratings.get(int(bid), 0.0))))}
+    allowed |= {"69", "115", "138", "161", "230", "345", "500", "765"}  # the model's voltage classes (kV)
+    return all(_canon_num(t) in allowed for t in _NUMTOK.findall(why))
+
+
+_places: dict[int, list] = {}
+
+
+def _proper_places(name: str, g) -> str:
+    """Sentence case lowered the town names ("Upgrade north fort myers transformer"): put them back ("North Fort Myers")."""
+    from powerflow import area_of
+
+    pats = _places.get(id(g))
+    if pats is None:
+        areas = sorted({area_of(n) for n in g.sub_name if area_of(n)}, key=len, reverse=True)
+        pats = [(re.compile(r"\b" + re.escape(a) + r"\b", re.I), a) for a in areas if len(a) >= 4][:600]
+        _places[id(g)] = pats
+    low = name.lower()
+    for rx, a in pats:
+        if a.lower() in low:
+            name = rx.sub(a, name)
+    return name
 
 
 def _clean_plan(plan, g, ratings: dict[int, float]) -> tuple[dict[int, float], float, str, str] | None:
@@ -387,36 +437,48 @@ def _clean_plan(plan, g, ratings: dict[int, float]) -> tuple[dict[int, float], f
     except (TypeError, ValueError):
         keep = 100.0
     keep = min(100.0, max(FULL_KEEP_PCT, keep)) / 100.0
-    name = _plain_name(plan.get("name"))
+    name = _proper_places(_plain_name(plan.get("name")), g)
     why = str(plan.get("why") or "").strip()[:200]
+    if why and not _why_numbers_ok(why, ups, ratings, keep):
+        why = ""  # a reason is shown only when every number in it is one the case gave Gemini (or the plan itself)
     if not ups and keep >= 0.999:
         return None
     return ups, keep, name, why
 
 
-def _check(c, J, plan: tuple, base_ups: dict) -> tuple[dict | None, str]:
-    """Run one plan through the engine. (a fix dict if it holds, else None) and the feedback sentence."""
+def _check(c, J, plan: tuple, base_ups: dict) -> tuple[dict | None, str, dict]:
+    """Run one plan through the engine: (a fix dict if it holds, else None), the feedback sentence for Gemini, and
+    what the engine saw (for the trace): {holds, verdict, steps, people, over: [{id, pct, mva}], peak_pct, how, ms}."""
     b = _b()
     g = c.g
+    t0 = time.perf_counter()
     ups_new, keep, name, why = plan
     if not c.sites:  # nothing to keep at full size: the proposer is for a data center's case
-        return None, f"Plan '{name}' skipped: this case has no data center."
+        return None, f"Plan '{name}' skipped: this case has no data center.", {"holds": False, "skipped": True}
     upgrades = {**{int(k): float(v) for k, v in base_ups.items()}, **ups_new}
     mws = b._site_mws(c, keep)
     total = float(sum(s.mw for s in c.sites))
     extra = b._extra_for(g, c.buses, mws)
     oc, verdict, how = b._verify(c, J, g, extra, upgrades)
     rate = g.rates_with(upgrades)
+    ok, st = b._fits(c, g, extra, rate)
+    act = st.active
+    peak = float(np.max(np.where(act, st.loading_pct, 0.0))) if st.loading_pct.size else 0.0
+    seen = {"holds": verdict == "holds", "verdict": verdict, "steps": int(oc["steps"]), "people": int(oc["people"]), "over": [],
+            "peak_pct": round(peak, 1), "how": how, "mw": round(float(sum(mws)), 1)}
     if verdict != "holds":
-        ok, st = b._fits(c, g, extra, rate)
         over = []
         if not ok:
-            for i in b._over(st)[np.argsort(-st.loading_pct[b._over(st)])][:5]:
+            hot = b._over(st)
+            for i in hot[np.argsort(-st.loading_pct[hot])][:5]:
                 over.append(f"{int(g.br_ids[i])}: {b._line(g, int(i))['label']} at {st.loading_pct[i]:.0f}% of {rate[i]:.0f} MVA")
+                seen["over"].append({"id": int(g.br_ids[i]), "pct": round(float(st.loading_pct[i]), 1), "mva": round(float(rate[i]))})
+            seen["over_count"] = int(len(hot))
         fb = f"Plan '{name}' did NOT hold: after {oc['steps']} cascade steps {oc['people']:,} people (estimate) were still without power."
         if over:
             fb += " Lines still over their limit: " + "; ".join(over) + "."
-        return None, fb
+        seen["ms"] = round((time.perf_counter() - t0) * 1000)
+        return None, fb, seen
     chosen = sorted(g.br_index[k] for k in ups_new)
     lst, mva, km = b._upgrade_list(g, g.rate, rate, chosen)
     new_total = float(sum(mws))
@@ -428,7 +490,8 @@ def _check(c, J, plan: tuple, base_ups: dict) -> tuple[dict | None, str]:
     ap = {**b._size_apply(c, mws), "upgrades": {str(k): float(v) for k, v in upgrades.items()}}
     fx = b._fix("agentic", action, "holds", oc, trade, detail, ap, 0)
     fx["by"] = "gemini"
-    return fx, ""
+    seen["ms"] = round((time.perf_counter() - t0) * 1000)
+    return fx, "", seen
 
 
 def _same(fx: dict, others: list[dict]) -> bool:
@@ -440,9 +503,143 @@ def _same(fx: dict, others: list[dict]) -> bool:
     return False
 
 
+# ------------------------------------------------------------------------------------------ the trace
+def _n(x) -> str:
+    return f"{float(x):,.0f}"
+
+
+def _people_say(n: int, lang: str) -> str:
+    n = int(n)
+    if n <= 0:
+        return "nobody without power" if lang == "en" else "nadie sin luz"
+    return f"about {n:,} people without power (estimate)" if lang == "en" else f"unas {n:,} personas sin luz (estimación)".replace(",", ".")
+
+
+def _steps(n: int, lang: str) -> str:
+    n = int(n)
+    if lang == "en":
+        return f"{n} cascade {'step' if n == 1 else 'steps'}"
+    return f"{n} {'paso' if n == 1 else 'pasos'} de cascada"
+
+
+def _plan_lines(g, ups_new: dict[int, float], ratings: dict[int, float]) -> tuple[list[dict], float]:
+    """The re-rated lines of a plan (biggest raise first) and the MVA it adds in all."""
+    rows = []
+    for bid, to in ups_new.items():
+        cur = float(ratings.get(int(bid), 0.0))
+        rows.append({"id": int(bid), "label": _label(g, int(bid), "en"), "label_es": _label(g, int(bid), "es"), "from_mva": round(cur), "to_mva": round(float(to))})
+    rows.sort(key=lambda r: -(r["to_mva"] - r["from_mva"]))
+    return rows, round(sum(r["to_mva"] - r["from_mva"] for r in rows))
+
+
+def _say_raise(rows: list[dict], lang: str) -> str:
+    en = lang == "en"
+    shown = [
+        (f"{r['label']} from {_n(r['from_mva'])} to {_n(r['to_mva'])} MVA" if en else f"{r['label_es']} de {_n(r['from_mva'])} a {_n(r['to_mva'])} MVA")
+        for r in rows[:2]
+    ]
+    rest = len(rows) - len(shown)
+    tail = (f" and {rest} more" if en else f" y {rest} más") if rest > 0 else ""
+    return ("Raise " if en else "Aumentar ") + "; ".join(shown) + tail if shown else ""
+
+
+class _Trace:
+    """agentic.trace: one entry per thing that happened, in order. Written live (the report's agentic dict holds
+    the same list), capped at TRACE_MAX with the last slot kept for the result."""
+
+    def __init__(self):
+        self.rows: list[dict] = []
+
+    def add(self, *, final: bool = False, **row) -> None:
+        if len(self.rows) >= TRACE_MAX - (0 if final else 1):
+            if not final:
+                return
+            self.rows.pop()
+        row["n"] = len(self.rows) + 1
+        self.rows.append(row)
+
+    def ask(self, rnd: int, rep: dict, c, cands: list[dict]) -> None:
+        total = float(sum(s.mw for s in c.sites))
+        where = c.header.get("sub_area") or ""
+        ev = rep.get("event") or {}
+        over = sum(1 for x in cands if x.get("loaded_pct"))
+        self.add(round=rnd, actor="engine", kind="ask", tone="info",
+                 title={"en": f"Sent Gemini the case: {_n(total)} MW" + (f" at {where}" if where else "") + f", {_steps(int(ev.get('steps') or 0), 'en')}",
+                        "es": f"Le pasó a Gemini el caso: {_n(total)} MW" + (f" en {where}" if where else "") + f", {_steps(int(ev.get('steps') or 0), 'es')}"},
+                 detail={"en": f"{_people_say(int(ev.get('people') or 0), 'en').capitalize()}. Asked for {PLANS_ASKED} plans that keep the full size, from {len(cands)} lines it may re-rate ({over} already over their limit).",
+                         "es": f"{_people_say(int(ev.get('people') or 0), 'es').capitalize()}. Le pidió {PLANS_ASKED} planes que mantengan el tamaño completo, con {len(cands)} líneas que puede reforzar ({over} ya sobre su límite)."},
+                 lines_offered=len(cands))
+
+    def proposed(self, rnd: int, revised: bool, name: str, why: str, keep: float, rows: list[dict], mva: float) -> None:
+        pct = round(keep * 100)
+        self.add(round=rnd, actor="gemini", kind="revise" if revised else "propose", tone="info", plan=name, keep_pct=pct,
+                 lines=[{k: r[k] for k in ("id", "label", "from_mva", "to_mva")} for r in rows[:TRACE_LINES]], lines_total=len(rows), mva_added=mva,
+                 title={"en": ("Revised: " if revised else "Proposed: ") + name, "es": ("Revisó: " if revised else "Propuso: ") + name},
+                 detail={"en": f"{_say_raise(rows, 'en')} (+{_n(mva)} MVA in all); keep {pct}% of the campus." + (f" {why}" if why else ""),
+                         "es": f"{_say_raise(rows, 'es')} (+{_n(mva)} MVA en total); conservar el {pct} % del campus."})
+
+    def unusable(self, rnd: int, raw_name: str) -> None:
+        name = _plain_name(raw_name)
+        self.add(round=rnd, actor="engine", kind="skip", tone="muted",
+                 title={"en": f"Skipped: {name}", "es": f"Descartado: {name}"},
+                 detail={"en": "It named no line on the list with a higher rating, so there was nothing to run.",
+                         "es": "No nombró ninguna línea de la lista con una capacidad mayor, así que no había nada que probar."})
+
+    def verified(self, rnd: int, g, seen: dict, duplicate: bool) -> None:
+        if seen.get("holds"):
+            en = f"No line trips and {_people_say(seen['people'], 'en')}; the busiest line runs at {seen['peak_pct']:.0f}% of its rating."
+            es = f"Ninguna línea se dispara y {_people_say(seen['people'], 'es')}; la línea más cargada va al {seen['peak_pct']:.0f} % de su capacidad."
+            if duplicate:
+                en += " Same as a plan already listed, so it is not added twice."
+                es += " Es igual a un plan ya listado, así que no se añade dos veces."
+            self.add(round=rnd, actor="engine", kind="verify", tone="holds", holds=True, duplicate=duplicate, people=seen["people"], steps=seen["steps"],
+                     peak_pct=seen["peak_pct"], ms=seen.get("ms"),
+                     title={"en": "Engine re-ran the case: it holds", "es": "El motor repitió el caso: aguanta"}, detail={"en": en, "es": es})
+            return
+        over = [{**o, "label": _label(g, o["id"], "en"), "label_es": _label(g, o["id"], "es")} for o in seen.get("over") or []]
+        en = f"{_steps(seen.get('steps', 0), 'en').capitalize()}, {_people_say(seen.get('people', 0), 'en')}."
+        es = f"{_steps(seen.get('steps', 0), 'es').capitalize()}, {_people_say(seen.get('people', 0), 'es')}."
+        if over:
+            en += " Still over: " + "; ".join(f"{o['label']} at {o['pct']:.0f}% of {_n(o['mva'])} MVA" for o in over[:2]) + (f" (+{len(over) - 2} more)" if len(over) > 2 else "") + "."
+            es += " Siguen sobre su límite: " + "; ".join(f"{o['label_es']} al {o['pct']:.0f} % de {_n(o['mva'])} MVA" for o in over[:2]) + (f" (y {len(over) - 2} más)" if len(over) > 2 else "") + "."
+        self.add(round=rnd, actor="engine", kind="verify", tone="over", holds=False, people=seen.get("people", 0), steps=seen.get("steps", 0),
+                 over=[{k: o[k] for k in ("id", "label", "pct", "mva")} for o in over[:5]], over_count=seen.get("over_count", len(over)), ms=seen.get("ms"),
+                 title={"en": "Engine re-ran the case: it fails", "es": "El motor repitió el caso: falla"}, detail={"en": en, "es": es})
+
+    def feedback(self, rnd: int, failed: int, extra_ids: list[int]) -> None:
+        self.add(round=rnd, actor="engine", kind="feedback", tone="info", failed=failed, lines_added=len(extra_ids),
+                 title={"en": f"Sent the engine's findings back to Gemini ({failed} {'plan' if failed == 1 else 'plans'} failed)",
+                        "es": f"Le devolvió a Gemini lo que encontró el motor ({failed} {'plan falló' if failed == 1 else 'planes fallaron'})"},
+                 detail={"en": "The lines still over their limit and by how much, with those lines added to the ones it may re-rate. Asked it to revise.",
+                         "es": "Las líneas que siguen sobre su límite y por cuánto, añadidas a las que puede reforzar. Le pidió que revise."})
+
+    def offline(self, rnd: int) -> None:
+        self.add(round=rnd, actor="gemini", kind="offline", tone="muted",
+                 title={"en": "Gemini did not answer" if rnd == 1 else "Gemini did not answer the revision",
+                        "es": "Gemini no respondió" if rnd == 1 else "Gemini no respondió a la revisión"},
+                 detail={"en": "Unavailable or too slow: the engine's own ways to build it stand.", "es": "No disponible o demasiado lento: quedan las soluciones del propio motor."})
+
+    def result(self, asked: int, verified: int, rounds: int, calls: int, ms: int) -> None:
+        self.add(final=True, round=rounds, actor="engine", kind="result", tone="holds" if verified else "muted",
+                 title={"en": f"{verified} of {asked} AI {'plan' if asked == 1 else 'plans'} verified and added" if asked else "No AI plan to add",
+                        "es": f"{verified} de {asked} {'plan' if asked == 1 else 'planes'} de IA verificados y añadidos" if asked else "Ningún plan de IA que añadir"},
+                 detail={"en": f"{rounds} {'round' if rounds == 1 else 'rounds'}, {calls} Gemini {'call' if calls == 1 else 'calls'}, {ms / 1000:.1f} s. Only plans the engine re-ran and found holding are listed.",
+                         "es": f"{rounds} {'ronda' if rounds == 1 else 'rondas'}, {calls} {'llamada' if calls == 1 else 'llamadas'} a Gemini, {ms / 1000:.1f} s. Solo se listan los planes que el motor repitió y aguantan."})
+
+
+def _live(rep: dict, key: str, **fields) -> None:
+    """Update the running proposer's status on the report (and a rebuilt copy under the same key) so a page
+    polling it sees the trace grow."""
+    b = _b()
+    for r in {id(rep): rep, id(b.report_by_key(key) or rep): b.report_by_key(key) or rep}.values():
+        ag = r.get("agentic")
+        if isinstance(ag, dict) and ag.get("status") == "running":
+            ag.update(fields)
+
+
 async def propose(key: str) -> None:
     """Gemini proposes, the engine verifies, a failing plan gets one revision with the engine's findings."""
-    from llm import complete_json
+    from llm import AGENT_MODEL, AGENT_THINKING, complete_json
 
     b = _b()
     rep = b.report_by_key(key)
@@ -452,18 +649,27 @@ async def propose(key: str) -> None:
         return
     if rep is None:
         return
+    t_start = time.perf_counter()
     g = c.g
     J = b._Judge(int(rep["event"]["people"]), int(rep["event"]["steps"]), int((rep.get("bound") or {}).get("people") or 0), float((rep.get("bound") or {}).get("lost_mw") or 0.0))
     ratings = {int(g.br_ids[i]): float(g.rate[i]) for i in range(g.m)}
     have = [f["action"] for f in rep["fixes"] if f.get("verdict") == "holds" and f.get("family") in ("upgrade", "combo", "agentic")]
-    asked = verified = 0
+    asked = verified = calls = 0
     added: list[dict] = []
     feedback = ""
     extra_ids: list[int] = []
+    tr = _Trace()
+    _live(rep, key, trace=tr.rows, asked=0, verified=0, calls=0)
+    rnd = 0
     for rnd in range(MAX_ROUNDS):
         cands = _candidates(rep, c, extra_ids)
-        raw, offline = await complete_json(_prompt(rep, c, cands, have + [f["action"] for f in added], feedback), system=SYSTEM, fallback={"plans": []}, timeout=AI_TIMEOUT_S, surface="solutions")
+        if rnd == 0:
+            tr.ask(1, rep, c, cands)
+        raw, offline = await complete_json(_prompt(rep, c, cands, have + [f["action"] for f in added], feedback), system=SYSTEM, fallback={"plans": []},
+                                           timeout=AI_TIMEOUT_S, surface="solutions", model=AGENT_MODEL, thinking=AGENT_THINKING)
+        calls += 1
         if offline:
+            tr.offline(rnd + 1)
             break
         listed = raw if isinstance(raw, list) else (raw.get("plans") if isinstance(raw, dict) else None)
         plans = [p for p in (listed or []) if isinstance(p, dict)][:PLANS_ASKED]
@@ -471,23 +677,36 @@ async def propose(key: str) -> None:
         for p in plans:
             clean = _clean_plan(p, g, ratings)
             if clean is None:
+                tr.unusable(rnd + 1, p.get("name"))
                 continue
             asked += 1
-            fx, fb = await asyncio.get_running_loop().run_in_executor(None, _check, c, J, clean, c.upgrades)
+            rows, mva = _plan_lines(g, clean[0], ratings)
+            tr.proposed(rnd + 1, rnd > 0, clean[2], clean[3], clean[1], rows, mva)
+            fx, fb, seen = await asyncio.get_running_loop().run_in_executor(None, _check, c, J, clean, c.upgrades)
+            dup = fx is not None and _same(fx, rep["fixes"] + added)
+            if not seen.get("skipped"):
+                tr.verified(rnd + 1, g, seen, dup)
             if fx is None:
                 failed.append(fb)
-            elif not _same(fx, rep["fixes"] + added):
+            elif not dup:
                 added.append(fx)
                 verified += 1
+            _live(rep, key, asked=asked, verified=verified, calls=calls)
         if len(added) >= 2 or not failed:
             break
-        feedback = "The engine checked your previous plans:\n" + "\n".join(failed[:3]) + "\nRevise: propose replacement plans that fix what is still over its limit."
         extra_ids = [int(x.split(":")[0]) for f in failed for x in f.split("Lines still over their limit: ")[-1].split("; ") if x.split(":")[0].strip().isdigit()][:10]
+        if rnd + 1 < MAX_ROUNDS:
+            tr.feedback(rnd + 2, len(failed), extra_ids)
+        feedback = "The engine checked your previous plans:\n" + "\n".join(failed[:3]) + "\nRevise: propose replacement plans that fix what is still over its limit."
     total = float(sum(s.mw for s in c.sites))
     for fx in added:
         fx["kept_mw"] = float(fx["detail"]["mw"])
         fx["kept_pct"] = round(100.0 * fx["kept_mw"] / total, 1) if total else None
-    status = {"status": "done", "asked": asked, "verified": verified, "added": len(added), "rounds": min(rnd + 1, MAX_ROUNDS), "by": "gemini"}
+    rounds = min(rnd + 1, MAX_ROUNDS)
+    ms = round((time.perf_counter() - t_start) * 1000)
+    tr.result(asked, verified, rounds, calls, ms)
+    status = {"status": "done", "asked": asked, "verified": verified, "added": len(added), "rounds": rounds, "by": "gemini",
+              "calls": calls, "ms": ms, "model": AGENT_MODEL, "trace": list(tr.rows)}
     # The report may have been rebuilt while Gemini worked (a request with a bigger time budget replaces an
     # "unchecked" one under the same key): write the verified plans into every copy still reachable.
     targets = [rep]

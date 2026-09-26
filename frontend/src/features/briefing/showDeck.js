@@ -1,3 +1,4 @@
+import { compactItems, groupTrace } from '../ai/trace'
 import { fmt } from '../../geo'
 import { MUST, OPTION_NAME, S } from './showText'
 import { people as peopleText } from './text'
@@ -306,6 +307,25 @@ export const mustRows = (o, lang = 'en') => o.must?.[lang] || o.must?.en || []
 export const greenAt = (o, lang = 'en') => SOL.lineAt + SOL.lineStep * Math.min(mustRows(o, lang).length, 7) + 300
 export const optionBeatMs = (o, lang = 'en') => greenAt(o, lang) + SOL.run + SOL.read
 
+// "Watch the AI work": after the options, a beat of the AI proposer's own run (the fix slide's agentic.trace), a few
+// of its steps: a plan that failed, the engine's findings going back, the revision that held. Only once the run is done.
+export const AI_BEAT = { intro: 1300, step: 950, hold: 2600, items: 7 }
+// the run behind the fix slide (its own copy, else the deck's), once done and with a trace
+export const agenticOf = (slide, deck) => {
+  const ag = slide?.agentic?.trace?.length ? slide.agentic : deck?.agentic
+  return ag?.status === 'done' && ag.trace?.length > 1 ? ag : null
+}
+// the show's beat plays only when Gemini did propose plans (a run where it didn't answer stays in the paused view)
+export const aiTraceOf = (slide, deck) => {
+  const ag = agenticOf(slide, deck)
+  return ag && ag.asked > 0 ? ag : null
+}
+export const aiItemsOf = (ag) => (ag ? compactItems(groupTrace(ag.trace), AI_BEAT.items) : [])
+export const aiBeatMs = (ag) => {
+  const n = aiItemsOf(ag).length
+  return n ? AI_BEAT.intro + n * AI_BEAT.step + AI_BEAT.hold : 0
+}
+
 // ------------------------------------------------------------------ the deck, with the show's own beats
 const SYN = (id, kind, en, es, extra = {}) => ({
   id,
@@ -363,7 +383,7 @@ export function dwellMs(slide, report, lang = 'en', options = []) {
   if (kind === 'toll') return 9500
   if (kind === 'chain') return 3800 + playsOf(report, slide).length * 1550
   if (kind === 'problem') return 4600
-  if (kind === 'fix') return options.length ? SOL.intro + options.reduce((n, o) => n + optionBeatMs(o, lang), 0) : 0
+  if (kind === 'fix') return options.length ? SOL.intro + options.reduce((n, o) => n + optionBeatMs(o, lang), 0) + aiBeatMs(aiTraceOf(slide)) : 0
   if (kind === 'no_fix') return 8000
   if (kind === 'bottom_line') return options.length ? 4200 + options.length * 1200 : 8500
   if (kind === 'areas') return 6500

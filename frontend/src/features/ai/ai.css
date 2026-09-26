@@ -164,3 +164,203 @@
     }
   }
 }
+
+/* "Watch the AI work": the agent's run as a timeline. Plain rows on a thin rule; Gemini's steps carry the accent,
+   the engine's the pale "lit" color; red only where the engine found a line still over its limit, green where it holds. */
+.agt {
+  display: grid;
+  gap: var(--space-2);
+}
+.agt__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.agt__h {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.agt__list {
+  position: relative;
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0 0 0 1.1rem;
+  list-style: none;
+}
+.agt__list::before {
+  content: '';
+  position: absolute;
+  top: 0.35rem;
+  bottom: 0.35rem;
+  left: 0.3rem;
+  width: 1px;
+  background: var(--glass-edge);
+}
+.agt__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 4.3rem minmax(0, 1fr);
+  gap: 0.15rem 0.6rem;
+  align-items: baseline;
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+/* the dot on the rule: whose step it is */
+.agt__item::before {
+  content: '';
+  position: absolute;
+  top: 0.45em;
+  left: calc(-1.1rem + 0.3rem - 3.5px);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lit);
+  box-shadow: 0 0 0 3px var(--surface);
+}
+.agt__item--gemini::before {
+  background: var(--accent);
+}
+.agt__who {
+  color: var(--ink-2);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.agt__who--gemini {
+  color: var(--accent);
+}
+.agt__body {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.agt__title {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.agt__detail {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+.agt__call {
+  justify-self: start;
+  max-width: 100%;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: var(--glass-hi);
+  color: var(--current);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+.agt__item--muted .agt__title,
+.agt__tone--muted > .agt__title {
+  color: var(--ink-2);
+}
+/* the engine's verdict under a proposal or a tool call */
+.agt__verdict {
+  position: relative;
+  display: grid;
+  grid-template-columns: 4.3rem minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  margin-top: 0.3rem;
+  margin-left: -4.9rem;
+  padding: 0.35rem 0.5rem 0.35rem 0.6rem;
+  border-left: 2px solid var(--glass-edge);
+  background: var(--glass-hi);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.agt__verdict.agt__tone--over {
+  border-left-color: var(--overload);
+}
+.agt__verdict.agt__tone--over .agt__title {
+  color: #ff8fa2;
+}
+.agt__verdict.agt__tone--holds {
+  border-left-color: var(--hr-ok);
+}
+.agt__verdict.agt__tone--holds .agt__title {
+  color: var(--hr-ok);
+}
+.agt__item:not(.agt__item--pair).agt__tone--over > .agt__body > .agt__title {
+  color: #ff8fa2;
+}
+.agt__item:not(.agt__item--pair).agt__tone--holds > .agt__body > .agt__title {
+  color: var(--hr-ok);
+}
+.agt__ms {
+  color: var(--ink-2);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.agt__working,
+.agt__totals {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.78rem;
+}
+/* brief (the show): a proposal is its title; the engine's verdict keeps its detail (what is still over, by how much) */
+.agt--brief .agt__item--pair > .agt__body > .agt__detail {
+  display: none;
+}
+.agt-toggle {
+  display: grid;
+  gap: var(--space-2);
+}
+.agt-toggle__btn {
+  justify-self: start;
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.84rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.agt-toggle__btn:hover,
+.agt-toggle__btn:focus-visible {
+  color: var(--ink);
+}
+@media (max-width: 520px) {
+  .agt__item,
+  .agt__verdict {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .agt__verdict {
+    margin-left: 0;
+  }
+  .agt__verdict .agt__ms {
+    justify-self: start;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* a step arrives: a short fade and a small drop, then the engine's verdict half a step later */
+  .agt--anim .agt__item {
+    animation: agt-in 260ms ease-out both;
+  }
+  .agt--anim .agt__verdict {
+    animation: agt-in 260ms ease-out both;
+    animation-delay: calc(var(--step, 650ms) * 0.45);
+  }
+  @keyframes agt-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+}

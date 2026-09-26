@@ -27,6 +27,7 @@ _log_file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(
 for _name in ("uvicorn", "uvicorn.access"):
     logging.getLogger(_name).addHandler(_log_file)
 
+import analyst
 import agreement
 import ask
 import auth
@@ -131,6 +132,7 @@ app.include_router(gridlock.router)
 app.include_router(agreement.router)
 app.include_router(danger.router)
 app.include_router(vote.router)
+app.include_router(analyst.router)
 app.include_router(unlock.router)
 app.include_router(views.router)
 app.include_router(sitereport.router)

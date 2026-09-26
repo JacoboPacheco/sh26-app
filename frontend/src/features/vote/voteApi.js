@@ -13,6 +13,11 @@ export const searchProposals = ({ q = '', state = '', limit = 20 } = {}) => {
 
 export const getProposal = (id) => api(`/api/vote/proposal/${encodeURIComponent(id)}`)
 
+// The AI analyst ("What it would take", backend/analyst.py): a finished analysis comes back at once ({status: 'done',
+// result}); otherwise a job whose trace grows while Gemini calls the engine ({job, status: 'running', trace}).
+export const startAnalyst = (id) => api('/api/analyst', { method: 'POST', body: { id, live: true } })
+export const getAnalystJob = (job) => api(`/api/analyst/jobs/${encodeURIComponent(job)}`)
+
 // ---------------------------------------------------------------- the address
 // #/vote?q=&state=  (search)   #/vote/<id>  (a proposal)   #/vote/<id>/brief  (the printable brief)
 const ID = /^[a-z0-9-]{1,120}$/
