@@ -4,11 +4,13 @@ import { project } from '../../geo'
 import { useOverload } from '../../store'
 
 // What the briefing draws on the live map while the stage is open: the line being talked about
-// (bright), the fix (upgraded lines, or the ghost of the moved campus, in green), the lines each
-// restoration wave rebuilds (green), and a ring on the area being named. Drawn inside the map's
-// camera group (portaled into `.map-cam`), so it pans and zooms with the map.
-//   lines: [{id, tone: 'hl' | 'fix'}], ghost: {lat, lon} | null, rings: [{center: [lon, lat], key}]
-export default function MapOverlay({ lines = [], ghost = null, rings = [] }) {
+// (bright), the fix (upgraded lines drawn in green, or the ghost of the moved campus), the lines that
+// were overloaded turning green once the fix is in, the lines each restoration wave rebuilds (green),
+// and a ring on the area being named. Drawn inside the map's camera group (portaled into `.map-cam`),
+// so it pans and zooms with the map.
+//   lines: [{id, tone: 'hl' | 'over' | 'fix' | 'cool'}], ghost: {lat, lon} | null, rings: [{center: [lon, lat], key}]
+//   layerKey: changes when the solutions beat moves on, so the green lines draw in again
+export default function MapOverlay({ lines = [], ghost = null, rings = [], layerKey = '' }) {
   const { branchById, subPos } = useOverload()
   const { cam, k } = useCamera()
   if (!cam) return null
@@ -22,16 +24,33 @@ export default function MapOverlay({ lines = [], ghost = null, rings = [] }) {
         if (!a || !z) return null
         const [x1, y1] = project(a[0], a[1])
         const [x2, y2] = project(z[0], z[1])
+        const key = `${tone}${id}-${layerKey}`
         if (x1 === x2 && y1 === y2) {
           // a transformer: both ends at one substation
-          return <circle key={`${tone}${id}`} className={`rs-map__xf rs-map__xf--${tone}`} cx={x1} cy={y1} r={9 * w} strokeWidth={2.5 * w} />
+          return <circle key={key} className={`rs-map__xf rs-map__xf--${tone}`} cx={x1} cy={y1} r={9 * w} strokeWidth={2.5 * w} pathLength="1" />
         }
-        return <line key={`${tone}${id}`} className={`rs-map__ln rs-map__ln--${tone}`} x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth={(tone === 'hl' ? 4 : 3.2) * w} />
+        return (
+          <line
+            key={key}
+            className={`rs-map__ln rs-map__ln--${tone}`}
+            x1={x1}
+            y1={y1}
+            x2={x2}
+            y2={y2}
+            strokeWidth={(tone === 'hl' || tone === 'over' ? 4 : tone === 'cool' ? 4.4 : 3.6) * w}
+            pathLength="1"
+          />
+        )
       })}
       {ghost &&
         (() => {
           const [x, y] = project(ghost.lon, ghost.lat)
-          return <circle className="rs-map__ghost" cx={x} cy={y} r={12 * w} strokeWidth={2 * w} strokeDasharray={`${4 * w} ${3 * w}`} />
+          return (
+            <g key={`ghost-${layerKey}`}>
+              <circle className="rs-map__pulse" cx={x} cy={y} r={12 * w} strokeWidth={2 * w} />
+              <circle className="rs-map__ghost" cx={x} cy={y} r={12 * w} strokeWidth={2 * w} strokeDasharray={`${4 * w} ${3 * w}`} />
+            </g>
+          )
         })()}
       {rings.map((r) => {
         const [x, y] = project(r.center[0], r.center[1])

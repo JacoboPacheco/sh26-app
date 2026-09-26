@@ -1,7 +1,7 @@
 import { T } from './text'
 
 // One segment per slide, filling with narration time; a click jumps to that slide.
-export default function Progress({ slides, idx, progress, lang, onJump }) {
+export default function Progress({ slides, idx, progress, lang, onJump, playing = false }) {
   const n = slides.length
   return (
     <ol className="rs-progress" aria-label={lang === 'es' ? 'Diapositivas' : 'Slides'}>
@@ -16,7 +16,9 @@ export default function Progress({ slides, idx, progress, lang, onJump }) {
               onClick={() => onJump(i)}
               aria-label={`${T[lang].slideOf(i + 1, n)}: ${s.headline?.[lang] || s.headline?.en || s.id}`}
               aria-current={i === idx ? 'step' : undefined}
-            />
+            >
+              {i === idx && playing && <span className="rs-progress__head" aria-hidden="true" />}
+            </button>
           </li>
         )
       })}

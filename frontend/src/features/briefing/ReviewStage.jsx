@@ -8,19 +8,27 @@ import BriefingDoc from './BriefingDoc'
 import Captions from './Captions'
 import MapOverlay from './MapOverlay'
 import Progress from './Progress'
+import { Callout, SayCaption, Ticker } from './ShowChrome'
+import ShowProblem from './ShowProblem'
 import Slide from './Slide'
 import './briefing.css'
 import { cleanBody, notLive, rememberReplay } from './briefingApi'
-import { applyBase, loc, setStoreCase, stepIndexOf, transcriptText } from './stage'
+import { dwellMs, mergeSolutions, optionsOf, quietDeck, withShow } from './showDeck'
+import './show.css'
+import { applyBase, extentPoints, loc, setStoreCase, stepIndexOf, transcriptText } from './stage'
 import { T } from './text'
 import useDeck from './useDeck'
-import useNarration, { reducedMotion } from './useNarration'
+import useNarration, { readMuted, reducedMotion } from './useNarration'
 import { getDownload } from './voiceApi'
 
 // THE REVIEW STAGE: a full-screen, slide-by-slide presentation of what happened, over the live map.
 // The presenter voice drives it: slides advance when their narration ends, the analyst calls each
 // cascade step while the map trips that line, the camera flies to each area as it is named, and the
 // captions follow the words. "Full briefing" swaps the slide for the whole written report.
+//
+// It is also a broadcast: every slide moves (counters, plays sliding into a feed, options revealing and
+// turning the map green) and a ticker of facts crawls along the bottom. A paused slide is the finished
+// picture; playing it again replays its beat.
 //   body       the case under review (CaseIn + optional preset)
 //   loadReplay load the report's cascade into the map (a preset, a saved scenario, a route)
 //   autoPlay   start narrating once the deck is in (the click that opened the stage counts as a gesture)
@@ -36,22 +44,50 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   const reduced = useMemo(() => reducedMotion(), [])
   const locked = useRef(false)
   const rootRef = useRef(null)
-  const { report, deck: fullDeck, error, fixture, retry } = useDeck(body, { allowFixture, locked })
-  // the short version (about a minute: event, chain, areas, the fix, the bottom line) is the same deck, fewer slides
+  const { report: baseReport, deck: baseDeck, error, fixture, retry, late } = useDeck(body, { allowFixture, locked })
+  // the AI proposer's verified plans arrive after the stage opens: they replace the solutions (and the report's
+  // fixes) until the show has reached them; after that the slides on screen stay as they are
+  const reached = useRef(false)
+  const bodyKey = body ? JSON.stringify(body) : ''
+  const [mergedState, setMerged] = useState(null)
+  useEffect(() => {
+    if (late && !reached.current) setMerged({ ...late, key: bodyKey })
+  }, [late, bodyKey])
+  const merged = mergedState?.key === bodyKey ? mergedState : null // another case: its own plans, not these
+  const report = merged?.report || baseReport
+  // the show's own beats (the chain, "the problem") are added to the deck; once it plays its slides stay put
+  const frozen = useRef(null)
+  const fullDeck = useMemo(() => {
+    if (!(frozen.current && locked.current)) frozen.current = withShow(baseDeck, report)
+    return mergeSolutions(frozen.current, merged?.deck)
+  }, [baseDeck, report, merged])
+  // the short version (the presentation: the toll, the plays, the pause, the solutions, the bottom line) is the same deck, fewer slides
   const [short, setShort] = useState(startShort)
   const canShort = !!fullDeck?.short?.length && fullDeck.short.length < fullDeck.slides.length
-  const deck = useMemo(
+  const textDeck = useMemo(
     () => (short && canShort ? { ...fullDeck, slides: fullDeck.slides.filter((s) => fullDeck.short.includes(s.id)) } : fullDeck),
     [fullDeck, short, canShort],
   )
+  // without a voice the captions are read: the plays and the options caption themselves as they land
+  const [quiet, setQuiet] = useState(readMuted)
+  const deck = useMemo(() => (quiet ? quietDeck(textDeck) : textDeck), [quiet, textDeck])
+  // what the solutions beats and the bottom line compare: the engine's verified fixes, best first
+  const options = useMemo(() => (report ? optionsOf(report, (deck?.slides || []).find((s) => (s.kind || s.id) === 'fix')) : []), [report, deck])
+  // what the show is doing beyond the slide itself: the play that just landed (scoreboard, banner), the
+  // option on screen, the green layer on the map
+  const [live, setLive] = useState({ play: 0, callout: null, say: null, option: null, optionCues: false, cueStep: 0, layer: null })
 
   const oRef = useRef(o)
   const reportRef = useRef(report)
   const deckRef = useRef(deck)
+  const optionsRef = useRef(options)
+  const langRef = useRef(lang)
   useEffect(() => {
     oRef.current = o
     reportRef.current = report
     deckRef.current = deck
+    optionsRef.current = options
+    langRef.current = lang
   })
 
   // ------------------------------------------------------------------ the map follows the slides
@@ -77,27 +113,42 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
       const O = oRef.current
       const c = O.cascade
       const map = slide.map || {}
+      const kind = slide.kind || slide.id
       const last = c?.steps?.length || 0
       // a storm's own step (n = 0: the damage, before anything overloads). A storm briefing's "calm"
       // moments show that damage, never an intact grid, and it opens on the whole region, not the campus.
       const storm = c ? stepIndexOf(c, 0) : null
+      // the chain plays on the map as the blast itself (the show's cards follow the map's own clock)
+      const blast = kind === 'chain' && playing && !reduced && !!c && last > 0
       if (c) {
-        if (map.mode === 'replay') O.setStep(playing ? (map.step_from > 0 ? (stepIndexOf(c, map.step_from) ?? 0) : 0) : (stepIndexOf(c, map.step_to) ?? last))
+        if (blast) {
+          O.setStep(0)
+          O.setPlaying(true)
+        } else if (kind === 'chain' && reduced) O.setStep(last) // no blast to watch: the chain's finished picture
+        else if (map.mode === 'replay') O.setStep(playing ? (map.step_from > 0 ? (stepIndexOf(c, map.step_from) ?? 0) : 0) : (stepIndexOf(c, map.step_to) ?? last))
         else if (map.mode === 'calm' || map.mode === 'cause' || map.mode === 'fix') O.setStep(storm ?? 0)
         else if (map.mode === 'final' || map.mode === 'restore') O.setStep(last)
       }
-      camera(storm != null && slide.id === 'event' ? { type: 'region' } : slide.camera)
+      if (blast) {
+        const pts = extentPoints(c, O.branchById, O.subPos)
+        if (pts.length) O.focus(pts, c.sub_lat != null ? [c.sub_lon, c.sub_lat] : undefined)
+      } else camera(storm != null && slide.id === 'event' ? { type: 'region' } : slide.camera)
+      if (playing && (kind === 'fix' || kind === 'bottom_line' || kind === 'no_fix')) reached.current = true
       const waves = reportRef.current?.recovery?.waves?.length || 0
+      // a fix slide with options draws its own green per option; the older whole-slide overlay would double it
+      const own = kind === 'fix' && optionsRef.current.length > 0
       setFx({
-        hl: map.highlight_lines || [],
+        hl: own ? [] : map.highlight_lines || [],
         hlTone: map.mode === 'fix' ? 'fix' : 'hl',
-        fix: map.mode === 'fix' && !playing, // playing: shown when the narration says so
+        fix: map.mode === 'fix' && !playing && !own, // playing: shown when the narration says so
         apply: map.apply || null,
         wave: map.mode === 'restore' ? (playing ? 0 : waves) : 0,
         rings: [],
       })
+      const cues = (slide.narration?.[langRef.current] || []).flatMap((g) => g.cues || [])
+      setLive({ play: 0, callout: null, say: null, option: null, optionCues: own && cues.some((x) => x.name === 'option'), cueStep: 0, layer: null })
     },
-    [camera],
+    [camera, reduced],
   )
 
   const focusArea = useCallback(
@@ -123,8 +174,22 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
       if (name === 'step') {
         const c = O.cascade
         if (!c) return
+        setLive((l) => ({ ...l, cueStep: Math.max(l.cueStep, Number(value) || 0) })) // the play cards follow the words too
+        if (O.playing) return // the blast is playing on the map: a cue must not cut it short
         O.setStep(stepIndexOf(c, value) ?? Math.min(Math.max(0, Number(value) || 0), c.steps.length))
-      } else if (name === 'area') focusArea(value)
+      } else if (name === 'option') {
+        // the first option's cue may be 0 or 1: the smallest value in the fix slide's cues is the first option
+        const vals = (deckRef.current?.slides || [])
+          .filter((s) => (s.kind || s.id) === 'fix')
+          .flatMap((s) => (s.narration?.[langRef.current] || []).flatMap((g) => g.cues || []))
+          .filter((x) => x.name === 'option')
+          .map((x) => Number(x.value))
+        const base = vals.length ? Math.min(...vals) : 1
+        setLive((l) => ({ ...l, option: { n: Math.max(0, (Number(value) || 0) - base), at: performance.now() } }))
+      } else if (name === 'area') {
+        focusArea(value)
+        setLive((l) => ({ ...l, area: String(value).toLowerCase() })) // the slide lights the area being named
+      }
       else if (name === 'line') setFx((f) => ({ ...f, hl: [...f.hl, Number(value)], hlTone: 'hl' }))
       else if (name === 'fix') setFx((f) => ({ ...f, fix: true }))
       else if (name === 'wave') {
@@ -141,7 +206,25 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     [focusArea],
   )
 
-  const narr = useNarration({ deck, lang, onCue, onEnter: enter })
+  // how much longer a slide stays up after its words end: the show's beats run longer than the narration
+  const replayEnd = useRef(0)
+  const holdFor = useCallback((slide, elapsed) => {
+    const O = oRef.current
+    const dwell = dwellMs(slide, reportRef.current, langRef.current, optionsRef.current)
+    // with reduced motion a beat is its finished picture: it stays up long enough to read, not to watch
+    let need = (reduced ? Math.min(dwell, 7000) : dwell) - elapsed
+    if ((slide.kind || slide.id) === 'chain') {
+      const now = performance.now()
+      if (O.playing) {
+        replayEnd.current = now // the blast is still on the map: wait, then let the last play land
+        need = Math.max(need, 400)
+      } else if (now - replayEnd.current < 2600) need = Math.max(need, 2600 - (now - replayEnd.current))
+    }
+    return Math.max(0, need)
+  }, [reduced])
+  const narr = useNarration({ deck, lang, onCue, onEnter: enter, holdFor })
+  const narrMuted = narr.muted
+  useEffect(() => setQuiet(narrMuted), [narrMuted])
   // switching between the short and the full version starts from the first slide
   const shortSeen = useRef(short)
   const { goto } = narr
@@ -160,15 +243,30 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   useEffect(() => {
     if (!narr.playingRef.current) enter(idx, false)
   }, [idx, deck, cascadeNow, enter, narr.playingRef])
+  // the map's cascade landed while the show was already running (it is computed as the stage opens): stage it now
+  useEffect(() => {
+    if (cascadeNow && narr.playingRef.current) enter(idx, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cascadeNow])
+  // pausing (or the end of the show) leaves the map on the slide's finished picture and stops a blast still playing
+  useEffect(() => {
+    if (!playing) enter(idx, false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing])
 
-  // autoplay once the deck is in (Play briefing)
+  // autoplay once the deck is in (Play briefing); the report follows the deck by a moment, so wait for it briefly
+  const [waited, setWaited] = useState(false)
+  useEffect(() => {
+    const id = setTimeout(() => setWaited(true), 2500)
+    return () => clearTimeout(id)
+  }, [])
   const autoDone = useRef(false)
   const { play } = narr
   useEffect(() => {
-    if (!autoPlay || autoDone.current || !deck) return
+    if (!autoPlay || autoDone.current || !deck || (!report && !waited)) return
     autoDone.current = true
     play()
-  }, [autoPlay, deck, play])
+  }, [autoPlay, deck, report, waited, play])
 
   // a preset / saved scenario / route: its cascade goes into the map, paused before it starts
   const replayKey = useRef(null)
@@ -214,6 +312,21 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     O.mapRef.current?.reset()
   }, [docOnly, cascadeNow])
   const slide = slides[Math.min(idx, slides.length - 1)]
+  const slideKind = slide?.kind || slide?.id
+
+  // what the slides call back into: the scoreboard, the banner, the green layer on the map, the camera
+  const stage = useMemo(
+    () => ({
+      setPlay: (n) => setLive((l) => (l.play === n ? l : { ...l, play: n })),
+      callout: (c) => setLive((l) => ({ ...l, callout: c })),
+      say: (x) => setLive((l) => ({ ...l, say: x })),
+      layer: (x) => setLive((l) => ({ ...l, layer: x })),
+      wave: (n) => setFx((f) => (f.wave === n ? f : { ...f, wave: n })),
+      camera,
+    }),
+    [camera],
+  )
+  const animate = narr.run > 0 && !reduced // the show is running on this slide; false = the finished picture
 
   const base = useMemo(() => applyBase(cleanBody(body), report), [body, report])
   const apply = useCallback(
@@ -297,9 +410,10 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     if (fx.hlTone === 'hl' || fx.fix) fx.hl.forEach((id) => lines.push({ id, tone: fx.hlTone }))
     if (fx.fix && fx.apply?.upgrades) Object.keys(fx.apply.upgrades).forEach((id) => lines.push({ id, tone: 'fix' }))
     waves.filter((w) => w.n <= fx.wave).forEach((w) => (Array.isArray(w.lines) ? w.lines : []).forEach((id) => lines.push({ id, tone: 'fix' })))
-    const ghost = fx.fix && fx.apply?.lat != null && fx.apply?.lon != null ? { lat: fx.apply.lat, lon: fx.apply.lon } : null
+    ;(live.layer?.lines || []).forEach((l) => lines.push(l))
+    const ghost = live.layer?.ghost || (fx.fix && fx.apply?.lat != null && fx.apply?.lon != null ? { lat: fx.apply.lat, lon: fx.apply.lon } : null)
     return { lines, ghost, rings: fx.rings }
-  }, [fx, waves])
+  }, [fx, waves, live.layer])
 
   const voiceBadge = (() => {
     const p = narr.provider
@@ -310,8 +424,16 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     return <Badge tone="warn">{t.voiceBrowser}</Badge>
   })()
 
+  const slidesView = view === 'slides' && !docOnly
+  const caption = narr.caption
   return createPortal(
-    <div className={`rs${view === 'document' ? ' rs--doc' : ''}`} ref={rootRef} role="dialog" aria-modal="true" aria-label={deck?.title?.[lang] || 'Simulation briefing'}>
+    <div
+      className={`rs${view === 'document' ? ' rs--doc' : ''}${narr.playing ? ' rs--playing' : ''}${slideKind ? ` rs--on-${slideKind}` : ''}`}
+      ref={rootRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={deck?.title?.[lang] || 'Simulation briefing'}
+    >
       <header className="rs-top">
         <div className="rs-top__row">
           <span className="rs-sim">{t.sim}</span>
@@ -338,7 +460,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
               <button type="button" className="rs-tool" aria-expanded={dl.open} onClick={toggleDownload} disabled={!deck}>
                 {t.download}
               </button>
-              {dl.open && <DownloadMenu dl={dl} deck={deck} lang={lang} />}
+              {dl.open && <DownloadMenu dl={dl} deck={textDeck} lang={lang} />}
             </div>
             <div className="rs-seg" role="group" aria-label="View">
               <button type="button" className="rs-seg__btn" aria-pressed={view === 'slides'} onClick={() => setView('slides')}>
@@ -353,28 +475,48 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
             </button>
           </div>
         </div>
-        {slides.length > 0 && <Progress slides={slides} idx={idx} progress={narr.progress} lang={lang} onJump={narr.goto} />}
+        {slides.length > 0 && <Progress slides={slides} idx={idx} progress={narr.progress} lang={lang} onJump={narr.goto} playing={narr.playing} />}
         <p className="rs-banner">{loc(deck, 'banner', lang) || report?.banner || 'SIMULATION · synthetic grid model · every people and cost number is an estimate.'}</p>
       </header>
 
-      <main className={view === 'document' || docOnly ? 'rs-panel rs-panel--doc' : 'rs-panel'}>
-        {docOnly ? (
-          <>
-            {!notLive(error) && <ErrorBanner error={new Error('The slides could not be prepared; here is the written briefing.')} onRetry={retry} />}
-            <BriefingDoc report={report} deck={null} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={onApply} fixture={fixture} />
-          </>
-        ) : error ? (
-          <ErrorBanner error={error} onRetry={retry} />
-        ) : !deck ? (
-          <Loading label={t.preparing} />
-        ) : view === 'document' ? (
-          <BriefingDoc report={report} deck={deck} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={onApply} fixture={fixture} />
-        ) : (
-          slide && <Slide key={`${slide.id}-${lang}`} slide={slide} report={report} deck={deck} lang={lang} wave={fx.wave} onApply={onApply} fixture={fixture} />
-        )}
-      </main>
+      {slideKind !== 'problem' || !slidesView ? (
+        <main className={view === 'document' || docOnly ? 'rs-panel rs-panel--doc' : 'rs-panel'}>
+          {docOnly ? (
+            <>
+              {!notLive(error) && <ErrorBanner error={new Error('The slides could not be prepared; here is the written briefing.')} onRetry={retry} />}
+              <BriefingDoc report={report} deck={null} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={onApply} fixture={fixture} />
+            </>
+          ) : error ? (
+            <ErrorBanner error={error} onRetry={retry} />
+          ) : !deck ? (
+            <Loading label={t.preparing} />
+          ) : view === 'document' ? (
+            <BriefingDoc report={report} deck={deck} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={onApply} fixture={fixture} />
+          ) : (
+            slide && (
+              <Slide
+                key={`${slide.id}-${lang}-${narr.run}`}
+                slide={slide}
+                report={report}
+                deck={deck}
+                lang={lang}
+                wave={fx.wave}
+                onApply={onApply}
+                fixture={fixture}
+                stage={stage}
+                live={live}
+                animate={animate}
+                options={options}
+              />
+            )
+          )}
+        </main>
+      ) : (
+        <ShowProblem key={`problem-${lang}-${narr.run}`} report={report} deck={deck} lang={lang} animate={animate} />
+      )}
 
-      {cc && view === 'slides' && <Captions caption={narr.caption} lang={lang} reduced={reduced} />}
+      {cc && slidesView && (caption ? <Captions caption={caption} lang={lang} reduced={reduced} /> : <SayCaption say={live.say} lang={lang} />)}
+      {slidesView && animate && <Callout callout={live.callout} />}
 
       <nav className="rs-controls" aria-label="Briefing controls">
         <button type="button" className="rs-ctl" onClick={narr.prev} disabled={!deck || idx === 0} aria-label={t.prev}>
@@ -411,9 +553,10 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         </aside>
       )}
 
-      {transcript && deck && <Transcript deck={deck} lang={lang} onClose={() => setTranscript(false)} />}
+      {transcript && textDeck && <Transcript deck={textDeck} lang={lang} onClose={() => setTranscript(false)} />}
 
-      <MapOverlay lines={overlay.lines} ghost={overlay.ghost} rings={overlay.rings} />
+      {slidesView && deck && <Ticker report={report} deck={deck} lang={lang} playing={narr.playing} />}
+      <MapOverlay lines={overlay.lines} ghost={overlay.ghost} rings={overlay.rings} layerKey={live.layer?.key || ''} />
     </div>,
     document.body,
   )

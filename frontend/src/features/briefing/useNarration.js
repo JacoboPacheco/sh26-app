@@ -96,7 +96,9 @@ function cpsFor(slide, lang) {
   return CPS[lang] || CPS.en
 }
 
-export default function useNarration({ deck, lang, onCue, onEnter }) {
+// `holdFor(slide, elapsedMs)` (optional): how much longer to keep a slide up after its narration ends (the show's
+// beats run longer than their words); 0 to move on. `run` counts the slides entered while playing (0 = not playing).
+export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
   const slides = deck?.slides || []
   const [idx, setIdx] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -106,6 +108,7 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
   const [progress, setProgress] = useState(0) // 0..1 through the current slide's narration
   const [muted, setMutedState] = useState(readMuted) // starts muted until this viewer turns sound on (remembered)
   const [voice, setVoice] = useState(null) // /api/voice/status
+  const [slideRun, setSlideRun] = useState(0) // bumps when the loop enters a slide; 0 while not playing
 
   const run = useRef(0) // the playback in progress; bumping it stops everything
   const cancelRef = useRef(null)
@@ -118,11 +121,14 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
   const langRef = useRef(lang)
   const cueRef = useRef(onCue)
   const enterRef = useRef(onEnter)
+  const holdRef = useRef(holdFor)
+  const slideStart = useRef(0)
   useEffect(() => {
     deckRef.current = deck
     langRef.current = lang
     cueRef.current = onCue
     enterRef.current = onEnter
+    holdRef.current = holdFor
   })
 
   useEffect(() => {
@@ -387,30 +393,53 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
         if (!slide) break
         const segs = slide.narration?.[langRef.current] || []
         enterRef.current?.(i, true)
+        slideStart.current = performance.now()
+        setSlideRun((r) => r + 1)
         prefetch(i)
         if (s === 0) setProgress(0)
-        for (; s < segs.length; s++) {
-          segRef.current = s
-          const k = s
-          dbg('seg', i, s, segs[s].text.length)
-          await speak(segs[s], slide, token, (f) => setProgress((k + f) / segs.length))
-          dbg('seg end', i, s, token === run.current)
-          if (token !== run.current) return
-          if (s < segs.length - 1) await sleep(GAP_MS)
-          if (token !== run.current) return
+        // the bar follows the words, or the show's own clock when the beat runs longer than they do
+        const frac = { text: 0, time: 0 }
+        const bump = () => setProgress(Math.max(frac.text, frac.time))
+        const dwell = holdRef.current?.(slide, 0) || 0
+        const iv = dwell ? setInterval(() => ((frac.time = Math.min(1, (performance.now() - slideStart.current) / dwell)), bump()), 200) : 0
+        try {
+          for (; s < segs.length; s++) {
+            segRef.current = s
+            const k = s
+            dbg('seg', i, s, segs[s].text.length)
+            await speak(segs[s], slide, token, (f) => ((frac.text = (k + f) / segs.length), bump()))
+            dbg('seg end', i, s, token === run.current)
+            if (token !== run.current) return
+            if (s < segs.length - 1) await sleep(GAP_MS)
+            if (token !== run.current) return
+          }
+          frac.text = 1
+          bump()
+          await sleep(segs.length ? HOLD_MS : 2500)
+          // the beat's own length: keep the slide up until its show has played (the words are done: the show's own
+          // play-by-play line takes the captions)
+          let more = holdRef.current?.(slide, performance.now() - slideStart.current) || 0
+          if (more > 0 && token === run.current) setCaption(null)
+          for (; more > 0 && token === run.current; ) {
+            await sleep(Math.min(more, 250))
+            more = holdRef.current?.(slide, performance.now() - slideStart.current) || 0
+          }
+        } finally {
+          if (iv) clearInterval(iv)
         }
-        setProgress(1)
-        await sleep(segs.length ? HOLD_MS : 2500)
         if (token !== run.current) return
+        setProgress(1)
         if (i >= (deckRef.current?.slides?.length || 0) - 1) break
         i += 1
         s = 0
         segRef.current = 0
         setIndex(i)
+        setCaption(null)
       }
       dbg('loop end', token === run.current, i)
       if (token === run.current) {
         setPlay(false)
+        setSlideRun(0)
         setCaption(null)
       }
     },
@@ -421,6 +450,7 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
     run.current++
     stopMedia()
     setPlay(false)
+    setSlideRun(0)
   }, [stopMedia])
 
   const play = useCallback(() => playFrom(idxRef.current, segRef.current), [playFrom])
@@ -436,6 +466,7 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
       setIndex(to)
       setProgress(0)
       setCaption(null)
+      setSlideRun(0) // the new slide shows finished until the loop enters it and the show plays
       if (playingRef.current) playFrom(to, 0)
     },
     [playFrom, stopMedia],
@@ -490,6 +521,7 @@ export default function useNarration({ deck, lang, onCue, onEnter }) {
     idx,
     playing,
     playingRef,
+    run: slideRun,
     provider,
     segFellBack,
     voice, // /api/voice/status (null while loading)

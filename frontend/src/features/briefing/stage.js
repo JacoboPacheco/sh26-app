@@ -19,6 +19,22 @@ export function bestApply(report) {
   return f && f.verdict === 'holds' ? f.apply || null : null
 }
 
+// Everything a cascade touches, as [lon, lat] points the camera can fit: the sites, the tripped lines' ends,
+// the dark substations and the towns the blast reaches (the store frames a run the same way when it starts).
+export function extentPoints(cascade, branchById, subPos) {
+  const pts = (cascade?.sites || []).map((s) => [s.sub_lon, s.sub_lat])
+  ;(cascade?.steps || []).forEach((st) => {
+    ;(st.tripped || []).forEach((bid) => {
+      const b = branchById.get(bid)
+      if (b) pts.push(subPos(b.from_sub), subPos(b.to_sub))
+    })
+    ;(st.dark_subs || []).forEach((sid) => pts.push(subPos(sid)))
+    ;(st.newly_affected || []).forEach(([sid]) => pts.push(subPos(sid)))
+    ;(st.hits || []).forEach((h) => h.subs.forEach((sid) => pts.push(subPos(sid))))
+  })
+  return pts.filter(Boolean)
+}
+
 // a restoration wave's lines: all rebuilt so far (the people back are counted that way too)
 export const linesOf = (w) => w.lines_total ?? (Array.isArray(w.lines) ? w.lines.length : (w.lines_count ?? w.line_count))
 

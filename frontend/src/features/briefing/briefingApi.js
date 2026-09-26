@@ -41,6 +41,22 @@ const keyOf = (body, extra = '') => `${extra}|${JSON.stringify(cleanBody(body))}
 export const getReport = (body) => cached(keyOf(body, 'report'), () => api('/api/briefing', { method: 'POST', body: cleanBody(body) }))
 export const getDeck = (body, { ai = false, length = 'full' } = {}) =>
   cached(keyOf(body, `deck:${ai}:${length}`), () => api('/api/briefing/deck', { method: 'POST', body: { ...cleanBody(body), ai, length } }))
+// Fetch again, past the cache, and keep the answer for next time: the AI proposer adds its verified plans to a
+// report in the background (deck.agentic.status 'running' → 'done'), so the stage asks again while it runs.
+function fresh(key, fn) {
+  const p = fn()
+  p.then(
+    () => {
+      cache.delete(key)
+      cache.set(key, p)
+    },
+    () => {},
+  )
+  return p
+}
+export const refetchReport = (body) => fresh(keyOf(body, 'report'), () => api('/api/briefing', { method: 'POST', body: cleanBody(body) }))
+export const refetchDeck = (body, { ai = false, length = 'full' } = {}) =>
+  fresh(keyOf(body, `deck:${ai}:${length}`), () => api('/api/briefing/deck', { method: 'POST', body: { ...cleanBody(body), ai, length } }))
 export const getPresets = (region = 'FL') => cached(`presets|${region}`, () => api(`/api/briefing/presets?region=${encodeURIComponent(region)}`))
 
 // Start fetching a briefing (the review card calls this as soon as a cascade lands).

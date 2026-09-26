@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getDeck, getReport, notLive } from './briefingApi'
+import { getDeck, getReport, notLive, refetchDeck, refetchReport } from './briefingApi'
+
+const POLL_MS = 5000 // the AI proposer runs in the background (about 15-25 s): ask again this often
+const POLL_FOR_MS = 75000 // and for at most this long (the show reaches the solutions after about a minute and a half)
 
 // The report and the slide deck for one case. The template deck (ai=false) opens the stage at once;
 // Gemini's deck (ai=true) replaces it only if it arrives before playback starts (`locked` = started).
 // `allowFixture` (the preview only): while the engine/writer routes aren't live, use the contract-shaped
 // fixture instead, clearly labeled.
+//
+// `late`: while the AI proposer is still working on the case (deck.agentic.status === 'running') the deck is
+// fetched again every few seconds; once it is done, {deck, report} carry its verified plans. The stage swaps
+// them in if the show has not reached the solutions yet.
 export default function useDeck(body, { allowFixture = false, locked } = {}) {
   const key = body ? JSON.stringify(body) : null
-  const [state, setState] = useState({ key: null, report: null, deck: null, error: null, fixture: false })
+  const [state, setState] = useState({ key: null, report: null, deck: null, error: null, fixture: false, late: null })
   const [attempt, setAttempt] = useState(0)
   const bodyRef = useRef(body)
   useEffect(() => {
@@ -17,8 +24,10 @@ export default function useDeck(body, { allowFixture = false, locked } = {}) {
   useEffect(() => {
     if (!key) return undefined
     let live = true
+    let timer = 0
     const b = bodyRef.current
-    const set = (patch) => live && setState((s) => (s.key === key ? { ...s, ...patch } : { key, report: null, deck: null, error: null, fixture: false, ...patch }))
+    const set = (patch) =>
+      live && setState((s) => (s.key === key ? { ...s, ...patch } : { key, report: null, deck: null, error: null, fixture: false, late: null, ...patch }))
     set({})
     const fallbackToFixture = async (err) => {
       if (!allowFixture || !notLive(err)) throw err
@@ -26,12 +35,33 @@ export default function useDeck(body, { allowFixture = false, locked } = {}) {
       const pick = b.preset ? fx.catastrophe : fx.hero
       set({ report: pick.report, deck: pick.deck, fixture: true, error: null })
     }
+    // the AI proposer's plans: ask again while it runs, stop when it is done (or after a while). A deck whose
+    // report has no status yet (agentic: null; two requests raced, or the server rebuilt the report while a
+    // run was going) is asked again too: the next ask starts the proposer on the report the server keeps
+    const t0 = performance.now()
+    const poll = (deck) => {
+      const pending = deck && 'agentic' in deck && (!deck.agentic?.status || deck.agentic.status === 'running')
+      if (!live || !pending || performance.now() - t0 > POLL_FOR_MS) return
+      timer = setTimeout(() => {
+        refetchDeck(b, { ai: false })
+          .then(async (next) => {
+            if (!live) return
+            const now = next?.agentic?.status
+            if (now === 'running' || !now) return poll(next)
+            if (now !== 'done' || !next?.slides?.length) return // off / error: the engine's own fixes stand
+            const report = await refetchReport(b).catch(() => null)
+            if (live) set({ late: { deck: next, report } })
+          })
+          .catch(() => {}) // the plans are a bonus: the engine's own fixes stand
+      }, POLL_MS)
+    }
     getReport(b)
       .then((report) => set({ report }))
       .catch(() => {}) // the deck carries what the stage needs; the report adds the written document
     getDeck(b, { ai: false })
       .then((deck) => {
         set({ deck, error: null })
+        poll(deck)
         getDeck(b, { ai: true })
           .then((aiDeck) => {
             if (!live || locked?.current) return
@@ -42,6 +72,7 @@ export default function useDeck(body, { allowFixture = false, locked } = {}) {
       .catch((err) => fallbackToFixture(err).catch((e) => set({ error: e })))
     return () => {
       live = false
+      clearTimeout(timer)
     }
   }, [key, allowFixture, attempt, locked])
 
@@ -52,6 +83,7 @@ export default function useDeck(body, { allowFixture = false, locked } = {}) {
     deck: mine ? state.deck : null,
     error: mine ? state.error : null,
     fixture: mine && state.fixture,
+    late: mine ? state.late : null,
     retry,
   }
 }

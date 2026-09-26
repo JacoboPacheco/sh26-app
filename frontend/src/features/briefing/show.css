@@ -1,0 +1,1691 @@
+/* The play-by-play show (features/briefing): the motion on top of the review stage. Tokens only (index.css).
+   Sober incident room: plain tabular figures, no outlined or glowing numbers, no bounces. Motion carries
+   information: counters, plays sliding into a feed, sweeps and wipes, lines drawing in, a ticker crawling.
+   Red is what is lost, amber is strain, GREEN is the solution. Everything animated is also switched off for
+   prefers-reduced-motion (the slides then show their finished picture). */
+
+.rs {
+  --rs-tick-h: 30px;
+}
+
+.rs--doc {
+  --rs-tick-h: 0px;
+}
+
+/* the chrome makes room for the ticker along the bottom edge */
+.rs-top,
+.rs-controls {
+  z-index: 6;
+}
+
+.rs-controls {
+  bottom: calc(var(--gutter) + var(--rs-tick-h));
+}
+
+.rs-captions {
+  bottom: calc(84px + var(--rs-tick-h));
+  z-index: 4;
+}
+
+.rs-ask,
+.rs-transcript {
+  z-index: 6;
+}
+
+.rs-ask {
+  bottom: calc(76px + var(--rs-tick-h));
+}
+
+.rs-transcript {
+  bottom: calc(76px + var(--rs-tick-h));
+}
+
+@media (min-width: 861px) {
+  .rs-panel {
+    max-height: calc(100vh - var(--rs-top-h) - var(--gutter) - 104px - var(--rs-tick-h));
+  }
+}
+
+.rs--playing .rs-panel {
+  scrollbar-width: none;
+}
+
+.sh-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ ambient motion on every slide */
+.rs-slide {
+  position: relative;
+}
+
+/* a faint scan line passes down the card while the show plays */
+.rs-slide--live::after {
+  content: '';
+  position: absolute;
+  inset: -12px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--overload) 9%, transparent) 50%, transparent) no-repeat;
+  background-size: 100% 96px;
+  animation: sh-scan 6.5s linear infinite;
+}
+
+@keyframes sh-scan {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 0 100%;
+  }
+}
+
+@keyframes sh-rise {
+  from {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+}
+
+@keyframes sh-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes sh-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@keyframes sh-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sh-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* the deck's own lines, the takeaway and the proof rows rise in one after another */
+.rs-slide--live .sh-stagger > li,
+.rs-slide--live .rs-takeaway__row,
+.rs-slide--live .rs-proof tr {
+  animation: sh-rise 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 150ms + 250ms);
+}
+
+.rs-slide--live .rs-headline {
+  animation: sh-rise 480ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.rs-slide--live .rs-nofix-band {
+  animation: sh-wipe 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.rs-slide--live .rs-split__part {
+  transform-origin: left;
+  animation: sh-grow 1000ms cubic-bezier(0.2, 0.7, 0.2, 1) 500ms both;
+}
+
+.rs-slide--live .rs-wave--lit {
+  animation: sh-rise 500ms ease-out both;
+}
+
+@keyframes sh-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+.sh-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.sh-kicker__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-2);
+}
+
+.sh-kicker--red .sh-kicker__dot {
+  background: var(--overload);
+}
+
+.sh-kicker--green .sh-kicker__dot {
+  background: var(--hr-ok);
+}
+
+.rs-slide--live .sh-kicker__dot {
+  animation: sh-blink 1.3s ease-in-out infinite;
+}
+
+.sh-note {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+.sh-headrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sh-count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ the toll */
+.sh-block {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.sh-mega {
+  margin: 0;
+  font-size: clamp(3.4rem, 7vw, 5.6rem);
+  line-height: 0.95;
+  font-weight: 800;
+  font-stretch: 68%;
+  letter-spacing: -0.01em;
+  color: var(--overload);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-clock {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.15rem;
+  font-size: clamp(2.8rem, 5.2vw, 4.2rem);
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 68%;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-slide--live .sh-clock__sep {
+  animation: sh-blink 1s steps(2, jump-none) infinite;
+}
+
+.sh-clock__u {
+  margin-left: 0.7rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-stretch: 100%;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* the hours bar: red hatching filling toward the average outage, a tick for every day */
+.sh-hours {
+  position: relative;
+  height: 9px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--glass-edge);
+}
+
+.sh-hours__fill {
+  position: absolute;
+  inset: 0;
+  width: calc(var(--p, 1) * 100%);
+  background: repeating-linear-gradient(135deg, var(--overload) 0 6px, color-mix(in srgb, var(--overload) 55%, #000) 6px 12px);
+}
+
+/* the outage keeps running: the hatching crawls while the show is on */
+.rs-slide--live .sh-hours__fill {
+  animation: sh-hatch 1.4s linear infinite;
+}
+
+@keyframes sh-hatch {
+  to {
+    background-position: 17px 0;
+  }
+}
+
+.sh-hours__tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--surface);
+}
+
+/* ------------------------------------------------------------------ the chain: scoreboard and plays */
+.sh-drive {
+  display: flex;
+  gap: 3px;
+  height: 5px;
+}
+
+.sh-drive i {
+  flex: 1;
+  border-radius: 1px;
+  background: var(--glass-edge);
+  transition: background-color 300ms;
+}
+
+.sh-drive i.on {
+  background: var(--overload);
+}
+
+.sh-drive i.new {
+  animation: sh-blink 0.5s ease-in-out 3;
+}
+
+.sh-headline--small {
+  font-size: 1rem;
+  line-height: 1.25;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.sh-board {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.sh-tile {
+  min-width: 0;
+  padding: 0.4rem 0.5rem 0.45rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sh-tile dt {
+  min-height: 2.3em;
+  font-size: 0.6rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.sh-tile dd {
+  margin: 0;
+  font-size: 1.4rem;
+  line-height: 1.1;
+  font-weight: 800;
+  font-stretch: 68%;
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-tile--red dd {
+  color: var(--overload);
+}
+
+/* one short hard jolt when a number changes (no bounce) */
+.sh-jolt {
+  animation: sh-jolt 170ms steps(4, end) 1;
+}
+
+@keyframes sh-jolt {
+  25% {
+    transform: translateX(-2px);
+  }
+  50% {
+    transform: translateX(2px);
+  }
+  75% {
+    transform: translateX(-1px);
+  }
+}
+
+.sh-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  max-height: 392px;
+  overflow: hidden;
+}
+
+.sh-feed__wait {
+  padding: 0.8rem 0.6rem;
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  animation: sh-blink 1s ease-in-out infinite;
+}
+
+.sh-play {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--glass-edge);
+  border-left: 4px solid var(--strain);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.sh-play--transformer {
+  border-left-color: var(--overload);
+}
+
+.sh-play--storm {
+  border-left-color: var(--ink-2);
+}
+
+/* a new play slides in from above (pushing the others down) while a red sweep crosses it */
+.sh-play--live.sh-play--new {
+  animation: sh-play-in 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.sh-play--live.sh-play--new::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--overload) 34%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: sh-sweep 900ms ease-out 180ms 1 both;
+}
+
+@keyframes sh-play-in {
+  from {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    max-height: 220px;
+  }
+}
+
+@keyframes sh-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.sh-play__in {
+  display: grid;
+  padding: 0.4rem 0.6rem;
+}
+
+.sh-play__row {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.sh-play__tag {
+  flex: none;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--strain);
+}
+
+.sh-play--transformer .sh-play__tag {
+  color: var(--overload);
+}
+
+.sh-play--storm .sh-play__tag {
+  color: var(--ink-2);
+}
+
+.sh-play__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sh-play__pct {
+  flex: none;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: var(--overload);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the detail folds away as newer plays arrive: the newest is open, the next keeps its "who lost power" line */
+.sh-play__more {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 420ms ease,
+    opacity 320ms ease;
+}
+
+.sh-play__more > div,
+.sh-play__more > p {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sh-play__more > div {
+  display: grid;
+  gap: 0.3rem;
+  padding-top: 0.35rem;
+}
+
+.sh-play--recent .sh-play__more:not(.sh-play__more--hit),
+.sh-play--old .sh-play__more {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.sh-play__gauge {
+  margin: 0;
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.sh-play__say {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.sh-play__hit {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.7rem;
+  align-items: baseline;
+  font-size: 0.85rem;
+  padding-top: 0.2rem;
+}
+
+.sh-play__hit strong {
+  color: var(--overload);
+  font-weight: 800;
+}
+
+.sh-play__hit span {
+  color: var(--ink-2);
+}
+
+/* a gauge: how loaded a line is, out to 200% with a limit mark at 100% */
+.sh-gauge {
+  position: relative;
+  display: block;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--glass-edge);
+}
+
+.sh-gauge__fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--w);
+  border-radius: 2px;
+  background: var(--strain);
+  transform-origin: left;
+}
+
+.sh-gauge--over .sh-gauge__fill {
+  background: var(--overload);
+}
+
+.sh-gauge--calm .sh-gauge__fill {
+  background: var(--current);
+}
+
+.sh-gauge__limit {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: var(--lim);
+  width: 2px;
+  background: var(--ink);
+}
+
+.rs-slide--live .sh-gauge__fill {
+  animation: sh-grow 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+/* ------------------------------------------------------------------ the banner over the map */
+.sh-callout {
+  position: absolute;
+  z-index: 4;
+  top: calc(var(--gutter) + var(--rs-top-h) + var(--space-3));
+  left: calc(var(--gutter) * 2 + var(--rs-panel-w));
+  max-width: min(640px, calc(100vw - var(--rs-panel-w) - var(--gutter) * 3));
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.5rem 1rem 0.5rem 0.75rem;
+  border-left: 4px solid var(--overload);
+  background: rgba(3, 7, 13, 0.92);
+  font-size: 1rem;
+  pointer-events: none;
+  animation: sh-callout 3.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.sh-callout__txt {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.sh-callout__txt p {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.sh-callout b {
+  flex: none;
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--overload);
+}
+
+.sh-callout__txt p > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.sh-callout__sub {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--overload);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-callout--amber {
+  border-left-color: var(--strain);
+}
+
+.sh-callout--amber b {
+  color: var(--strain);
+}
+
+@keyframes sh-callout {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    transform: translateX(-24px);
+  }
+  8% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: none;
+  }
+  86% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+  }
+  100% {
+    opacity: 0;
+    clip-path: inset(0 0 0 0);
+    transform: translateX(-8px);
+  }
+}
+
+/* a small flame that flickers beside a failure, with a few embers rising */
+.sh-flame {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 20px;
+}
+
+.sh-flame svg {
+  display: block;
+  transform-origin: 50% 100%;
+  animation: sh-flick 0.32s ease-in-out infinite alternate;
+}
+
+.sh-flame__out {
+  fill: var(--overload);
+}
+
+.sh-flame__in {
+  fill: var(--strain);
+}
+
+.sh-flame i {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--strain);
+  opacity: 0;
+  animation: sh-ember 1.1s linear infinite;
+}
+
+.sh-flame i:nth-child(2) {
+  margin-left: -5px;
+  animation-delay: 0.35s;
+}
+
+.sh-flame i:nth-child(3) {
+  margin-left: 4px;
+  animation-delay: 0.7s;
+}
+
+.sh-flame i:nth-child(4) {
+  margin-left: 0;
+  animation-delay: 0.15s;
+}
+
+@keyframes sh-flick {
+  from {
+    transform: scaleY(0.9) skewX(-3deg);
+  }
+  to {
+    transform: scaleY(1.08) skewX(3deg);
+  }
+}
+
+@keyframes sh-ember {
+  0% {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+}
+
+/* ------------------------------------------------------------------ the ticker along the bottom */
+.sh-ticker {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--rs-tick-h);
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border-top: 1px solid var(--glass-edge);
+  background: color-mix(in srgb, var(--night) 94%, transparent);
+  font-size: 0.78rem;
+}
+
+.sh-ticker__cap {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.9rem;
+  border-right: 1px solid var(--glass-edge);
+  background: var(--surface);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sh-ticker__cap b {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-ticker__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-2);
+}
+
+.sh-ticker--on .sh-ticker__dot {
+  background: var(--overload);
+  animation: sh-blink 1.1s ease-in-out infinite;
+}
+
+.sh-ticker__view {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.sh-ticker__track {
+  display: flex;
+  width: max-content;
+  animation: sh-crawl var(--dur, 60s) linear infinite;
+}
+
+.sh-ticker:not(.sh-ticker--on) .sh-ticker__track {
+  animation-play-state: paused;
+}
+
+.sh-ticker__track > span {
+  display: flex;
+  flex: none;
+}
+
+.sh-ticker em {
+  display: inline-flex;
+  align-items: center;
+  font-style: normal;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.sh-ticker__sep {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 1.3rem;
+  background: var(--border);
+}
+
+@keyframes sh-crawl {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ------------------------------------------------------------------ the pause: THE PROBLEM */
+.sh-slate {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.sh-slate__dim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(2, 5, 10, 0.5) 0%, rgba(2, 5, 10, 0.86) 78%);
+}
+
+.sh-slate--go .sh-slate__dim {
+  animation: sh-fade 450ms ease-out both;
+}
+
+.sh-slate__card {
+  position: relative;
+  overflow: hidden;
+  width: min(820px, calc(100vw - 2 * var(--gutter)));
+  background: rgba(5, 9, 16, 0.94);
+  border: 1px solid color-mix(in srgb, var(--overload) 50%, transparent);
+}
+
+.sh-slate--go .sh-slate__card {
+  animation: sh-wipe 650ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.sh-slate__hazard {
+  height: 14px;
+  background-image: linear-gradient(135deg, var(--overload) 25%, transparent 25% 50%, var(--overload) 50% 75%, transparent 75%);
+  background-size: 28px 28px;
+  opacity: 0.8;
+}
+
+.sh-slate--go .sh-slate__hazard {
+  animation: sh-hazard 1.4s linear infinite;
+}
+
+@keyframes sh-hazard {
+  to {
+    background-position: 28px 0;
+  }
+}
+
+.sh-slate__body {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.4rem 2rem 1.5rem;
+}
+
+.sh-slate__kicker {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--overload);
+}
+
+.sh-slate__title {
+  font-size: clamp(2.6rem, 6.5vw, 4.8rem);
+  line-height: 0.95;
+  font-weight: 800;
+  font-stretch: 68%;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+.sh-slate__stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem 1.6rem;
+}
+
+.sh-slate__stat dt {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.sh-slate__stat dd {
+  margin: 0.1rem 0 0;
+  font-size: clamp(1.8rem, 3.6vw, 2.8rem);
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 68%;
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-slate__stat--big {
+  grid-column: 1 / -1;
+}
+
+.sh-slate__stat--big dd {
+  font-size: clamp(3.4rem, 8vw, 6.2rem);
+  color: var(--overload);
+}
+
+.sh-slate__line {
+  font-size: 0.95rem;
+  color: var(--ink-2);
+  max-width: 44rem;
+}
+
+/* one slow scan across the slate */
+.sh-slate__scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -140px;
+  height: 140px;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--overload) 14%, transparent) 65%, color-mix(in srgb, var(--overload) 46%, transparent) 98%, transparent);
+  opacity: 0;
+}
+
+.sh-slate--go .sh-slate__scan {
+  animation: sh-slate-scan 2.9s ease-in-out 250ms 1 both;
+}
+
+@keyframes sh-slate-scan {
+  0% {
+    opacity: 1;
+    top: -140px;
+  }
+  100% {
+    opacity: 1;
+    top: 100%;
+  }
+}
+
+/* ------------------------------------------------------------------ the solutions */
+.sh-rail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 6px;
+}
+
+.sh-rail li {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.35rem 0.5rem 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--glass-edge);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+}
+
+.sh-rail li::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: calc(var(--p, 0) * 100%);
+  background: var(--hr-ok);
+}
+
+.sh-rail__on {
+  color: var(--ink);
+  border-color: var(--hr-ok) !important;
+}
+
+.sh-rail__done b {
+  color: var(--hr-ok);
+}
+
+.sh-overview {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sh-overview li {
+  padding: 0.35rem 0.6rem;
+  border-left: 2px solid var(--hr-ok);
+  font-size: 0.9rem;
+  animation: sh-rise 500ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 180ms + 200ms);
+}
+
+.sh-opt {
+  display: grid;
+  gap: 0.6rem;
+  animation: sh-rise 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.sh-opt__name {
+  font-size: 1.3rem;
+  line-height: 1.15;
+  font-weight: 800;
+  font-stretch: 88%;
+}
+
+.sh-opt__have {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+}
+
+.sh-must {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.sh-must__row {
+  position: relative;
+  padding: 0.4rem 0.6rem 0.4rem 1.6rem;
+  border-left: 2px solid var(--hr-ok);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.92rem;
+  animation: sh-must-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.sh-must__row::before {
+  content: '→';
+  position: absolute;
+  left: 0.5rem;
+  color: var(--hr-ok);
+}
+
+@keyframes sh-must-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+    clip-path: inset(0 100% 0 0);
+  }
+}
+
+.sh-rerun {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.5rem 0.75rem 0.6rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  transition:
+    border-color 400ms,
+    background-color 400ms;
+}
+
+.sh-rerun__label {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.sh-rerun__n {
+  margin: 0;
+  font-size: 2.8rem;
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 68%;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--hr-ok) calc(var(--g, 0) * 100%), var(--overload));
+}
+
+.sh-rerun--done {
+  border-color: var(--hr-ok);
+  background: color-mix(in srgb, var(--hr-ok) 9%, transparent);
+}
+
+.sh-rerun__zero {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--hr-ok);
+  animation: sh-wipe 500ms ease-out both;
+}
+
+.sh-rerun__scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -40%;
+  width: 40%;
+  opacity: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--hr-ok) 30%, transparent), transparent);
+}
+
+.sh-rerun--go .sh-rerun__scan {
+  animation: sh-rerun-scan 900ms ease-in-out 1 both;
+}
+
+@keyframes sh-rerun-scan {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(350%);
+  }
+}
+
+.sh-result {
+  display: grid;
+  gap: 0.4rem;
+  animation: sh-rise 500ms ease-out both;
+}
+
+.sh-kept {
+  font-size: 0.85rem;
+}
+
+.sh-kept i {
+  display: block;
+  position: relative;
+  height: 6px;
+  margin-top: 0.3rem;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--glass-edge);
+}
+
+.sh-kept i::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: var(--kept);
+  background: var(--hr-ok);
+  transform-origin: left;
+  animation: sh-grow 800ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sh-cost {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sh-verified {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--hr-ok);
+}
+
+.sh-verified path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: sh-draw 500ms 100ms ease-out forwards;
+}
+
+/* the AI's plans are marked as such everywhere they appear */
+.sh-ai {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--hr-ok);
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  vertical-align: middle;
+  color: var(--hr-ok);
+}
+
+.sh-ai--big {
+  margin: 0 0.5rem 0 0;
+  font-size: 0.66rem;
+  vertical-align: 0.25em;
+}
+
+.sh-have {
+  font-size: 1.35rem;
+}
+
+.sh-opt__sub {
+  font-size: 0.82rem;
+  color: var(--ink-2);
+}
+
+.sh-cost span {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+/* the pitch, as facts: AI proposes, the engine verifies */
+.sh-frame {
+  padding: 0.5rem 0.7rem;
+  border-left: 2px solid var(--hr-ok);
+  background: color-mix(in srgb, var(--hr-ok) 6%, transparent);
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
+.sh-frame b {
+  display: block;
+  color: var(--ink);
+}
+
+.sh-frame--busy {
+  background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--hr-ok) 16%, transparent), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: sh-busy 1.6s linear infinite;
+}
+
+@keyframes sh-busy {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+.sh-also {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+/* the options side by side */
+.sh-orows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.sh-orow {
+  position: relative;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.45rem 0.65rem;
+  overflow: hidden;
+  border: 1px solid var(--glass-edge);
+  border-radius: 6px;
+}
+
+.sh-orow--best {
+  border-color: var(--hr-ok);
+  background: color-mix(in srgb, var(--hr-ok) 8%, transparent);
+}
+
+.sh-orow--anim {
+  animation: sh-rise 500ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: var(--d, 0ms);
+}
+
+/* a green sweep crosses the best pick once it is in */
+.sh-orow--best.sh-orow--anim::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--hr-ok) 26%, transparent), transparent);
+  transform: translateX(-100%);
+  animation: sh-sweep 1100ms ease-out both;
+  animation-delay: calc(var(--d, 0ms) + 900ms);
+}
+
+.sh-orow__top {
+  margin: 0;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.sh-orow__out {
+  margin-left: auto;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.sh-orow__k {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.sh-orow__best {
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+  background: var(--hr-ok);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.sh-orow__name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+/* two bars per option: the share of the campus kept (green) and the cost, high end (neutral) */
+.sh-orow__bars {
+  display: grid;
+  grid-template-columns: auto 1fr 3.6rem;
+  align-items: center;
+  gap: 0.2rem 0.6rem;
+  font-size: 0.72rem;
+}
+
+.sh-orow__lbl {
+  color: var(--ink-2);
+  letter-spacing: 0.04em;
+}
+
+.sh-orow__bars b {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-orow__bar {
+  display: block;
+  height: 7px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--glass-edge);
+}
+
+.sh-orow__bar i {
+  display: block;
+  height: 100%;
+  width: var(--kept);
+  background: var(--hr-ok);
+  transform-origin: left;
+}
+
+.sh-orow__bar--cost i {
+  width: var(--cost);
+  background: var(--ink-2);
+}
+
+.sh-orow--anim .sh-orow__bar i {
+  animation: sh-grow 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--d, 0ms) + 200ms);
+}
+
+.sh-orow--anim .sh-orow__bar--cost i {
+  animation-delay: calc(var(--d, 0ms) + 450ms);
+}
+
+.sh-orow__meta {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.sh-orow__meta b {
+  color: var(--ink);
+}
+
+.sh-ok {
+  font-weight: 700;
+  color: var(--hr-ok);
+}
+
+.sh-compare {
+  display: grid;
+  gap: 0.5rem;
+}
+
+/* ------------------------------------------------------------------ who, why, the rebuild */
+.sh-areas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.sh-areas li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem 0.6rem;
+  align-items: baseline;
+  transition: transform 300ms ease;
+}
+
+/* the area the narration is naming (the camera is flying there) */
+.sh-areas li::before {
+  content: '';
+  position: absolute;
+  left: -0.75rem;
+  top: 0.15rem;
+  bottom: 0.15rem;
+  width: 3px;
+  background: var(--overload);
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+
+.sh-areas li.sh-areas__on {
+  transform: translateX(4px);
+}
+
+.sh-areas li.sh-areas__on::before {
+  opacity: 1;
+}
+
+.sh-areas__name {
+  font-weight: 700;
+}
+
+.sh-areas__n {
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-stretch: 75%;
+  color: var(--overload);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-areas__bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 8px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--glass-edge);
+}
+
+.sh-areas__bar i {
+  display: block;
+  height: 100%;
+  width: var(--w);
+  background: repeating-linear-gradient(135deg, var(--overload) 0 5px, color-mix(in srgb, var(--overload) 58%, #000) 5px 10px);
+  transform-origin: left;
+}
+
+.rs-slide--live .sh-areas__bar i {
+  animation: sh-grow 1000ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(var(--i, 0) * 180ms + 300ms);
+}
+
+.sh-areas li.sh-areas__foot {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.sh-cause {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.sh-cause__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.25rem 0.6rem;
+  align-items: baseline;
+}
+
+.sh-cause__row b {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-stretch: 75%;
+}
+
+.sh-cause__row .sh-gauge {
+  grid-column: 1 / -1;
+}
+
+.sh-restore {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.sh-restore__back {
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+
+.sh-restore__back b {
+  font-size: 1.4rem;
+  font-weight: 800;
+  font-stretch: 75%;
+  color: var(--hr-ok);
+}
+
+/* ------------------------------------------------------------------ the progress head */
+.rs-progress__head {
+  position: absolute;
+  top: 3px;
+  left: calc(var(--fill, 0) * 100%);
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: #fff;
+  pointer-events: none;
+}
+
+.rs-progress__head::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  animation: sh-head 1.3s ease-out infinite;
+}
+
+@keyframes sh-head {
+  from {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ on the map (SVG, inside the camera) */
+/* what the fix has to clear: the lines past their limit, red, pulsing slowly */
+.rs-map__ln--over,
+.rs-map__xf--over {
+  stroke: var(--overload);
+  stroke-opacity: 0.95;
+  animation: sh-over 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes sh-over {
+  to {
+    stroke-opacity: 0.45;
+  }
+}
+
+/* the fix is in: the red lines cool to green */
+.rs-map__ln--cool,
+.rs-map__xf--cool {
+  stroke: var(--hr-ok);
+  stroke-opacity: 0.9;
+  animation: sh-cool 1100ms ease-out both;
+}
+
+@keyframes sh-cool {
+  from {
+    stroke: var(--overload);
+  }
+}
+
+/* the upgraded lines draw in, green, a little wider than the network */
+.rs-map__ln--fix,
+.rs-map__xf--fix {
+  stroke: var(--hr-ok);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  stroke-opacity: 0.95;
+  animation: sh-draw 1200ms ease-out forwards;
+}
+
+.rs-map__pulse {
+  fill: none;
+  stroke: var(--hr-ok);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rs-ring 1.5s ease-out infinite;
+}
+
+/* ------------------------------------------------------------------ narrow screens */
+@media (max-width: 860px) {
+  .rs-panel {
+    bottom: calc(150px + var(--rs-tick-h));
+  }
+
+  .rs-controls {
+    bottom: calc(var(--gutter) + var(--rs-tick-h));
+  }
+
+  .rs-captions {
+    bottom: calc(70px + var(--rs-tick-h));
+  }
+
+  .rs-ask,
+  .rs-transcript {
+    bottom: calc(150px + var(--rs-tick-h));
+  }
+
+  .sh-callout {
+    left: var(--gutter);
+    right: var(--gutter);
+    max-width: none;
+    top: calc(var(--gutter) + var(--rs-top-h) + 6px);
+  }
+
+  .sh-slate__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sh-slate__body {
+    padding: 1rem 1.1rem 1.1rem;
+  }
+}
+
+/* ------------------------------------------------------------------ reduced motion: the finished picture, no movement */
+@media (prefers-reduced-motion: reduce) {
+  .sh-ticker__track,
+  .sh-hours__fill,
+  .sh-ticker__dot,
+  .sh-kicker__dot,
+  .sh-callout,
+  .sh-flame svg,
+  .sh-flame i,
+  .sh-slate__hazard,
+  .sh-slate__scan,
+  .sh-rerun__scan,
+  .rs-progress__head::after,
+  .rs-slide::after,
+  .rs-map__pulse {
+    animation: none !important;
+  }
+
+  .rs-map__ln--fix,
+  .rs-map__ln--cool,
+  .rs-map__ln--over,
+  .rs-map__xf--fix,
+  .rs-map__xf--cool,
+  .rs-map__xf--over,
+  .sh-frame--busy {
+    animation: none !important;
+    stroke-dashoffset: 0;
+  }
+
+  .sh-play__more {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------------ print: nothing of the show */
+@media print {
+  .sh-ticker,
+  .sh-callout,
+  .sh-slate {
+    display: none !important;
+  }
+}
