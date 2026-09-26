@@ -1,16 +1,25 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useCallback, useMemo, useState } from 'react'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../../ui'
 import { useGridlock } from './context'
+import PipelineFunnel, { SetAsideView, SperryMarks, SperryView } from './PipelineFunnel'
 import PipelinePanel from './PipelinePanel'
 import { KM_PER_MI, SAME_STATION, TIER_LABEL, TIER_ORDER, UTILITIES, displayName, fmtInt, fmtMi, pairDistance, toneOf, utilityShort, whenOf } from './format'
 import './gridlock.css'
 
-// The Build together rail: a short title and one sentence, the two filings, the filters folded away, then the
-// ranked pairs at once (picking one opens its sheet over the map). The data pipeline (the part that makes every
-// number traceable) and the full project list are one click away in the rail's footer.
+// The Build together rail: a short title and one sentence, the two filings, the pipeline as one quiet line of numbers
+// (each a way in), the filters folded away, then the ranked pairs at once (picking one opens its sheet over the map).
+// The data pipeline (the part that makes every number traceable) and the full project list are one click away in the
+// rail's footer; the funnel also opens the records set aside and Sperry's worked example as the start.
+const SUB_VIEWS = {
+  pipeline: 'How we built this',
+  projects: 'All projects',
+  setaside: 'Set aside by the checks',
+  sperry: "Sperry's worked example",
+}
+
 export default function BuildPlansPanel({ extra }) {
   const g = useGridlock()
-  const view = g.tab === 'pipeline' || g.tab === 'projects' ? g.tab : 'pairs'
+  const view = SUB_VIEWS[g.tab] ? g.tab : 'pairs'
   return (
     <div className="gl gl-side">
       {view === 'pairs' ? (
@@ -49,6 +58,7 @@ function PairsView({ extra }) {
       {g.conn.status === 'error' && <ErrorBanner error={g.conn.error} onRetry={g.reload} />}
       {g.conn.status === 'ready' && (
         <>
+          <PipelineFunnel />
           <Filters />
           <RankedList />
         </>
@@ -110,7 +120,7 @@ function Filters() {
     g.tierFilter ? `only ${TIER_LABEL[g.tierFilter].toLowerCase()}` : null,
   ].filter(Boolean)
   return (
-    <details className="gl-filters">
+    <details className="gl-filters" open={g.filtersOpen} onToggle={(e) => g.setFiltersOpen(e.currentTarget.open)}>
       <summary>
         <span className="gl-filters__label">Filters</span>
         <span className="gl-filters__now">{summary.join(', ')}</span>
@@ -202,6 +212,21 @@ function RankedList() {
   const { ov, overlaps, params } = g
   const [all, setAll] = useState(false)
   const [order, setOrder] = useState('score')
+  // a Sperry pair's chip (after expanding from their example): show its row in the list, wherever it ranks
+  const showRow = useCallback(
+    (o) => {
+      setAll(true)
+      if (g.tierFilter && o.tier !== g.tierFilter) g.setTierFilter(null)
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const row = document.querySelector(`.gl-rows [data-pair="${CSS.escape(o.id)}"]`)
+          row?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+          row?.focus({ preventScroll: true })
+        }),
+      )
+    },
+    [g],
+  )
   const tier = g.tierFilter && ov.by_tier?.[g.tierFilter] ? g.tierFilter : null
   // the engine ranks by score; "closest" and the tier filter only re-order / narrow what it sent. Best match keeps
   // the engine's order but lists the pairs whose shared months have already passed (as filed) after the rest, under
@@ -222,7 +247,7 @@ function RankedList() {
     <section className="gl-ranked" aria-labelledby="gl-ranked-h">
       <div className="gl-listhead">
         <div className="gl-listhead__txt">
-          <h2 id="gl-ranked-h" className="gl-listhead__h">
+          <h2 id="gl-ranked-h" className="gl-listhead__h" tabIndex={-1}>
             {ov.status === 'loading' ? (
               'Comparing the plans…'
             ) : (
@@ -265,6 +290,7 @@ function RankedList() {
               Widen the distance under Filters.
             </EmptyState>
           )}
+          <SperryMarks onShow={showRow} />
           {ov.truncated && <p className="gl-fine">The engine sent the top {fmtInt(overlaps.length)}; narrow the distance to see the rest ranked.</p>}
           {order !== 'score' && flagged > 1 && <p className="gl-fine">Sorted by distance; each keeps its best-match rank.</p>}
           {order === 'score' && listed[0]?.shared_station && (
@@ -299,6 +325,7 @@ function PairRow({ o }) {
   const a = g.byId[o.a]
   const b = g.byId[o.b]
   const on = g.draft?.id === o.id
+  const marked = g.sperryMarks && !!o.sperry
   const d = pairDistance(o, g.params.method)
   const when = whenOf(o)
   const rank = o.displayRank ?? o.rank
@@ -307,7 +334,7 @@ function PairRow({ o }) {
     <li>
       <button
         type="button"
-        className={`gl-row gl-row--${when.tone}${on ? ' is-on' : ''}`}
+        className={`gl-row gl-row--${when.tone}${on ? ' is-on' : ''}${marked ? ' gl-row--sperry' : ''}`}
         aria-current={on || undefined}
         data-pair={o.id}
         onClick={() => g.openDraft(o)}
@@ -338,7 +365,7 @@ function PairRow({ o }) {
               ) : (
                 o.tier !== 'crews' && <span className={`gl-tier gl-tier--${o.tier}`}>{o.tier_label}</span>
               )}
-              {o.sperry && <span className="gl-sperrytag">In Sperry&apos;s example ({o.sperry})</span>}
+              {o.sperry && <span className={`gl-sperrytag${marked ? ' is-marked' : ''}`}>In Sperry&apos;s example ({o.sperry})</span>}
             </span>
           )}
         </span>
@@ -389,11 +416,20 @@ function SubView({ view }) {
         <button type="button" className="gl-back" onClick={() => g.setTab('opportunities')}>
           <span aria-hidden="true">‹</span> Pairs
         </button>
-        <h1 className="gl-title">{view === 'pipeline' ? 'How we built this' : 'All projects'}</h1>
+        <h1 className="gl-title">{SUB_VIEWS[view]}</h1>
       </header>
       {g.conn.status === 'loading' && <Loading label="Reading the construction plans…" />}
       {g.conn.status === 'error' && <ErrorBanner error={g.conn.error} onRetry={g.reload} />}
-      {g.conn.status === 'ready' && (view === 'pipeline' ? <PipelinePanel /> : <ProjectFinder />)}
+      {g.conn.status === 'ready' &&
+        (view === 'pipeline' ? (
+          <PipelinePanel />
+        ) : view === 'setaside' ? (
+          <SetAsideView />
+        ) : view === 'sperry' ? (
+          <SperryView />
+        ) : (
+          <ProjectFinder />
+        ))}
     </>
   )
 }

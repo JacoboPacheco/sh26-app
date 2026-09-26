@@ -72,7 +72,12 @@ function stateEntries(states) {
 
 export default function PlansMap() {
   const g = useGridlock()
-  const { basemap, projects, visible, overlaps, sel, hover, setHover, openOverlap, openProject, registerMap, byId, cover } = g
+  const { basemap, projects, sel, hover, setHover, openOverlap, openProject, registerMap, byId, cover } = g
+  // Sperry's worked example as the start (g.sperryMap): only their ten projects and six pairs, with their own numbers
+  const visible = g.sperryMap ? g.sperryMap.projects : g.visible
+  const overlaps = g.sperryMap ? g.sperryMap.overlaps : g.overlaps
+  // after expanding to the full filings, Sperry's six stay marked (and numbered) wherever they rank
+  const marks = !g.sperryMap && g.sperryMarks
   // the sheet covers the map's right side: camera moves frame what is left visible (read through a ref so a
   // fly that runs in the same commit as the sheet's first measurement already sees it)
   const coverRef = useRef(cover)
@@ -379,7 +384,7 @@ export default function PlansMap() {
     },
     onClick: () => openOverlap(o),
   })
-  const rankSpots = useMemo(() => placeRanks(drawnOverlaps, proj, k), [drawnOverlaps, proj, k])
+  const rankSpots = useMemo(() => placeRanks(drawnOverlaps, proj, k, marks), [drawnOverlaps, proj, k, marks])
   const focusPlaced = focus && view ? placeFocusLabels([...focus.projects], byId, proj, view, visibleRight) : []
   // the highlighted pair's shared substation (a same-station pair): marked on the map and named
   const focusOverlap = focus?.overlap ? overlaps.find((x) => x.id === focus.overlap) || (selectedOverlap?.id === focus.overlap ? selectedOverlap : null) : null
@@ -415,7 +420,7 @@ export default function PlansMap() {
             <Labels proj={proj} k={k} states={base.states} />
             <g className={`gl-rings${focus ? ' gl-has-focus' : ''}`}>
               {drawnOverlaps.map((o) => (
-                <OverlapRing key={o.id} o={o} proj={proj} k={k} on={focus?.overlap === o.id} {...ringHandlers(o)} />
+                <OverlapRing key={o.id} o={o} proj={proj} k={k} on={focus?.overlap === o.id} marked={marks && !!o.sperry} {...ringHandlers(o)} />
               ))}
             </g>
             <g className={`gl-projects${focus ? ' gl-has-focus' : ''}`}>
@@ -624,13 +629,17 @@ function ProjectMark({ p, proj, k, on, onEnter, onLeave, onClick }) {
   )
 }
 
+// the number a pair carries on the map: Sperry's own (OVL_n) at the start, else its rank in the list
+const rankOf = (o) => o.mapRank ?? o.displayRank ?? o.rank
+const rankText = (o) => (o.mapRank != null && o.sperry ? `Sperry ${o.sperry}` : `#${rankOf(o)}`)
+
 function worldPair(o, proj) {
   const cp = o.closest_points
   if (!cp || cp.length < 2) return null
   return cp.map(([lat, lon]) => proj.w(lon, lat))
 }
 
-function OverlapRing({ o, proj, k, on, onEnter, onLeave, onClick }) {
+function OverlapRing({ o, proj, k, on, marked, onEnter, onLeave, onClick }) {
   const pair = worldPair(o, proj)
   if (!pair) return null
   const [[x1, y1], [x2, y2]] = pair
@@ -644,11 +653,11 @@ function OverlapRing({ o, proj, k, on, onEnter, onLeave, onClick }) {
   if (!on) {
     // a same-station pair rests as a small square above the project marks (StationPairMark), every other pair as a dot
     if (o.shared_station) return null
-    const rank = o.displayRank ?? o.rank
     return (
-      <g className={`gl-ring gl-ring--${o.tier} gl-ring--mark`} onPointerEnter={onEnter} onPointerLeave={onLeave} onClick={onClick}>
-        <title>{`Could coordinate: ${o.tier_label}${rank ? ` (#${rank})` : ''}`}</title>
+      <g className={`gl-ring gl-ring--${o.tier} gl-ring--mark${marked ? ' gl-ring--sperry' : ''}`} onPointerEnter={onEnter} onPointerLeave={onLeave} onClick={onClick}>
+        <title>{`Could coordinate: ${o.tier_label} (${rankText(o)})`}</title>
         <circle className="gl-ring__hit" cx={cx} cy={cy} r={11 / k} />
+        {marked && <circle className="gl-ring__sperry" cx={cx} cy={cy} r={7 / k} />}
         <circle className="gl-ring__mark" cx={cx} cy={cy} r={3.4 / k} />
       </g>
     )
@@ -671,7 +680,6 @@ function StationPairMark({ o, proj, k, on, onEnter, onLeave, onClick }) {
   const [[x1, y1], [x2, y2]] = pair
   const cx = (x1 + x2) / 2
   const cy = (y1 + y2) / 2
-  const rank = o.displayRank ?? o.rank
   return (
     <g
       className={`gl-ring gl-ring--${o.tier} gl-ring--station${on ? ' gl-on' : ' gl-ring--mark'}`}
@@ -679,7 +687,7 @@ function StationPairMark({ o, proj, k, on, onEnter, onLeave, onClick }) {
       onPointerLeave={onLeave}
       onClick={onClick}
     >
-      <title>{`Same station: ${o.shared_station.name}${rank ? ` (#${rank})` : ''}`}</title>
+      <title>{`Same station: ${o.shared_station.name} (${rankText(o)})`}</title>
       <circle className="gl-ring__hit" cx={cx} cy={cy} r={9 / k} />
       {!on && <rect className="gl-ring__mark" x={cx - 3.6 / k} y={cy - 3.6 / k} width={7.2 / k} height={7.2 / k} />}
     </g>
@@ -713,11 +721,11 @@ const RANK_SPOTS = [
   [7, 3.5, false],
   [-7, 3.5, true],
 ]
-function placeRanks(overlaps, proj, k) {
+function placeRanks(overlaps, proj, k, keepSperry = false) {
   const out = new Map()
   const top = overlaps
-    .map((o) => ({ o, rank: o.displayRank ?? o.rank, pair: worldPair(o, proj) }))
-    .filter((x) => x.pair && x.rank != null && x.rank <= 10)
+    .map((o) => ({ o, rank: rankOf(o), pair: worldPair(o, proj) }))
+    .filter((x) => x.pair && x.rank != null && (x.rank <= 10 || (keepSperry && x.o.sperry)))
     .sort((a, b) => a.rank - b.rank)
   if (!top.length) return out
   const hits = (a, b) => a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
@@ -864,7 +872,7 @@ function RankBadge({ o, proj, k, avoid = [] }) {
     [1, -1],
   ].map(([sx, sy]) => [mx + sx * r * 0.72, my + sy * r * 0.72])
   const [cx, cy] = corners.find(clear) || corners[0]
-  const rank = o.displayRank ?? o.rank
+  const rank = rankOf(o)
   return (
     <g className="gl-badge" aria-hidden="true">
       <circle cx={cx} cy={cy} r={9 / k} strokeWidth={1.5 / k} />
@@ -891,7 +899,7 @@ function OverlapTip({ o, byId, method }) {
   return (
     <>
       <strong>
-        #{o.displayRank ?? o.rank} · {o.shared_station ? `Same station: ${o.shared_station.name}` : o.tier_label}
+        {rankText(o)} · {o.shared_station ? `Same station: ${o.shared_station.name}` : o.tier_label}
       </strong>
       <span className="gl-tip__sub">
         {fmtPairDistance(o, method)}: {displayName(byId[o.a]?.name)} and {displayName(byId[o.b]?.name)}

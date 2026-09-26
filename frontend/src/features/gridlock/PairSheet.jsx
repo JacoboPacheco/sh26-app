@@ -6,6 +6,7 @@ import { DraftStatus, Paper, PrintCopy, WindowTimeline } from './AgreementDoc'
 import { useAgreement } from './useAgreement'
 import { ProjectCard } from './DetailCard'
 import Negotiation from './Negotiation'
+import TraceDrawer from './TraceDrawer'
 import {
   SAME_STATION,
   TIER_LABEL_ES,
@@ -78,6 +79,8 @@ const S = {
     sources: 'Sources',
     needs: (x) => `needs ${x}`,
     why: (r) => `Why it ranks ${r}`,
+    trace: 'Trace this pair',
+    traceWhat: "The score's terms, the distance, each end's map match and each row's PDF page",
     publicOnly: "This compares public plans only; it doesn't say whether the utilities already work together.",
     loading: 'Reading both filings…',
     drafting: 'Drafting from the two filings…',
@@ -135,6 +138,8 @@ const S = {
     sources: 'Fuentes',
     needs: (x) => `requiere ${x}`,
     why: (r) => `Por qué ocupa el puesto ${r}`,
+    trace: 'Rastrear este par',
+    traceWhat: 'Los términos de la puntuación, la distancia, la ubicación de cada extremo y la página del PDF de cada fila',
     publicOnly: 'Solo compara planes públicos; no dice si las empresas ya trabajan juntas.',
     loading: 'Leyendo los dos documentos…',
     drafting: 'Redactando a partir de los dos documentos…',
@@ -248,6 +253,24 @@ export default function PairSheet() {
   )
 
   const projectOpen = sel?.kind === 'project'
+  // "Trace this pair" opens over the steps like a project's card (per pair: a new pair starts closed)
+  const [traceFor, setTraceFor] = useState(null)
+  const traceOpen = traceFor === draft.id && !projectOpen
+  const traceOpener = useRef(null)
+  const openTrace = useCallback(
+    (el) => {
+      traceOpener.current = el || null
+      setTraceFor(draft.id)
+    },
+    [draft.id],
+  )
+  const closeTrace = useCallback(() => {
+    setTraceFor(null)
+    const el = traceOpener.current
+    traceOpener.current = null
+    requestAnimationFrame(() => (el?.isConnected ? el.focus({ preventScroll: false }) : titleRef.current?.focus({ preventScroll: true })))
+  }, [])
+  const covered = projectOpen || traceOpen
   // "Where this came from" opens over the steps: its heading takes focus (ProjectCard autoFocus); Back returns focus
   // to the link that opened it (else the sheet's title)
   const opener = useRef(null)
@@ -276,11 +299,12 @@ export default function PairSheet() {
     const onKey = (e) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       if (projectOpen) back()
+      else if (traceOpen) closeTrace()
       else closeDraft()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [projectOpen, back, closeDraft])
+  }, [projectOpen, traceOpen, back, closeDraft, closeTrace])
 
   // print = the document alone (agreement.css hides the app while body has the print copy / .gl-printing)
   useEffect(() => {
@@ -423,7 +447,7 @@ export default function PairSheet() {
             {s.download}
           </button>
         </div>
-        {!projectOpen && (
+        {!covered && (
           <nav className="gl-steps" aria-label={lang === 'es' ? 'Pasos' : 'Steps'}>
             {s.steps.map((label, i) => (
               <button key={label} type="button" className={active === i + 1 ? 'is-on' : ''} aria-current={active === i + 1 ? 'step' : undefined} onClick={() => goTo(i + 1)}>
@@ -444,7 +468,7 @@ export default function PairSheet() {
       </header>
 
       <div className="gl-sheet__main">
-        <div className="gl-sheet__body" ref={bodyRef} onScroll={onScroll} inert={projectOpen || undefined}>
+        <div className="gl-sheet__body" ref={bodyRef} onScroll={onScroll} inert={covered || undefined}>
           <Step
             n={1}
             title={s.steps[0]}
@@ -456,7 +480,16 @@ export default function PairSheet() {
               )
             }
           >
-            <OverlapStep o={o} base={base} s={s} lang={lang} listed={listed} onOpenProject={openProject} onRetry={() => setTries((n) => n + 1)} />
+            <OverlapStep
+              o={o}
+              base={base}
+              s={s}
+              lang={lang}
+              listed={listed}
+              onOpenProject={openProject}
+              onTrace={openTrace}
+              onRetry={() => setTries((n) => n + 1)}
+            />
           </Step>
           <Step n={2} title={s.steps[1]}>
             {client && (
@@ -493,6 +526,11 @@ export default function PairSheet() {
             <ProjectCard sel={sel} onBack={back} backLabel={lang === 'es' ? `par ${rank}` : `pair ${rank}`} autoFocus />
           </div>
         )}
+        {traceOpen && (
+          <div className="gl-sheet__layer gl-sheet__layer--trace">
+            <TraceDrawer id={draft.id} rank={listed ? rank : null} lang={lang} onBack={closeTrace} />
+          </div>
+        )}
       </div>
       {doc && <PrintCopy doc={doc} t={t} />}
     </aside>
@@ -525,7 +563,7 @@ function Step({ n, title, aside, children }) {
 
 // Step 1: both projects as filed, side by side with the distance between them; the shared window against today;
 // what building together could save and why; the ranking's reasons folded away.
-function OverlapStep({ o, base, s, lang, listed, onOpenProject, onRetry }) {
+function OverlapStep({ o, base, s, lang, listed, onOpenProject, onTrace, onRetry }) {
   const g = useGridlock()
   if (base.status === 'loading') return <Loading label={s.loading} />
   if (base.status === 'error') return <ErrorBanner error={base.error} onRetry={onRetry} />
@@ -598,6 +636,18 @@ function OverlapStep({ o, base, s, lang, listed, onOpenProject, onRetry }) {
           <dd>{shareLabels.length ? shareLabels.join('; ') : s.rough}</dd>
         </div>
       </dl>
+
+      <div className="gl-tracebar">
+        <button type="button" className="gl-tracebtn" onClick={(e) => onTrace(e.currentTarget)}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M2.5 3.5h4M2.5 8h7M2.5 12.5h11M9 3.5h4.5M12 8h1.5" />
+            <circle cx="7.8" cy="3.5" r="1.3" />
+            <circle cx="10.8" cy="8" r="1.3" />
+          </svg>
+          {s.trace}
+        </button>
+        <span className="gl-fine">{s.traceWhat}</span>
+      </div>
 
       <WindowTimeline jw={jw} parties={dr.parties} t={LABELS[lang]} />
 

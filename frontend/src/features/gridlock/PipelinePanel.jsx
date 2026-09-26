@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, EmptyState, ErrorBanner, Loading } from '../../ui'
 import { CheckIcon } from './DetailCard'
 import { useGridlock } from './context'
@@ -15,6 +15,19 @@ const DEFAULT_COMMAND = 'backend/venv/Scripts/python backend/demo/gridlock/build
 export default function PipelinePanel() {
   const g = useGridlock()
   const report = g.summary?.report || {}
+  // opened from a funnel node: bring that stage into view (its heading takes focus)
+  const focusId = g.pipeFocus
+  useEffect(() => {
+    if (!focusId) return undefined
+    const t = setTimeout(() => {
+      const el = document.getElementById(focusId)
+      if (!el) return
+      el.setAttribute('tabindex', '-1')
+      el.scrollIntoView({ block: 'start' })
+      el.focus({ preventScroll: true })
+    }, 30)
+    return () => clearTimeout(t)
+  }, [focusId])
   return (
     <div className="gl-pipe">
       <p className="gl-lede">
@@ -340,22 +353,25 @@ function Extraction({ x }) {
   )
 }
 
-function Quarantine() {
+// The records set aside, each with its reasons, page and raw text. `check`: only those that failed that check (its
+// label, which each reason starts with); `heading`: false where the page already names the list (the funnel's view).
+export function Quarantine({ check = null, heading = true, pageSize = 8 }) {
   const g = useGridlock()
   const [all, setAll] = useState(false)
-  const q = g.projects.quarantine || []
+  const every = g.projects.quarantine || []
+  const q = check ? every.filter((r) => (r.reasons || []).some((x) => String(x).startsWith(`${check}:`) || x === check)) : every
   const sources = g.summary?.sources || []
   if (g.projects.status === 'loading') return <Loading label="Loading records…" />
   if (g.projects.status === 'error') return <ErrorBanner error={g.projects.error} onRetry={g.loadProjects} />
-  const shown = all ? q : q.slice(0, 8)
+  const shown = all ? q : q.slice(0, pageSize)
   return (
-    <section className="gl-sec" id="gl-quarantine" aria-labelledby="gl-q-h">
-      <h3 id="gl-q-h">Set aside ({fmtInt(q.length)})</h3>
+    <section className="gl-sec" id={heading ? 'gl-quarantine' : undefined} aria-labelledby={heading ? 'gl-q-h' : undefined} aria-label={heading ? undefined : 'Set-aside records'}>
+      {heading && <h3 id="gl-q-h">Set aside ({fmtInt(q.length)})</h3>}
       {!q.length ? (
         <p className="muted">Every extracted record passed.</p>
       ) : (
         <>
-          <p className="gl-fine">Kept out of the comparison, with the reason, so nothing disappears silently.</p>
+          {heading && <p className="gl-fine">Kept out of the comparison, with the reason, so nothing disappears silently.</p>}
           <ul className="gl-qlist">
             {shown.map((r, i) => {
               const src = sources.find((s) => s.id === r.provenance?.source || s.file === r.provenance?.source)
@@ -401,7 +417,7 @@ function Quarantine() {
               )
             })}
           </ul>
-          {q.length > 8 && (
+          {q.length > pageSize && (
             <Button variant="secondary" onClick={() => setAll((v) => !v)}>
               {all ? 'Show fewer' : `Show all ${q.length}`}
             </Button>

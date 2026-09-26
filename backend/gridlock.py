@@ -5,14 +5,15 @@ This module is the ENGINE + API. The data pipeline (backend/demo/gridlock/build.
 data/projects.json and data/basemap.json from the public filings; this module loads them once
 (and again whenever the file changes on disk), precomputes every pair's distances, and serves:
 
-  GET /api/gridlock/summary               counts per utility + the pipeline's report
+  GET /api/gridlock/summary               counts per utility, the pipeline funnel (filings -> rows -> passed / set aside) + its report
   GET /api/gridlock/projects              every located project (map payload) + the quarantine
   GET /api/gridlock/projects/{id}         one project in full, with its flagged overlaps
   GET /api/gridlock/basemap               SC + GA outlines and OSM transmission lines (context)
   GET /api/gridlock/overlaps              ranked cross-utility pairs within max_km
   GET /api/gridlock/opportunities         the top overlaps with both projects inlined
   GET /api/gridlock/estimate/{overlap_id} a rough, sourced low-high estimate of what a pair could share
-  GET /api/gridlock/sperry-check          Sperry's worked example reproduced live (center method)
+  GET /api/gridlock/sperry-check          Sperry's worked example reproduced live (center method), their ten projects matched to ours
+  GET /api/gridlock/trace/{overlap_id}    one pair taken apart: rank, the score's terms, distance, each endpoint's match, provenance
   GET /api/gridlock/export.xlsx           every project + flagged overlap in Sperry's own table format (their columns first)
   GET /api/gridlock/export.csv            one of those tables as CSV (?table=projects|overlaps|set_aside)
   GET /api/gridlock/export.geojson        every validated project as a GeoJSON feature
@@ -330,14 +331,18 @@ def _kv_classes(kvs) -> set[int]:
     return out
 
 
-def _sperry_pairs(doc: dict, example: dict, fallback: bool) -> dict:
-    """{frozenset(our id a, our id b): 'OVL_n'} for Sperry's six known overlaps, through the pipeline's
-    own match of their projects to ours (report.sperry_example.projects); ids are theirs in the fallback."""
+def _sperry_ids(doc: dict, example: dict, fallback: bool) -> dict:
+    """{Sperry's project id: ours}, through the pipeline's own match of their projects to ours
+    (report.sperry_example.projects); ids are theirs in the fallback."""
     if fallback:
-        ours = {p["project_id"]: p["project_id"] for p in example["projects"]}
-    else:
-        rep = (doc.get("report") or {}).get("sperry_example") or {}
-        ours = {m.get("sperry_id"): m.get("our_id") for m in rep.get("projects") or [] if isinstance(m, dict)}
+        return {p["project_id"]: p["project_id"] for p in example["projects"]}
+    rep = (doc.get("report") or {}).get("sperry_example") or {}
+    return {m.get("sperry_id"): m.get("our_id") for m in rep.get("projects") or [] if isinstance(m, dict) and m.get("our_id")}
+
+
+def _sperry_pairs(doc: dict, example: dict, fallback: bool) -> dict:
+    """{frozenset(our id a, our id b): 'OVL_n'} for Sperry's six known overlaps."""
+    ours = _sperry_ids(doc, example, fallback)
     out = {}
     for o in example["overlaps"]:
         a, b = ours.get(o["project_id_a"]), ours.get(o["project_id_b"])
@@ -401,6 +406,7 @@ def _load() -> dict:
         center_km, center_mi = _haversine_matrix(centers)
         new_state = {
             "sperry_pairs": _sperry_pairs(doc, example, fallback_reason is not None),
+            "sperry_ids": _sperry_ids(doc, example, fallback_reason is not None),
             "key": key,
             "doc": doc,
             "fallback": fallback_reason is not None,
@@ -1424,6 +1430,9 @@ def _estimate(st: dict, i: int, j: int, months: int) -> dict:
 
 # ----------------------------------------------------------------------------- Sperry check
 
+SPERRY_TOL_MI = 0.01  # their sheet gives miles to the hundredth
+SPERRY_TOL_DAYS = 0  # and whole days: ours must be the same day count
+
 
 def sperry_check(example: dict) -> dict:
     """Reproduce Sperry's worked example with their own method: center = mean of the located
@@ -1445,7 +1454,12 @@ def sperry_check(example: dict) -> dict:
         (pa, ca, da), (pb, cb, db) = info[o["project_id_a"]], info[o["project_id_b"]]
         ours_mi = round(_haversine_mi(ca, cb), 2) if ca and cb else None
         ours_days = abs((da - db).days) if da and db else None
-        ok = ours_mi is not None and abs(ours_mi - o["distance_mi"]) <= 0.01 + 1e-9 and ours_days == o["time_gap_days"]
+        ok = (
+            ours_mi is not None
+            and abs(ours_mi - o["distance_mi"]) <= SPERRY_TOL_MI + 1e-9
+            and ours_days is not None
+            and abs(ours_days - o["time_gap_days"]) <= SPERRY_TOL_DAYS
+        )
         rows.append(
             {
                 "overlap_id": o["overlap_id"],
@@ -1477,6 +1491,9 @@ def sperry_check(example: dict) -> dict:
     all_ok = all(r["ok"] for r in rows) and not extra and not missing
     return {
         "method": "center = mean of located endpoints; haversine (R = 3958.8 mi); overlap if under 25 miles; days between in-service dates",
+        # a row matches when our miles are within tolerance.mi of theirs and our days within tolerance.days (0: to the day)
+        "tolerance": {"mi": SPERRY_TOL_MI, "days": SPERRY_TOL_DAYS},
+        "projects_in_example": len(projects),
         "rows": rows,
         "pairs_compared": compared,
         "flagged": len(ours),
@@ -1489,6 +1506,62 @@ def sperry_check(example: dict) -> dict:
 
 
 # ----------------------------------------------------------------------------- routes
+
+
+# A set-aside record's reason starts with the label of the check it failed; the funnel says it the failing way round.
+SET_ASIDE_WORDS = {
+    "located": "No endpoint could be placed on the map",
+    "place_named": "The title names no place",
+    "span_plausible": "Line endpoints 150 km or more apart",
+    "date_valid": "In-service date unreadable or outside 2020-2040",
+    "id_unique": "Project id used twice",
+    "extract_complete": "A field could not be read from the PDF",
+    "in_region": "Placed outside SC and GA",
+    "in_territory": "Placed out of reach of the filer's state",
+}
+
+
+def _funnel(st: dict, report: dict) -> dict:
+    """The pipeline in numbers, every one counted from the data: the filings, the rows read from them, the rows that
+    passed the blocking checks and those set aside (with the checks they failed). The pair counts (compared, flagged)
+    depend on the comparison settings, so /overlaps gives those (`total_pairs`, `flagged`, `compared`)."""
+    sources = [s for s in st["doc"].get("sources") or [] if isinstance(s, dict)]
+    rows_by_source: dict[str, int] = {}
+    for r in st["projects"] + st["quarantine"]:
+        key = str((r.get("provenance") or {}).get("source") or "unknown")
+        rows_by_source[key] = rows_by_source.get(key, 0) + 1
+    checks = [c for c in report.get("checks") or [] if isinstance(c, dict)]
+    by_label = {str(c.get("label")): c for c in checks if c.get("label")}
+    failed: dict[str, dict] = {}
+    for q in st["quarantine"]:
+        seen = set()
+        for reason in q.get("reasons") or []:
+            label = str(reason).split(":", 1)[0].strip()
+            c = by_label.get(label)
+            cid = c.get("id") if c else label
+            if cid in seen:
+                continue
+            seen.add(cid)
+            f = failed.setdefault(cid, {"id": cid, "check": label, "label": SET_ASIDE_WORDS.get(cid, f"Failed: {label}"), "records": 0})
+            f["records"] += 1
+    extract = [s for s in report.get("stages") or [] if str(s.get("id", "")).startswith("extract")]
+    return {
+        "filings": len(sources),
+        "pages": sum(int(s.get("pages") or 0) for s in sources) or None,
+        "by_source": [
+            {"id": s.get("id"), "utility": s.get("utility"), "pages": s.get("pages"), "rows": rows_by_source.get(str(s.get("id")), 0)}
+            for s in sources
+        ],
+        "extracted": len(st["projects"]) + len(st["quarantine"]),
+        # the extractors' own count (their stage report), which must agree with the records kept
+        "extracted_by_stages": sum(int(s.get("out") or 0) for s in extract) if extract else None,
+        "passed": len(st["projects"]),
+        "set_aside": len(st["quarantine"]),
+        "set_aside_by_check": sorted(failed.values(), key=lambda f: (-f["records"], f["id"])),
+        "placed": len(st["placed"]),
+        "checks": len(checks),
+        "blocking_checks": sum(1 for c in checks if c.get("blocking")),
+    }
 
 
 @router.get("/api/gridlock/summary")
@@ -1506,6 +1579,7 @@ def summary():
         "sources": doc.get("sources") or [],
         "counts": _counts(st),
         "compared_projects": len(st["placed"]),
+        "funnel": _funnel(st, report),
         "report": report,
         "rebuild_command": "backend/venv/Scripts/python backend/demo/gridlock/build.py",
     }
@@ -1598,6 +1672,20 @@ def overlaps(
         "params": prm,
         "fallback": st["fallback"],
         "total_pairs": res["total_pairs"],
+        # the placed projects on each side: with no utility on both sides, total_pairs = a_projects x b_projects
+        "compared": {
+            "a_projects": sum(1 for p in st["placed"] if p["utility"] in prm["a"]),
+            "b_projects": sum(1 for p in st["placed"] if p["utility"] in prm["b"]),
+            "disjoint": not (set(prm["a"]) & set(prm["b"])),
+            # the rest of the projects that passed the checks, so the funnel adds up from "passed" to "pairs":
+            # passed = a_projects + b_projects + not_compared + unplaced (with disjoint sides)
+            "not_compared": [
+                {"utility": u, "projects": n}
+                for u in UTILITY_ORDER
+                if u not in chosen and (n := sum(1 for p in st["placed"] if p["utility"] == u))
+            ],
+            "unplaced": len(st["projects"]) - len(st["placed"]),
+        },
         "flagged": len(rows),
         "by_tier": tiers,
         "tiers": [{"id": t[0], "label": t[4], "under_km": t[1], "what": t[5]} for t in TIERS],
@@ -1666,16 +1754,347 @@ def sperry_check_route():
         r["ours"] = (
             {"id": o["id"], "rank": o["rank"], "distance_km": o["distance_km"], "tier": o["tier"], "tier_label": o["tier_label"],
              "class": o["class"], "class_label": o["class_label"], "score": o["score"],
-             "shared_station": o["shared_station"]["name"] if o["shared_station"] else None}
+             "shared_station": o["shared_station"]["name"] if o["shared_station"] else None,
+             # the whole record, so the page can draw the pair at the start (Sperry's example alone), whatever the filters
+             "overlap": o}
             if o
             else ({"id": "~".join(sorted(pair)), "rank": None} if pair else None)
         )
+    # their ten projects and the record each became in the full filings (the pipeline's own match, by title and place)
+    theirs = {p["project_id"]: p for p in st["example"]["projects"]}
+    out["projects"] = [
+        {
+            "sperry_id": sid,
+            "our_id": st["sperry_ids"].get(sid) if st["sperry_ids"].get(sid) in st["by_id"] else None,
+            "utility": NAME_TO_CODE.get(str(p.get("utility", "")).lower(), p.get("utility")),
+            "name": p.get("project_name"),
+        }
+        for sid, p in theirs.items()
+    ]
     out["found_in_filings"] = {
         "flagged": sum(1 for r in out["rows"] if r["ours"] and r["ours"].get("rank")),
         "of": len(out["rows"]),
         "settings": f"closest points within {MAX_KM_DEFAULT:g} km, DESC x Georgia Power",
+        "projects_matched": sum(1 for p in out["projects"] if p["our_id"]),
     }
-    return out
+    return _fast_json(_finite(out))
+
+
+# ----------------------------------------------------------------------------- trace one pair
+#
+# GET /api/gridlock/trace/{overlap_id}: one flagged pair taken apart, from its rank back to the PDF. The score's terms
+# are recomputed here with the same functions the ranking uses (and must multiply back to the pair's score); each
+# endpoint says how the pipeline placed it (its OSM feature, the matching rule, the confidence and the reasons it
+# recorded); each project gives its source file (title, page, the SHA-256 the pipeline recorded when it read the PDF),
+# the row's raw text and every field as parsed. The PDFs themselves are not in the repository: the trace shows only
+# what the committed data holds and never computes anything from a file that isn't committed.
+
+DISTANCE_RULE = (
+    "Touching (under 0.1 km, or crossing) weighs 1.00; share the land (0.1-1.6 km) 0.90 down to 0.70; share site logistics "
+    "(1.6-8 km) 0.70 down to 0.45; share crews and equipment (8-40 km) 0.45 down to 0.20, sliding down within each tier"
+)
+TIMELINE_RULE = (
+    "Build windows overlap: 1. Apart by up to a year: 0.8; up to three years: 0.5; longer: 0.25; a date missing: 0.5. "
+    f"Times {PASSED_FACTOR:g} when, as filed, the shared window (or both windows) ended before today"
+)
+LOCATION_RULE = "The weaker of the two projects' location confidence: high 1, medium 0.8, low 0.5"
+KV_RULE = f"Times {SAME_KV_BONUS:g} when both are line work at the same kV class, else times 1"
+RANK_RULE = "Pairs whose filings work at the same substation are listed first, then every pair by score, then by distance"
+TRACE_NOTE = (
+    "The source PDFs are public filings and are not in this repository; this trace shows exactly what the committed data "
+    "(backend/demo/gridlock/data/projects.json) holds. The SHA-256 is the one the pipeline recorded when it read each PDF: "
+    "download the filing from its link and compare to confirm it is the same file."
+)
+# the parsed fields of a row, in reading order, with their labels (values shown as stored)
+TRACE_FIELDS = (
+    ("project_id_raw", "Project ID, as filed"),
+    ("teams_no", "TEAMS project no."),
+    ("name", "Title"),
+    ("sponsor_raw", "Sponsor, as filed"),
+    ("zone", "Zone"),
+    ("plan_year", "Plan year"),
+    ("in_service_raw", "In-service date, as filed"),
+    ("in_service", "In-service date, normalized"),
+    ("kv", "Voltage (kV), read from the title"),
+    ("kind", "Kind of work"),
+    ("kind_basis", "Kind read from the word"),
+    ("status", "Status"),
+    ("cost_usd", "Estimated cost (USD)"),
+    ("cost_by_year", "Cost by year (USD)"),
+    ("miles", "Length (mi)"),
+    ("description", "Description"),
+    ("need", "Need"),
+    ("change_ten_year", "Change since the last 10-year plan"),
+    ("change_irp", "Change since the last IRP"),
+    ("via", "Via"),
+    ("customer_named", "Customer named"),
+    ("name_prefixes", "Name prefixes"),
+    ("notes", "Notes"),
+)
+MATCH_RULES = (
+    # (id, test on the recorded match text, label)
+    ("sperry_hand", lambda m: m.startswith("located by hand in Sperry"), "Placed by hand in Sperry's worked example"),
+    ("stand_in", lambda m: "no OSM substation is named" in m,
+     "No OpenStreetMap substation carries the name: a geocoded place, then the nearest substation of that voltage stands in"),
+    ("name_generic", lambda m: "same name once generic words are dropped" in m, "Same name once generic words are dropped"),
+    ("similar_spelling", lambda m: "similar spelling" in m, "Similar spelling"),
+    ("same_name", lambda m: "same name" in m, "Same name"),
+)
+
+
+TRACE_PLAIN_NUMBERS = {"plan_year"}  # a year reads 2025, not 2,025
+
+
+def _field_text(v, grouped: bool = True) -> str | None:
+    """A parsed field as text: every number grouped the same way (5,000 beside 2,150,000), unless it is a year."""
+    if v is None or v == "" or v == [] or v == {}:
+        return None
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if isinstance(v, (int, float)):
+        if isinstance(v, float) and v.is_integer():
+            v = int(v)
+        if not grouped:
+            return str(v) if isinstance(v, int) else f"{v:g}"
+        return f"{v:,}"
+    if isinstance(v, list):
+        return ", ".join(t for t in (_field_text(x, grouped) for x in v) if t) or None
+    if isinstance(v, dict):
+        return "; ".join(f"{k}: {_field_text(x, grouped) if x is not None else '-'}" for k, x in v.items()) or None
+    return str(v)
+
+
+def _match_rule(match: str | None, located: bool) -> dict:
+    if not located:
+        return {"id": "not_located", "label": "Not located: no OpenStreetMap feature or place matched this name"}
+    m = str(match or "")
+    for rid, test, label in MATCH_RULES:
+        if test(m):
+            return {"id": rid, "label": label}
+    return {"id": "other", "label": "Matched as recorded"}
+
+
+def _trace_endpoint(e: dict) -> dict:
+    located = e.get("lat") is not None and e.get("lon") is not None
+    osm = e.get("osm") if isinstance(e.get("osm"), dict) else None
+    match = e.get("match")
+    clauses = [c.strip() for c in re.split(r";\s+", str(match)) if c.strip()] if match else []
+    return {
+        "name": e.get("name"),
+        "raw": e.get("raw"),
+        "located": located,
+        "lat": e.get("lat"),
+        "lon": e.get("lon"),
+        "state": e.get("state"),
+        "osm": (
+            {"type": osm.get("type"), "id": osm.get("id"), "name": osm.get("name"), "operator": osm.get("operator"),
+             "url": osm.get("url") or (f"https://www.openstreetmap.org/{osm['type']}/{osm['id']}" if osm.get("type") and osm.get("id") is not None else None)}
+            if osm
+            else None
+        ),
+        "confidence": e.get("confidence"),
+        "rule": _match_rule(match, located),
+        "from_description": str(match or "").startswith("from the description"),
+        "assumption": "an assumption" in str(match or ""),
+        "match": match,  # the reason exactly as the pipeline recorded it
+        "clauses": clauses,
+    }
+
+
+def _trace_project(st: dict, p: dict, win, check_meta: dict) -> dict:
+    prov = p.get("provenance") or {}
+    src = {s.get("id"): s for s in st["doc"].get("sources") or [] if isinstance(s, dict)}.get(prov.get("source")) or {}
+    fields = []
+    for key, label in TRACE_FIELDS:
+        text = _field_text(p.get(key), grouped=key not in TRACE_PLAIN_NUMBERS)
+        if text is not None:
+            fields.append({"field": key, "label": label, "value": text})
+    checks = []
+    for c in p.get("checks") or []:
+        if not isinstance(c, dict):
+            continue
+        meta = check_meta.get(c.get("id")) or {}
+        checks.append({"id": c.get("id"), "label": meta.get("label") or c.get("id"), "blocking": bool(meta.get("blocking")),
+                       "status": c.get("status"), "detail": c.get("detail")})
+    geom = p.get("geometry") or {}
+    return {
+        "id": p["id"],
+        "utility": p.get("utility"),
+        "utility_name": p.get("utility_name") or UTILITIES.get(p.get("utility"), (p.get("utility"),))[0],
+        "state": p.get("state"),
+        "name": p.get("name"),
+        "confidence": p.get("confidence"),
+        "geometry": {"type": geom.get("type"), "basis": geom.get("basis"), "coords": geom.get("coords")},
+        "window": (
+            {"start": win[0].isoformat(), "end": win[1].isoformat(), "basis": win[2], "filed": _window_filed(p)} if win else None
+        ),
+        "endpoints": [_trace_endpoint(e) for e in p.get("endpoints") or [] if isinstance(e, dict)],
+        "source": {
+            "id": src.get("id") or prov.get("source"),
+            "title": src.get("title"),
+            "publisher": src.get("publisher"),
+            "file": src.get("file"),
+            "package_file": PDF_NAMES.get(prov.get("source")),  # the same PDF's name in Sperry's starter package
+            "url": src.get("url"),
+            "pages": src.get("pages"),
+            "sha256": src.get("sha256"),  # as recorded by the pipeline; None when it recorded none (never computed here)
+        },
+        "page": prov.get("page"),
+        "detail_page": prov.get("detail_page"),
+        "raw_text": prov.get("text"),
+        "fields": fields,
+        "checks": checks,
+        "checks_summary": {k: sum(1 for c in checks if c["status"] == s) for k, s in (("passed", "pass"), ("warned", "warn"), ("failed", "fail"))},
+    }
+
+
+def _distance_term(km: float) -> tuple[float, str]:
+    """The distance factor and how it was reached (the same arithmetic as _distance_factor)."""
+    inner = 0.0
+    for tid, edge, top, bottom, label, _what in TIERS:
+        if km < edge or tid == "crews":
+            if tid == "touching":
+                return 1.0, f"{km:.2f} km: {label.lower()} (under 0.1 km, or crossing) weighs 1.00"
+            frac = min(1.0, max(0.0, (km - inner) / (edge - inner)))
+            val = top - (top - bottom) * frac
+            return val, (
+                f"{km:.3f} km: {label.lower()} ({inner:g}-{edge:g} km) slides from {top:.2f} to {bottom:.2f}: "
+                # 4 decimals: what this arithmetic on a 3-decimal km supports (the term itself is served to 6)
+                f"{top:.2f} - {top - bottom:.2f} x ({km:.3f} - {inner:g}) / {edge - inner:g} = {val:.4f}"
+            )
+        inner = edge
+    return TIERS[-1][3], f"{km:.2f} km: beyond every tier"
+
+
+def _timeline_term(tl: dict, pa: dict, pb: dict) -> tuple[float, str]:
+    """The timeline factor and the branch of the rule it took (mirrors _timeline)."""
+    wa, wb = tl["windows"]
+    if not wa or not wb:
+        missing = " and ".join(p["id"] for p, w in ((pa, wa), (pb, wb)) if not w)
+        return 0.5, f"{missing} has no in-service date in its filing, so the timeline is unknown: 0.5"
+    if tl["same_window"]:
+        base, why = 1.0, f"the build windows share {tl['windows_overlap_months']:g} months: 1"
+    else:
+        gap = tl["window_gap_days"] or 0
+        base = 0.8 if gap <= 365 else (0.5 if gap <= 1095 else 0.25)
+        band = "up to a year" if gap <= 365 else ("up to three years" if gap <= 1095 else "more than three years")
+        why = f"the build windows are {gap:,} days ({_span(gap)}) apart, {band}: {base:g}"
+    if tl["ahead"] == "past":
+        val = PASSED_FACTOR if tl["same_window"] else round(base * PASSED_FACTOR, 3)
+        what = "that shared window" if tl["same_window"] else "both windows"
+        return val, f"{why}; as filed, {what} ended before today, times {PASSED_FACTOR:g}: {val:g}"
+    return base, why
+
+
+@router.get("/api/gridlock/trace/{overlap_id}")
+# a cheap read (~15 ms); the venue shares one IP and the smoke suite sends ~31 traces a run, so two back-to-back runs fit
+@limiter.limit("120/minute")
+def trace(
+    request: Request,
+    overlap_id: str,
+    max_km: float = Query(MAX_KM_DEFAULT),
+    window_months: int = Query(WINDOW_DEFAULT),
+    method: str = Query("closest"),
+    a: str = Query("DESC"),
+    b: str = Query("GPC"),
+):
+    """One pair taken apart: its rank, the score's terms with their values and where each comes from, the distance,
+    each endpoint's OpenStreetMap match, and each project's provenance down to the PDF page and the file's hash."""
+    prm = _params(max_km, window_months, method, a, b)
+    st = _load()
+    parts = overlap_id.split("~")
+    if len(parts) != 2 or parts[0] not in st["index"] or parts[1] not in st["index"]:
+        raise HTTPException(status_code=404, detail="No overlap with that id")
+    i, j = st["index"][parts[0]], st["index"][parts[1]]
+    if st["util"][i] == st["util"][j] or st["closest_km"][i, j] > MAX_KM_CAP:
+        raise HTTPException(status_code=404, detail=f"Those two projects aren't a cross-utility pair within {MAX_KM_CAP:g} km")
+    months = prm["window_months"]
+    rec = _overlap_record(st, i, j, months, prm["method"])
+    pa, pb = st["placed"][i], st["placed"][j]
+
+    # the score's terms, recomputed with the ranking's own functions (on the unrounded distance, as the ranking does)
+    score_km = _pair_closest(st["geoms"][i], st["geoms"][j])[0] if prm["method"] == "closest" else float(st["center_km"][i, j])
+    df, d_how = _distance_term(score_km)
+    tl = _timeline(pa, pb, months)
+    tf, t_how = _timeline_term(tl, pa, pb)
+    ca, cb = pa.get("confidence") or "low", pb.get("confidence") or "low"
+    weaker = ca if CONF_RANK.get(ca, 1) <= CONF_RANK.get(cb, 1) else cb
+    cf = CONF_FACTOR.get(weaker, 0.5)
+    shared_kv = st["kv"][i] & st["kv"][j]
+    both_lines = bool(st["line"][i] and st["line"][j])
+    kf = SAME_KV_BONUS if (both_lines and shared_kv) else 1.0
+    if kf > 1:
+        k_how = f"both are line work at {max(shared_kv)} kV: times {SAME_KV_BONUS:g}"
+    elif not both_lines:
+        k_how = "not both line work (" + ", ".join(f"{p['id']} is {str(p.get('kind') or 'other').replace('_', ' ')}" for p in (pa, pb)) + "): times 1"
+    else:
+        k_how = "both are line work, at different kV classes: times 1"
+    raw = 100 * df * tf * cf * kf
+    parts_ok = (
+        abs(df - rec["score_parts"]["distance"]) < 1e-3 and tf == rec["score_parts"]["timeline"]
+        and cf == rec["score_parts"]["location"] and kf == rec["score_parts"]["same_kv"] and round(raw, 1) == rec["score"]
+    )
+    if not parts_ok:  # the trace must never disagree with the ranking it explains
+        raise HTTPException(status_code=500, detail="The trace's terms don't reproduce this pair's score")
+    terms = [
+        # to 6 decimals, so the four values multiply back to the raw score to its 4th decimal (at 4 decimals the
+        # distance factor alone can move it: rank 44's 0.2803 gave 9.2499 against 9.2506); the page shows as many as it needs
+        {"id": "distance", "label": "Distance", "value": round(df, 6), "how": d_how, "rule": DISTANCE_RULE,
+         "input": {"km": round(score_km, 3), "measured": "closest points" if prm["method"] == "closest" else "centers (Sperry's method)"}},
+        {"id": "timeline", "label": "Timeline", "value": tf, "how": t_how, "rule": TIMELINE_RULE,
+         "input": {"windows_overlap_months": tl["windows_overlap_months"], "window_gap_days": tl["window_gap_days"], "ahead": tl["ahead"]}},
+        {"id": "location", "label": "Location", "value": cf, "rule": LOCATION_RULE,
+         "how": f"{pa['id']} is {ca}, {pb['id']} is {cb}: the weaker, {weaker}, gives {cf:g}",
+         "input": {"a": ca, "b": cb, "weaker": weaker}},
+        {"id": "same_kv", "label": "Same kV", "value": kf, "how": k_how, "rule": KV_RULE,
+         "input": {"a_kv": sorted(st["kv"][i]), "b_kv": sorted(st["kv"][j]), "both_line_work": both_lines}},
+    ]
+    listed = {o["id"]: o for o in _compute(st, prm)["overlaps"]}
+    here = listed.get(rec["id"])
+    check_meta = {c.get("id"): c for c in (st["doc"].get("report") or {}).get("checks") or [] if isinstance(c, dict)}
+    wa, wb = tl["windows"]
+    return _fast_json(_finite({
+        "overlap_id": rec["id"],
+        "params": prm,
+        "rank": here["rank"] if here else None,  # None: the pair is outside these settings (it can still be traced)
+        "flagged": len(listed),
+        "rank_rule": RANK_RULE,
+        "class": rec["class"],
+        "class_label": rec["class_label"],
+        "shared_station": rec["shared_station"],
+        "sperry": rec["sperry"],
+        "score": {
+            "value": rec["score"],
+            "raw": round(raw, 4),
+            "formula": "100 x distance x timeline x location x same kV",
+            "terms": terms,
+            "reproduced": parts_ok,
+        },
+        "distance": {
+            "km": rec["distance_km"],
+            "mi": rec["distance_mi"],
+            "crosses": rec["crosses"],
+            "tier": rec["tier"],
+            "tier_label": rec["tier_label"],
+            "closest_points": rec["closest_points"],  # [lat, lon] on a, then on b
+            "how": "the closest points of the two projects' drawn geometry (a line's segment, a substation's point), measured on a "
+                   "flat plane centred on the pair: within about 0.1 % of the true distance at these ranges",
+            "center_km": rec["center_distance_km"],
+            "center_mi": rec["center_distance_mi"],
+            "center_how": "Sperry's method: haversine between the midpoints of each project's located endpoints (R = 3958.8 mi)",
+        },
+        "timeline": {
+            "a_window": {"start": wa[0].isoformat(), "end": wa[1].isoformat(), "basis": wa[2]} if wa else None,
+            "b_window": {"start": wb[0].isoformat(), "end": wb[1].isoformat(), "basis": wb[2]} if wb else None,
+            "reason": tl["reason"],
+            "time_gap_days": tl["time_gap_days"],
+        },
+        "projects": [_trace_project(st, pa, wa, check_meta), _trace_project(st, pb, wb, check_meta)],
+        "reasons": rec["reasons"],
+        "built_at": st["doc"].get("built_at"),
+        "fallback": st["fallback"],
+        "note": TRACE_NOTE,
+    }))
 
 
 # ----------------------------------------------------------------------------- exports in Sperry's table format

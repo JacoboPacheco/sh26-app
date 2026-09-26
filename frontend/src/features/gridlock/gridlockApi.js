@@ -16,6 +16,8 @@ const live = {
   estimate: (id, window_months) =>
     api(`/api/gridlock/estimate/${encodeURIComponent(id)}${window_months != null ? `?window_months=${window_months}` : ''}`),
   sperryCheck: () => api('/api/gridlock/sperry-check'),
+  // one pair taken apart (backend/gridlock.py trace): the score's terms, the distance, each endpoint's match, provenance
+  trace: (id, params) => api(`/api/gridlock/trace/${encodeURIComponent(id)}?${q(params)}`),
   // Build agreement (backend/agreement.py): a draft coordination proposal for one overlap. ai=false is the
   // plain template (instant); ai=true asks Gemini to word it and checks every number (a few seconds).
   // negotiated: 'en' | 'es' | 'plain' uses that negotiation's agreed, verified terms in the draft

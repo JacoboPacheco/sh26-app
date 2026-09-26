@@ -390,6 +390,131 @@ def register(ctx):
             assert all(-86.5 <= lon <= -78 and 29.5 <= lat <= 36 for lon, lat in pts), f"{f['id']}: outside SC/GA"
             assert f["properties"]["project_id"] == f["id"], f["id"]
 
+    def funnel_adds_up():
+        # the page's one-line pipeline: every number counted from the data, and they add up
+        s = ctx.request("GET", "/api/gridlock/summary")
+        f = s["funnel"]
+        p = ctx.request("GET", "/api/gridlock/projects")
+        projects, quarantine = p["projects"], p["quarantine"]
+        assert f["passed"] == len(projects), f"funnel passed {f['passed']} != {len(projects)} projects served"
+        assert f["set_aside"] == len(quarantine), f"funnel set aside {f['set_aside']} != {len(quarantine)} quarantined"
+        assert f["extracted"] == f["passed"] + f["set_aside"], f"rows {f['extracted']} != passed {f['passed']} + set aside {f['set_aside']}"
+        assert sum(x["rows"] for x in f["by_source"]) == f["extracted"], f"rows by filing {f['by_source']} don't add up to {f['extracted']}"
+        assert f["filings"] == len(s["sources"]) == len(f["by_source"]), (f["filings"], len(s["sources"]))
+        assert f["pages"] == (sum(x.get("pages") or 0 for x in s["sources"]) or None), (f["pages"], s["sources"])
+        if f["extracted_by_stages"] is not None:  # the extractors' own count agrees with the records kept
+            assert f["extracted_by_stages"] == f["extracted"], (f["extracted_by_stages"], f["extracted"])
+        by_counts = sum(c["extracted"] for c in s["counts"].values())
+        assert by_counts == f["extracted"], f"per-utility counts give {by_counts} rows, the funnel {f['extracted']}"
+        # set aside, by the check each record failed: every record is in at least one group, each group counted right
+        groups = f["set_aside_by_check"]
+        assert (not quarantine) or groups, "records set aside but no reasons grouped"
+        members = set()
+        for grp in groups:
+            hit = {q["id"] for q in quarantine if any(str(r).startswith(f"{grp['check']}:") for r in q["reasons"])}
+            assert len(hit) == grp["records"], f"{grp['id']}: {grp['records']} records, {len(hit)} reasons start with {grp['check']!r}"
+            assert grp["label"], grp
+            members |= hit
+        assert len(members) == f["set_aside"], f"{f['set_aside'] - len(members)} set-aside records in no group"
+        assert sum(grp["records"] for grp in groups) >= f["set_aside"], groups
+        assert f["placed"] == s["compared_projects"] <= f["passed"], (f["placed"], s["compared_projects"], f["passed"])
+        assert 0 < f["blocking_checks"] <= f["checks"], (f["blocking_checks"], f["checks"])
+        # the pair nodes (from /overlaps at the page's defaults): compared = one side x the other; flagged <= compared
+        o = ctx.request("GET", "/api/gridlock/overlaps")
+        c = o["compared"]
+        placed = [x for x in projects if x.get("geometry")]
+        n_a = sum(1 for x in placed if x["utility"] in o["params"]["a"])
+        n_b = sum(1 for x in placed if x["utility"] in o["params"]["b"])
+        assert (c["a_projects"], c["b_projects"]) == (n_a, n_b), (c, n_a, n_b)
+        assert c["disjoint"] and o["total_pairs"] == n_a * n_b, f"{o['total_pairs']} pairs compared != {n_a} x {n_b}"
+        # from "passed" to "pairs": the two sides plus the utilities switched off plus any project not placed = passed
+        off = {x["utility"]: x["projects"] for x in c["not_compared"]}
+        in_play = set(o["params"]["a"]) | set(o["params"]["b"])
+        assert all(u not in in_play and n > 0 for u, n in off.items()), (off, in_play)
+        assert off == {u: sum(1 for x in placed if x["utility"] == u) for u in {x["utility"] for x in placed} - in_play}, off
+        assert c["unplaced"] == len(projects) - len(placed), (c["unplaced"], len(projects), len(placed))
+        assert n_a + n_b + sum(off.values()) + c["unplaced"] == f["passed"], (n_a, n_b, off, c["unplaced"], f["passed"])
+        assert 0 < o["flagged"] <= o["total_pairs"], (o["flagged"], o["total_pairs"])
+        assert o["overlaps"][0]["rank"] == 1, o["overlaps"][0]["rank"]
+
+    def trace_route():
+        o = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")
+        rows = o["overlaps"]
+        projects = state["projects"]
+        sha = {x["id"]: x.get("sha256") for x in ctx.request("GET", "/api/gridlock/summary")["sources"]}
+        # the top pair in full, then a sweep of the next ones: the trace is the ranking, taken apart
+        for r in rows[:25]:
+            t = ctx.request("GET", f"/api/gridlock/trace/{r['id']}")
+            assert t["overlap_id"] == r["id"] and t["rank"] == r["rank"] and t["flagged"] == o["flagged"], (r["id"], t["rank"], r["rank"])
+            sc = t["score"]
+            assert sc["value"] == r["score"] and sc["reproduced"] is True, (r["id"], sc["value"], r["score"])
+            assert [x["id"] for x in sc["terms"]] == ["distance", "timeline", "location", "same_kv"], sc["terms"]
+            prod = 100.0
+            for x in sc["terms"]:
+                assert x["how"] and x["rule"] and isinstance(x["value"], (int, float)), x
+                prod *= x["value"]
+            # to the raw score's 4th decimal (the page shows the terms to as many decimals as that needs)
+            assert abs(prod - sc["raw"]) < 5e-4 and round(sc["raw"], 1) == sc["value"], f"{r['id']}: terms give {prod}, raw {sc['raw']}, score {sc['value']}"
+            parts = r["score_parts"]
+            assert abs(sc["terms"][0]["value"] - parts["distance"]) < 1e-3 and sc["terms"][1]["value"] == parts["timeline"], (sc["terms"], parts)
+            assert sc["terms"][2]["value"] == parts["location"] and sc["terms"][3]["value"] == parts["same_kv"], (sc["terms"], parts)
+            d = t["distance"]
+            assert d["km"] == r["distance_km"] and d["closest_points"] == r["closest_points"] and d["tier"] == r["tier"], (r["id"], d)
+            assert d["center_mi"] == r["center_distance_mi"], (d["center_mi"], r["center_distance_mi"])
+            assert bool(t["shared_station"]) == bool(r["shared_station"]) and t["class"] == r["class"], r["id"]
+            assert [p["id"] for p in t["projects"]] == [r["a"], r["b"]], [p["id"] for p in t["projects"]]
+            for p in t["projects"]:
+                src = p["source"]
+                served = projects[p["id"]]
+                assert src["title"] and isinstance(p["page"], int) and p["page"] > 0, (p["id"], src, p["page"])
+                assert src["sha256"] == sha.get(src["id"]), f"{p['id']}: sha256 {src['sha256']!r} isn't the one the pipeline recorded"
+                assert src["sha256"] is None or re.fullmatch(r"[0-9a-f]{64}", src["sha256"]), src["sha256"]
+                assert p["raw_text"] and p["raw_text"] == (served.get("provenance") or {}).get("text"), f"{p['id']}: raw text isn't the committed row"
+                fields = {x["field"]: x["value"] for x in p["fields"]}
+                assert fields.get("name") == served["name"], (fields.get("name"), served["name"])
+                # money reads one way (5,000 beside 2,150,000); a year stays 2025
+                for key in ("cost_usd", "cost_by_year"):
+                    assert not re.search(r"(?<![\d,])\d{4,}", re.sub(r"\b20\d\d:", "", fields.get(key) or "")), (key, fields.get(key))
+                if served.get("plan_year"):
+                    assert fields.get("plan_year") == str(served["plan_year"]), fields.get("plan_year")
+                assert fields.get("in_service_raw") == served.get("in_service_raw"), (fields.get("in_service_raw"), served.get("in_service_raw"))
+                assert p["checks"] and p["checks_summary"]["failed"] == 0, f"{p['id']}: a project that failed a check was compared"
+                located = [e for e in p["endpoints"] if e["located"]]
+                assert located, f"{p['id']}: no located endpoint"
+                for e in p["endpoints"]:
+                    assert e["rule"]["id"] and e["rule"]["label"], e
+                    assert (e["rule"]["id"] == "not_located") == (not e["located"]), (p["id"], e["name"], e["rule"])
+                    if e["osm"]:
+                        assert e["osm"]["url"].startswith("https://www.openstreetmap.org/"), e["osm"]
+                    if e["match"]:  # the reason as recorded, split at its semicolons: nothing reworded
+                        assert e["clauses"] and all(c in e["match"] for c in e["clauses"]), (e["clauses"], e["match"])
+            assert t["note"] and "not in this repository" in t["note"], t["note"]
+        # outside the list's settings a pair is still traced, with no rank
+        far = ctx.request("GET", f"/api/gridlock/trace/{rows[-1]['id']}?max_km=1")
+        assert far["rank"] is None or far["rank"] >= 1, far["rank"]
+        # unknown ids, a same-utility pair and bad settings are refused
+        ctx.request("GET", "/api/gridlock/trace/NOPE~NADA", expect=404)
+        ctx.request("GET", "/api/gridlock/trace/not-an-overlap", expect=404)
+        same = [x for x in projects.values() if x["utility"] == "DESC" and x.get("geometry")][:2]
+        if len(same) == 2:
+            ctx.request("GET", f"/api/gridlock/trace/{same[0]['id']}~{same[1]['id']}", expect=404)
+        ctx.request("GET", f"/api/gridlock/trace/{rows[0]['id']}?max_km=0", expect=422)
+        ctx.request("GET", f"/api/gridlock/trace/{rows[0]['id']}?method=nearest", expect=422)
+
+    def sperry_start():
+        # the page can start from Sperry's example alone: their ten projects matched to ours, their six pairs drawable
+        s = ctx.request("GET", "/api/gridlock/sperry-check")
+        assert s["tolerance"] == {"mi": 0.01, "days": 0}, s["tolerance"]
+        assert len(s["projects"]) == s["projects_in_example"] == 10, len(s["projects"])
+        matched = [p for p in s["projects"] if p["our_id"]]
+        assert len(matched) == s["found_in_filings"]["projects_matched"] == 10, f"{len(matched)} of their projects matched"
+        assert all(p["our_id"] in state["projects"] for p in matched), [p["our_id"] for p in matched]
+        ids = {p["our_id"] for p in matched}
+        for r in s["rows"]:
+            o = r["ours"]["overlap"]
+            assert o["id"] == r["ours"]["id"] and {o["a"], o["b"]} <= ids and o["closest_points"], r["overlap_id"]
+            assert o["sperry"] == r["overlap_id"] and o["rank"] == r["ours"]["rank"], (o["sperry"], r["overlap_id"])
+
     ctx.check("gridlock: summary has sources, DESC + Georgia counts, and the pipeline report", summary_shape)
     ctx.check("gridlock: projects cover DESC and a Georgia utility, placed inside SC/GA, quarantine has reasons", projects_both_sides)
     ctx.check("gridlock: default overlaps are ranked cross-utility pairs with tiers matching their distances", overlaps_default)
@@ -401,6 +526,13 @@ def register(ctx):
     ctx.check("gridlock: estimate for the top overlap has low <= high items, sources and assumptions", estimate_top)
     ctx.check("gridlock: unknown or same-utility estimate ids are 404s", estimate_unknown)
     ctx.check("gridlock: Sperry's worked example is reproduced (6 of 6, no extra pairs) and found in the full filings", sperry_reproduced)
+    ctx.check("gridlock: the funnel adds up (rows = passed + set aside = rows by filing; each set-aside group counted from the "
+              "reasons; pairs compared = DESC x Georgia Power projects; passed = both sides + the utilities switched off + "
+              "unplaced; flagged <= compared)", funnel_adds_up)
+    ctx.check("gridlock: trace/{id} takes the top 25 pairs apart (rank, the four terms multiplying back to the score, distance, "
+              "endpoints, the committed row, the recorded SHA-256); unknown / same-utility ids 404, bad settings 422", trace_route)
+    ctx.check("gridlock: Sperry's example as the start: their ten projects all matched to ours, their six pairs drawable",
+              sperry_start)
     ctx.check("gridlock: the build-window setting changes pairs whose filing gives no start date", window_setting_matters)
     ctx.check("gridlock: basemap has states, lines and a bbox", basemap)
     ctx.check("gridlock: the fault test covers nine bad-data kinds + the two-digit-year format test (never counted as catches); "

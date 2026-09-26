@@ -24,13 +24,27 @@ export function GridlockProvider({ children }) {
   const [ov, setOv] = useState({ status: 'loading' })
   const [sel, setSel] = useState(null) // {kind: 'overlap', id, overlap} | {kind: 'project', id, back}
   const [hover, setHover] = useState(null) // {kind: 'overlap' | 'project', id}
+  // the rail's view: 'opportunities' (the ranked pairs), 'pipeline', 'projects', 'setaside' (the records the checks kept
+  // out) or 'sperry' (Sperry's worked example alone, the start of the story)
   const [tab, setTabState] = useState('opportunities')
   const [tierFilter, setTierFilter] = useState(null) // show only one distance tier in the list (Filters)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  // the pipeline section to bring into view when the pipeline opens from the funnel (an element id)
+  const [pipeFocus, setPipeFocus] = useState(null)
+  // after "Expand to the full filings": Sperry's six pairs stay marked at their ranks in the full list
+  const [sperryMarks, setSperryMarks] = useState(false)
   // a list that unmounts mid-hover never sends pointerleave: switching tabs clears the hover
   const setTab = useCallback((t) => {
     setHover(null)
     setTabState(t)
   }, [])
+  const openPipeline = useCallback(
+    (section = null) => {
+      setPipeFocus(section)
+      setTab('pipeline')
+    },
+    [setTab],
+  )
   const mapApi = useRef(null)
   const registerMap = useCallback((api) => {
     mapApi.current = api
@@ -123,6 +137,7 @@ export function GridlockProvider({ children }) {
           truncated: !!r?.truncated,
           by_tier: r?.by_tier || null,
           window_assumed: r?.window_assumed || null,
+          compared: r?.compared || null,
         })
       },
       (error) => id === reqId.current && setOv({ status: 'error', error }),
@@ -166,9 +181,11 @@ export function GridlockProvider({ children }) {
   const [draft, setDraft] = useState(null)
   const [cover, setCover] = useState(0)
   const openDraft = useCallback((o) => {
+    // a pair drawn with a label of its own (Sperry's OVL number at the start) opens as the engine ranked it
+    const pair = o.mapRank != null ? { ...o, mapRank: undefined, displayRank: o.rank } : o
     setHover(null)
-    setSel({ kind: 'overlap', id: o.id, overlap: o })
-    setDraft((cur) => (cur?.id === o.id ? cur : { id: o.id, overlap: o }))
+    setSel({ kind: 'overlap', id: pair.id, overlap: pair })
+    setDraft((cur) => (cur?.id === pair.id ? cur : { id: pair.id, overlap: pair }))
   }, [])
   const openOverlap = openDraft
   const closeDraft = useCallback(() => {
@@ -189,6 +206,48 @@ export function GridlockProvider({ children }) {
   const close = useCallback(() => setSel(null), [])
   const back = useCallback(() => setSel((cur) => cur?.back || null), [])
   const flyToOverlap = useCallback((o) => mapApi.current?.flyTo(boundsForOverlap(o), { card: false }), [boundsForOverlap])
+
+  // Sperry's worked example as the start: the map shows only their ten projects (as the pipeline found them in the
+  // filings) and their six pairs, labelled with their own numbers; "Expand to the full filings" returns to the whole
+  // comparison with those six marked at their ranks.
+  const sperryView = tab === 'sperry'
+  const sperryMap = useMemo(() => {
+    if (!sperryView || sperry.status !== 'ready') return null
+    const ids = new Set((sperry.data?.projects || []).map((p) => p.our_id).filter((id) => id && byId[id]))
+    const pairs = (sperry.data?.rows || [])
+      .map((r) => {
+        const o = r.ours?.overlap
+        if (!o || !byId[o.a] || !byId[o.b]) return null
+        return { ...o, mapRank: Number(String(r.overlap_id).replace(/\D+/g, '')) || null, sperry: r.overlap_id }
+      })
+      .filter(Boolean)
+    return { projects: (projects.list || []).filter((p) => ids.has(p.id)), overlaps: pairs }
+  }, [sperryView, sperry, byId, projects.list])
+  const enterSperry = useCallback(() => {
+    setDraft(null)
+    setSel(null)
+    setTab('sperry')
+  }, [setTab])
+  useEffect(() => {
+    if (!sperryMap?.projects.length) return
+    const t = setTimeout(() => mapApi.current?.flyTo(boundsOf(sperryMap.projects.flatMap(projectPoints)), { card: false }), 60)
+    return () => clearTimeout(t)
+  }, [sperryMap])
+  // leaving their example any way ("Expand", "‹ Pairs", the rail's footer) returns the camera to both states, unless a
+  // pair's sheet is open (it keeps its own framing)
+  const wasSperry = useRef(false)
+  const draftOpen = draft != null
+  useEffect(() => {
+    const left = wasSperry.current && !sperryView
+    wasSperry.current = sperryView
+    if (!left || draftOpen) return undefined
+    const t = setTimeout(() => mapApi.current?.fit(), 60)
+    return () => clearTimeout(t)
+  }, [sperryView, draftOpen])
+  const expandSperry = useCallback(() => {
+    setSperryMarks(true)
+    setTab('opportunities')
+  }, [setTab])
 
   const value = {
     conn,
@@ -233,6 +292,16 @@ export function GridlockProvider({ children }) {
     setTab,
     tierFilter,
     setTierFilter,
+    filtersOpen,
+    setFiltersOpen,
+    pipeFocus,
+    openPipeline,
+    sperryView,
+    sperryMap,
+    enterSperry,
+    expandSperry,
+    sperryMarks,
+    setSperryMarks,
     mapApi,
     registerMap,
   }

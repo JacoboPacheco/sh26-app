@@ -190,9 +190,10 @@ const WHEN = {
     past: 'passed as filed',
     shares: (m, s) =>
       s === 'past' ? `shared ${m} month${m === 1 ? '' : 's'}, passed as filed` : `shares ${m} month${m === 1 ? '' : 's'}, ${s === 'open' ? 'open now' : 'still ahead'}`,
-    apart: (x) => `windows ${x} apart`,
-    apartPast: (x) => `windows ${x} apart, passed as filed`,
-    meet: 'windows meet end to start',
+    // "build windows", never just "windows": a same-station pair also gives its in-service dates, and the two gaps differ
+    apart: (x) => `build windows ${x} apart`,
+    apartPast: (x) => `build windows ${x} apart, passed as filed`,
+    meet: 'build windows meet end to start',
     unknown: 'timing unknown',
     months: (m) => `${m} month${m === 1 ? '' : 's'} shared`,
   },
@@ -201,9 +202,9 @@ const WHEN = {
     open: 'abierta ahora',
     past: 'ya pasó, según lo publicado',
     shares: (m, s) => `${m} mes${m === 1 ? '' : 'es'} en común, ${s === 'past' ? 'ya pasados' : s === 'open' ? 'abierta ahora' : 'aún por delante'}`,
-    apart: (x) => `ventanas separadas ${x}`,
-    apartPast: (x) => `ventanas separadas ${x}, ya pasadas`,
-    meet: 'una ventana empieza cuando acaba la otra',
+    apart: (x) => `ventanas de obra separadas ${x}`,
+    apartPast: (x) => `ventanas de obra separadas ${x}, ya pasadas`,
+    meet: 'una ventana de obra empieza cuando acaba la otra',
     unknown: 'calendario desconocido',
     months: (m) => `${m} mes${m === 1 ? '' : 'es'} en común`,
   },
@@ -244,20 +245,22 @@ function yearsMonths(months, lang) {
   const ms = m ? (es ? `${m} mes${m === 1 ? '' : 'es'}` : `${m} month${m === 1 ? '' : 's'}`) : ''
   return [ys, ms].filter(Boolean).join(es ? ' y ' : ' ')
 }
-// {lead, rest}: "As filed, both projects work at Thurmond Dam" + ": DESC's in service in 2024, Georgia Power's in 2033 — …"
+// {lead, rest}: "As filed, both projects work at Thurmond Dam" + ": in service 2024 (DESC) and 2033 (Georgia Power), 8 years 5
+// months apart". The gap is the IN-SERVICE dates' (said so in the words), never to be read against the list's "build
+// windows 4.4 years apart" (the build windows' gap): both are true, and each sentence names which one it measures.
 export function stationSentence(o, lang = 'en') {
   const s = o?.shared_station
   if (!s) return null
   const ya = s.a_in_service?.slice(0, 4)
   const yb = s.b_in_service?.slice(0, 4)
+  const ua = utilityShort(o.a_utility)
+  const ub = utilityShort(o.b_utility)
   if (lang === 'es') {
-    // the engine's reason in Spanish, every case it has: years apart, the same month, under a month, a missing date
-    const ua = utilityShort(o.a_utility)
-    const ub = utilityShort(o.b_utility)
+    // every case the engine has: years apart, the same month, under a month, a missing date
     let rest = ''
     if (ya && yb && s.months_apart) {
       const gap = yearsMonths(s.months_apart, 'es')
-      rest = ya === yb ? `: ambos entran en servicio en ${ya}, con ${gap} de diferencia` : `: el de ${ua} entra en servicio en ${ya}, el de ${ub} en ${yb}, con ${gap} de diferencia`
+      rest = ya === yb ? `: ambos entran en servicio en ${ya}, con ${gap} de diferencia` : `: entran en servicio en ${ya} (${ua}) y en ${yb} (${ub}), con ${gap} de diferencia`
     } else if (ya && yb) {
       const ma = s.a_in_service.slice(0, 7)
       const mb = s.b_in_service.slice(0, 7)
@@ -273,8 +276,20 @@ export function stationSentence(o, lang = 'en') {
     return { lead: `Según lo publicado, ambos proyectos trabajan en ${s.name}`, rest }
   }
   const head = `As filed, both projects work at ${s.name}`
-  const reason = s.reason || head
-  return reason.startsWith(head) ? { lead: head, rest: reason.slice(head.length) } : { lead: reason, rest: '' }
+  let rest
+  if (ya && yb && s.months_apart) {
+    const gap = yearsMonths(s.months_apart, 'en')
+    rest = ya === yb ? `: both in service in ${ya}, ${gap} apart` : `: in service ${ya} (${ua}) and ${yb} (${ub}), ${gap} apart`
+  } else if (ya && yb) {
+    const ma = s.a_in_service.slice(0, 7)
+    const mb = s.b_in_service.slice(0, 7)
+    rest = ma === mb ? `: both in service ${fmtDate(ma)}` : `: in service less than a month apart (${fmtDate(ma)} and ${fmtDate(mb)})`
+  } else if (ya || yb) {
+    rest = `: in service ${ya || yb} (${ya ? ua : ub}); ${ya ? ub : ua}'s filing gives no in-service date`
+  } else {
+    rest = '; neither filing gives an in-service date'
+  }
+  return { lead: head, rest }
 }
 export const stationGap = (o, lang = 'en') => (o?.shared_station?.months_apart ? yearsMonths(o.shared_station.months_apart, lang) : null)
 

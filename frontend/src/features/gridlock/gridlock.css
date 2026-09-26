@@ -2155,3 +2155,826 @@ circle.gl-proj__hit {
 .gl-legend__mark {
   fill: var(--gl-ring);
 }
+
+/* ------------------------------------------------------------------ the pipeline where the judge looks
+   One quiet line under the intro (PipelineFunnel.jsx): numbers in ink, words in the muted ink, a chevron between the
+   stages; each number is a control. Nothing here is colored: the list below stays the loudest thing in the rail. */
+.gl-funnel {
+  margin: 0 20px 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.gl-funnel__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.gl-funnel__cap {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+
+.gl-funnel__sperry {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--current);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--current) 40%, transparent);
+}
+
+.gl-funnel__sperry:hover {
+  text-decoration-color: currentColor;
+}
+
+.gl-funnel__flow {
+  list-style: none;
+  margin: 0;
+  padding: 7px 0 0;
+  display: flex;
+  align-items: flex-start;
+  border-top: 1px solid var(--gl-hair);
+}
+
+.gl-funnel__flow > li {
+  flex: none;
+  display: grid;
+  justify-items: start;
+  min-width: 0;
+}
+
+/* the separators take the free width, so the stages spread evenly with the chevron centred between them */
+.gl-funnel__flow > li.gl-funnel__sep {
+  flex: 1 1 0;
+  min-width: 10px;
+  justify-items: center;
+  font-size: 0.875rem;
+  line-height: 1.3;
+  color: var(--ink-2);
+  opacity: 0.55;
+}
+
+.gl-funnel__node {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 1px 0;
+  cursor: pointer;
+  display: grid;
+  justify-items: start;
+  text-align: left;
+}
+
+.gl-funnel__node strong {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* a faint dotted rule under each word says "this opens something" without adding color */
+.gl-funnel__node span {
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  color: var(--ink-2);
+  white-space: nowrap;
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--ink-2) 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+.gl-funnel__node:hover strong,
+.gl-funnel__node:focus-visible strong {
+  color: var(--current);
+}
+
+.gl-funnel__node:hover span {
+  text-decoration: underline solid;
+  text-decoration-color: currentColor;
+}
+
+.gl-funnel__node:disabled span {
+  text-decoration: none;
+}
+
+.gl-funnel__node:disabled {
+  cursor: default;
+}
+
+.gl-funnel__node:disabled strong {
+  color: var(--ink-2);
+}
+
+/* the records the checks kept out leave the flow under "passed" */
+.gl-funnel__aside {
+  font: inherit;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  padding: 2px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--ink-2) 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+.gl-funnel__aside:hover,
+.gl-funnel__aside:focus-visible {
+  color: var(--ink);
+  text-decoration: underline solid;
+  text-decoration-color: currentColor;
+}
+
+/* the pairs node's two sides (43 × 104), under its word like "set aside" under "passed" */
+.gl-funnel__sub {
+  font-style: normal;
+  font-size: 0.6875rem;
+  line-height: 1.3;
+  padding-top: 2px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* one line under the flow that makes "passed" add up to "pairs" */
+.gl-funnel__note {
+  margin: 0;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.gl-funnel__notelink {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--ink-2) 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+.gl-funnel__notelink:hover,
+.gl-funnel__notelink:focus-visible {
+  color: var(--ink);
+  text-decoration: underline solid;
+  text-decoration-color: currentColor;
+}
+
+/* the funnel's "set aside" view */
+.gl-aside {
+  display: grid;
+  gap: 14px;
+}
+
+.gl-aside__why {
+  display: grid;
+  gap: 6px;
+}
+
+/* Sperry's worked example as the start: their verdict, their six pairs, then the way out to the full filings */
+.gl-sperrymode {
+  display: grid;
+  gap: 12px;
+}
+
+.gl-sperrymode__verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--night);
+}
+
+.gl-sperrymode__verdict h2 {
+  font-size: 1.125rem;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.gl-sperrymode__verdict h2 + p {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.gl-sperrymode__verdict .gl-ci {
+  width: 20px;
+  height: 20px;
+  font-size: 0.75rem;
+  margin-top: 2px;
+}
+
+.gl-sperrymode__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--gl-hair);
+}
+
+.gl-sperrymode__row {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: start;
+  padding: 10px 2px 10px 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--gl-hair);
+}
+
+button.gl-sperrymode__row {
+  cursor: pointer;
+}
+
+button.gl-sperrymode__row:hover {
+  background: var(--glass-hi);
+}
+
+.gl-sperrymode__n {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--ink-2);
+  text-align: right;
+  padding-right: 4px;
+}
+
+.gl-sperrymode__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gl-sperrymode__id {
+  font-family: var(--gl-mono);
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.gl-sperrymode__nums {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.gl-sperrymode__nums > span + span::before {
+  content: '·';
+  padding: 0 6px;
+}
+
+.gl-sperrymode__next {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding: 4px 0 8px;
+}
+
+/* after expanding: their six, marked where they rank */
+.gl-sperrymarks {
+  margin: 2px 20px 6px;
+  padding: 9px 10px 10px 12px;
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+}
+
+.gl-sperrymarks__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.gl-sperrymarks__head strong {
+  color: var(--ink);
+}
+
+.gl-sperrymarks__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.gl-sperrymarks__list .gl-chip strong {
+  margin-right: 3px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.gl-close.gl-close--sm {
+  width: 24px;
+  height: 24px;
+  font-size: 1rem;
+}
+
+.gl-row--sperry {
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--gl-ring) 55%, transparent);
+}
+
+.gl-row--sperry.is-on {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.gl-sperrytag.is-marked {
+  font-weight: 600;
+  border-color: color-mix(in srgb, var(--gl-ring) 55%, transparent);
+  background: color-mix(in srgb, var(--gl-ring) 10%, transparent);
+}
+
+/* the map: Sperry's pairs keep a thin ring at rest while they are marked */
+.gl-ring__sperry {
+  fill: none;
+  stroke: var(--gl-ring);
+  stroke-opacity: 0.75;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ trace this pair (TraceDrawer.jsx) */
+.gl-tracebar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.gl-tracebtn {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: none;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  padding: 6px 12px 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.gl-tracebtn:hover {
+  border-color: var(--ink-2);
+  background: var(--glass-hi);
+}
+
+.gl-tracebtn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.gl-tracebar .gl-fine {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.gl-trace {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  min-width: 0;
+}
+
+.gl-trace__head {
+  display: grid;
+  gap: 4px;
+}
+
+.gl-trace__title {
+  font-size: 1.1875rem;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.gl-trace__title:focus {
+  outline: none;
+}
+
+.gl-trace__body {
+  display: grid;
+  min-width: 0;
+}
+
+.gl-trace__sec {
+  display: grid;
+  gap: 10px;
+  padding: 16px 0;
+  border-top: 1px solid var(--gl-hair);
+  min-width: 0;
+}
+
+.gl-trace__h {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.gl-trace__hval {
+  font-size: 1.0625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.gl-trace__sec--row {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+}
+
+.gl-trace__big {
+  display: grid;
+}
+
+.gl-trace__k {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.gl-trace__big strong {
+  font-size: 1.75rem;
+  line-height: 1.1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gl-trace__rankrule {
+  display: grid;
+  gap: 3px;
+  font-size: 0.8125rem;
+}
+
+.gl-trace__eq {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 8px;
+  padding: 10px 12px 9px;
+  font-variant-numeric: tabular-nums;
+  background: var(--night);
+  border: 1px solid var(--gl-hair);
+  border-radius: var(--radius);
+}
+
+.gl-trace__eqn,
+.gl-trace__x,
+.gl-trace__eqv strong {
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.gl-trace__eqn {
+  font-weight: 650;
+}
+
+.gl-trace__eqterm {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.gl-trace__x {
+  color: var(--ink-2);
+}
+
+.gl-trace__eqv {
+  display: inline-grid;
+  justify-items: center;
+}
+
+.gl-trace__eqv strong {
+  font-weight: 650;
+}
+
+.gl-trace__eqv span {
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.gl-trace__ok {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-trace__ok .gl-ci {
+  margin-top: 0;
+}
+
+.gl-trace__terms {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.gl-trace__terms > div {
+  display: grid;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 1px solid var(--glass-edge);
+}
+
+.gl-trace__terms dt {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.gl-trace__terms dt strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.gl-trace__terms dd {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.gl-trace__terms dd.gl-trace__rule {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-trace__kv {
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.gl-trace__kv > div {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  gap: 10px;
+  font-size: 0.8125rem;
+}
+
+.gl-trace__kv dt {
+  padding-top: 1px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-trace__kv dd {
+  margin: 0;
+  line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gl-trace__sub {
+  display: block;
+  margin-top: 3px;
+}
+
+.gl-trace__win {
+  display: block;
+}
+
+.gl-trace__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--gl-hair);
+}
+
+.gl-trace__tabs button {
+  font: inherit;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  padding: 7px 2px 8px;
+  margin-right: 18px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.gl-trace__tabs button:hover {
+  color: var(--ink);
+}
+
+.gl-trace__tabs button.is-on {
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.gl-trace__tabid {
+  font-family: var(--gl-mono);
+  font-size: 0.75rem;
+}
+
+.gl-trace__proj {
+  display: grid;
+  gap: 18px;
+  padding-top: 12px;
+  min-width: 0;
+}
+
+.gl-trace__projhead {
+  display: grid;
+  gap: 2px;
+  font-size: 0.9375rem;
+}
+
+.gl-trace__block {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.gl-trace__block h5 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.gl-trace__eps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.gl-trace__eps > li {
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+  font-size: 0.8125rem;
+  border-left: 1px solid var(--glass-edge);
+  min-width: 0;
+}
+
+.gl-trace__eps > li.is-off {
+  border-left-style: dashed;
+  color: var(--ink-2);
+}
+
+.gl-trace__osm {
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.gl-trace__osm a,
+.gl-trace__src a {
+  color: var(--current);
+  text-underline-offset: 2px;
+}
+
+.gl-trace__rulechip {
+  justify-self: start;
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--glass-hi);
+  color: var(--ink);
+}
+
+.gl-trace__rec ul {
+  margin: 2px 0 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: 1px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-trace__src {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.gl-trace__sha {
+  display: grid;
+  gap: 3px;
+}
+
+.gl-trace__shaval {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gl-trace__shaval code {
+  font-size: 0.75rem;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.gl-trace__shaval .gl-link {
+  font-size: 0.75rem;
+  flex: none;
+}
+
+.gl-trace__fields {
+  margin: 0;
+  display: grid;
+  border-top: 1px solid var(--gl-hair);
+}
+
+.gl-trace__fields > div {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--gl-hair);
+}
+
+.gl-trace__fields dt {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-trace__fields dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.gl-trace__fid {
+  margin-left: 6px;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.gl-trace__note {
+  padding-top: 12px;
+  border-top: 1px solid var(--gl-hair);
+}
+
+@media (max-width: 760px) {
+  .gl-funnel {
+    margin: 0 16px 12px;
+  }
+
+  .gl-sperrymarks {
+    margin: 2px 16px 6px;
+  }
+}
+
+@media (max-width: 600px) {
+  .gl-trace__kv > div,
+  .gl-trace__fields > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .gl-trace__sec--row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+}
