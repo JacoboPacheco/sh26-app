@@ -257,7 +257,7 @@ def test_whatif_matches_expected():
 def test_whatif_validation():
     request("POST", "/api/grid/whatif", {"lat": 40.7, "lon": -74.0, "mw": 500}, expect=422)  # New York
     request("POST", "/api/grid/whatif", {**ORLANDO, "mw": 0}, expect=422)
-    request("POST", "/api/grid/whatif", {**ORLANDO, "mw": 9999}, expect=422)
+    request("POST", "/api/grid/whatif", {**ORLANDO, "mw": 50001}, expect=422)
     request("POST", "/api/grid/whatif", {"lat": "x", "lon": -81, "mw": 500}, expect=422)
 
 
@@ -298,7 +298,7 @@ def test_hero_site():
 check("grid loads: synthetic, >=1000 buses and branches, inside Florida, rated", test_grid_loads)
 check("hero site: cascades at its big size, calm at the small one (expected_whatif.json)", test_hero_site)
 check("what-if on the Orlando site matches expected_whatif.json", test_whatif_matches_expected)
-check("what-if rejects a point outside Florida and a size of 0 or 9999 MW", test_whatif_validation)
+check("what-if rejects a point outside Florida and a size of 0 or over 50 GW", test_whatif_validation)
 check("cascade on the Orlando site terminates, homes monotone, matches expected", test_cascade_orlando)
 check("headroom: one finite value per substation, agrees with the what-if", test_headroom)
 
