@@ -98,6 +98,17 @@ def register(ctx):
                     assert len(w["paths"]) == len(w["subs"]) and all(p[-1] == t for p, t in zip(w["paths"], w["subs"])), "a path doesn't end at its substation"
                     assert all(x in subs for p in w["paths"] for x in p), "a path runs through an unknown substation"
         assert len(with_waves[0]["waves"]) >= 5, "the hero blackout arrives all at once (want a spreading wave)"
+        # the bomb counter: everyone hit, each once — never down, never below the blackout, never above the population
+        hits = [s["people_hit"] for s in c["steps"]]
+        assert hits == sorted(hits) and c["people_hit"] == hits[-1], f"people_hit went down: {hits}"
+        assert c["people_zone"] <= c["people_hit"] <= c["population"], (c["people_zone"], c["people_hit"], c["population"])
+        first = c["steps"][0]["hits"]
+        assert first and first[0]["people"] > 0, "the first failure hits nobody (want the blast to start at step 1)"
+        for s in c["steps"]:
+            kms = [h["km"] for h in s["hits"]]
+            assert kms == sorted(kms), f"step {s['n']}: towns not nearest first: {kms}"
+            run = [h["people_hit"] for h in s["hits"]] + [w["people_hit"] for w in s["waves"]]
+            assert run == sorted(run) and all(v <= s["people_hit"] for v in run), f"step {s['n']}: hit totals {run[-3:]} vs {s['people_hit']}"
 
     ctx.check("core: people in the blackout zone >= cut share, never down; waves spread the step's darkness exactly", test_zone_and_waves)
     ctx.check("core: /api/regions lists 48 valid regions with population", test_regions)

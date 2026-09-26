@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 import scipy.sparse as sp
-from scipy.sparse.csgraph import connected_components
+from scipy.sparse.csgraph import breadth_first_order, connected_components
 from scipy.sparse.linalg import splu
 
 BASE_MVA = 100.0
@@ -526,6 +526,56 @@ class Grid:
             out = head
         return out
 
+    # -- people hit: the bomb counter
+    MAX_HIT_GROUPS = 12
+
+    def downstream_subs(self, state: State, branches: list[int], min_mw: float = 1.0) -> set[int]:
+        """Substations (ids, with load) that the power on `branches` (indices) was flowing on to in
+        `state`: follow the flow direction downhill from each branch's receiving end (|flow| >= min_mw)."""
+        fl = state.flow
+        use = np.flatnonzero(state.active & (np.abs(fl) >= min_mw))
+        fwd = fl[use] > 0
+        src = np.where(fwd, self.f[use], self.t[use])
+        dst = np.where(fwd, self.t[use], self.f[use])
+        adj = sp.csr_matrix((np.ones(len(use)), (src, dst)), shape=(self.n, self.n))
+        reached: set[int] = set()
+        for k in branches:
+            if abs(fl[k]) < _EPS:
+                continue
+            start = int(self.t[k] if fl[k] > 0 else self.f[k])
+            reached.update(int(b) for b in breadth_first_order(adj, start, directed=True, return_predecessors=False))
+        if not reached:
+            return set()
+        subs = np.unique(self.bus_sub_idx[np.fromiter(reached, dtype=int)])
+        return {int(self.sub_ids[i]) for i in subs if self.sub_load[i] > 0.5}
+
+    def hits(self, new_subs: set[int], origin: list[int], hit: set[int]) -> list[dict]:
+        """`new_subs` joined to `hit` (mutated) town by town, nearest to the failure (`origin`: branch
+        indices) first: [{area, subs, km, people (added), people_hit (so far)}]."""
+        new_subs = {s for s in new_subs if s in self.sub_index and s not in hit}
+        if not new_subs:
+            return []
+        ends = [int(self.bus_sub_idx[x]) for k in origin for x in (self.f[k], self.t[k])]
+        lat0 = float(self.sub_lat[ends].mean()) if ends else float(np.mean([self.sub_lat[self.sub_index[s]] for s in new_subs]))
+        lon0 = float(self.sub_lon[ends].mean()) if ends else float(np.mean([self.sub_lon[self.sub_index[s]] for s in new_subs]))
+        cos = math.cos(math.radians(lat0))
+        by_area: dict[str, list[tuple[float, int]]] = {}
+        for s in new_subs:
+            i = self.sub_index[s]
+            d = 111.19 * math.hypot(float(self.sub_lat[i]) - lat0, (float(self.sub_lon[i]) - lon0) * cos)
+            by_area.setdefault(area_of(self.sub_name[i]), []).append((d, s))
+        groups = sorted(by_area.items(), key=lambda kv: min(d for d, _ in kv[1]))
+        if len(groups) > self.MAX_HIT_GROUPS:  # the far tail lands together
+            head, tail = groups[: self.MAX_HIT_GROUPS - 1], groups[self.MAX_HIT_GROUPS - 1:]
+            groups = head + [(f"{len(tail)} more towns", [x for _, lst in tail for x in lst])]
+        out, prev = [], self.zone(hit)["people_zone"]
+        for area, lst in groups:
+            hit.update(s for _, s in lst)
+            z = self.zone(hit)["people_zone"]
+            out.append({"area": area, "subs": sorted(s for _, s in lst), "km": round(min(d for d, _ in lst), 1), "people": z - prev, "people_hit": z})
+            prev = z
+        return out
+
     def cascade(self, bus: int | None, mw: float, trip: list[int] | None = None, firm: bool = False) -> dict:
         """One data center (or none); see cascade_case."""
         extra = self.extra_load([(bus, mw)] if bus is not None else [])
@@ -626,9 +676,14 @@ class Grid:
         shed = np.zeros(self.n)
         steps = []
         carried: list[dict] = []
+        hit: set[int] = set()  # substations whose people were hit (each person once)
+        origin: list[int] = []  # the branches that failed (or were held) this step
+        down: set[int] = set()  # where their power was flowing
         if trip:
             pre = self.solve(np.ones(self.m, dtype=bool), extra, rate)
             carried = self._carried(pre, [self.br_index[int(b)] for b in trip if int(b) in self.br_index])
+            origin = [self.br_index[int(b)] for b in trip if int(b) in self.br_index]
+            down = self.downstream_subs(pre, origin)
         state = self.solve(active, extra, rate)
         prev_dark = np.zeros(self.n, dtype=bool)
         seen_affected: set[int] = set()
@@ -660,9 +715,15 @@ class Grid:
                         "shed_mw": round(float(shed.sum()), 1),
                         "site_dark_mw": round(state.lost_extra_mw, 1),
                         "carried": carried,  # the power the failed (or held) line carried just before, and the people it serves
+                        "hits": self.hits(down, origin, hit),  # the failed line's power went on to these towns: everyone there is hit
                         "waves": self.waves([f[0] for f in fresh], tripped_ids or ([held_line] if held_line is not None else []), state.active, before),
                     }
                 )
+                for w in steps[-1]["waves"]:  # the blackout reaches anyone not hit yet
+                    hit.update(w["subs"])
+                    w["people_hit"] = self.zone(hit)["people_zone"]
+                hit.update(seen_affected)
+                steps[-1]["people_hit"] = self.zone(hit)["people_zone"]
             prev_dark = prev_dark | state.dark_bus
             if not len(over):
                 break
@@ -671,6 +732,8 @@ class Grid:
                 break
             worst = int(over[np.argmax(state.loading_pct[over])])
             carried = self._carried(state, [worst])
+            origin = [worst]
+            down = self.downstream_subs(state, [worst])
             active = state.active.copy()
             held_line = None
             action = "trip"
@@ -698,6 +761,7 @@ class Grid:
             "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
             "people": self.people(state.lost_existing_mw),
             **self.zone(seen_affected),
+            "people_hit": self.zone(hit | seen_affected)["people_zone"],  # the bomb counter: everyone hit, each once
             "people_per_home": PEOPLE_PER_HOME,
             "people_per_mw": round(self.people_per_mw, 2),
             "population": self.population,
