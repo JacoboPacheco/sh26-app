@@ -726,8 +726,12 @@ def s_event(w: Writer, lv: Level) -> dict:
                 parts.append(((f"The grid there can take about {mw_say(w.room, lang)} before a line overloads." if en
                                else f"La red allí admite unos {mw_say(w.room, lang)} antes de que una línea se sobrecargue."), True))
         else:
-            parts.append(((f"{when}, demand rises to {pct_lf} percent of a normal summer afternoon." if en
-                           else f"{when}, la demanda sube al {pct_lf} por ciento de una tarde de verano normal."), False))
+            if pct_lf > 100:
+                parts.append(((f"{when}, demand rises to {pct_lf} percent of a normal summer afternoon." if en
+                               else f"{when}, la demanda sube al {pct_lf} por ciento de una tarde de verano normal."), False))
+            else:  # overnight or morning: demand is below the summer afternoon, it does not "rise"
+                parts.append(((f"{when}, demand is at {pct_lf} percent of a normal summer afternoon." if en
+                               else f"{when}, la demanda está al {pct_lf} por ciento de una tarde de verano normal."), False))
         # what it did
         if w.steps:
             steps_w = words(w.steps, lang, before_noun=True)
@@ -744,6 +748,9 @@ def s_event(w: Writer, lv: Level) -> dict:
         elif not w.storm:
             parts.append((("Every line stays within its limit: nothing trips, and nobody loses power." if en
                            else "Todas las líneas se mantienen dentro de su límite: nada se dispara y nadie se queda sin luz."), False))
+        elif not w.people:
+            parts.append((("The rest of the grid carries the load: nothing else trips, and nobody loses power." if en
+                           else "El resto de la red lleva la carga: nada más se dispara y nadie se queda sin luz."), False))
         if w.people and (w.storm or not w.steps):
             s = f"{cap(who)} lose power" if en else f"{cap(who)} se quedan sin luz"
             share = share_say(w.ev.get("people_share_pct"), lang) if (w.preset or w.people > 1_000_000) else None
@@ -760,6 +767,9 @@ def s_event(w: Writer, lv: Level) -> dict:
         pr = people_round(w.people, lang)
         if w.preset:
             h = f"{w.preset_name(lang)}: {people_noun(w.people, lang)} " + ("without power (estimate)" if en else "sin luz (estimación)")
+        elif w.storm and not w.people:
+            h = (f"A storm knocked out {w.storm:,} {'line' if w.storm == 1 else 'lines'}; nobody lost power" if en
+                 else f"Una tormenta derribó {w.storm:,} {'línea' if w.storm == 1 else 'líneas'}; nadie se quedó sin luz")
         elif w.storm:
             h = (f"A storm knocked out {w.storm:,} lines; {people_noun(w.people, lang)} lost power (estimate)" if en
                  else f"Una tormenta derribó {w.storm:,} líneas; {people_noun(w.people, lang)} sin luz (estimación)")
@@ -1621,10 +1631,14 @@ def s_bottom(w: Writer, lv: Level) -> dict:
                 s = ("Bottom line: most of this outage is physical damage no fix can prevent. Rebuild in the order shown, and harden the lines that matter most." if en
                      else "En resumen: la mayor parte de este apagón es daño físico que ninguna solución evita. Hay que reconstruir en el orden indicado y reforzar las líneas clave.")
             h = "Rebuild first, then harden" if en else "Primero reconstruir, después reforzar"
-        elif w.verdict == "nothing_happened":
+        elif w.verdict == "nothing_happened" and w.sites:
             s = ("Bottom line: this site can take the load; every line stays within its limit." if en
                  else "En resumen: este sitio puede con la carga; todas las líneas aguantan.")
             h = "This site can take the load" if en else "Este sitio puede con la carga"
+        elif w.verdict == "nothing_happened":
+            s = ("Bottom line: the grid rides this out; every line stays within its limit." if en
+                 else "En resumen: la red lo aguanta; todas las líneas se mantienen dentro de su límite.")
+            h = "The grid holds" if en else "La red aguanta"
         else:
             s = (f"Bottom line: in this scenario, {people_say(w.people, 'en')} lose power." if en
                  else f"En resumen: en este escenario, {people_say(w.people, 'es')} se quedan sin luz.") if w.people else (
@@ -1658,7 +1672,7 @@ def slide_ids(w: Writer, length: str) -> list[str]:
         "cause": bool((rc.get("line") or {}).get("id") is not None or rc.get("cause") == "storm") and rc.get("cause") != "none",
         "fix": (w.verdict in ("preventable", "partly") and w.best is not None) or w.verdict == "nothing_happened",
         "no_fix": w.verdict == "no_fix" and bool(r.get("no_fix") or r.get("bound")),
-        "recovery": bool((r.get("recovery") or {}).get("waves")),
+        "recovery": bool((r.get("recovery") or {}).get("waves")) and w.people > 0,  # nothing to bring back otherwise
         "bottom_line": True,
     }
     ids = [i for i in ORDER if has[i]]
@@ -1743,8 +1757,18 @@ def finish(report: dict, composed: dict, length: str, ai_meta: dict) -> dict:
             prev_t = seq[i - 1][0]["text"] if i else None
             next_t = seq[i + 1][0]["text"] if i + 1 < len(seq) else None
             seg["key"] = voice.register(seg["text"], lang, seg["role"], prev_text=prev_t, next_text=next_t, cues=seg["cues"])
-    place = (w.preset_name("en") if w.preset else (f"{len(w.sites)} data centers" if w.multi else (w.place or w.top_area() or w.region_name)))
-    place_es = (w.preset_name("es") if w.preset else (f"{len(w.sites)} centros de datos" if w.multi else (w.place or w.top_area() or w.region_name)))
+    if w.preset:
+        place, place_es = w.preset_name("en"), w.preset_name("es")
+    elif w.multi:
+        place, place_es = f"{len(w.sites)} data centers", f"{len(w.sites)} centros de datos"
+    elif w.place:
+        place = place_es = w.place
+    elif w.storm and w.top_area():  # a hand-drawn storm: named by where it hit hardest
+        place, place_es = f"Storm near {w.top_area()}", f"Tormenta cerca de {w.top_area()}"
+    elif w.storm:
+        place, place_es = "Storm", "Tormenta"
+    else:  # demand alone: the title names the heat, not the town that happened to lose the most
+        place, place_es = cap(w.load_show("en")), cap(w.load_show("es"))
     title = {
         "en": f"{TITLE['en']} · {place}" + (f", {w.region_name}" if place != w.region_name and not w.preset else ""),
         "es": f"{TITLE['es']} · {place_es}" + (f", {w.region_es}" if place_es != w.region_name and not w.preset else ""),
