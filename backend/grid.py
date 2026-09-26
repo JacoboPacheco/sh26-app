@@ -7,13 +7,16 @@ more — AI-boom mode), a `load_factor` (heat-wave clock), branches knocked out 
 hurricane mode) and rating `upgrades` (Fix it). Every field but the site is optional, so the
 original `{lat, lon, mw}` body still works.
 
-The grid is loaded once at import from the committed backend/demo/florida_grid.json. Each load
-level is its own Grid (a re-dispatched base case plus its headroom vector, ~0.6 s to build),
-cached for the process's life — the UI offers a handful of levels, so the cache stays small.
+Regions: every state in the lower 48 has its own validated model (backend/demo/build_states.py →
+grids/index.json). A case names its `region` (default "FL"); a state's model is loaded on first use
+and each (region, load level) Grid stays in a small LRU cache — Render's free tier has 512 MB.
+Florida at load 1.0 is loaded at import and never evicted.
 """
 
+import json
 import math
 import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -41,26 +44,70 @@ MAX_SITES = 12
 MAX_TRIPS = 400
 MAX_UPGRADES = 200
 
-_levels: dict[float, Grid] = {1.0: GRID}
-_levels_lock = threading.Lock()
+DEMO = Path(__file__).parent / "demo"
+_INDEX = json.loads((DEMO / "grids" / "index.json").read_text(encoding="utf-8"))
+REGIONS: dict[str, dict] = _INDEX["regions"]
+REGION_SOURCE: str = _INDEX.get("source", "")
+DEFAULT_REGION = "FL"
+MAX_LOADED = 8  # (region, level) models kept in memory
+
+_cache: "OrderedDict[tuple[str, float], Grid]" = OrderedDict({(DEFAULT_REGION, 1.0): GRID})
+_drawables: "OrderedDict[str, dict]" = OrderedDict({DEFAULT_REGION: DRAWABLE})
+_lock = threading.Lock()
 
 
-def grid_at(load_factor: float) -> Grid:
-    """The grid at a load level, rounded to 0.01 so the cache stays small. Thread-safe."""
+def region_code(region: str | None) -> str:
+    code = (region or DEFAULT_REGION).strip().upper()
+    if code not in REGIONS:
+        raise HTTPException(status_code=422, detail=f"Unknown region {region!r} — use a two-letter state code")
+    return code
+
+
+def grid_at(load_factor: float = 1.0, region: str | None = None) -> Grid:
+    """The model of `region` at a load level (rounded to 0.01), from the LRU cache. Thread-safe."""
+    code = region_code(region)
     f = round(float(load_factor), 2)
     if not (LOAD_FACTOR_MIN <= f <= LOAD_FACTOR_MAX):
         raise HTTPException(status_code=422, detail=f"Load level must be between {LOAD_FACTOR_MIN} and {LOAD_FACTOR_MAX}")
-    g = _levels.get(f)
-    if g is None:
-        with _levels_lock:
-            g = _levels.get(f)
-            if g is None:
-                if len(_levels) >= 24:  # a script can't grow memory without bound
-                    raise HTTPException(status_code=422, detail="Too many different load levels — pick a preset")
-                g = GRID.variant(f)
-                g.headroom_all()
-                _levels[f] = g
+    key = (code, f)
+    with _lock:
+        g = _cache.get(key)
+        if g is None:
+            base = _cache.get((code, 1.0))
+            if base is None:
+                base = Grid.from_file(str(DEMO / REGIONS[code]["file"]))
+                _cache[(code, 1.0)] = base
+            g = base if f == 1.0 else base.variant(f)
+            _cache[key] = g
+            while len(_cache) > MAX_LOADED:
+                old = next(k for k in _cache if k != (DEFAULT_REGION, 1.0) and k != key and k != (code, 1.0))
+                del _cache[old]
+        _cache.move_to_end(key)
     return g
+
+
+def site_headroom(g: Grid, bus: int) -> float:
+    """MW this bus can take before the first overload: from the cached vector when the heatmap was
+    computed, else one solve (so the first drop in a big state doesn't wait for the whole map)."""
+    hb = g._headroom_bus
+    return float(min(hb[bus], 1e6)) if hb is not None else float(g.headroom_bus(bus))
+
+
+def drawable(region: str | None = None) -> dict:
+    code = region_code(region)
+    with _lock:
+        d = _drawables.get(code)
+        if d is not None:
+            _drawables.move_to_end(code)
+            return d
+    d = grid_at(1.0, code).drawable()
+    r = REGIONS[code]
+    d["meta"].update({"region": code, "region_name": r["name"], "bbox": r["bbox"], "center": r["center"], "interconnect": r["interconnect"]})
+    with _lock:
+        _drawables[code] = d
+        while len(_drawables) > MAX_LOADED:
+            _drawables.popitem(last=False)
+    return d
 
 
 class SiteIn(BaseModel):
@@ -70,6 +117,7 @@ class SiteIn(BaseModel):
 
 
 class CaseIn(BaseModel):
+    region: str = DEFAULT_REGION  # a two-letter state code (grids/index.json)
     lat: float | None = None  # the main data center (optional: a hurricane or heat wave can run alone)
     lon: float | None = None
     mw: float | None = None
@@ -85,20 +133,27 @@ def _km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * 6371.0 * math.asin(math.sqrt(a))
 
 
-def check_site(lat: float, lon: float, mw: float) -> None:
+def check_site(lat: float, lon: float, mw: float, region: str | None = None) -> None:
     """422 with a sentence the UI can show as-is. Shared with scenarios.py."""
+    code = region_code(region)
+    name = REGIONS[code]["name"]
     if not all(math.isfinite(v) for v in (lat, lon, mw)):
         raise HTTPException(status_code=422, detail="lat, lon and mw must be numbers")
-    if not (LAT_MIN <= lat <= LAT_MAX and LON_MIN <= lon <= LON_MAX):
-        raise HTTPException(status_code=422, detail="That point is outside Florida — drop the data center on the map")
+    x0, y0, x1, y1 = REGIONS[code]["bbox"]
+    if code == DEFAULT_REGION:
+        x0, y0, x1, y1 = LON_MIN, LAT_MIN, LON_MAX, LAT_MAX
+    if not (y0 - 0.5 <= lat <= y1 + 0.5 and x0 - 0.5 <= lon <= x1 + 0.5):
+        raise HTTPException(status_code=422, detail=f"That point is outside {name} — drop the data center on the map")
     if not (MW_MIN <= mw <= MW_MAX):
         raise HTTPException(status_code=422, detail=f"Size must be between {MW_MIN} and {MW_MAX:,} MW")
-    s = GRID.nearest_sub(lat, lon)
-    if _km(lat, lon, GRID.sub_lat[s], GRID.sub_lon[s]) > MAX_SNAP_KM:
-        raise HTTPException(status_code=422, detail="No grid here — the model covers peninsular Florida only")
+    g = grid_at(1.0, code)
+    s = g.nearest_sub(lat, lon)
+    if _km(lat, lon, g.sub_lat[s], g.sub_lon[s]) > MAX_SNAP_KM:
+        where = "peninsular Florida" if code == DEFAULT_REGION else name
+        raise HTTPException(status_code=422, detail=f"No grid here — the model covers {where} only")
 
 
-def case_sites(body: CaseIn) -> list[SiteIn]:
+def case_sites(body: CaseIn, region: str | None = None) -> list[SiteIn]:
     """Every data center in the case, the main one first. Validates each."""
     sites = []
     if body.lat is not None or body.lon is not None or body.mw is not None:
@@ -109,13 +164,13 @@ def case_sites(body: CaseIn) -> list[SiteIn]:
     if len(sites) > MAX_SITES:
         raise HTTPException(status_code=422, detail=f"At most {MAX_SITES} data centers at once")
     for s in sites:
-        check_site(s.lat, s.lon, s.mw)
+        check_site(s.lat, s.lon, s.mw, region or body.region)
     return sites
 
 
 def check_case(body: CaseIn) -> tuple[Grid, list[SiteIn], list[int], dict[int, float]]:
-    g = grid_at(body.load_factor)
-    sites = case_sites(body)
+    g = grid_at(body.load_factor, body.region)
+    sites = case_sites(body, body.region)
     if len(body.trip) > MAX_TRIPS:
         raise HTTPException(status_code=422, detail=f"At most {MAX_TRIPS} lines knocked out at once")
     unknown = [b for b in body.trip if b not in g.br_index]
@@ -154,7 +209,7 @@ def _site_info(g: Grid, bus: int, mw: float) -> dict:
         "sub_lon": round(float(g.sub_lon[s]), 4),
         "kv": float(g.bus_kv[bus]),
         "mw": mw,
-        "headroom_mw": round(float(min(g.headroom_all()[bus], 1e6)), 1),  # this site alone, at this load level
+        "headroom_mw": round(site_headroom(g, bus), 1),  # this site alone, at this load level
     }
 
 
@@ -174,9 +229,16 @@ def _case_header(g: Grid, sites: list[SiteIn], trip: list[int], upgrades: dict[i
     return g.extra_load([(b, s.mw) for b, s in zip(buses, sites)]), header
 
 
+@router.get("/api/regions")
+def regions():
+    """Every state model: name, size, load, bounding box, validation numbers."""
+    keep = ("code", "name", "interconnect", "buses", "subs", "branches", "load_mw", "gen_mw", "bbox", "center", "corr", "base_max_pct", "overload_500", "headroom_p50", "headroom_max", "valid")
+    return {"regions": [{k: r[k] for k in keep} for r in REGIONS.values()], "default": DEFAULT_REGION, "source": REGION_SOURCE}
+
+
 @router.get("/api/grid")
-def get_grid():
-    return DRAWABLE
+def get_grid(region: str = Query(DEFAULT_REGION)):
+    return drawable(region)
 
 
 @router.post("/api/grid/whatif")
@@ -190,6 +252,7 @@ def whatif(request: Request, body: CaseIn):
     state = g.solve(active, extra, g.rates_with(upgrades))
     return {
         **header,
+        "region": region_code(body.region),
         "loading_pct": np.round(state.loading_pct, 1).tolist(),  # aligned with /api/grid branches
         "flow_mw": np.round(state.flow).astype(int).tolist(),  # signed, from -> to positive
         "overloaded": g.overloaded(state),
@@ -203,9 +266,10 @@ def whatif(request: Request, body: CaseIn):
 def cascade(request: Request, body: CaseIn):
     g, sites, trip, upgrades = check_case(body)
     extra, header = _case_header(g, sites, trip, upgrades)
-    return {**header, **g.cascade_case(extra, trip, upgrades)}
+    return {**header, "region": region_code(body.region), **g.cascade_case(extra, trip, upgrades)}
 
 
 @router.get("/api/grid/headroom")
-def headroom(load_factor: float = Query(1.0)):
-    return {"by_sub": grid_at(load_factor).headroom_by_sub(), "load_factor": round(load_factor, 2)}
+def headroom(load_factor: float = Query(1.0), region: str = Query(DEFAULT_REGION)):
+    code = region_code(region)
+    return {"by_sub": grid_at(load_factor, code).headroom_by_sub(), "load_factor": round(load_factor, 2), "region": code}
