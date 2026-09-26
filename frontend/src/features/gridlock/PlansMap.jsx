@@ -583,9 +583,24 @@ function OverlapRing({ o, proj, k, on, onEnter, onLeave, onClick }) {
   const cy = (y1 + y2) / 2
   const half = Math.hypot(x2 - x1, y2 - y1) / 2
   const r = Math.max(half + 8 / k, 13 / k)
-  // rings are for finding pairs at overview zoom; zoomed in, a big one is just an arc across the
-  // view, so only the highlighted pair keeps its ring (every pair keeps its connector)
-  if (r * k > 110 && !on) return null
+  // Uncluttered (user, Sat 08:33: "hard to use the circles … there are so many and they overlap"): a pair is a
+  // small mark at its midpoint (the top ten numbered like the list) until it's hovered or selected; only then
+  // does its full ring show how close the two projects are.
+  if (!on) {
+    const rank = o.displayRank ?? o.rank
+    return (
+      <g className={`gl-ring gl-ring--${o.tier} gl-ring--mark`} onPointerEnter={onEnter} onPointerLeave={onLeave} onClick={onClick}>
+        <title>{`Could coordinate: ${o.tier_label}${rank ? ` (#${rank})` : ''}`}</title>
+        <circle className="gl-ring__hit" cx={cx} cy={cy} r={11 / k} />
+        <circle className="gl-ring__mark" cx={cx} cy={cy} r={3.4 / k} />
+        {rank != null && rank <= 10 && (
+          <text className="gl-ring__rank" x={cx + 5.5 / k} y={cy - 5.5 / k} fontSize={10 / k}>
+            {rank}
+          </text>
+        )}
+      </g>
+    )
+  }
   return (
     <g className={`gl-ring gl-ring--${o.tier}${on ? ' gl-on' : ''}`} onPointerEnter={onEnter} onPointerLeave={onLeave} onClick={onClick}>
       <title>{`Could coordinate: ${o.tier_label}`}</title>
@@ -730,9 +745,9 @@ function Legend() {
         </li>
         <li>
           <svg width="26" height="14" aria-hidden="true">
-            <circle cx="13" cy="7" r="5.5" className="gl-legend__ring" />
+            <circle cx="13" cy="7" r="3.4" className="gl-legend__mark" />
           </svg>
-          Could coordinate (closer is brighter)
+          A pair that could coordinate (closer is brighter; the top ten numbered like the list; hover for its ring)
         </li>
         <li>
           <LegendLine tone="osm" /> Existing lines, 115 kV and up

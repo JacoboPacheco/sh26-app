@@ -1862,3 +1862,30 @@ circle.gl-proj__hit {
   gap: 14px;
   margin-top: 12px;
 }
+
+/* a pair at rest: a small mark (and its number for the top ten); the full ring only on hover or selection */
+.gl-ring__hit {
+  fill: transparent;
+  stroke: none;
+}
+.gl-ring__mark {
+  fill: var(--gl-ring);
+  fill-opacity: calc(0.35 + var(--i) * 0.6);
+  stroke: var(--night);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.gl-ring--mark:hover .gl-ring__mark {
+  fill-opacity: 1;
+}
+.gl-ring__rank {
+  fill: var(--ink);
+  font-weight: 650;
+  pointer-events: none;
+}
+.gl-has-focus .gl-ring--mark {
+  opacity: 0.35;
+}
+.gl-legend__mark {
+  fill: var(--gl-ring);
+}
