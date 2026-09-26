@@ -48,6 +48,7 @@ import sitereport
 import towns
 import unlock
 import uploads
+import views
 import vote
 import voice
 from database import Base, add_missing_columns, engine
@@ -127,8 +128,9 @@ app.include_router(ask.router)
 app.include_router(gridlock.router)
 app.include_router(danger.router)
 app.include_router(vote.router)
-app.include_router(sitereport.router)
 app.include_router(unlock.router)
+app.include_router(views.router)
+app.include_router(sitereport.router)
 
 
 @app.get("/api/health")

@@ -110,6 +110,14 @@ def register(ctx):
         allr = ctx.request("GET", "/api/catalog/places")["entries"]
         assert len(allr) > len(rows) and len({r["id"] for r in allr}) == len(allr), len(allr)
         assert ctx.request("GET", "/api/catalog/places?state=ZZ")["entries"] == []
+        # the open Compute Atlas sites (CC BY 4.0) are listed beside the curated ones: sized, placed, sourced, never canceled
+        atlas = [r for r in allr if r.get("origin") == "compute-atlas"]
+        assert len(atlas) >= 200 and any(r.get("origin") == "curated" for r in allr), (len(atlas), len(allr))
+        assert any(r["origin"] == "compute-atlas" for r in rows), "Texas should list some Compute Atlas sites"
+        for r in atlas[:400]:
+            assert r["mw"] >= 1 and isinstance(r["lat"], float) and isinstance(r["lon"], float), r["id"]
+            assert r["status"] != "paused/canceled" and r["sources"] and all(s["url"].startswith(("http://", "https://")) for s in r["sources"]), r["id"]
+            assert r["state_name"], r["id"]
 
     ctx.check("catalog: /api/catalog/places lists a state's data centers with sources, no tests run", test_places)
     ctx.check("catalog: /api/catalog lists campuses with ids, web sources, dedupe links, frame", test_list_shape)

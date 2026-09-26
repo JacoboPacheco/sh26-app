@@ -37,6 +37,8 @@ const NEXT = loadNext ? lazy(loadNext) : null
 const PLANS = lazy(() => import('./features/gridlock/BuildPlansPage'))
 // Before the vote: look up a proposed data center, what to ask, where to speak (#/vote, #/vote/<id>)
 const VOTE = lazy(() => import('./features/vote/VotePage'))
+// Views: the data center locator with a company filter, population and energy graphs (#/views)
+const VIEWS = lazy(() => import('./features/views/ViewsPage'))
 
 function useHashPrefix(prefix) {
   const [on, setOn] = useState(() => window.location.hash.startsWith(prefix))
@@ -76,6 +78,7 @@ function App() {
   const next = useIsNext()
   const plans = useHashPrefix('#/plans')
   const vote = useHashPrefix('#/vote')
+  const views = useHashPrefix('#/views')
   if (plans)
     return (
       <Suspense fallback={<Loading />}>
@@ -83,6 +86,14 @@ function App() {
           <PLANS extra={<a href="#/">Back to Overload</a>} />
         </div>
       </Suspense>
+    )
+  if (views)
+    return (
+      <OverloadProvider user={user}>
+        <Suspense fallback={<Loading />}>
+          <VIEWS />
+        </Suspense>
+      </OverloadProvider>
     )
   if (vote)
     return (
@@ -182,6 +193,9 @@ function MissionControl({ user }) {
           <nav className="mc-nav" aria-label="More of Overload">
             <a href="#/vote" title="Look up a proposed data center: what it could do to a grid, what it could cost, what to ask before the vote">
               Before the vote
+            </a>
+            <a href="#/views" title="Where data centers are, population and energy graphs, a company filter">
+              Views
             </a>
             <a href="#/plans" title="Are neighboring utilities building together?">
               Build plans

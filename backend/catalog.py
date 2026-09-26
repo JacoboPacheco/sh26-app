@@ -597,16 +597,27 @@ def catalog_status():
 def catalog_places(request: Request, state: str | None = None):
     """The data centers as places, nothing computed: name, company, city, state, coordinates, reported MW,
     status and the first sources. The state picker's dropdown reads this, so choosing a state never starts
-    the batch of engine tests behind /api/catalog. `state` filters to one state code."""
+    the batch of engine tests behind /api/catalog. `state` filters to one state code.
+
+    Two sources, merged: this catalog's researched entries, and the Compute Atlas facilities (CC BY 4.0;
+    backend/demo/datacenters_atlas.json, built by backend/demo/build_datacenters_atlas.py) that have a reported
+    size and a point, with every facility that is the same campus as a curated entry already folded into the
+    curated one (the curated entry wins). Canceled Atlas sites are left out. Each row carries `origin`."""
+    from views import places_from_atlas  # lazy: views.py imports this module lazily too, so neither needs the other at import time
+
     cat = catalog()
     want = (state or "").strip().upper() or None
     rows = []
+    seen = set()
     for e in cat["entries"].values():
         if e["duplicate_of"] is not None or (want and e["state"] != want):
             continue
         row = {k: e.get(k) for k in ("id", "name", "company", "city", "county", "state", "state_name", "lat", "lon", "mw", "mw_basis", "status", "year")}
         row["sources"] = (e.get("sources") or [])[:2]
+        row["origin"] = "curated"
         rows.append(row)
+        seen.add(e["id"])
+    rows += [r for r in places_from_atlas(want) if r["id"] not in seen]
     rows.sort(key=lambda r: -(r["mw"] or 0))
     return {"entries": rows, "note": cat["note"], "frame": FRAME}
 
