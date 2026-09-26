@@ -7,6 +7,9 @@ LLM helper (Gemini, free tier). Usage from any router:
     text = await complete(prompt, fallback="(AI offline) Here's an example answer…")  # never raises
     text = await complete("List the questions on this whiteboard", image=(png_bytes, "image/png"))
     data, offline = await complete_json(prompt, fallback=NO_ANSWER, timeout=10)  # parsed JSON
+    reply, offline = await complete_tools(contents, DECLS, fallback=OFF, timeout=10, tool_mode="AUTO")  # native
+        # function calling: reply["calls"] = [{id, name, args}]; append reply["content"] verbatim, then a user Content
+        # of function_response(call, result) parts, and call again (see complete_tools)
 
 Needs GEMINI_API_KEY in backend/.env (free key: https://aistudio.google.com/apikey).
 Without it a call raises a clear 503 — or returns its `fallback` if one was given —
@@ -392,6 +395,220 @@ async def _complete(
         raise HTTPException(status_code=502, detail="AI returned no text (empty or blocked response)")
 
 
+# ------------------------------------------------------------------ native function calling (Gemini tools)
+# Built against Google's generateContent docs (fetched Sat 2026-09-26): ai.google.dev/gemini-api/docs/generate-content/
+# function-calling and .../thought-signatures. The rules this follows:
+#   - tools = [{"functionDeclarations": [{name, description, parameters (OpenAPI-style schema, optional)}]}];
+#     toolConfig.functionCallingConfig.mode is AUTO (call or answer), ANY (must call), NONE (must answer) or VALIDATED.
+#   - the model's reply is a Content {role: "model", parts}: functionCall parts {id, name, args}, text parts; several
+#     functionCall parts in one reply are parallel calls. Gemini 3 puts a thoughtSignature on the FIRST functionCall part
+#     of each step (and may put one on the last text part).
+#   - the next request echoes the model's Content verbatim (every part, every thoughtSignature, same order, never merged
+#     or split), then ONE user Content with one functionResponse {id, name, response} per functionCall, all of them
+#     after all the calls. A missing signature on a function call of the current turn is a 400.
+#   - history sent to another model (the 429 fallback chain) carries the documented dummy signature instead of the
+#     one the first model wrote: the docs' way to hand over history whose signatures another model can't vouch for
+#     (measured Sat: a real 3.5-flash-lite signature was also accepted by 3.1-flash-lite, so this is the documented
+#     safe choice rather than a proven necessity).
+#   - VALIDATED (tools next to structured output) is retried once on AUTO and without the generation config when a
+#     model refuses it (400); a reply that ends MALFORMED_FUNCTION_CALL or UNEXPECTED_TOOL_CALL is asked once more.
+#   - Gemini 3.x: leave temperature at its default.
+DUMMY_SIGNATURE = "skip_thought_signature_validator"
+RETRY_FINISH = ("MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL")
+
+
+def cache_forget(keys) -> int:
+    """Drop these answer-cache entries (memory and disk): the turns of an agent run whose result was rejected, so a
+    retry asks the model afresh instead of replaying the same failing conversation. Returns how many were dropped."""
+    n = sum(1 for k in set(keys or []) if k and _cache.pop(k, None) is not None)
+    if n:
+        _save_disk()
+    return n
+
+
+def _tools_cache_key(contents, tools, system, tool_mode, allowed, schema, model, thinking) -> str:
+    raw = json.dumps(["tools-v1", model or AGENT_MODEL, system or "", contents, tools, tool_mode, allowed, schema, thinking], sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _with_dummy_signatures(contents: list[dict]) -> list[dict]:
+    out = copy.deepcopy(contents)
+    for c in out:
+        for p in c.get("parts") or []:
+            if isinstance(p, dict) and ("thoughtSignature" in p or "thought_signature" in p):
+                p.pop("thought_signature", None)
+                p["thoughtSignature"] = DUMMY_SIGNATURE
+    return out
+
+
+def _parse_tool_reply(content: dict) -> tuple[list[dict], str]:
+    """(function calls [{id, name, args}], the reply's text without thought summaries)."""
+    calls, text = [], []
+    for p in content.get("parts") or []:
+        if not isinstance(p, dict):
+            continue
+        fc = p.get("functionCall")
+        if isinstance(fc, dict) and fc.get("name"):
+            calls.append({"id": fc.get("id"), "name": str(fc["name"]), "args": fc.get("args") if isinstance(fc.get("args"), dict) else {}})
+        elif isinstance(p.get("text"), str) and not p.get("thought"):
+            text.append(p["text"])
+    return calls, "".join(text).strip()
+
+
+def function_response(call: dict, response: dict) -> dict:
+    """The part that answers one function call: {"functionResponse": {"id", "name", "response"}} (the id Gemini 3 gave
+    the call, so parallel results map back to their calls)."""
+    fr = {"name": call["name"], "response": response if isinstance(response, dict) else {"output": response}}
+    if call.get("id"):
+        fr["id"] = call["id"]
+    return {"functionResponse": fr}
+
+
+async def complete_tools(
+    contents: list[dict],
+    tools: list[dict],
+    system: str | None = None,
+    fallback: dict | None = None,
+    timeout: float | None = None,
+    surface: str | None = None,
+    model: str | None = None,
+    thinking: str | None = None,
+    tool_mode: str = "AUTO",
+    allowed: list[str] | None = None,
+    schema: dict | None = None,
+    cache: bool = True,
+) -> tuple[dict, bool]:
+    """One turn of a Gemini function-calling conversation. Returns `(reply, used_fallback)`:
+
+        reply = {"content": <the model's Content, verbatim: append it to `contents` as is>,
+                 "calls": [{"id", "name", "args"}, ...],   # the function calls (parallel when several)
+                 "text": "...",                             # its text parts joined (no thought summaries)
+                 "model": "<the model that answered>",      # pass it as model= on the next turn
+                 "cache_key": "<this turn's answer-cache key>" | None}  # cache_forget([...]) drops a failed run's turns
+
+    `contents`: the whole conversation so far (user text, then model Contents echoed verbatim and user Contents of
+    functionResponse parts; build those with `function_response(call, result)`). `tools`: the functionDeclarations
+    ([{name, description, parameters?}]). `tool_mode`: "AUTO" | "ANY" | "NONE" | "VALIDATED"; `allowed`: the
+    functions ANY may call. `schema`: a JSON Schema for a text answer (structured output; Gemini 3 accepts it next to
+    function declarations): a 400 over the schema or the thinking level is retried once without both.
+    `fallback`: returned (a copy, used_fallback=True) instead of raising when the key, the day's cap
+    (AI_DAILY_LIMIT), the network or the timeout fails. `cache` (on): the same conversation, tools and settings
+    replay the stored reply (memory and disk, 48 h), so a replayed agent run is deterministic call by call.
+    `timeout`, `surface`, `model`, `thinking`: as in `complete`; a 429 moves to the next model in the chain, with the
+    history's thought signatures swapped for the documented dummy one. A model that refuses VALIDATED (400) is asked
+    once more on AUTO without the generation config; a MALFORMED_FUNCTION_CALL reply is asked once more."""
+    log = logging.getLogger("uvicorn.error")
+    mode = (tool_mode or "AUTO").upper()
+    key = _tools_cache_key(contents, tools, system, mode, allowed, schema, model, thinking) if cache else None
+    if key:
+        hit = _cache_get(key)
+        if hit is not None:
+            try:
+                stored = json.loads(hit)
+                content = stored["content"]
+                calls, text = _parse_tool_reply(content)
+                _note(surface, "cached")
+                return {"content": content, "calls": calls, "text": text, "model": stored.get("model") or model or AGENT_MODEL, "cached": True, "cache_key": key}, False
+            except (ValueError, KeyError, TypeError):
+                _cache.pop(key, None)
+    try:
+        content, used = await _generate_tools(contents, tools, system, timeout, mode, allowed, schema, model, thinking)
+    except HTTPException as e:
+        _stats["last_error"] = str(e.detail)[:200]
+        if fallback is not None:
+            _note(surface, "fallback")
+            log.warning("AI fallback used (function calling): %s", e.detail)
+            return copy.deepcopy(fallback), True
+        raise
+    calls, text = _parse_tool_reply(content)
+    _note(surface, "ok")
+    if surface and calls:
+        row = _stats["by_surface"].setdefault(surface, {"ok": 0, "fallback": 0, "cached": 0})
+        row["function_calls"] = row.get("function_calls", 0) + len(calls)
+    if key:
+        _cache_put(key, json.dumps({"content": content, "model": used}))
+    return {"content": content, "calls": calls, "text": text, "model": used, "cached": False, "cache_key": key}, False
+
+
+async def _generate_tools(contents, tools, system, timeout, mode, allowed, schema, model, thinking) -> tuple[dict, str]:
+    """POST generateContent with the tools; (the model's Content, the model that answered). Raises HTTPException."""
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise HTTPException(status_code=503, detail="AI is not configured: add GEMINI_API_KEY to backend/.env (free key at aistudio.google.com/apikey)")
+    if not _take_daily_slot():
+        raise HTTPException(status_code=429, detail=AI_QUOTA_MESSAGE)
+    body: dict = {"contents": contents, "tools": [{"functionDeclarations": tools}]}
+    fcc: dict = {"mode": mode}
+    if allowed and mode in ("ANY", "VALIDATED"):
+        fcc["allowedFunctionNames"] = list(allowed)
+    body["toolConfig"] = {"functionCallingConfig": fcc}
+    if system:
+        body["systemInstruction"] = {"parts": [{"text": system}]}
+    gen: dict = {}
+    if schema is not None:
+        gen["responseMimeType"] = "application/json"
+        gen["responseJsonSchema"] = schema
+    if thinking:
+        gen["thinkingConfig"] = {"thinkingLevel": thinking}
+    if gen:
+        body["generationConfig"] = gen
+    first = model or AGENT_MODEL
+    chain = [first] + [m for m in FALLBACK_MODELS if m != first]
+    log = logging.getLogger("uvicorn.error")
+    for i, m in enumerate(chain):
+        if _model_out(m) and i < len(chain) - 1:
+            continue
+        # the history's signatures were written by `first`: another model gets the dummy one
+        send = body if m == first else {**body, "contents": _with_dummy_signatures(contents)}
+        url = f"{API_BASE}/models/{m}:generateContent"
+        data = None
+        plainer = asked_again = False
+        while True:
+            try:
+                got = await asyncio.to_thread(_post_json, url, send, key, timeout or TIMEOUT_SECONDS)
+            except urllib.error.HTTPError as e:
+                full = e.read().decode(errors="replace")
+                is_validated = send["toolConfig"]["functionCallingConfig"].get("mode") == "VALIDATED"
+                if e.code == 400 and not plainer and (send.get("generationConfig") or is_validated) and "thought_signature" not in full:
+                    # a schema, thinking level or VALIDATED mode this model refuses next to tools: once more on AUTO without them
+                    log.warning("AI (function calling): %s refused the generation config or mode, retrying plainer: %s", m, full[:160])
+                    plainer = True
+                    send = {k: v for k, v in send.items() if k != "generationConfig"}
+                    if is_validated:
+                        send["toolConfig"] = {"functionCallingConfig": {**send["toolConfig"]["functionCallingConfig"], "mode": "AUTO"}}
+                    continue
+                if e.code == 429 and i < len(chain) - 1:
+                    _mark_out(m, full)
+                    log.warning("AI: %s is out of quota, trying %s", m, chain[i + 1])
+                    break
+                raise HTTPException(status_code=502, detail=f"AI request failed ({e.code}): {full[:300]}")
+            except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
+                raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
+            finish = ((got.get("candidates") or [{}])[0] or {}).get("finishReason") if isinstance(got, dict) else None
+            if finish in RETRY_FINISH and not asked_again:
+                # a function call the model got wrong (bad JSON or a call outside the declarations): ask once more
+                log.warning("AI (function calling): %s ended %s, asking once more", m, finish)
+                asked_again = True
+                continue
+            data = got
+            break
+        if data is None:
+            continue  # 429: the next model in the chain
+        _stats["model_used"] = m
+        try:
+            cand = data["candidates"][0]
+            content = cand.get("content")
+        except (KeyError, IndexError, TypeError, AttributeError):
+            raise HTTPException(status_code=502, detail="AI returned no content (empty or blocked response)")
+        if content is None:
+            raise HTTPException(status_code=502, detail=f"AI returned no content ({cand.get('finishReason') or 'empty or blocked response'})")
+        if not isinstance(content, dict) or not content.get("parts"):
+            raise HTTPException(status_code=502, detail="AI returned an empty reply")
+        content.setdefault("role", "model")
+        return content, m
+    raise HTTPException(status_code=502, detail="AI request failed: every model in the chain is out of quota")
+
+
 class AskRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
 
@@ -404,8 +621,10 @@ SURFACES = [
      "check": "Every number in the text must appear in the fact sheet, or the plain-template text is used.", "fallback": "Template writer"},
     {"id": "solutions", "name": "Ways to build it", "gemini": "Proposes grid upgrades that would let the full campus connect.",
      "check": "The power-flow engine re-runs the case with each proposal; only plans that hold are shown.", "fallback": "Engine-generated fixes only"},
-    {"id": "unlock", "name": "Strengthen the grid", "gemini": "Proposes bundles of upgrades from the weak points found by simulation.",
-     "check": "The engine re-scans every site with the bundle added; the unlocked MW is measured, not claimed.", "fallback": "Cheapest-first ranking"},
+    {"id": "unlock", "name": "Strengthen the grid",
+     "gemini": "Tries to beat the engine's capacity plan (one more data center at once for the same budget, or the same number for less) from the plan, each site's room and the lines that bind it, and each line's price; also proposes bundles of upgrades from the weak points found by simulation.",
+     "check": "The engine re-solves Gemini's whole plan at once (every campus and upgrade), prices it itself (Gemini's own numbers are ignored), runs the full cascade and compares it with its own plan; one revision with the engine's findings; a win is shown only when the engine confirms it. Bundles: every site is re-scanned with the bundle added; the unlocked MW is measured, not claimed.",
+     "fallback": "The engine's own plan and cheapest-first ranking"},
     {"id": "cost", "name": "Cost estimate", "gemini": "Estimates each cost line from the case facts, with the assumption shown.",
      "check": "An answer far outside the formula's range is rejected, and that line repeats the formula.", "fallback": "Formula estimate"},
     {"id": "ask", "name": "Ask about this case", "gemini": "Chooses which computed facts answer a question and words the answer.",
@@ -413,8 +632,8 @@ SURFACES = [
     {"id": "planner", "name": "Siting planner", "gemini": "Chooses each next step of a siting plan (a headroom lookup, a what-if, a fix).",
      "check": "Every step runs on the engine, and the finished plan is re-checked: no line over its limit, nobody without power.", "fallback": "Greedy planner"},
     {"id": "analyst", "name": "What it would take (AI analyst)",
-     "gemini": "An agent with tools: it chooses which engine runs to make for a proposal (a size what-if, the nearby substations, nearby sites that take it, the verified ways to build it, firm against flexible service, the time of day), reads each result, then writes a short memo.",
-     "check": "Every tool call runs on the power-flow engine; every number in the memo must match a tool result, or the plain memo built from the same results is used.",
+     "gemini": "An agent built on Gemini function calling: the engine's six tools are declared to Gemini as functions (a size what-if, the nearby substations, nearby sites that take it, the verified ways to build it, firm against flexible service, the time of day). Gemini calls the ones it needs, several at once when useful, each with a one-sentence reason shown in the trace, reads each function response, then writes a short memo as structured output.",
+     "check": "Every function call is validated and run on the power-flow engine (a repeated call is not run again), and its result goes back to Gemini as the function response; every number in the memo, digits or spelled out, must match a tool result, or the plain memo built from the same results is used.",
      "fallback": "Fixed tool plan and a template memo"},
     {"id": "agreement", "name": "Build together",
      "gemini": "Drafts a coordination proposal for two utilities' overlapping planned projects from their public filings.",
@@ -424,6 +643,14 @@ SURFACES = [
      "gemini": "Two agents, each reading one utility's public filing only, trade proposals for a joint build window, the shared scope and the cost split until one accepts the other's terms.",
      "check": "Every turn is verified before the other agent sees it: the window must sit inside both filed build windows and after today, the scope must be the estimate's items, the split one of the allowed rules adding to 100 %, every number from the facts; a rejected turn is revised once.",
      "fallback": "A scripted negotiation over the same rules, labeled plain"},
+    {"id": "reader", "name": "Build together: a third reader of the filings",
+     "gemini": "Reads each page of the two public filings as a PDF (offline, when the data is built) and fills the same fields the two parsers extract, as structured output; for each record the checks set aside, it proposes place names from that record's page.",
+     "check": "Every field is compared with the parsers' readings after the pipeline's own normalizing, and every disagreement is listed with its PDF page; a proposed place name must be printed on the page and then pass the pipeline's own locate step and blocking checks. The published records come from the parsers.",
+     "fallback": "The two parsers alone (the reader is advisory)"},
+    {"id": "strengthen_narration", "name": "Strengthen the grid: the narrated build-up",
+     "gemini": "Writes what the presenter voice says as each campus goes in on the map: where it connects, what stopped it, the upgrade that lets it in and what it costs, in English and Spanish.",
+     "check": "Every number in a line must be one of that step's facts from the engine's study (and the place and the cost must be said); a line that fails is replaced by its template line.",
+     "fallback": "Template lines from the same study"},
 ]
 
 

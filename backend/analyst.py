@@ -6,10 +6,17 @@ engine as tools, then checked number by number.
                                         "live": true it starts a job instead and returns {job, status, trace}
     GET  /api/analyst/jobs/{job id}     a running analysis: the trace so far, then the result
 
-The agent (Gemini, llm.complete_json with fallback= and timeout=10 on every call) reads the case and chooses which
-engine runs to make, up to MAX_CALLS_PER_TURN per reply and MAX_TOOL_CALLS in all:
+The agent is built on Gemini's native function calling (llm.complete_tools, with fallback= and timeout=10 on every
+call): the six engine tools below are declared as functionDeclarations (FUNCTION_DECLARATIONS, generated from
+TOOL_SPECS with the same bounds _clean_args enforces, plus a required "why": one sentence for the reader, shown under
+the call in the trace once its numbers check). Gemini's first reply must call a tool (mode ANY); later replies may call
+more (mode VALIDATED with the memo schema: calls that follow their declarations, several at once when useful) or write
+the memo, up to MAX_TOOL_CALLS tool calls and MAX_GEMINI_CALLS Gemini calls in all. Each functionCall is validated like
+a route's input and run on the engine (a repeat of an earlier call is answered "already called", not run again); its
+result goes back as a functionResponse (same id), after the model's reply echoed verbatim with its thought signature.
+The trace shows each real call ("whatif_size(mw=600)", via "function_call") and the engine's result:
 
-    whatif_size {"mw": N}            the campus at N MW at this site: lines over their limit, the busiest line, lines at
+    whatif_size {"mw": N}          the campus at N MW at this site: lines over their limit, the busiest line, lines at
                                      90 % or more, the site's room, and the cascade's people without power (estimate)
     site_report_nearby {}            the six nearest substations (sitereport.build_report): room, right-size, the verified
                                      upgrade and its cost where the full size doesn't fit
@@ -20,16 +27,19 @@ engine runs to make, up to MAX_CALLS_PER_TURN per reply and MAX_TOOL_CALLS in al
     time_of_day {"when"}             the same campus at 3 AM, 9 AM, 4 PM or in a heat wave
 
 Every tool runs the real DC power-flow engine on the SYNTHETIC grid model (Breakthrough Energy / Texas A&M), and its
-result is fed back to Gemini. Then Gemini writes a short memo: the biggest size that fits here without upgrades, what
-the full size needs (verified plans and their cost), a nearby site that takes it, the grid strain. Every number in the
-memo must match a tool result (the same check as the deck's: roundings, thousands, millions, billions); a memo that
-fails is sent back once with the numbers that matched nothing, and if it fails again the plain memo built from the same
-tool results is used. With no key (or no answer) a fixed plan of five engine runs and the template memo run instead,
+result is fed back to Gemini. Then Gemini writes a short memo (structured output: MEMO_SCHEMA as the response schema,
+in the same conversation): the biggest size that fits here without upgrades, what the full size needs (verified plans
+and their cost), a nearby site that takes it, the grid strain. Every number in the
+memo must match a tool result (the same check as the deck's: roundings, thousands, millions, billions; a number
+spelled out, "eleven lines", is checked as 11); a memo that fails is sent back once with the numbers that matched
+nothing, and if it fails again the plain memo built from the same tool results is used, and that run's Gemini turns are
+dropped from the answer cache so the next try asks Gemini afresh. With no key (or no answer) a fixed plan of five engine runs and the template memo run instead,
 labeled. Nothing here is a claim about the real project, its owners or its utility: the memo speaks of "a campus of this
 reported size at this location on the synthetic model", and names no company, project or utility.
 
-Public like the vote pages (no login, nothing stored). At most 1 + MAX_TURNS + 1 Gemini calls per analysis (usually 3-4),
-and a finished analysis is cached per case for six hours (a fallback run while a key is set, for two minutes).
+Public like the vote pages (no login, nothing stored). At most MAX_GEMINI_CALLS Gemini calls per analysis (usually 3),
+and a finished analysis is cached per case for six hours (a fallback run while a key is set, for two minutes); each
+Gemini turn is also in llm's answer cache (keyed on the whole conversation), so a replay is the same run call by call.
 """
 
 from __future__ import annotations
@@ -54,16 +64,15 @@ from starlette.concurrency import run_in_threadpool
 import catalog as catalog_mod
 from grid import MW_MAX, MW_MIN, REGIONS, check_site, grid_at, region_code, site_headroom
 from limiter import limiter
-from llm import AGENT_MODEL, AGENT_THINKING, complete_json, configured
+from llm import AGENT_MODEL, AGENT_THINKING, cache_forget, complete_tools, configured, function_response
 from powerflow import OVER_PCT, area_of
 
 router = APIRouter(tags=["analyst"])
 log = logging.getLogger("uvicorn.error")
 
 ID_PATTERN = r"^[a-z0-9-]{1,120}$"
-MAX_TOOL_CALLS = 5
-MAX_CALLS_PER_TURN = 3
-MAX_TURNS = 4  # Gemini replies that may call tools (the last one must write the memo)
+MAX_TOOL_CALLS = 5  # engine runs Gemini may make in all (parallel calls in one reply count one each)
+MAX_GEMINI_CALLS = 5  # Gemini calls per analysis: the tool turns, the memo and one rewrite (the last one must write)
 AI_TIMEOUT_S = 10
 DEADLINE_S = 25.0  # all of Gemini's turns; then the plain memo from the results so far (a request stays under the smoke test's 30 s)
 HOT_PCT = 90.0
@@ -71,7 +80,7 @@ NEAR_KM_DEFAULT, NEAR_KM_MAX = 100.0, 300.0
 NEAR_SCREEN = 14  # substations screened (one solve each) by best_sites_nearby
 NEAR_SHOWN = 4
 TIMES = {"3am": (0.62, "3 AM (the overnight low)"), "9am": (0.82, "9 AM"), "4pm": (1.0, "4 PM (the summer afternoon peak)"), "heatwave": (1.04, "a heat wave")}
-RESULT_MAX_CHARS = 1800  # a tool result as Gemini sees it
+RESULT_MAX_CHARS = 1800  # a tool result as Gemini reads it (a function response is trimmed to about this size)
 CACHE_SIZE = 64
 CACHE_TTL_S = 6 * 3600
 FALLBACK_TTL_S = 120  # a plain run while a key is set (Gemini was down or slow): retried soon
@@ -485,6 +494,24 @@ _GENERIC = set(
 )
 
 
+_SMALL = "two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+_WORD_VALUE = {w: i + 2 for i, w in enumerate(_SMALL)}
+_TENS = {w: (i + 2) * 10 for i, w in enumerate("twenty thirty forty fifty sixty seventy eighty ninety".split())}
+_ONES = {w: i + 1 for i, w in enumerate("one two three four five six seven eight nine".split())}
+_WORDNUM = re.compile(r"\b(?:(" + "|".join(_TENS) + r")(?:-(" + "|".join(_ONES) + r"))?|(" + "|".join(_SMALL) + r"))\b", re.I)
+
+
+def _digits(text: str) -> str:
+    """Numbers spelled out as words ("eleven lines", "twenty-four") written as digits, so the number check sees them
+    ("one" is left alone: it is always allowed, and "no one" is not a number)."""
+    def val(m: re.Match) -> str:
+        if m.group(3):
+            return str(_WORD_VALUE[m.group(3).lower()])
+        return str(_TENS[m.group(1).lower()] + (_ONES[m.group(2).lower()] if m.group(2) else 0))
+
+    return _WORDNUM.sub(val, text or "")
+
+
 def _canon(v: float) -> str:
     return str(int(round(v))) if abs(v - round(v)) < 1e-9 else f"{v:.2f}".rstrip("0").rstrip(".")
 
@@ -533,12 +560,15 @@ def _walk_numbers(x, acc: set[str]) -> None:
             _walk_numbers(v, acc)
         return
     if isinstance(x, (list, tuple)):
+        if x:
+            acc |= _forms(len(x))  # a count is a result too: "4 verified ways", "the six nearest substations"
         for v in x:
             _walk_numbers(v, acc)
 
 
 def allowed_numbers(results: list[dict]) -> set[str]:
-    """Every number any tool returned (and every argument it was called with), in every printed form."""
+    """Every number any tool returned (and every argument it was called with), in every printed form, and the length
+    of every list in them (how many ways, sites, substations)."""
     acc: set[str] = {"0", "1"}
     for r in results:
         _walk_numbers(r.get("args"), acc)
@@ -558,7 +588,7 @@ def _names_to_avoid(c: _Case, results: list[dict]) -> list[str]:
 
 def _numbers_ok(text: str, results: list[dict]) -> bool:
     allowed = allowed_numbers(results)
-    return all(any(_canon(v) in allowed for v in _token_values(t)) for t in _NUM.findall(text))
+    return all(any(_canon(v) in allowed for v in _token_values(t)) for t in _NUM.findall(_digits(text)))
 
 
 def check_memo(memo: dict, c: _Case, results: list[dict]) -> tuple[bool, list[str], int, str | None]:
@@ -574,7 +604,7 @@ def check_memo(memo: dict, c: _Case, results: list[dict]) -> tuple[bool, list[st
         if re.search(r"\b" + re.escape(w) + r"\b", text, re.I):
             return False, [], 0, "names the real project or company"
     allowed = allowed_numbers(results + [{"result": c.describe()}])
-    toks = _NUM.findall(text)
+    toks = _NUM.findall(_digits(text))  # "eleven lines" is checked as 11
     bad = [t for t in toks if not any(_canon(v) in allowed for v in _token_values(t))]
     return not bad, bad, len(toks), None
 
@@ -664,20 +694,60 @@ def plain_memo(c: _Case, results: list[dict]) -> dict:
 
 
 # ------------------------------------------------------------------------------------ the agent
-SYSTEM = """You are Overload's grid analyst: an agent that studies one proposed data-center campus on a SYNTHETIC model of a U.S. state's power grid (the Breakthrough Energy / Texas A&M test system, not any real utility's network). You call tools that run a real DC power-flow engine, read their results, then write a short memo.
+SYSTEM = """You are Overload's grid analyst: an agent that studies one proposed data-center campus on a SYNTHETIC model of a U.S. state's power grid (the Breakthrough Energy / Texas A&M test system, not any real utility's network). You call its tools (function calls) that run a real DC power-flow engine, read their results, then write a short memo.
 
-Speak only of "a campus of this size at this location on the model". Never name a real company, project, utility or grid operator; never predict what a real project or utility will do; never blame anyone. Every number you write must be copied from a tool result. Round the way a newspaper would: money as "$83-147 million", MW and people to whole numbers ("about 11,700 people", "244 MW"), loading as whole percentages ("330%"). Plain sentences, no years, no advice to vote either way. Reply with JSON only."""
+Speak only of "a campus of this size at this location on the model". Never name a real company, project, utility or grid operator; never predict what a real project or utility will do; never blame anyone. Every number you write must be copied from a tool result, and written in digits, even small ones ("11 lines", "2 transformers", never "eleven lines"), so the engine can check it. Round the way a newspaper would: money as "$83-147 million", MW and people to whole numbers ("about 11,700 people", "244 MW"), loading as whole percentages ("330%"). Plain sentences, no years, no advice to vote either way. Use the tools by calling them, each call with its "why"; when you write the memo, reply with JSON only."""
 
-TOOL_DOCS = """Tools (each runs the engine; up to 3 per reply, at most 5 in all):
-- whatif_size {"mw": N}: the campus at N MW at this site: lines over their limit, the site's room (the MW it takes before the first line overloads), the busiest line's loading, lines at 90% or more, and the cascade's people without power (estimate).
-- site_report_nearby {}: the six nearest substations: distance, room, the most each takes without upgrades (right_size_mw), and where the full size doesn't fit the verified upgrade with its cost.
-- best_sites_nearby {"radius_km": 100}: substations within the radius that take the full size with no line over its limit.
-- ways_to_build {}: the verified ways to build the full size here (grid upgrades, a smaller campus, another site), each re-run by the engine, with its estimated cost.
-- service {}: flexible service (the campus can be cut off) against firm service (other customers are cut instead): people without power in each.
-- time_of_day {"when": "3am" | "9am" | "4pm" | "heatwave"}: the same campus at another hour or in a heat wave."""
+# The engine's tools as Gemini function declarations (the REST API's OpenAPI-style schema subset). The bounds are the
+# ones _clean_args enforces on every call anyway: Gemini's arguments are validated like a route's input, never trusted.
+TOOL_SPECS = {
+    "whatif_size": {
+        "description": "Runs the DC power flow with the campus at N MW at this site: lines over their limit, the site's room (the MW it takes before the first line overloads), "
+                       "the busiest line's loading, lines at 90% or more of their rating, and the cascade's people without power (estimate).",
+        "parameters": {"type": "object", "properties": {"mw": {"type": "number", "description": f"The campus size in MW ({MW_MIN} to {MW_MAX}).", "minimum": MW_MIN, "maximum": MW_MAX}},
+                       "required": ["mw"]},
+    },
+    "site_report_nearby": {
+        "description": "The six nearest substations for the full size: distance, room, the most each takes without upgrades (right_size_mw), "
+                       "and where the full size doesn't fit, the verified upgrade with its cost.",
+    },
+    "best_sites_nearby": {
+        "description": "Substations within the radius that take the full size with no line over its limit (one power-flow solve per site).",
+        "parameters": {"type": "object", "properties": {"radius_km": {"type": "number", "description": f"Search radius in km (20 to {NEAR_KM_MAX:g}; {NEAR_KM_DEFAULT:g} if omitted).",
+                                                                      "minimum": 20, "maximum": NEAR_KM_MAX}}},
+    },
+    "ways_to_build": {
+        "description": "The verified ways to build the full size here (grid upgrades, a smaller campus, another site), each re-run by the engine, with its estimated cost.",
+    },
+    "service": {
+        "description": "Flexible service (the campus can be cut off) against firm service (other customers are cut instead): people without power in each cascade.",
+    },
+    "time_of_day": {
+        "description": "The same campus at another hour or in a heat wave: lines over their limit, room and the cascade.",
+        "parameters": {"type": "object", "properties": {"when": {"type": "string", "enum": list(TIMES), "description": "3am (overnight low), 9am, 4pm (summer peak) or heatwave."}},
+                       "required": ["when"]},
+    },
+}
+# Every declaration also takes a required "why": Gemini's one-sentence reason for the call, which the trace shows under
+# it (Google's suggestion for notes before a tool call: put them in the call). Mode ANY allows function calls only, so
+# without it the first turn's reasoning never reaches the reader. It is never passed to the engine.
+WHY_PARAM = {"type": "string", "description": "One short sentence for the reader: what this call checks and why. Use only numbers the case or earlier results gave."}
 
-# Structured output for the memo turn (Gemini follows the schema; a tool-choice turn is plain JSON mode: a schema
-# there roughly tripled the latency in testing, and the 10 s timeout is the demo path's rule)
+
+def _declaration(name: str, spec: dict) -> dict:
+    params = copy.deepcopy(spec.get("parameters") or {"type": "object", "properties": {}})
+    params["properties"] = {**params["properties"], "why": WHY_PARAM}
+    params["required"] = [*params.get("required", []), "why"]
+    return {"name": name, "description": spec["description"], "parameters": params}
+
+
+FUNCTION_DECLARATIONS = [_declaration(name, spec) for name, spec in TOOL_SPECS.items()]
+assert [d["name"] for d in FUNCTION_DECLARATIONS] == list(TOOLS)
+
+# Structured output for the memo (the response schema of every turn after the first: Gemini either calls functions or
+# writes JSON that follows this; measured Sat on gemini-3.5-flash-lite, about 1 s a turn). Those turns run in mode
+# VALIDATED (the documented mode for tools next to structured output: calls are held to their declarations), probed Sat
+# 12:15 on all four models of the chain (3.5-flash, 3.5-flash-lite, 3.1-flash-lite, 3.6-flash): 200, 0.8-2 s.
 MEMO_SCHEMA = {
     "type": "object",
     "properties": {
@@ -700,8 +770,13 @@ def _thought(raw) -> str | None:
     return t or None
 
 
-def _prompt(c: _Case, history: list[str], tools_left: int, must_write: bool, feedback: str | None) -> str:
-    lines = [
+MEMO_REPLY = '{"thought": "<one short sentence: what the results showed>", "memo": {"headline": "...", "fits_here": "...", "full_size": "...", "nearby": "...", "strain": "..."}}'
+WRITE_NOW = "You have used the tool calls this analysis allows. Write the memo now from the function responses above, as JSON only: " + MEMO_REPLY
+
+
+def _prompt(c: _Case) -> str:
+    """The conversation's first message: the case and the memo it needs (the tools are the function declarations)."""
+    return "\n".join([
         f"The case: a campus of {_n(c.mw)} MW at this location in {c.state_name}, on the synthetic model. It connects at the {c.sub_name} substation ({c.kv:g} kV), near {c.town}.",
         "Find out what it would take to build it here, then write a memo with these parts:",
         '  "headline": one sentence, the bottom line;',
@@ -711,20 +786,35 @@ def _prompt(c: _Case, history: list[str], tools_left: int, must_write: bool, fee
         '  "strain": the grid strain: the busiest line\'s loading and the lines at 90% or more, with and without the campus.',
         "At most two sentences per part.",
         "",
-        TOOL_DOCS,
-        "",
-        "Your calls so far:" if history else "You have made no calls yet.",
-        *history,
-    ]
-    if feedback:
-        lines += ["", feedback]
-    lines.append("")
-    if must_write or tools_left <= 0:
-        lines.append('Now write the memo. Reply: {"thought": "...", "memo": {"headline": "...", "fits_here": "...", "full_size": "...", "nearby": "...", "strain": "..."}}')
-    else:
-        lines.append(f"Tool calls left: {tools_left}. Reply either {{\"thought\": \"<one short sentence: what you check next and why>\", \"calls\": [{{\"tool\": \"...\", \"args\": {{...}}}}]}} "
-                     'or, when you have what the memo needs, {"thought": "...", "memo": {...}}.')
-    return "\n".join(lines)
+        f"Call the engine's tools to find out: at most {MAX_TOOL_CALLS} calls in all, and you may call several at once. "
+        'Give every call its "why": one short sentence, shown to the reader, on what the call checks and why. Never repeat a call you already made.',
+        "When you have what the memo needs, reply with JSON only: " + MEMO_REPLY,
+    ])
+
+
+def _json_reply(text: str):
+    """The memo turn's text as JSON (it is structured output; a stray code fence is tolerated)."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```(?:json)?\s*|\s*```$", "", t)
+    try:
+        return json.loads(t)
+    except ValueError:
+        return None
+
+
+def _fit(obj: dict, limit: int = RESULT_MAX_CHARS) -> dict:
+    """A function response of at most about `limit` characters: the longest list is cut from its end until it fits."""
+    out = copy.deepcopy(obj)
+    for _ in range(40):
+        if len(json.dumps(out, separators=(",", ":"))) <= limit:
+            return out
+        lists = [(k, v) for k, v in out.items() if isinstance(v, list) and len(v) > 1]
+        if not lists:
+            break
+        k, v = max(lists, key=lambda kv: len(json.dumps(kv[1])))
+        out[k] = v[:-1]
+    return out
 
 
 class Run:
@@ -735,8 +825,19 @@ class Run:
         self.trace: list[dict] = []
         self.results: list[dict] = []  # {tool, args, result}
         self.calls = 0  # Gemini calls
-        self.tools = 0  # tool calls Gemini made
+        self.tools = 0  # tool calls Gemini made (run on the engine)
+        self.fcalls = 0  # function calls Gemini returned (run or refused)
+        self.model: str | None = None  # the model that answered (the conversation stays on it)
+        self.cache_keys: list[str] = []  # llm's answer-cache keys of this run's Gemini turns (dropped when the run fails)
         self.t0 = time.perf_counter()
+
+    def forget(self) -> None:
+        """A run whose memo failed: its Gemini turns leave the answer cache, so the next try is a fresh conversation
+        instead of a replay of the same failing one (the turns were cached for 48 h, on disk)."""
+        n = cache_forget(self.cache_keys)
+        if n:
+            log.info("analyst: dropped %d cached Gemini turns of a failed run (%s)", n, self.c.key)
+        self.cache_keys = []
 
     def add(self, **row) -> dict:
         row["n"] = len(self.trace) + 1
@@ -746,80 +847,135 @@ class Run:
     def left(self) -> float:
         return DEADLINE_S - (time.perf_counter() - self.t0)
 
-    async def tool(self, tool: str, args: dict, actor: str, thought: str | None = None, backfill: bool = False) -> dict:
-        self.add(actor=actor, kind="call", tool=tool, args=args, tone="info", backfill=backfill, call=_call_text(tool, args),
-                 title=_args_say(tool, args)[:1].upper() + _args_say(tool, args)[1:], detail=thought)
+    async def tool(self, tool: str, args: dict, actor: str, thought: str | None = None, backfill: bool = False, call_id: str | None = None) -> dict:
+        """Run one tool on the engine, with its call and result rows in the trace. actor "gemini": a Gemini function call
+        (via "function_call"; its result goes back as the function response); "engine": the fixed plan's own run."""
+        fc = actor == "gemini"
+        call_row = dict(actor=actor, kind="call", tool=tool, args=args, tone="info", backfill=backfill, call=_call_text(tool, args),
+                        title=_args_say(tool, args)[:1].upper() + _args_say(tool, args)[1:], detail=thought or ("Gemini function call" if fc else None))
+        if fc:
+            call_row.update(via="function_call", call_id=call_id)
+        self.add(**call_row)
         res, ms, cached = await run_in_threadpool(run_tool, self.c, tool, args)
         summary, tone = summarize(tool, res)
         self.results.append({"tool": tool, "args": args, "result": res})
-        self.add(actor="engine", kind="result", tool=tool, args=args, tone=tone, result_summary=summary, result=res, ms=ms, cached=cached,
-                 title=summary[:1].upper() + summary[1:])
+        res_row = dict(actor="engine", kind="result", tool=tool, args=args, tone=tone, result_summary=summary, result=res, ms=ms, cached=cached,
+                       title=summary[:1].upper() + summary[1:])
+        if fc:
+            res_row.update(via="function_response", call_id=call_id)
+        self.add(**res_row)
         return res
 
 
+def _responses_last(contents: list[dict]) -> bool:
+    last = contents[-1] if contents else {}
+    return last.get("role") == "user" and any("functionResponse" in p for p in last.get("parts") or [])
+
+
+async def _answer(run: Run, call: dict, must_write: bool) -> dict:
+    """One Gemini function call: validated like a route's input, run on the engine, its result (trimmed) returned as
+    the function response. A call past the budget or with bad arguments is refused, and Gemini is told why."""
+    name, cid = call["name"], call.get("id")
+    raw = dict(call.get("args") or {})
+    reason = raw.pop("why", None)  # Gemini's note for the reader (not an engine argument)
+    shown = f"{name}({', '.join(f'{k}={json.dumps(v)}' for k, v in raw.items())[:80]})"
+    if name not in RUNNERS:
+        run.add(actor="engine", kind="refused", tool=name[:40], tone="muted", via="function_call", call_id=cid, call=shown[:100], title=f"Refused {name[:40]}: not one of the tools")
+        return {"error": "not one of the tools"}
+    if must_write or run.tools >= MAX_TOOL_CALLS:
+        why = f"all {MAX_TOOL_CALLS} tool calls this analysis allows are used" if run.tools >= MAX_TOOL_CALLS else "the memo is due now"
+        run.add(actor="engine", kind="refused", tool=name, tone="muted", via="function_call", call_id=cid, call=shown, title=f"Not run {name}: {why}")
+        return {"error": f"not run: {why}"}
+    args, why = _clean_args(run.c, name, raw)
+    if args is None:
+        run.add(actor="engine", kind="refused", tool=name, tone="muted", via="function_call", call_id=cid, call=shown, title=f"Refused {name}: {why}")
+        return {"error": f"refused: {why}"}
+    if any(r["tool"] == name and r["args"] == args for r in run.results):  # the same check again: not run, not counted
+        run.add(actor="engine", kind="refused", tool=name, tone="muted", via="function_call", call_id=cid, call=_call_text(name, args),
+                title=f"Not run again {name}: already called with these arguments")
+        return {"error": "already called with these arguments: its result is in your earlier function response"}
+    # Gemini's reason is shown only when every number in it is one the case, the results so far or this call gave
+    note = _thought(reason)
+    if note and not _numbers_ok(note, run.results + [{"result": run.c.describe()}, {"args": args}]):
+        note = None
+    run.tools += 1
+    res = await run.tool(name, args, "gemini", thought=note, call_id=cid)
+    return _fit(for_gemini(name, res))
+
+
 async def _agent(run: Run) -> tuple[dict | None, str]:
-    """Gemini's loop. (memo that passed the check, "used") or (None, why it stopped)."""
+    """Gemini's function-calling loop. (memo that passed the check, "used") or (None, why it stopped).
+
+    contents is the conversation as the API keeps it: the case, then each model reply echoed verbatim (its function
+    calls and thought signature), then one user turn answering every call with a functionResponse (same id)."""
     c = run.c
-    history: list[str] = []
-    feedback: str | None = None
+    contents: list[dict] = [{"role": "user", "parts": [{"text": _prompt(c)}]}]
+    run.model = AGENT_MODEL
     memo_tries = 0
-    for turn in range(MAX_TURNS + 1):
+    note: str | None = None  # a user message before the next call: write now, or the number check's findings
+    while run.calls < MAX_GEMINI_CALLS:
         left = run.left()
         if left < 3:
             return None, "slow"
-        must_write = turn >= MAX_TURNS - 1 or run.tools >= MAX_TOOL_CALLS
-        prompt = _prompt(c, history, MAX_TOOL_CALLS - run.tools, must_write, feedback)
-        feedback = None
+        first = run.calls == 0
+        must_write = not first and (run.calls >= MAX_GEMINI_CALLS - 1 or run.tools >= MAX_TOOL_CALLS or memo_tries > 0)
+        if must_write and note is None and _responses_last(contents):
+            note = WRITE_NOW
+        if note:
+            contents.append({"role": "user", "parts": [{"text": note}]})
+            note = None
+        # the first reply must call a tool (ANY: no memo without engine results); then call more or write (VALIDATED:
+        # either, with calls held to their declarations); the memo and its rewrite (NONE). Every turn after the first
+        # carries the memo's response schema.
+        mode = "ANY" if first else ("NONE" if must_write else "VALIDATED")
         try:
             reply, offline = await asyncio.wait_for(
-                complete_json(prompt, system=SYSTEM, fallback=OFFLINE, timeout=min(AI_TIMEOUT_S, left), schema=MEMO_SCHEMA if must_write else None, cache=True,
-                              surface="analyst", model=AGENT_MODEL, thinking=AGENT_THINKING), left)
+                complete_tools(contents, FUNCTION_DECLARATIONS, system=SYSTEM, fallback=OFFLINE, timeout=min(AI_TIMEOUT_S, left), surface="analyst",
+                               model=run.model, thinking=AGENT_THINKING, tool_mode=mode, schema=None if first else MEMO_SCHEMA), left)
         except asyncio.TimeoutError:
             return None, "slow"
         run.calls += 1
         if offline or not isinstance(reply, dict) or reply.get("__offline__"):
             return None, "unavailable"
-        memo = _memo_from(reply.get("memo")) if reply.get("memo") else None
-        calls = reply.get("calls") if isinstance(reply.get("calls"), list) else []
-        thought = _thought(reply.get("thought"))
-        if thought and not _numbers_ok(thought, run.results + [{"result": c.describe()}] + [{"args": x.get("args")} for x in calls if isinstance(x, dict)]):
-            thought = None  # Gemini's own words are shown only when every number in them is one the engine or the case gave
-        if memo is None and calls and not must_write:
-            if thought:
-                run.add(actor="gemini", kind="think", tone="info", title=thought)
-            for call in calls[:MAX_CALLS_PER_TURN]:
-                if run.tools >= MAX_TOOL_CALLS or not isinstance(call, dict):
-                    break
-                tool = call.get("tool")
-                if tool not in RUNNERS:
-                    history.append(f"- {tool!r} -> refused: not a tool")
-                    continue
-                args, why = _clean_args(c, tool, call.get("args"))
-                if args is None:
-                    run.add(actor="engine", kind="refused", tool=tool, tone="muted", title=f"Refused {tool}: {why}")
-                    history.append(f"- {tool} {json.dumps(call.get('args'))[:120]} -> refused: {why}")
-                    continue
-                run.tools += 1
-                res = await run.tool(tool, args, "gemini")
-                history.append(f"- {tool} {json.dumps(args)} -> {json.dumps(for_gemini(tool, res), separators=(',', ':'))[:RESULT_MAX_CHARS]}")
+        run.model = reply.get("model") or run.model
+        if reply.get("cache_key"):
+            run.cache_keys.append(reply["cache_key"])
+        contents.append(reply["content"])  # verbatim: every part, in order, with its thought signature
+        calls = reply["calls"]
+        if calls:
+            run.fcalls += len(calls)
+            words = _thought(reply.get("text"))
+            call_args = [{"args": {k: v for k, v in (x.get("args") or {}).items() if k != "why"}} for x in calls]
+            if words and not _numbers_ok(words, run.results + [{"result": c.describe()}] + call_args):
+                words = None  # Gemini's own words are shown only when every number in them is one the engine or the case gave
+            if words:
+                run.add(actor="gemini", kind="think", tone="info", title=words)
+            parts = [function_response(call, await _answer(run, call, must_write)) for call in calls]
+            contents.append({"role": "user", "parts": parts})  # one response per call, after all the calls
             continue
+        raw = _json_reply(reply.get("text"))
+        memo = _memo_from(raw.get("memo")) if isinstance(raw, dict) else None
+        thought = _thought(raw.get("thought")) if isinstance(raw, dict) else None
+        if thought and not _numbers_ok(thought, run.results + [{"result": c.describe()}]):
+            thought = None
         if memo is None:
             if must_write:
                 memo_tries += 1
                 if memo_tries >= 2:
+                    run.forget()
                     return None, "no_memo"
-                feedback = "Your reply had no complete memo. Write the memo now, all five parts."
+                note = "Your reply had no complete memo. Write the memo now, all five parts, as JSON only: " + MEMO_REPLY
             else:
-                feedback = "Your reply had neither tool calls nor a memo."
+                note = "Your reply had neither a function call nor a complete memo. Call a tool, or write the memo as JSON only: " + MEMO_REPLY
             continue
-        # a memo: check every number against the tool results
-        memo_tries += 1
-        run.add(actor="gemini", kind="memo" if memo_tries == 1 else "revise", tone="info",
-                title="Wrote the memo" if memo_tries == 1 else "Rewrote the memo", detail=thought)
         if not run.results:
-            feedback = "You wrote a memo without calling any tool: every number must come from a tool result. Call the tools first."
             run.add(actor="engine", kind="check", tone="over", title="Rejected: no tool was called, so no number can be checked")
+            note = "You wrote a memo without calling any tool: every number must come from a tool result. Call the tools first."
             continue
+        # a memo (structured output): check every number against the tool results
+        memo_tries += 1
+        run.add(actor="gemini", kind="memo" if memo_tries == 1 else "revise", tone="info", via="structured_output",
+                title="Wrote the memo" if memo_tries == 1 else "Rewrote the memo", detail=thought)
         ok, bad, n, reason = check_memo(memo, c, run.results)
         if ok:
             run.add(actor="engine", kind="check", tone="holds", numbers_checked=n, title=f"Checked {n} {'number' if n == 1 else 'numbers'} in the memo against the tool results: every one matches")
@@ -828,10 +984,11 @@ async def _agent(run: Run) -> tuple[dict | None, str]:
         what = reason or f"{len(bad)} {'number matches' if len(bad) == 1 else 'numbers match'} no tool result ({', '.join(bad[:5])})"
         run.add(actor="engine", kind="check", tone="over", bad=bad[:8], numbers_checked=n, title=f"Checked the memo: {what}")
         if memo_tries >= 2:
+            run.forget()
             return None, "rejected"
-        feedback = (f"The engine checked your memo and rejected it: {what}. Rewrite the memo using only numbers that appear in the tool results above"
-                    + (" and without that wording." if reason else ".") + " Do not call more tools.")
-        history.append("- (memo rejected by the number check)")
+        note = (f"The engine checked your memo and rejected it: {what}. Rewrite the memo using only numbers that appear in the function responses above, "
+                "written in digits" + (", and without that wording." if reason else ".") + " Do not call more tools. Reply with JSON only: " + MEMO_REPLY)
+    run.forget()
     return None, "out_of_turns"
 
 
@@ -892,7 +1049,9 @@ async def _analyse(run: Run) -> dict:
         "verified": True,  # every number in the memo matched a tool result (Gemini's after the check; the plain one by construction)
         "calls": run.calls,
         "tool_calls": len(run.results),
-        "model": AGENT_MODEL if run.calls else None,
+        "function_calls": run.fcalls,  # functionCall parts Gemini returned (native function calling; run or refused)
+        "function_calling": bool(run.calls),  # the agent ran on Gemini function calling (False: the fixed plan only)
+        "model": (run.model or AGENT_MODEL) if run.calls else None,
         "ms": round((time.perf_counter() - run.t0) * 1000),
         "note": FRAME,
     }

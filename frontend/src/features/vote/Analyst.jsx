@@ -34,6 +34,8 @@ function Memo({ result }) {
           {gemini ? `${m.numbers_checked} numbers checked` : null}
         </AiBadge>
       </p>
+      {/* Gemini's headline is about the model's case: say so before it, not only in the footnote */}
+      <p className="vote-memo__on">On the synthetic grid model, a campus of the reported size at this location:</p>
       <h3 id="vote-memo-h" className="vote-memo__head">
         {m.headline}
       </h3>
@@ -47,7 +49,7 @@ function Memo({ result }) {
       </dl>
       <p className="vote-note">
         {gemini
-          ? `Written by Gemini from ${result.tool_calls} engine ${result.tool_calls === 1 ? 'run' : 'runs'} it chose (${result.calls} Gemini ${result.calls === 1 ? 'call' : 'calls'}); each of the ${m.numbers_checked} numbers in it matched one of those results.`
+          ? `Written by Gemini from ${result.tool_calls} engine ${result.tool_calls === 1 ? 'run' : 'runs'} it called as functions (${result.calls} Gemini ${result.calls === 1 ? 'call' : 'calls'}); each of the ${m.numbers_checked} numbers in it matched one of those results.`
           : `The plain version (${result.why || 'Gemini unavailable'}): ${result.tool_calls} engine runs in a fixed order and a template memo; every number comes from those runs.`}
         {result.cached ? ' From an earlier run of this case.' : ''}
       </p>
@@ -119,9 +121,9 @@ export default function Analyst({ entry, sim }) {
   return (
     <div className="vote-analyst stack">
       <p className="vote-body">
-        Gemini works this proposal out as an agent. It chooses which engine runs to make (a size what-if, the nearest substations, nearby sites that take it, the verified
-        ways to build it, firm against flexible service), reads each result, and writes a short memo. Every number in the memo is checked against the engine&apos;s results
-        before it is shown.
+        Gemini works this proposal out as an agent, using Gemini function calling: the engine&apos;s tools are declared to it as functions (a size what-if, the nearest
+        substations, nearby sites that take it, the verified ways to build it, firm against flexible service), it calls the ones it needs with a one-line reason for each, reads each result, and writes a
+        short memo. Every number in the memo is checked against the engine&apos;s results before it is shown.
       </p>
       {phase === 'idle' && (
         <div className="vote-actions">
