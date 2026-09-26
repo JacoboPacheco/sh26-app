@@ -619,7 +619,17 @@ def _window(p: dict, months: int):
     return None
 
 
+PASSED_FACTOR = 0.6  # a shared build window that ended before today, as filed: still worth a check, ranked below live ones
+
+
+def _today() -> date:
+    return date.today()
+
+
 def _timeline(pa: dict, pb: dict, months: int):
+    """How the two build windows line up, and where today falls: a shared window still ahead or open now keeps
+    its full weight; one that ended before today (as filed) is scored down, so the list leads with pairs that can
+    still act on it."""
     ia, ib = _date(pa.get("in_service")), _date(pb.get("in_service"))
     gap_days = abs((ia - ib).days) if ia and ib else None
     wa, wb = _window(pa, months), _window(pb, months)
@@ -632,6 +642,7 @@ def _timeline(pa: dict, pb: dict, months: int):
             "factor": 0.5,
             "reason": "Timeline unknown: at least one project has no in-service date in its filing",
             "windows": [wa, wb],
+            "ahead": None,
         }
     overlap = (min(wa[1], wb[1]) - max(wa[0], wb[0])).days
     if overlap > 0:
@@ -641,11 +652,26 @@ def _timeline(pa: dict, pb: dict, months: int):
         when = f"{s:%b %Y}" if (s.year, s.month) == (e.year, e.month) else f"{s:%b %Y} to {e:%b %Y}"
         reason = f"Build windows overlap by {_span(overlap)} ({when})"
         wgap = 0
+        today = _today()
+        if e < today:
+            ahead = "past"
+            factor = PASSED_FACTOR
+            reason += f"; as filed, that shared window ended before today (x{PASSED_FACTOR:g})"
+        elif s <= today:
+            ahead = "open"
+            reason += f"; open now, about {max(1, round((e - today).days / 30.44))} months left"
+        else:
+            ahead = "future"
+            reason += "; still ahead"
     else:
         months_ov = 0.0
         wgap = -overlap
         factor = 0.8 if wgap <= 365 else (0.5 if wgap <= 1095 else 0.25)
         reason = "Build windows meet end to start" if wgap == 0 else f"Build windows don't overlap: {_span(wgap)} apart"
+        ahead = "past" if max(wa[1], wb[1]) < _today() else "future"
+        if ahead == "past":
+            factor = round(factor * PASSED_FACTOR, 3)
+            reason += f"; as filed, both windows ended before today (x{PASSED_FACTOR:g})"
     if gap_days is not None:
         reason += f"; in service {gap_days:,} days apart"
     return {
@@ -656,6 +682,7 @@ def _timeline(pa: dict, pb: dict, months: int):
         "factor": factor,
         "reason": reason,
         "windows": [wa, wb],
+        "ahead": ahead,  # the shared window (or both windows) against today: future, open or past
     }
 
 
@@ -739,6 +766,7 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
         "windows_overlap_months": tl["windows_overlap_months"],
         "window_gap_days": tl["window_gap_days"],
         "same_window": tl["same_window"],
+        "ahead": tl["ahead"],
         "score": score,
         "score_parts": {"distance": round(df, 3), "timeline": tl["factor"], "location": cf, "same_kv": kf},
         "share": _share_line(tier, tl),
