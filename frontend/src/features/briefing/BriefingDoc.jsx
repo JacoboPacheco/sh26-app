@@ -22,7 +22,8 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
 
   return (
     <article className="rs-doc" aria-labelledby="rs-doc-title">
-      <p className="rs-doc__banner">{report.banner}</p>
+      <p className="rs-doc__banner">{loc(deck, 'banner', lang) || report.banner}</p>
+      {lang === 'es' && <p className="muted">El informe escrito está en inglés; las diapositivas, los subtítulos y la narración están en español.</p>}
       <header className="rs-doc__head">
         <p className="rs-doc__kicker">
           {t.sim} · {deck?.title?.[lang] || 'Incident briefing'}
