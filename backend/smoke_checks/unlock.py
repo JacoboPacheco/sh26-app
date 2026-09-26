@@ -96,6 +96,20 @@ def register(ctx):
         assert abs(h["cost_high"] - steps[-1]["cum_cost"]["high"]) <= len(steps) + 1, (h["cost_high"], steps[-1]["cum_cost"])
         assert 0 < h["cost_low"] <= h["cost_high"], h
         assert r["after"]["worst"]["people_hit"] <= r["before"]["worst"]["people_hit"], (r["before"]["worst"], r["after"]["worst"])
+        # the headline in siting language, and the strain from the study's own numbers
+        assert h["mw_unlocked"] == more * MW and f"{more:,} more sites can host {MW:,} MW" in h["sentence"], h["sentence"]
+        # the summed figure is site options, never capacity that connects together: the visible text says so
+        assert "of site options" in h["sentence"] and "each site tested alone, not all at once" in h["sentence"], h["sentence"]
+        assert " unlocked" not in h["sentence"], h["sentence"]
+        assert "not all at once" in h["mw_unlocked_note"] and "together" in h["mw_unlocked_note"], h["mw_unlocked_note"]
+        sn = h["strain"]
+        assert sn["blackout_sites_before"] == r["before"]["blackout_sites"] and sn["blackout_sites_after"] == r["after"]["blackout_sites"], sn
+        assert sn["worst_people_before"] == r["before"]["worst"]["people_hit"] and sn["worst_people_after"] == r["after"]["worst"]["people_hit"], sn
+        assert 0 <= sn["line_overloads_after"] < sn["line_overloads_before"] and sn["line_overloads_after"] == steps[-1]["overloads_left"], sn
+        left = [s["overloads_left"] for s in steps]
+        assert left == sorted(left, reverse=True) and left[0] < sn["line_overloads_before"], "a step raised the overload count"
+        assert all(s["mw_unlocked"] == (s["sites_ok"] - r["before"]["sites_ok"]) * MW for s in steps), "mw_unlocked per step"
+        assert sn["sentence"].startswith("Strain") and f"{sn['blackout_sites_before']:,} to {sn['blackout_sites_after']:,}" in sn["sentence"], sn["sentence"]
         lr = r["learned"]
         assert lr["cascades"] >= 1 and lr["solves"] >= lr["cascades"] and lr["sites"] == n, lr
         assert all(s["name"] and s["url"].startswith("https://") for s in r["sources"]), r["sources"]

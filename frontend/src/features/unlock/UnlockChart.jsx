@@ -22,6 +22,8 @@ function niceMax(v) {
   for (const k of [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]) if (k * p >= v - 1e-9) return k * p
   return 10 * p
 }
+// site options, each site tested alone (never capacity that connects together): "7 GW", "750 MW"
+const siteOptions = (mw) => (mw >= 1000 ? `${(mw / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })} GW` : `${fmt(mw)} MW`)
 const short = (x) => {
   if (x >= 1e9) return `$${(x / 1e9).toFixed(1).replace(/\.0$/, '')}B`
   if (x >= 1e6) return `$${Math.round(x / 1e6)}M`
@@ -167,10 +169,13 @@ export default function UnlockChart({ result, shown, bundle, onPick, onBundle })
             </>
           ) : (
             <>
-              <strong>+{fmt(pts[tip.s].m)} sites</strong>
+              <strong>
+                +{fmt(pts[tip.s].m)} sites{pts[tip.s].m ? ` · ${siteOptions(pts[tip.s].m * result.mw)} of site options` : ''}
+              </strong>
               <span>
                 {money(pts[tip.s].c)} · {fmt(ok0 + pts[tip.s].m)} in all
               </span>
+              {pts[tip.s].m > 0 && <span className="ul-tip__who">Each site tested alone, not all at once</span>}
               <span className="ul-tip__who">{tip.s ? `Engine plan, step ${tip.s}` : 'Today, no upgrades'}</span>
             </>
           )}

@@ -152,67 +152,166 @@
   background: var(--hr-ok);
 }
 
-/* ranked sites: a ranking is a sequence, so the numbers carry meaning */
-.fix-sites {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0.35rem;
+/* ranked sites: a sober screening table, plain tabular figures */
+.fix-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
-.fix-site {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: var(--space-2);
-  align-items: center;
-  padding: 0.3rem 0.4rem;
-  border-radius: var(--radius);
+.fix-intro {
   font-size: 0.8125rem;
+  line-height: 1.45;
 }
 
-.fix-site:hover,
-.fix-site:focus-within {
+.fix-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.fix-table th,
+.fix-table td {
+  padding: 0.3rem 0.25rem;
+  text-align: right;
+  vertical-align: middle;
+  border-top: 1px solid var(--glass-edge);
+  white-space: nowrap;
+}
+
+.fix-table thead th {
+  border-top: 0;
+  padding-bottom: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ink-2);
+  vertical-align: bottom;
+  white-space: normal;
+}
+
+.fix-table .fix-c-rank {
+  width: 1.4rem;
+  padding-left: 0;
+  text-align: left;
+  color: var(--ink-2);
+}
+
+.fix-table .fix-c-town {
+  width: 38%;
+  text-align: left;
+}
+
+.fix-table th:nth-child(3) {
+  width: 2.3rem;
+}
+
+.fix-table th:nth-child(6) {
+  width: 3rem;
+}
+
+.fix-row {
+  cursor: pointer;
+}
+
+.fix-row:hover,
+.fix-row--on,
+.fix-row:focus-within {
   background: var(--glass-hi);
 }
 
-.fix-site__rank {
-  display: grid;
-  place-items: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 50%;
-  background: var(--hr-ok);
-  color: var(--night);
-  font-weight: 800;
-  font-size: 0.75rem;
-}
-
-.fix-sites--closest .fix-site__rank {
-  background: var(--hr-mid);
-}
-
-.fix-site__text {
-  display: grid;
-  min-width: 0;
-}
-
-.fix-site__text strong {
-  font-size: 0.875rem;
+.fix-row__btn {
+  font: inherit;
+  font-weight: 600;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  cursor: pointer;
 }
 
-.fix-site__up {
-  color: var(--hr-mid);
+.fix-row__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.fix-c-hot {
+  color: var(--strain);
+}
+
+.fix-c-score {
+  color: var(--ink);
   font-weight: 600;
 }
 
-.fix-site .btn {
-  font-size: 0.8125rem;
-  padding: 0.3rem 0.6rem;
-  white-space: nowrap;
+.fix-c-score > span:first-child {
+  display: block;
+}
+
+.fix-bar {
+  display: block;
+  height: 2px;
+  margin-top: 2px;
+  background: var(--glass-edge);
+  border-radius: 1px;
+  overflow: hidden;
+}
+
+.fix-bar span {
+  display: block;
+  height: 100%;
+  background: var(--hr-ok);
+  transform-origin: left;
+}
+
+.fix-table--closest .fix-c-score {
+  font-weight: 600;
+}
+
+.fix-c-up {
+  color: var(--hr-mid);
+}
+
+.fix-how {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.fix-how strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.fix-strain {
+  display: grid;
+  gap: 1px;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--glass-edge);
+}
+
+.fix-strain__k {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.fix-strain strong {
+  color: var(--ink);
+  font-weight: 600;
 }
 
 /* ------------------------------------------------------------------ map layer */
@@ -276,6 +375,7 @@
   dominant-baseline: central;
 }
 
+/* the ring pulses only on the pin whose table row is hovered or focused: it says "this one" */
 .fix-pin__ring {
   fill: none;
   stroke: var(--hr-ok);
@@ -283,7 +383,7 @@
   vector-effect: non-scaling-stroke;
   transform-box: fill-box;
   transform-origin: center;
-  animation: fix-ping 2.2s ease-out infinite;
+  opacity: 0;
 }
 
 .fix-pin--hover .fix-pin__dot {
@@ -292,7 +392,9 @@
 }
 
 .fix-pin--hover .fix-pin__ring {
-  stroke-width: 3;
+  stroke-width: 2;
+  opacity: 1;
+  animation: fix-ping 1.6s ease-out infinite;
 }
 
 .fix-pins--closest .fix-pin__dot,

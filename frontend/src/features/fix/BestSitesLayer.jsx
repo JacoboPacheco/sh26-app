@@ -1,9 +1,10 @@
 // FEATURE: best sites — pins on the map (owned by the fix track).
 // Contract: default export BestSitesLayer() — SVG inside the map camera.
 //
-// While mode === 'fix': numbered pins at the best sites for the current size (green: they take it;
-// amber: nowhere does, these are the roomiest), and the branches the fix upgrades (dashed while
-// proposed, solid once applied). A few dozen elements at most; drawn at constant screen size.
+// While mode === 'fix': pins carrying the best-sites table's rank (green: they take it; amber: nowhere
+// does, these are the roomiest), the hovered row's pin marked by a ring, and the branches the fix
+// upgrades (dashed while proposed, solid once applied). A few dozen elements at most; drawn at
+// constant screen size.
 import { useOverload } from '../../store'
 import { CITIES, project as projectLonLat } from '../../geo'
 import { useMapView } from '../../GridMap'

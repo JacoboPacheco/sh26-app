@@ -36,6 +36,12 @@ and after, cost range, owner = the substation's area name — there is no real u
 `window`), so a later feature can compare and assign upgrades across companies with the same overlap
 logic as Build plans (gridlock.py).
 
+The headline says it in siting language ("18 upgrades, $211 million (high end): 7 more sites can host 1,000 MW,
+7 GW of site options (each site tested alone, not all at once)"): `mw_unlocked` is site options, each site tested
+alone, never capacity the grid carries together (the sum can exceed the state's load). Its `strain` is the
+study's own measure: line overloads summed over the tested sites, sites that set off a blackout, and the worst
+blackout, today and with the whole plan (each step also carries `overloads_left` and `mw_unlocked`).
+
 All numbers come from a SYNTHETIC grid model (Breakthrough Energy / Texas A&M), not any real utility's
 network; costs are labeled estimates with their sources.
 """
@@ -93,8 +99,9 @@ JOB_TTL_S = 900
 RUNNING_MAX = 4
 NOTE = (
     "Synthetic grid model (Breakthrough Energy / Texas A&M), not a real utility's network. Each site is a campus of this "
-    "size tested on its own; costs are estimates from published figures."
+    "size tested alone, not all at once; costs are estimates from published figures."
 )
+ALONE = "each site tested alone, not all at once"  # the qualifier every site-options figure carries
 
 _compute_lock = threading.Lock()  # one study computes at a time (CPU-bound: two only slow each other)
 _cache: "OrderedDict[tuple, dict]" = OrderedDict()
@@ -170,6 +177,23 @@ def _n(x: float) -> str:
 
 def _hit(c: dict) -> int:
     return int(c.get("people_hit", c.get("people", 0)) or 0)
+
+
+def _money(x: float) -> str:
+    """ "$211 million", "$10.2 billion", "$5.6 million" (the frontend's money())."""
+    x = float(x)
+    for div, unit in ((1e9, "billion"), (1e6, "million")):
+        if x >= div:
+            v = x / div
+            d = 0 if v >= 100 else 1 if v >= 10 else 2
+            s = f"{v:.{d}f}".rstrip("0").rstrip(".") if d else f"{v:.0f}"
+            return f"${s} {unit}"
+    return f"${x:,.0f}"
+
+
+def _gw(mw: float) -> str:
+    """ "7 GW", "1.5 GW", "750 MW"."""
+    return f"{mw / 1000:,.1f}".rstrip("0").rstrip(".") + " GW" if mw >= 1000 else f"{mw:,.0f} MW"
 
 
 # ---------------------------------------------------------------------------------- the study
@@ -499,6 +523,11 @@ class Study:
         calm = c["total_steps"] == 0 and _hit(c) == 0 and c["lost_mw"] <= 0.5 and c["site_dark_mw"] <= 0.5
         return calm, _hit(c)
 
+    def overloads(self, rate: np.ndarray) -> int:
+        """Line overloads summed over every tested site (one campus at a time) with ratings `rate`: the study's own
+        measure of strain (each entry is a line over its limit with the campus at one site; exact for the linear flows)."""
+        return int(np.count_nonzero(self._over(self.e_need, rate[self.e_line]))) if len(self.e_line) else 0
+
     def _ups(self, rate: np.ndarray) -> dict[int, float]:
         g = self.g
         return {int(g.br_ids[i]): float(rate[i]) for i in np.flatnonzero(rate > g.rate + 1e-6)}
@@ -750,6 +779,8 @@ class Study:
                     "unverified": len(st["unverified"]),
                     "blackout_prevented_max": int(max(lost)) if lost else 0,
                     "blackout_sites_prevented": len(lost),
+                    "mw_unlocked": round((ok_now - int(self.ok0.sum())) * self.mw),  # site capacity, each site on its own
+                    "overloads_left": self.overloads(st["rate"]),  # line overloads across the tested sites after this step
                 }
             )
         for j, row in enumerate(self.site_rows):
@@ -765,6 +796,29 @@ class Study:
         after_known = self.hit_after >= 0
         after_bo = int((self.hit_after > 0).sum())
         apply = {str(k): v for k, v in self._ups(self.rate_final).items()}
+        worst0, worst1 = self._worst(self.hit0), self._worst(self.hit_after)
+        strain = {
+            # the study's own numbers, today and with the whole plan (each site tested on its own)
+            "line_overloads_before": self.overloads(g.rate),
+            "line_overloads_after": self.overloads(self.rate_final),
+            "blackout_sites_before": before_bo,
+            "blackout_sites_after": after_bo,
+            "worst_people_before": worst0["people_hit"],
+            "worst_people_after": worst1["people_hit"],
+        }
+        strain["sentence"] = (
+            f"Strain, with the whole plan: line overloads across the {self.ns} tested sites {strain['line_overloads_before']:,} to "
+            f"{strain['line_overloads_after']:,}; sites that set off a blackout {before_bo:,} to {after_bo:,}"
+            + (f"; the worst blackout {_n(worst0['people_hit'])} to {_n(worst1['people_hit'])} people (estimate)." if worst0["people_hit"] else ".")
+        )
+        mw_unlocked = more * self.mw
+        # site options, not capacity the grid carries together: the sum can exceed the state's whole load
+        sentence = (
+            f"{eng['lines']:,} {'upgrade' if eng['lines'] == 1 else 'upgrades'}, {_money(eng['high'])} (high end): {more:,} more "
+            f"{'site' if more == 1 else 'sites'} can host {self.mw:,.0f} MW, {_gw(mw_unlocked)} of site options ({ALONE})."
+            if more
+            else f"No upgrade within five times a line's rating lets another site host {self.mw:,.0f} MW."
+        )
         out = {
             **base,
             "already_failing": False,
@@ -791,6 +845,10 @@ class Study:
                 "cost_high": round(eng["high"]),
                 "more_sites": more,
                 "gw": round(more * self.mw / 1000.0, 1),
+                "mw_unlocked": round(mw_unlocked),  # site options: each site tested alone, not all at once (never a sum that connects together)
+                "mw_unlocked_note": f"{_gw(mw_unlocked)} of site options: {ALONE}; not capacity the grid carries together." if more else None,
+                "sentence": sentence,  # the plan in plain siting language
+                "strain": strain,
             },
             "apply": apply,
             "ai": ai,

@@ -2,14 +2,14 @@
 // Contract: default export FixPanel() — the left panel while mode === 'fix'.
 //
 // Two answers after the problem: (1) the smallest set of line upgrades (in MVA added) that clears
-// every overload in the current case, applied with one click so the map turns calm; (2) the towns
-// whose substations can take a campus this size before any line overloads.
+// every overload in the current case, applied with one click so the map turns calm; (2) a ranked
+// screening table of the towns whose substations take a campus this size with no line overloaded.
 import { useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Badge, Button, EmptyState, ErrorBanner, Loading } from '../../ui'
 import './fix.css'
-import { isApplied, prettyName, runFix, setHoverSite, shownSites, useBestSites, useFix } from './fixStore'
+import { isApplied, prettyName, runFix, setHoverSite, shownSites, useBestSites, useFix, useHoverSite } from './fixStore'
 
 export default function FixPanel() {
   return (
@@ -233,12 +233,22 @@ function Unfixable({ fix }) {
   )
 }
 
-// ------------------------------------------------------------------ (2) Best sites
+// ------------------------------------------------------------------ (2) Best sites: a ranked screening table
+// One row per town, facts from one solve with the campus there: connect voltage, room (headroom), the busiest
+// line it loads up, and a plain 0-100 score whose formula the backend sends (shown under the table). A row
+// click (or its town button, for the keyboard) places the campus there. When nothing fits, the roomiest towns
+// with the smallest fix, and the Score column becomes the upgrades each needs.
 function BestSites() {
   const { mw, loadFactor, place, setMode, focus, region } = useOverload()
   const best = useBestSites(mw, loadFactor, true, region)
+  const hover = useHoverSite()
   const { list, fits } = shownSites(best.data)
   const level = Math.round(loadFactor * 100)
+  const at = level !== 100 ? ` at ${level} % of normal demand` : ''
+  // lines some state models already run over their limit with no campus at all (South Carolina, Mississippi;
+  // at a heat wave more): the screen skips them, so say "no NEW line" and name them
+  const pre = best.data?.strain_alone?.over || 0
+  const preNote = pre ? ` (${fmt(pre)} ${pre === 1 ? 'line is' : 'lines are'} already over with no campus)` : ''
 
   const putHere = (s) => {
     setHoverSite(null)
@@ -257,64 +267,154 @@ function BestSites() {
         <Loading label="Ranking substations…" />
       ) : (
         <>
-          {fits && list[0]?.headroom_at_least ? (
-            <p className="muted">
-              Each takes {fmt(mw)} MW with no line over its limit{level !== 100 ? ` at ${level} % of normal demand` : ''}, checked with a full solve.
-              One substation per town, the coolest grid first.
-            </p>
-          ) : fits ? (
-            <p className="muted">
-              Most headroom before any line overloads, one substation per town{level !== 100 ? `, at ${level} % of normal demand` : ''}. Each is
-              checked with a full solve; ties go to the site where the busiest line runs coolest.
+          {fits ? (
+            <p className="muted fix-intro">
+              {best.data.screened ? `${fmt(best.data.screened)} towns screened` : 'Towns screened'} with a full power-flow solve{at}; every listed site takes{' '}
+              {fmt(mw)} MW with {pre ? 'no new line' : 'no line'} over its limit{preNote}. One substation per town, ranked by score.
             </p>
           ) : (
-            <p>
-              No substation takes {fmt(mw)} MW before a line overloads{level !== 100 ? ` at ${level} % of normal demand` : ''}. The most any one takes is{' '}
-              <strong>{fmt(best.data.max_headroom_mw)} MW</strong>. Where the smallest upgrades would carry it:
+            <p className="fix-intro">
+              No substation takes {fmt(mw)} MW before {pre ? 'another' : 'a'} line overloads{at}{preNote}. The most any one takes is <strong>{fmt(best.data.max_headroom_mw)} MW</strong>. Where
+              the smallest upgrades would carry it:
             </p>
           )}
-          <ol className={`fix-sites${fits ? '' : ' fix-sites--closest'}`}>
-            {list.map((s) => (
-              <li
-                key={s.sub}
-                className="fix-site"
-                onMouseEnter={() => setHoverSite(s.sub)}
-                onMouseLeave={() => setHoverSite(null)}
-                onFocus={() => setHoverSite(s.sub)}
-                onBlur={() => setHoverSite(null)}
-              >
-                <span className="fix-site__rank" aria-hidden="true">
-                  {s.rank}
-                </span>
-                <div className="fix-site__text" title={`${prettyName(s.name)} · ${fmt(s.kv)} kV`}>
-                  <strong>{s.town}</strong>
-                  {!fits && s.fix_mva > 0 && (
-                    <span className="fix-site__up">
-                      +{fmt(s.fix_mva)} MVA of upgrades{s.fix_calm ? '' : ', and still over'}
-                    </span>
-                  )}
-                  <span className="muted">
-                    {s.headroom_at_least ? 'At least ' : ''}
-                    {fmt(s.headroom_mw)} MW headroom
-                  </span>
-                  {fits && s.busiest_pct != null && <span className="muted">Busiest line then: {Math.round(s.busiest_pct)} %</span>}
-                </div>
-                <Button variant="secondary" onClick={() => putHere(s)} aria-label={`Put the ${fmt(mw)} MW campus at ${s.town}`}>
-                  Put it here
-                </Button>
-              </li>
-            ))}
-          </ol>
-          {list.length > 1 && (
-            <div className="row">
-              <Button variant="secondary" onClick={() => focus(list.map((s) => [s.lon, s.lat]))}>
-                Show them on the map
-              </Button>
-            </div>
+          <SitesTable list={list} fits={fits} mw={mw} hover={hover} onPick={putHere} />
+          {!fits && list.some((s) => !s.fix_calm) && <p className="fix-how">* Still over after re-rating: it needs a new line.</p>}
+          <SharedLimit shared={best.data.shared_limit} />
+          {fits && best.data.score_formula && (
+            <p className="fix-how">
+              <strong>How the score works.</strong> {best.data.score_formula}
+            </p>
           )}
+          <StrainLine data={best.data} list={list} hover={hover} />
+          <p className="fix-how">Click a row to put the campus there.{' '}
+            {list.length > 1 && (
+              <button type="button" className="fix-link" onClick={() => focus(list.map((s) => [s.lon, s.lat]))}>
+                Show them on the map
+              </button>
+            )}
+          </p>
         </>
       )}
     </section>
+  )
+}
+
+function SitesTable({ list, fits, mw, hover, onPick }) {
+  return (
+    <table className={`fix-table${fits ? '' : ' fix-table--closest'}`}>
+      <caption className="fix-sr">
+        {fits ? `Ranked sites for a ${fmt(mw)} MW campus` : `The roomiest towns and the upgrades a ${fmt(mw)} MW campus needs there`}
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col" className="fix-c-rank">
+            <span className="fix-sr">Rank</span>
+            <span aria-hidden="true">#</span>
+          </th>
+          <th scope="col" className="fix-c-town">
+            Town
+          </th>
+          <th scope="col">kV</th>
+          <th scope="col" title="Headroom: the MW this substation takes before any line goes over its limit">
+            Room MW
+          </th>
+          <th scope="col" title="The most loaded line the campus adds flow to, as a share of its rating">
+            Busiest line
+          </th>
+          <th scope="col">{fits ? 'Score' : 'Fix MVA'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {list.map((s) => {
+          const hot = s.busiest_pct >= 90
+          return (
+            <tr
+              key={s.sub}
+              className={`fix-row${hover === s.sub ? ' fix-row--on' : ''}`}
+              onClick={() => onPick(s)}
+              onMouseEnter={() => setHoverSite(s.sub)}
+              onMouseLeave={() => setHoverSite(null)}
+              title={`${prettyName(s.name)} · ${fmt(s.kv)} kV${s.limiting ? ` · limited by ${s.limiting.label}` : ''}`}
+            >
+              <td className="fix-c-rank">{s.rank}</td>
+              <th scope="row" className="fix-c-town">
+                <button
+                  type="button"
+                  className="fix-row__btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onPick(s)
+                  }}
+                  onFocus={() => setHoverSite(s.sub)}
+                  onBlur={() => setHoverSite(null)}
+                  aria-label={`Put the ${fmt(mw)} MW campus at ${s.town}`}
+                >
+                  {s.town}
+                </button>
+              </th>
+              <td>{fmt(s.kv)}</td>
+              <td>
+                {s.headroom_at_least ? '≥ ' : ''}
+                {fmt(Math.round(s.headroom_mw))}
+              </td>
+              <td className={hot ? 'fix-c-hot' : ''}>{s.busiest_pct != null ? `${Math.round(s.busiest_pct)} %` : '–'}</td>
+              <td className="fix-c-score">
+                {fits ? (
+                  <>
+                    <span>{s.score ?? '–'}</span>
+                    {s.score != null && (
+                      <span className="fix-bar" aria-hidden="true">
+                        <span style={{ transform: `scaleX(${s.score / 100})` }} />
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="fix-c-up" title={s.fix_calm ? undefined : 'Still over after the upgrades: it needs a new line'}>
+                    +{fmt(s.fix_mva)}
+                    {s.fix_calm ? '' : '*'}
+                  </span>
+                )}
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
+// The grid's strain with the campus at the hovered (else the first) site, against the grid alone.
+function StrainLine({ data, list, hover }) {
+  const s = list.find((x) => x.sub === hover) || list[0]
+  const a = s?.strain_after
+  const z = data.strain_alone
+  if (!a || !z) return null
+  const hotPct = data.hot_pct ?? 90
+  return (
+    <p className="fix-strain" aria-live="polite">
+      <span className="fix-strain__k">Strain with the campus at {s.town}</span>
+      {s.limiting && (
+        <span>
+          Limiting element: {s.limiting.label} at <strong>{Math.round(s.busiest_pct)} %</strong>.
+        </span>
+      )}
+      <span>
+        Busiest line on the grid <strong>{Math.round(a.peak_pct)} %</strong> of its rating, <strong>{fmt(a.hot)}</strong> {a.hot === 1 ? 'line' : 'lines'} at{' '}
+        {hotPct} %+{a.over ? `, ${fmt(a.over)} over` : ''} (grid alone: {Math.round(z.peak_pct)} %, {fmt(z.hot)} hot{z.over ? `, ${fmt(z.over)} over` : ''}).
+      </span>
+    </p>
+  )
+}
+
+// Why many rows look alike: the same line or transformer limits them all.
+function SharedLimit({ shared }) {
+  if (!shared || shared.count < 3) return null
+  return (
+    <p className="fix-how">
+      {shared.count === shared.of ? `All ${shared.of}` : `${shared.count} of these ${shared.of}`} sites are limited by the same element, {shared.label}, which is why
+      they rank alike.
+    </p>
   )
 }
 

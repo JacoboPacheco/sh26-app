@@ -42,8 +42,8 @@ export default function UnlockPanel() {
       <header className="ul-head">
         <h3 className="panel-h">Strengthen the grid</h3>
         <p className="ul-lede">
-          Find the grid&apos;s weak points by simulation, test the cheapest fixes, and see how many more data centers they let connect. The physics engine
-          re-runs every fix, including the AI&apos;s.
+          Find where data centers strain the grid, test the cheapest upgrades that take the strain away, and see how many more sites could then host a campus. The physics
+          engine re-runs every fix, including the AI&apos;s.
         </p>
       </header>
 
@@ -197,10 +197,17 @@ function Result({ r, u }) {
   )
 }
 
+// "7 GW", "1.5 GW", "750 MW": site options, each site tested alone. Never capacity that connects together (the sum
+// can pass the state's whole load), so every place it shows says "of site options" and "not all at once".
+const capacity = (mw) => (mw >= 1000 ? `${(mw / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })} GW` : `${fmt(mw)} MW`)
+
 function Headline({ r, n }) {
   const st = n ? r.steps[n - 1] : null
   const more = st ? st.sites_ok - r.before.sites_ok : 0
   const all = n === r.steps.length && n > 0
+  const strain = r.headline?.strain
+  const overBefore = strain?.line_overloads_before
+  const overNow = st ? st.overloads_left : overBefore
   return (
     <section className="ul-hl" aria-live="polite">
       <div className="ul-hl__fig">
@@ -211,16 +218,42 @@ function Headline({ r, n }) {
       </div>
       {st ? (
         <p className="ul-hl__line">
-          <strong>{fmt(st.cum_upgrades)}</strong> {st.cum_upgrades === 1 ? 'upgrade' : 'upgrades'}, <strong>{money(st.cum_cost.high)}</strong> (high end), let{' '}
-          <strong>{fmt(more)}</strong> more {more === 1 ? 'site' : 'sites'} host {fmt(r.mw)} MW ({((more * r.mw) / 1000).toLocaleString('en-US', { maximumFractionDigits: 1 })} GW in all, each site tested on its
-          own)
-          {all ? '.' : `, ${n} of ${r.steps.length} steps.`}
+          <strong>{fmt(st.cum_upgrades)}</strong> {st.cum_upgrades === 1 ? 'upgrade' : 'upgrades'}, <strong>{money(st.cum_cost.high)}</strong> (high end):{' '}
+          <strong>{fmt(more)}</strong> more {more === 1 ? 'site' : 'sites'} can host {fmt(r.mw)} MW, <strong>{capacity(st.mw_unlocked ?? more * r.mw)} of site options</strong>{' '}
+          (each site tested alone, not all at once){all ? '' : <span className="ul-hl__q"> (step {n} of {r.steps.length})</span>}.
         </p>
       ) : (
         <p className="ul-hl__line">
           {r.before.short_sites >= r.sites_total
             ? `A campus this size sheds load wherever it goes in this model; ${fmt(r.before.blackout_sites)} sites set off a blackout.`
             : `The rest overload a line; ${fmt(r.before.blackout_sites)} set off a blackout in the model.${r.steps.length ? ' Press Build it up to add the upgrades one at a time.' : ''}`}
+        </p>
+      )}
+      {overBefore != null && overNow != null && (
+        <p className="ul-strain">
+          <span className="ul-strain__k">Strain</span>
+          <span>
+            line overloads across the {fmt(r.sites_total)} tested sites{' '}
+            {st ? (
+              <>
+                {fmt(overBefore)} → <strong className="ul-strain__now">{fmt(overNow)}</strong>
+              </>
+            ) : (
+              <strong>{fmt(overBefore)}</strong>
+            )}
+            {st && strain && all && (
+              <>
+                ; sites that set off a blackout {fmt(strain.blackout_sites_before)} → <strong className="ul-strain__now">{fmt(strain.blackout_sites_after)}</strong>
+                {strain.worst_people_before > 0 && (
+                  <>
+                    ; the worst blackout {compact(strain.worst_people_before)} → <strong className="ul-strain__now">{compact(strain.worst_people_after)}</strong> people
+                    (estimate)
+                  </>
+                )}
+              </>
+            )}
+            .
+          </span>
         </p>
       )}
     </section>
@@ -230,7 +263,9 @@ function Headline({ r, n }) {
 function Compare({ r }) {
   const b = r.before
   const a = r.after
+  const s = r.headline?.strain
   const rows = [
+    ...(s ? [['Line overloads across the tested sites', fmt(s.line_overloads_before), fmt(s.line_overloads_after)]] : []),
     ['Sites that can host it', fmt(b.sites_ok), fmt(a.sites_ok)],
     ['Sites that set off a blackout', fmt(b.blackout_sites), fmt(a.blackout_sites)],
     [
@@ -242,7 +277,8 @@ function Compare({ r }) {
   return (
     <table className="ul-compare">
       <caption>
-        Today and with the whole plan ({money(r.headline.cost_high)}, {fmt(r.headline.upgrades)} upgrades)
+        Strain today and with the whole plan ({money(r.headline.cost_high)}, {fmt(r.headline.upgrades)} upgrades
+        {r.headline.mw_unlocked ? `, ${capacity(r.headline.mw_unlocked)} of site options, each site tested alone, not all at once` : ''})
       </caption>
       <thead>
         <tr>

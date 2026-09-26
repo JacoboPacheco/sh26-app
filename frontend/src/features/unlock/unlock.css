@@ -235,6 +235,37 @@
   font-variant-numeric: tabular-nums;
 }
 
+.ul-hl__q {
+  color: var(--ink-2);
+}
+
+/* strain: the study's own count, falling as the upgrades land (the new figure in the fix's green) */
+.ul-strain {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-strain__k {
+  font-weight: 700;
+  color: var(--strain);
+}
+
+.ul-strain strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ul-strain .ul-strain__now {
+  color: var(--hr-ok);
+}
+
 .ul-controls {
   display: grid;
   grid-template-columns: auto 1fr;

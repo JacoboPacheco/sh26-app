@@ -82,6 +82,54 @@ def register(ctx):
             for s in r["closest"]:
                 assert s["fix_mva"] > 0 or not s["fix_calm"], f"{s['name']} needs no upgrade, so it fits: {s}"
 
+    def best_sites_scored():
+        # the screening table: every row's facts come from one solve, the score follows its stated formula, ranked by it
+        r = ctx.request("GET", "/api/best-sites?mw=1000&load_factor=1.0&limit=10")
+        assert "Score" in r["score_formula"] and r["hot_pct"] == 90, r.get("score_formula")
+        alone = r["strain_alone"]
+        assert 0 < alone["peak_pct"] and alone["hot"] >= 0 and alone["over"] >= 0, alone
+        assert r["screened"] >= len(r["sites"]) >= 1, (r["screened"], len(r["sites"]))
+        sites = r["sites"]
+        for s in sites:
+            room = min(1.0, max(0.0, (s["headroom_mw"] - 1000) / 1000))
+            cool = min(1.0, max(0.0, (100 - s["busiest_pct"]) / 40))
+            assert 0 <= s["score"] <= 100 and abs(s["score"] - (50 * room + 50 * cool)) <= 1, s
+            assert s["busiest_pct"] <= 100 and s["strain_after"]["over"] == 0, s
+            assert s["strain_after"]["peak_pct"] >= s["busiest_pct"] - 0.05, s
+        keys = [(-s["score"], -round(s["headroom_mw"]), s["busiest_pct"]) for s in sites]
+        assert keys == sorted(keys), f"not ranked by score: {[s['score'] for s in sites]}"
+        assert [s["rank"] for s in sites] == list(range(1, len(sites) + 1))
+        # the strain and the limiting element agree with the what-if at the top two sites (the same solve:
+        # one campus on the intact grid); loading_pct is aligned with /api/grid's branches
+        index = {b["id"]: k for k, b in enumerate(ctx.request("GET", "/api/grid")["branches"])}
+        for s in sites[:2]:
+            w = ctx.request("POST", "/api/grid/whatif", {"lat": s["lat"], "lon": s["lon"], "mw": 1000})
+            pct = w["loading_pct"]
+            assert abs(max(pct) - s["strain_after"]["peak_pct"]) <= 0.15, (s["town"], max(pct), s["strain_after"])
+            hot = sum(1 for p in pct if p >= 90)
+            assert abs(hot - s["strain_after"]["hot"]) <= 1, (s["town"], hot, s["strain_after"])
+            lim = s["limiting"]
+            assert lim and lim["label"].startswith("the ") and lim["id"] in index, (s["town"], lim)
+            assert abs(pct[index[lim["id"]]] - s["busiest_pct"]) <= 0.15, (s["town"], lim, pct[index[lim["id"]]], s["busiest_pct"])
+        sh = r["shared_limit"]
+        if sh:
+            assert 2 <= sh["count"] <= sh["of"] == len(sites) and sh["id"] == sites[0]["limiting"]["id"], sh
+
+    def best_sites_already_over():
+        # South Carolina's model already runs a line over its limit at 4 PM with no campus: the listed sites add no
+        # NEW overload (every line over with the campus was over without it), which is what the panel says there
+        r = ctx.request("GET", "/api/best-sites?mw=500&region=SC&limit=10")
+        alone = r["strain_alone"]
+        assert alone["over"] >= 1, alone
+        assert r["sites"], "no SC site listed at 500 MW"
+        for s in r["sites"]:
+            assert s["busiest_pct"] <= 100 and s["strain_after"]["over"] <= alone["over"], (s["town"], s["busiest_pct"], s["strain_after"], alone)
+
+    def best_sites_closest_unscored():
+        r = ctx.request("GET", "/api/best-sites?mw=5000&limit=5")
+        for s in r["closest"]:
+            assert s["score"] is None and s["busiest_pct"] > 100 and s["strain_after"]["over"] >= 1, s
+
     def best_sites_rejects():
         ctx.request("GET", "/api/best-sites?mw=0", expect=422)
         ctx.request("GET", "/api/best-sites?mw=500&limit=0", expect=422)
@@ -95,4 +143,7 @@ def register(ctx):
     ctx.check("best sites: 500 MW returns up to 10 towns that take it", best_sites_500)
     ctx.check("best sites: nowhere fits 5,000 MW, closest listed", best_sites_too_big)
     ctx.check("best sites: 1,500 MW agrees with a full solve", best_sites_agree_with_a_solve)
+    ctx.check("best sites: a ranked screening table, scored by its stated formula, strain agrees with the what-if", best_sites_scored)
+    ctx.check("best sites: a state already over with no campus lists sites that add no new overload", best_sites_already_over)
+    ctx.check("best sites: towns that need upgrades carry no score", best_sites_closest_unscored)
     ctx.check("best sites: bad size, limit, level rejected (422)", best_sites_rejects)
