@@ -529,3 +529,25 @@
   font-weight: 700;
   color: var(--hr-ok);
 }
+
+/* ------------------------------------------------------------------ before anything is dropped (ImpactPanel) */
+.start-here {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.start-here__lead {
+  font-size: 1rem;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.start-here__steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+}

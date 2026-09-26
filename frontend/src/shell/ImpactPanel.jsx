@@ -21,7 +21,7 @@ import SiteVerdict from './SiteVerdict'
 // blast front reaches a town (estimates, from the engine: backend powerflow.hits, and the case's cost:
 // backend/costs.py). Incident-room look: no pops, no glow, one short hard jolt per leap.
 export default function ImpactPanel() {
-  const { view, cascade, step, site, result, fx, playing } = useOverload()
+  const { view, cascade, step, site, result, fx, playing, mode } = useOverload()
   const rate = useLossRate()
   const n = cascade?.steps.length || 0
   const live = !!(fx && playing)
@@ -32,7 +32,9 @@ export default function ImpactPanel() {
   const [more, setMore] = useState(false)
   return (
     <div className="stack panel-body impact">
-      {site && !cascade ? (
+      {!site && !cascade && mode === 'campus' ? (
+        <StartHere />
+      ) : site && !cascade ? (
         <>
           <SiteVerdict />
           {result && <WhereThePeopleAre rate={rate} />}
@@ -68,6 +70,23 @@ export default function ImpactPanel() {
         )}
       </details>
     </div>
+  )
+}
+
+// Before anything is on the map: what this column will show, instead of a toll of 0.
+function StartHere() {
+  const { grid, region } = useOverload()
+  const state = region === 'US' ? 'a state' : grid?.meta?.region_name || 'the state'
+  return (
+    <section className="start-here" aria-label="What happens">
+      <h2 className="panel-h">What happens</h2>
+      <p className="start-here__lead">Drop a data center anywhere on {state} and this column shows what it does to the grid.</p>
+      <ol className="start-here__steps">
+        <li>Where it connects, which lines it pushes past their limit, and the people in their path.</li>
+        <li>Run the cascade: the lines trip one by one and the people hit and the cost of the outage add up.</li>
+        <li>Then how to fix it, and how many data centers the grid can safely take.</li>
+      </ol>
+    </section>
   )
 }
 
