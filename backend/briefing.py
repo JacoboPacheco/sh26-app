@@ -785,12 +785,17 @@ def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
     pw, po = f"{pct_with:.0f}%", f"{pct_wo:.0f}%"
     storm_w = _storm_word(c)
     after = f"After the {storm_w} cut {len(c.trip):,} lines, " if storm else ""
+    # THE WEAK POINT (user, Sat 17:16-17:19): the grid's weakness first (the element already carrying its load, the one
+    # path any new load here takes), the campus as the trigger that uses up the last margin; never "just the data center"
+    total_mw = float(sum(s.mw for s in c.sites)) if c.sites else 0.0
+    path_share = 100.0 * on_line / total_mw if total_mw > 0.5 else None
+    via = f" {path_share:.0f}% of any new load there flows through it." if path_share is not None and path_share >= 5 else ""
     if cause == "campus":
-        first_ = f"{after}the first line to fail was {label}, at {pw} of its rating."
-        sentence = first_[0].upper() + first_[1:] + f" Without {dc} it would carry {po}: the new load pushed it over." + far
+        first_ = f"{after}the weak point is {label}: on today's grid it already carries {po} of its rating."
+        sentence = first_[0].upper() + first_[1:] + via + f" The new load used up the last margin and took it to {pw}." + far
     elif cause == "last_straw":
-        body_ = f"{after}{label} was already at {po} of its rating."
-        sentence = body_[0].upper() + body_[1:] + f" {dc[0].upper() + dc[1:]} added {on_line:,.0f} MW of flow and took it to {pw}: the last straw." + far
+        body_ = f"{after}the weak point is {label}: it was already at {po} of its rating before any new load."
+        sentence = body_[0].upper() + body_[1:] + via + f" {dc[0].upper() + dc[1:]} added {on_line:,.0f} MW of flow and took it to {pw}: the last straw." + far
     elif cause == "heat" and storm:
         sentence = (
             f"The {storm_w} cut {len(c.trip):,} lines, but the first overload is the heat's: {label} is already at {pct_no_storm:.0f}% of its rating "
@@ -816,6 +821,9 @@ def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
         "pct_before_storm": round(pct_no_storm, 1) if pct_no_storm is not None else None,
         "campus_mw_on_line": round(on_line, 1),
         "campus_share_pct": round(min(max(share, 0.0), 100.0), 1),
+        # the share of the new load that flows through this element: a property of the grid's paths (any big new load
+        # at the same spot, a factory or a heat wave's, takes the same one), not of the campus
+        "path_share_pct": round(min(max(path_share, 0.0), 100.0), 1) if path_share is not None else None,
         "campus_km": campus_km,
         "cause": cause,
         "sentence": sentence,
@@ -1216,10 +1224,12 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
             F.append(_fact("cause.line", "First line to fail", rc["line"]["label"]))
             F.append(_fact("cause.pct_with", "Its loading when it failed", rc["pct_with"], "%"))
         if c.sites and rc.get("pct_without") is not None:
-            F.append(_fact("cause.pct_without", "Its loading without the data center", rc["pct_without"], "%"))
+            F.append(_fact("cause.pct_without", "The weak point's loading on today's grid, before any new load", rc["pct_without"], "%"))
         if c.sites:
             F.append(_fact("cause.campus_mw_on_line", "Data center MW on that line", rc["campus_mw_on_line"], "MW"))
             F.append(_fact("cause.campus_share_pct", "Data center's share of that line's flow", rc["campus_share_pct"], "%"))
+            if rc.get("path_share_pct") is not None:
+                F.append(_fact("cause.path_share_pct", "Share of any new load at the site that flows through the weak point (a property of the grid's paths)", rc["path_share_pct"], "%"))
             if rc.get("campus_km"):
                 F.append(_fact("cause.campus_km", "Distance from the data center to that line", rc["campus_km"], "km"))
         if rc.get("pct_before_storm") is not None:

@@ -1,7 +1,7 @@
 import { compactItems, groupTrace } from '../ai/trace'
 import { fmt } from '../../geo'
 import { LABEL, moneyIn, outageText, reportPeople } from '../cost/figures'
-import { MUST, OPTION_NAME, S } from './showText'
+import { MUST, OPTION_NAME, S, flexWhen } from './showText'
 import { people as peopleText } from './text'
 
 // The play-by-play show's data: what the animated slides read, derived from the deck and the engine's
@@ -192,7 +192,9 @@ export function scoreAt(plays, k) {
 export function optionsOf(report, slide) {
   const fixes = report?.fixes || []
   const orig = Number(report?.case?.mw) || 0
-  if (Array.isArray(slide?.options) && slide.options.length) return slide.options.map((o, k) => normOption(o, fixes[o.fix], orig, report, k))
+  const flex = slide?.present?.flex || null
+  if (Array.isArray(slide?.options) && slide.options.length)
+    return slide.options.map((o, k) => ({ ...normOption(o, fixes[o.fix], orig, report, k), flex: flex && o.fix === flex.fix ? flex : null }))
   const order = Array.isArray(report?.solutions) && report.solutions.length ? report.solutions : rankFallback(fixes, orig)
   return order
     .map((i) => ({ i, f: fixes[i] }))
@@ -230,7 +232,7 @@ function normOption(o, f = {}, orig, report, k) {
   const by = o.by || f.by || 'engine'
   const raw = o.name || { en: (OPTION_NAME.en[fam] || OPTION_NAME.en.other)(...nameArgs), es: (OPTION_NAME.es[fam] || OPTION_NAME.es.other)(...nameArgs) }
   const { name, sub } = tidyName(raw, by === 'gemini' || fam === 'agentic')
-  const lines = (o.lines || d.list || []).map((l) => ({ id: l.id, label: l.label, old_mva: l.old_mva, new_mva: l.new_mva, transformer: !!l.transformer }))
+  const lines = (o.lines || d.list || []).map((l) => ({ id: l.id, label: l.label, old_mva: l.old_mva, new_mva: l.new_mva, transformer: !!l.transformer, km: l.km ?? null }))
   let cost = o.cost !== undefined ? o.cost : f.cost !== undefined ? f.cost : null
   if (!cost && (fam === 'upgrade' || fam === 'combo') && report?.cost?.ranges?.upgrade_usd && fam === 'upgrade') {
     const r = report.cost.ranges.upgrade_usd
@@ -238,6 +240,7 @@ function normOption(o, f = {}, orig, report, k) {
   }
   return {
     k,
+    role: o.role || (k === 0 ? 'lead' : 'alt'),
     fix: o.fix ?? f.fix ?? null,
     family: fam,
     name,
@@ -251,8 +254,8 @@ function normOption(o, f = {}, orig, report, k) {
     outcome: o.outcome || f.outcome || { steps: 0, people: 0 },
     lines,
     apply: o.apply || f.apply || null,
-    town: d.sites?.[0]?.town || null,
-    site: d.sites?.[0] ? { lat: d.sites[0].lat, lon: d.sites[0].lon } : null,
+    town: o.sites?.[0]?.town || d.sites?.[0]?.town || null,
+    site: o.sites?.[0]?.lat != null ? { lat: o.sites[0].lat, lon: o.sites[0].lon } : d.sites?.[0] ? { lat: d.sites[0].lat, lon: d.sites[0].lon } : null,
     from_mw: orig,
   }
 }
@@ -305,14 +308,23 @@ function tidyName(raw, ai) {
   return { name, sub: sub.en || sub.es ? sub : null }
 }
 
-// how long one option's beat runs (ms): the headline, the "you have to" lines one by one, the green reveal
-// the solutions beat's clock (ms): the headline and the options at a glance, then per option its name, the
-// "you have to" lines one by one, the re-run counting down, the result (cost, kept, verified) held to be read
-export const SOL = { intro: 2600, lineAt: 1100, lineStep: 600, run: 1500, read: 1700 }
+// the solutions beat's clock (ms): the headline, then per option its name, each element it upgrades landing on the map
+// with its price (or the operating rule's levels, or the "you have to" lines), the re-run counting down, then the
+// result weighed against the blackout it prevents, held to be read
+export const SOL = { intro: 2400, lineAt: 1000, lineStep: 950, run: 1500, read: 4200 }
 export const mustRows = (o, lang = 'en') => o.must?.[lang] || o.must?.en || []
+// the rows an option's beat reveals one by one: its priced elements, the operating rule's load levels, else its list
+export const beatRows = (o, lang = 'en') =>
+  o.cost?.items?.length ? Math.min(o.cost.items.length, 6) : o.flex?.levels?.length ? o.flex.levels.length : Math.min(mustRows(o, lang).length, 6)
 // when the green reveal starts inside an option's beat
-export const greenAt = (o, lang = 'en') => SOL.lineAt + SOL.lineStep * Math.min(mustRows(o, lang).length, 7) + 300
+export const greenAt = (o, lang = 'en') => SOL.lineAt + SOL.lineStep * beatRows(o, lang) + 300
 export const optionBeatMs = (o, lang = 'en') => greenAt(o, lang) + SOL.run + SOL.read
+// the options the beats walk through one by one (the lead, then the alternatives); the rest go under "More options"
+export const mainOptions = (options) => {
+  const m = options.filter((o) => o.role !== 'more')
+  return m.length ? m : options.slice(0, 1)
+}
+export const moreOptions = (options) => options.filter((o) => o.role === 'more')
 
 // "Watch the AI work": after the options, a beat of the AI proposer's own run (the fix slide's agentic.trace), a few
 // of its steps: a plan that failed, the engine's findings going back, the revision that held. Only once the run is done.
@@ -377,24 +389,33 @@ export function withShow(deck, report) {
   }
   // the pause names a problem only when there is one (a calm case's "fix" slide is the room left at the site)
   const lost = deck.verdict !== 'nothing_happened' && (report ? Number(report.event?.people) > 0 || !!report.no_fix : true)
-  if (!has('problem') && lost && (has('fix') || has('no_fix'))) {
+  // the weak point (the cause slide) is the pause between what happened and what fixes it: no slate of repeated totals
+  if (!has('problem') && !has('cause') && lost && (has('fix') || has('no_fix'))) {
     put(SYN('problem', 'problem', S.en.theProblem, S.es.theProblem), null, has('fix') ? 'fix' : 'no_fix')
   }
   return { ...deck, slides, short }
 }
 
 // ------------------------------------------------------------------ pacing: the least time a slide stays up (ms)
+// the areas beat: the camera visits each named area as it is outlined, one after another
+export const AREA = { intro: 700, step: 1700, max: 5 }
+// the weak point: the camera settles, the gauge shows today's loading, the new load's flow arrives and fills it past
+// the rating, then the frame holds to be read
+export const WEAK = { at: 900, surge: 2600, fill: 2600, total: 9800 }
+// the toll: the blackout reaches outward from where it began, the counter leaping as it reaches each area
+export const SPREAD_MS = 4200
 // `options` = optionsOf(report, the deck's fix slide): the beats the fix slide and the bottom line share.
 export function dwellMs(slide, report, lang = 'en', options = []) {
   const kind = slide?.kind || slide?.id
   if (kind === 'toll') return 9500
   if (kind === 'chain') return 3800 + playsOf(report, slide).length * 1550
   if (kind === 'problem') return 4600
-  if (kind === 'fix') return options.length ? SOL.intro + options.reduce((n, o) => n + optionBeatMs(o, lang), 0) + aiBeatMs(aiTraceOf(slide)) : 0
+  if (kind === 'fix') return options.length ? SOL.intro + mainOptions(options).reduce((n, o) => n + optionBeatMs(o, lang), 0) + aiBeatMs(aiTraceOf(slide)) : 0
   if (kind === 'no_fix') return 8000
-  if (kind === 'bottom_line') return options.length ? 4200 + options.length * 1200 : 8500
-  if (kind === 'areas') return 6500
-  if (kind === 'cause') return 7000
+  if (kind === 'bottom_line') return options.length ? 5200 + mainOptions(options).length * 1400 : 8500
+  if (kind === 'areas') return AREA.intro + Math.min(AREA.max, (report?.areas || []).filter((a) => Number(a.people) > 0).length) * AREA.step + 1200
+  if (kind === 'cause') return WEAK.total
+  if (kind === 'event' || kind === 'hospitals' || kind === 'cost') return 6500
   return 0
 }
 
@@ -412,8 +433,17 @@ export function tickerItems(report, deck, lang) {
   if (ev.lost_mw) items.push(es ? `${fmt(ev.lost_mw)} MW de carga perdidos (estimación)` : `${fmt(ev.lost_mw)} MW of load lost (estimate)`)
   if (ev.steps) items.push(es ? `${ev.steps} pasos de cascada` : `${ev.steps} cascade steps`)
   const rc = report?.root_cause
-  if (rc?.line && rc.pct_with) items.push(es ? `Primera en fallar: ${bare(rc.line.label)} al ${Math.round(rc.pct_with)}% de su límite` : `First to fail: ${bare(rc.line.label)} at ${Math.round(rc.pct_with)}% of its limit`)
-  if (rc?.campus_share_pct) items.push(es ? `El centro de datos es el ${Math.round(rc.campus_share_pct)}% del flujo de esa línea` : `The data center is ${Math.round(rc.campus_share_pct)}% of the flow on that line`)
+  // the grid's weak point first: how loaded it already was, then with the new load; the share of any new load there
+  // that takes that path (a property of the grid, not of the campus)
+  if (rc?.line && rc.pct_with) {
+    const before = rc.pct_without != null && (rc.cause === 'campus' || rc.cause === 'last_straw') ? Math.round(rc.pct_without) : null
+    items.push(
+      es
+        ? `Punto débil: ${lowerFirst(esLabel(bare(rc.line.label)))}${before != null ? `, al ${before}% antes de cualquier carga nueva` : ''}, al ${Math.round(rc.pct_with)}% con ella`
+        : `Weak point: ${bare(rc.line.label)}${before != null ? `, ${before}% of its limit before any new load` : ''}, ${Math.round(rc.pct_with)}% with it`,
+    )
+  }
+  if (rc?.path_share_pct >= 5) items.push(es ? `El ${Math.round(rc.path_share_pct)}% de cualquier carga nueva aquí pasa por el punto débil` : `${Math.round(rc.path_share_pct)}% of any new load here flows through the weak point`)
   const hos = report?.hospitals
   if (hos?.count) items.push(es ? `${hos.count} hospitales en zonas sin luz (estimación, energía de respaldo)` : `${hos.count} hospitals in the dark areas (estimate; on backup power)`)
   const areas = (report?.areas || []).slice(0, 3)
@@ -428,7 +458,7 @@ export function tickerItems(report, deck, lang) {
   }
   if (c?.duration_h_assumed > 0) items.push(es ? `Tiempo sin luz: ${outageText(c.duration_h_assumed, 'es')} (estimación)` : `Time without power: ${outageText(c.duration_h_assumed, 'en')} (estimate)`)
   const fixSlide = (deck?.slides || []).find((x) => (x.kind || x.id) === 'fix')
-  for (const o of report?.no_fix ? [] : optionsOf(report, fixSlide).slice(0, 4)) {
+  for (const o of report?.no_fix ? [] : mainOptions(optionsOf(report, fixSlide)).slice(0, 3)) {
     const tag = o.by === 'gemini' ? s.verifiedAI : s.verifiedEngine
     const cost = o.cost?.high ? ` · ${es ? 'hasta' : 'up to'} ${usdCompact(o.cost.high, lang)}` : ''
     items.push(`${o.name[lang]} · ${o.kept_pct >= 99.5 ? s.fullSize.toLowerCase() : `${Math.round(o.kept_pct)}% ${s.kept}`}${cost} · ${tag}`)
@@ -455,7 +485,11 @@ export function haveTo(report, lang = 'en') {
 // first, then, once the re-run has counted down, the result (never before the reveal)
 export function optionSay(o, k, n, lang = 'en', done = false) {
   const s = S[lang]
-  const keep = o.kept_pct >= 99.5 ? s.sayKeepAll(fmt(o.kept_mw)) : s.sayKeep(fmt(o.kept_mw), fmt(o.from_mw))
+  const keep = o.flex?.peak_only
+    ? s.sayFlexKeep(fmt(o.from_mw), flexWhen(o.flex, lang))
+    : o.kept_pct >= 99.5
+      ? s.sayKeepAll(fmt(o.kept_mw))
+      : s.sayKeep(fmt(o.kept_mw), fmt(o.from_mw))
   if (!done) return s.sayPlan(k + 1, n, o.name[lang], keep)
   const cost = o.cost?.high ? `${s.costHigh(usdCompact(o.cost.high, lang))}.` : ''
   const after = Number(o.outcome?.people) || 0

@@ -15,7 +15,9 @@ import Slide from './Slide'
 import './briefing.css'
 import { cleanBody, notLive, rememberReplay } from './briefingApi'
 import { dwellMs, mergeSolutions, optionsOf, quietDeck, withShow } from './showDeck'
+import { P } from './showText'
 import './show.css'
+import './present.css'
 import { applyBase, extentPoints, loc, setStoreCase, stepIndexOf, transcriptText } from './stage'
 import { T } from './text'
 import useDeck from './useDeck'
@@ -33,12 +35,22 @@ import { getDownload } from './voiceApi'
 //   body       the case under review (CaseIn + optional preset)
 //   loadReplay load the report's cascade into the map (a preset, a saved scenario, a route)
 //   autoPlay   start narrating once the deck is in (the click that opened the stage counts as a gesture)
-export default function ReviewStage({ body, onClose, autoPlay = false, short: startShort = false, startView = 'slides', startAsk = false, allowFixture = false, loadReplay = false }) {
+// ASK IS A SIDEBAR (user, Sat 17:16-17:19): while the damage is presented, Ask sits on the right, full height under the
+// header, its own scroll (a bottom sheet on a phone); on a wide screen it is open from the start (null = decide by the
+// width). The captions, language, sound, transcript, download, short/full and view fold into a compact three-line
+// options block with "More options".
+const WIDE_ASK = 1200
+// the beats that draw their own picture on the map and move the camera themselves (the slide's older highlight and
+// camera stay out of their way)
+const OWN_PICTURE = new Set(['toll', 'areas', 'cause', 'fix', 'bottom_line', 'event', 'hospitals', 'cost', 'no_fix'])
+const OWN_CAMERA = new Set(['toll', 'areas', 'fix', 'bottom_line', 'event', 'hospitals', 'cost', 'no_fix'])
+export default function ReviewStage({ body, onClose, autoPlay = false, short: startShort = false, startView = 'slides', startAsk = null, allowFixture = false, loadReplay = false }) {
   const o = useOverload()
   const [lang, setLang] = useState('en')
   const [cc, setCc] = useState(true)
   const [view, setView] = useState(startView)
-  const [askOpen, setAskOpen] = useState(startAsk)
+  const [askOpen, setAskOpen] = useState(() => (startAsk == null ? typeof window !== 'undefined' && window.innerWidth >= WIDE_ASK : !!startAsk))
+  const [optsOpen, setOptsOpen] = useState(false)
   const [transcript, setTranscript] = useState(false)
   const [dl, setDl] = useState({ open: false, data: null, error: null, busy: false })
   const [fx, setFx] = useState({ hl: [], hlTone: 'hl', fix: false, apply: null, wave: 0, rings: [] })
@@ -79,6 +91,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   const [live, setLive] = useState({ play: 0, callout: null, say: null, option: null, optionCues: false, cueStep: 0, layer: null })
 
   const oRef = useRef(o)
+  const kindRef = useRef(null)
   const reportRef = useRef(report)
   const deckRef = useRef(deck)
   const optionsRef = useRef(options)
@@ -125,19 +138,26 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         if (blast) {
           O.setStep(0)
           O.setPlaying(true)
-        } else if (kind === 'chain' && reduced) O.setStep(last) // no blast to watch: the chain's finished picture
+        } else if (kind === 'toll' && playing && !reduced) O.setStep(0) // the blackout reaches outward over the calm map (ShowToll)
+        else if (kind === 'chain' && reduced) O.setStep(last) // no blast to watch: the chain's finished picture
         else if (map.mode === 'replay') O.setStep(playing ? (map.step_from > 0 ? (stepIndexOf(c, map.step_from) ?? 0) : 0) : (stepIndexOf(c, map.step_to) ?? last))
         else if (map.mode === 'calm' || map.mode === 'cause' || map.mode === 'fix') O.setStep(storm ?? 0)
         else if (map.mode === 'final' || map.mode === 'restore') O.setStep(last)
       }
+      const hasOptions = optionsRef.current.length > 0
+      // the cause beat draws its own picture only for a weak point (ShowWeakPoint) or a storm (the cut lines); a heat or
+      // demand case keeps the slide's own highlight of the first line to overload
+      const causeOwn = kind !== 'cause' || !!slide.weak_point || reportRef.current?.root_cause?.cause === 'storm'
+      const ownPicture = OWN_PICTURE.has(kind) && causeOwn && !((kind === 'fix' || kind === 'bottom_line') && !hasOptions)
+      const ownCamera = OWN_CAMERA.has(kind) && ownPicture && !(kind === 'bottom_line' && reportRef.current?.no_fix)
       if (blast) {
         const pts = extentPoints(c, O.branchById, O.subPos)
         if (pts.length) O.focus(pts, c.sub_lat != null ? [c.sub_lon, c.sub_lat] : undefined)
-      } else camera(storm != null && slide.id === 'event' ? { type: 'region' } : slide.camera)
+      } else if (!ownCamera) camera(storm != null && slide.id === 'event' ? { type: 'region' } : slide.camera)
       if (playing && (kind === 'fix' || kind === 'bottom_line' || kind === 'no_fix')) reached.current = true
       const waves = reportRef.current?.recovery?.waves?.length || 0
-      // a fix slide with options draws its own green per option; the older whole-slide overlay would double it
-      const own = kind === 'fix' && optionsRef.current.length > 0
+      // a beat with its own picture draws it (MapOverlay's layer); the older whole-slide overlay would double it
+      const own = ownPicture
       setFx({
         hl: own ? [] : map.highlight_lines || [],
         hlTone: map.mode === 'fix' ? 'fix' : 'hl',
@@ -147,7 +167,8 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         rings: [],
       })
       const cues = (slide.narration?.[langRef.current] || []).flatMap((g) => g.cues || [])
-      setLive({ play: 0, callout: null, say: null, option: null, optionCues: own && cues.some((x) => x.name === 'option'), cueStep: 0, layer: null })
+      // the layer is the beat's own (set when it mounts, taken away when it unmounts): entering never wipes it
+      setLive((l) => ({ play: 0, callout: null, say: null, option: null, optionCues: kind === 'fix' && hasOptions && cues.some((x) => x.name === 'option'), cueStep: 0, layer: l.layer }))
     },
     [camera, reduced],
   )
@@ -188,6 +209,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         const base = vals.length ? Math.min(...vals) : 1
         setLive((l) => ({ ...l, option: { n: Math.max(0, (Number(value) || 0) - base), at: performance.now() } }))
       } else if (name === 'area') {
+        if (kindRef.current === 'areas') return // the areas beat visits them itself (AreaTour)
         focusArea(value)
         setLive((l) => ({ ...l, area: String(value).toLowerCase() })) // the slide lights the area being named
       }
@@ -342,6 +364,9 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   }, [docOnly, cascadeNow])
   const slide = slides[Math.min(idx, slides.length - 1)]
   const slideKind = slide?.kind || slide?.id
+  useEffect(() => {
+    kindRef.current = slideKind
+  })
 
   // what the slides call back into: the scoreboard, the banner, the green layer on the map, the camera
   const stage = useMemo(
@@ -352,6 +377,12 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
       layer: (x) => setLive((l) => ({ ...l, layer: x })),
       wave: (n) => setFx((f) => (f.wave === n ? f : { ...f, wave: n })),
       camera,
+      // the map's moment: 'start' (before anything failed) or 'final' (where the incident ended)
+      mapStep: (which) => {
+        const O = oRef.current
+        if (!O.cascade) return
+        O.setStep(which === 'final' ? O.cascade.steps.length : 0)
+      },
     }),
     [camera],
   )
@@ -389,8 +420,10 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   const onApply = base && !plantsOut(o.cascade) ? apply : null
 
   const askInput = useRef(null)
+  const askFocus = useRef(false)
   const askBody = useMemo(() => cleanBody(body), [body])
   const openAsk = useCallback(() => {
+    askFocus.current = true
     setAskOpen(true)
     setTimeout(() => (askInput.current || rootRef.current?.querySelector('.rs-ask input, .rs-ask textarea'))?.focus(), 0)
   }, [])
@@ -449,10 +482,9 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     if (fx.hlTone === 'hl' || fx.fix) fx.hl.forEach((id) => lines.push({ id, tone: fx.hlTone }))
     if (fx.fix && fx.apply?.upgrades) Object.keys(fx.apply.upgrades).forEach((id) => lines.push({ id, tone: 'fix' }))
     waves.filter((w) => w.n <= fx.wave).forEach((w) => (Array.isArray(w.lines) ? w.lines : []).forEach((id) => lines.push({ id, tone: 'fix' })))
-    ;(live.layer?.lines || []).forEach((l) => lines.push(l))
-    const ghost = live.layer?.ghost || (fx.fix && fx.apply?.lat != null && fx.apply?.lon != null ? { lat: fx.apply.lat, lon: fx.apply.lon } : null)
+    const ghost = fx.fix && fx.apply?.lat != null && fx.apply?.lon != null ? { lat: fx.apply.lat, lon: fx.apply.lon } : null
     return { lines, ghost, rings: fx.rings }
-  }, [fx, waves, live.layer])
+  }, [fx, waves])
 
   const voiceBadge = (() => {
     const p = narr.provider
@@ -467,55 +499,80 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   const caption = narr.caption
   return createPortal(
     <div
-      className={`rs${view === 'document' ? ' rs--doc' : ''}${narr.playing ? ' rs--playing' : ''}${slideKind ? ` rs--on-${slideKind}` : ''}`}
+      className={`rs${view === 'document' ? ' rs--doc' : ''}${narr.playing ? ' rs--playing' : ''}${slideKind ? ` rs--on-${slideKind}` : ''}${askOpen ? ' rs--ask' : ''}`}
       ref={rootRef}
       role="dialog"
       aria-modal="true"
       aria-label={deck?.title?.[lang] || 'Simulation briefing'}
     >
       <header className="rs-top">
-        <div className="rs-top__row">
-          <span className="rs-sim">{t.sim}</span>
-          <h1 className="rs-title">{deck?.title?.[lang] || (lang === 'es' ? 'Simulacro informativo' : 'Simulation briefing')}</h1>
-          <div className="rs-tools">
-            <div className="rs-seg" role="group" aria-label="Language">
+        <div className="rs-top__main">
+          <div className="rs-top__row">
+            <span className="rs-sim">{t.sim}</span>
+            <h1 className="rs-title">{deck?.title?.[lang] || (lang === 'es' ? 'Simulacro informativo' : 'Simulation briefing')}</h1>
+          </div>
+          {slides.length > 0 && <Progress slides={slides} idx={idx} progress={narr.progress} lang={lang} onJump={narr.goto} playing={narr.playing} />}
+          <p className="rs-banner">{loc(deck, 'banner', lang) || report?.banner || 'SIMULATION · synthetic grid model · every people and cost number is an estimate.'}</p>
+        </div>
+        {/* the options, folded to three short lines: sound and captions, language and length, then "More options" */}
+        <div className={`rs-opts${optsOpen ? ' rs-opts--open' : ''}`} role="group" aria-label={P[lang].options}>
+          <div className="rs-opts__line">
+            <button type="button" className="rs-tool" aria-pressed={!narr.muted} onClick={() => narr.setMuted(!narr.muted)} aria-label={t.sound}>
+              {narr.muted ? `${t.sound}: ${lang === 'es' ? 'no' : 'off'}` : `${t.sound}: ${lang === 'es' ? 'sí' : 'on'}`}
+            </button>
+            <button type="button" className="rs-tool" aria-pressed={cc} onClick={() => setCc((v) => !v)} aria-label={t.captions} title={t.captions}>
+              CC
+            </button>
+          </div>
+          <div className="rs-opts__line">
+            <div className="rs-seg" role="group" aria-label={lang === 'es' ? 'Idioma' : 'Language'}>
               {['en', 'es'].map((l) => (
                 <button key={l} type="button" className="rs-seg__btn" aria-pressed={lang === l} onClick={() => setLang(l)} aria-label={l === 'en' ? 'English' : 'Español'}>
                   {l.toUpperCase()}
                 </button>
               ))}
             </div>
-            <button type="button" className="rs-tool" aria-pressed={cc} onClick={() => setCc((v) => !v)} aria-label={t.captions}>
-              CC
-            </button>
-            <button type="button" className="rs-tool" aria-pressed={!narr.muted} onClick={() => narr.setMuted(!narr.muted)} aria-label={t.sound}>
-              {narr.muted ? `${t.sound}: off` : `${t.sound}: on`}
-            </button>
-            {voiceBadge}
-            <button type="button" className="rs-tool" aria-pressed={transcript} onClick={() => setTranscript((v) => !v)} disabled={!deck}>
-              {t.transcript}
-            </button>
-            <div className="rs-dl">
-              <button type="button" className="rs-tool" aria-expanded={dl.open} onClick={toggleDownload} disabled={!deck}>
-                {t.download}
-              </button>
-              {dl.open && <DownloadMenu dl={dl} deck={textDeck} lang={lang} />}
-            </div>
-            <div className="rs-seg" role="group" aria-label="View">
-              <button type="button" className="rs-seg__btn" aria-pressed={view === 'slides'} onClick={() => setView('slides')}>
-                {t.slides}
-              </button>
-              <button type="button" className="rs-seg__btn" aria-pressed={view === 'document'} onClick={() => setView('document')}>
-                {t.document}
-              </button>
-            </div>
-            <button type="button" className="rs-close" onClick={close} aria-label={t.close}>
-              ×
-            </button>
+            {canShort && (
+              <div className="rs-seg" role="group" aria-label={P[lang].version}>
+                <button type="button" className="rs-seg__btn" aria-pressed={short} onClick={() => setShort(true)} title={t.shortHint}>
+                  {P[lang].shortV}
+                </button>
+                <button type="button" className="rs-seg__btn" aria-pressed={!short} onClick={() => setShort(false)}>
+                  {P[lang].full}
+                </button>
+              </div>
+            )}
           </div>
+          <button type="button" className="rs-opts__more" aria-expanded={optsOpen} aria-controls="rs-opts-more" onClick={() => setOptsOpen((v) => !v)}>
+            {optsOpen ? P[lang].fewerOptions : P[lang].moreOptions}
+            <span aria-hidden="true">{optsOpen ? '▴' : '▾'}</span>
+          </button>
+          {optsOpen && (
+            <div className="rs-opts__panel" id="rs-opts-more">
+              <div className="rs-seg" role="group" aria-label={P[lang].view}>
+                <button type="button" className="rs-seg__btn" aria-pressed={view === 'slides'} onClick={() => setView('slides')}>
+                  {t.slides}
+                </button>
+                <button type="button" className="rs-seg__btn" aria-pressed={view === 'document'} onClick={() => setView('document')}>
+                  {t.document}
+                </button>
+              </div>
+              <button type="button" className="rs-tool" aria-pressed={transcript} onClick={() => setTranscript((v) => !v)} disabled={!deck}>
+                {t.transcript}
+              </button>
+              <div className="rs-dl">
+                <button type="button" className="rs-tool" aria-expanded={dl.open} onClick={toggleDownload} disabled={!deck}>
+                  {t.download}
+                </button>
+                {dl.open && <DownloadMenu dl={dl} deck={textDeck} lang={lang} />}
+              </div>
+              {voiceBadge}
+            </div>
+          )}
         </div>
-        {slides.length > 0 && <Progress slides={slides} idx={idx} progress={narr.progress} lang={lang} onJump={narr.goto} playing={narr.playing} />}
-        <p className="rs-banner">{loc(deck, 'banner', lang) || report?.banner || 'SIMULATION · synthetic grid model · every people and cost number is an estimate.'}</p>
+        <button type="button" className="rs-close rs-top__close" onClick={close} aria-label={t.close}>
+          ×
+        </button>
       </header>
 
       {slideKind !== 'problem' || !slidesView ? (
@@ -577,32 +634,32 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
           {slides.length ? `${idx + 1} / ${slides.length}` : ''}
         </span>
         <SoundChip narr={narr} t={t} />
-        {canShort && (
-          <button type="button" className="rs-tool" aria-pressed={short} onClick={() => setShort((v) => !v)} title={t.shortHint}>
-            {t.short}
-          </button>
-        )}
-        <button type="button" className="rs-tool" aria-expanded={askOpen} onClick={() => (askOpen ? setAskOpen(false) : openAsk())}>
+        <button type="button" className="rs-tool rs-tool--ask" aria-expanded={askOpen} aria-controls="rs-ask" onClick={() => (askOpen ? setAskOpen(false) : openAsk())}>
           {t.ask}
         </button>
       </nav>
 
       {askOpen && (
-        <aside className="rs-ask" aria-label={t.ask}>
+        <aside className="rs-ask" id="rs-ask" aria-label={t.ask}>
           <div className="rs-ask__head">
-            <strong>{t.ask}</strong>
-            <button type="button" className="rs-close" onClick={() => setAskOpen(false)} aria-label="Close">
+            <div>
+              <strong>{t.ask}</strong>
+              <p className="rs-ask__hint">{P[lang].sidebarHint}</p>
+            </div>
+            <button type="button" className="rs-close" onClick={() => setAskOpen(false)} aria-label={lang === 'es' ? 'Cerrar preguntas' : 'Close questions'}>
               ×
             </button>
           </div>
-          <AskSlot caseBody={askBody} lang={lang} onLangChange={setLang} inputRef={askInput} note={t.askSoon} />
+          <div className="rs-ask__body">
+            <AskSlot caseBody={askBody} lang={lang} onLangChange={setLang} inputRef={askInput} note={t.askSoon} autoFocus={askFocus.current} />
+          </div>
         </aside>
       )}
 
       {transcript && textDeck && <Transcript deck={textDeck} lang={lang} onClose={() => setTranscript(false)} />}
 
       {slidesView && deck && <Ticker report={report} deck={deck} lang={lang} playing={narr.playing} />}
-      <MapOverlay lines={overlay.lines} ghost={overlay.ghost} rings={overlay.rings} layerKey={live.layer?.key || ''} />
+      <MapOverlay lines={overlay.lines} ghost={overlay.ghost} rings={overlay.rings} layer={live.layer} />
     </div>,
     document.body,
   )

@@ -118,6 +118,32 @@ def _cost_of(c, g, upgrades: dict, items: bool = False) -> dict | None:
         return None
 
 
+def _cost_items(c, g, upgrades: dict) -> list[dict]:
+    """Every element a fix upgrades, priced one by one exactly as _cost_of prices the whole (costs.py): where it is,
+    what the work is and its low/high cost. The presentation pins each one on the map with its own price."""
+    try:
+        import costs
+
+        new = {int(k): float(v) for k, v in (upgrades or {}).items()}
+        rate = g.rates_with(new)
+        idx = sorted(g.br_index[k] for k in new if k in g.br_index)
+        applied = {g.br_index[int(b)] for b in c.upgrades if int(b) in g.br_index}
+        out = []
+        for it in costs._upgrade_items(g, g.rate, rate, idx, applied):
+            i = g.br_index[int(it["id"])]
+            new_line = it["kind"] == "line" and float(it["new_mva"]) > float(costs.RECONDUCTOR_MAX_RATIO) * float(it["old_mva"])
+            out.append({
+                "id": int(it["id"]), "kind": it["kind"], "kv": round(float(g.br_kv[i])), "miles": it.get("miles"),
+                "old_mva": round(float(it["old_mva"])), "new_mva": round(float(it["new_mva"])),
+                "work": "transformer" if it["kind"] == "transformer" else "new_line" if new_line else "reconductor",
+                "low": int(it["low"]), "high": int(it["high"]),
+            })
+        return out
+    except Exception as e:  # noqa: BLE001 — a price that can't be split is left out, never guessed
+        log.info("solutions: cost items skipped: %s", e)
+        return []
+
+
 def _usd(v: float, lang: str = "en") -> str:
     """A cost as the panel prints it (features/cost/money.js): '$64 million', '$8.41 million', '$1.08 billion'."""
     v = float(v)
@@ -249,8 +275,21 @@ def _must(c, g, fx: dict, total: float) -> dict:
             en.append(f"Build it at a {town} substation instead of {here}")
             es.append(f"Construirlo en una subestación de {town} en lugar de {here}")
     elif fam == "flexible" and kept is not None:
-        en.append(f"Cut the campus to {kept:,.0f} MW at the peak hour")
-        es.append(f"Reducir el campus a {kept:,.0f} MW en la hora pico")
+        # the engine's size at each load level where it runs lower (a 9 AM case is not "the peak hour")
+        low = sorted((x for x in (d.get("levels") or []) if isinstance(x, dict) and x.get("level") is not None and not x.get("full")),
+                     key=lambda x: float(x["level"]))
+        for x in low[:4]:
+            lf_ = float(x["level"])
+            at_en, at_es = next((v for k, v in _LEVEL_AT.items() if _near(k, lf_)),
+                                (f"at {round(lf_ * 100)}% of the peak load", f"al {round(lf_ * 100)} % de la carga pico"))
+            en.append(f"Step down to {float(x.get('runs_mw') or 0):,.0f} MW {at_en}")
+            es.append(f"Bajar a {float(x.get('runs_mw') or 0):,.0f} MW {at_es}")
+        if low and len(low) < len(d.get("levels") or []):
+            en.append("Run at full size the rest of the time")
+            es.append("Operar a tamaño completo el resto del tiempo")
+        if not low:
+            en.append(f"Cut the campus to {kept:,.0f} MW at this load level")
+            es.append(f"Reducir el campus a {kept:,.0f} MW en este nivel de carga")
     elif fam == "onsite" and d.get("onsite_mw"):
         en.append(f"Add {d['onsite_mw']:,.0f} MW of on-site generation (the grid supplies {d.get('net_mw', 0):,.0f} MW)")
         es.append(f"Añadir {d['onsite_mw']:,.0f} MW de generación propia (la red aporta {d.get('net_mw', 0):,.0f} MW)")
@@ -331,6 +370,8 @@ def enrich(c, g, fixes: list[dict], total: float) -> None:
         fx["kept_pct"] = round(100.0 * kept / total, 1) if kept is not None and total else None
         ups = (fx.get("apply") or {}).get("upgrades")
         fx["cost"] = _cost_of(c, g, ups) if ups and fx.get("verdict") in ("holds", "partly") else None
+        if fx["cost"]:
+            fx["cost"]["items"] = _cost_items(c, g, ups)  # each element with its own price (the presentation pins them)
         fx["must"] = _must(c, g, fx, total) if fx.get("verdict") in ("holds", "partly") else {"en": [], "es": []}
     _add_strain(c, fixes)
     order = ranked(fixes)
@@ -375,6 +416,137 @@ def best_fix(fixes: list[dict]) -> int | None:
         return h[0]
     part = [(f["outcome"]["people"], i) for i, f in enumerate(fixes) if f.get("verdict") == "partly" and f.get("family") != "remove" and f.get("outcome")]
     return min(part)[1] if part else None
+
+
+# ------------------------------------------------------------------------------------------ the presentation's order
+# PROPORTIONATE (user, Sat 17:16-17:19: "we aren't going to spend $100 million to prevent something that is never
+# going to happen"; "lower the amount that it says NO DATA CENTER"). The presentation leads with the cheapest verified
+# way to keep the campus at full size: an operating rule when the overload only happens at the peak (the campus steps
+# down on the hottest afternoons, no new equipment), else the smallest verified upgrade of the weak point. Bigger or
+# pricier full-size plans follow ("if you want no step-downs"). A smaller campus, another site or on-site generation are
+# listed only under "More options", and lead only when no full-size option verifies; "don't build it" never shows.
+# report.solutions / best_fix stay as they are (the results panel's "Run it again with the fix" applies best_fix).
+PRESENT_MAIN = 3  # options the presentation walks through one by one
+MORE_ORDER = ("combo", "flexible", "onsite", "move", "shrink")  # "More options", in this order
+HOURS_YEAR = 8760.0
+PEAK_LF = 1.0  # the 4 PM summer peak: "only at the peak" means full size at every level below it
+# Hours a year a flexible load is curtailed, as reported for Duke University's 2025 national study (costs.SOURCES
+# ['duke_flex']): loads curtailed for 0.25 % of their maximum uptime, in about 85 hours a year, mostly partial. The same
+# figure "Who goes dark first?" cites (service_rules.py). A national estimate, not measured for any site here.
+FLEX_HOURS = 85
+
+
+def _near(a: float, b: float) -> bool:
+    return abs(a - b) < 0.005
+
+
+# the load levels the engine checks, at the end of a sentence (briefing.LEVELS), EN / ES
+_LEVEL_AT = {0.62: ("at 3 AM", "a las 3 AM"), 0.82: ("at 9 AM", "a las 9 AM"), 1.0: ("at the 4 PM summer peak", "en el pico de verano de las 4 PM"),
+             1.04: ("in a heat wave", "en una ola de calor"), 1.08: ("at the height of a heat wave", "en el pico de una ola de calor")}
+
+
+def _flex_info(i: int, fx: dict, total: float, lf: float) -> dict:
+    """The flexible fix as an operating rule: what the campus runs at each load level the engine checked (each level's
+    size is the engine's own steady-state fit at that level), whether it only has to step down at the 4 PM peak and
+    above (peak_only: full size at every level below the peak) or only in a heat wave (heat_only: full size at the peak
+    too), its step-down at each level it runs lower, and the compute it could give up in a year under a sourced,
+    labeled assumption (Duke's reported hours; an upper bound: the largest step for every one of those hours)."""
+    d = fx.get("detail") or {}
+    levels = [{"level": float(x["level"]), "name": x.get("name"), "runs_mw": float(x.get("runs_mw") or 0), "full": bool(x.get("full"))}
+              for x in (d.get("levels") or []) if isinstance(x, dict) and x.get("level") is not None]
+    levels.sort(key=lambda x: x["level"])
+    for x in levels:
+        x["step_mw"] = 0.0 if x["full"] else round(max(total - x["runs_mw"], 0.0), 1)
+    over = [x for x in levels if not x["full"]]
+    below_peak = [x for x in levels if x["level"] < PEAK_LF - 0.005]
+    to_peak = [x for x in levels if x["level"] <= PEAK_LF + 0.005]
+    peak_only = bool(over) and bool(below_peak) and all(x["full"] for x in below_peak)
+    heat_only = bool(over) and bool(to_peak) and all(x["full"] for x in to_peak)
+
+    def runs_at(level: float) -> float | None:
+        x = next((x for x in levels if _near(x["level"], level)), None)
+        return round(x["runs_mw"] if not x["full"] else total, 1) if x else None
+
+    case_mw = float(d.get("mw") or fx.get("kept_mw") or 0)
+    step = max((x["step_mw"] for x in over), default=round(max(total - case_mw, 0.0), 1))
+    src = None
+    try:
+        import costs
+
+        src = costs.SOURCES.get("duke_flex")
+    except Exception:  # noqa: BLE001
+        src = None
+    mwh = step * FLEX_HOURS
+    return {
+        "fix": i, "levels": levels, "peak_only": peak_only, "heat_only": heat_only,
+        "steps": [{"level": x["level"], "name": x["name"], "runs_mw": round(x["runs_mw"], 1), "step_mw": x["step_mw"]} for x in over],
+        "peak_mw": runs_at(PEAK_LF) if runs_at(PEAK_LF) is not None else round(case_mw, 1),
+        "heat_mw": runs_at(1.04), "case_mw": round(case_mw, 1), "step_down_mw": round(step, 1),
+        "hours_assumed": FLEX_HOURS, "mwh_year": round(mwh), "mwh_year_is_upper_bound": True,
+        "energy_share_pct": round(100.0 * mwh / (total * HOURS_YEAR), 2) if total else None,
+        "assumption": ("about 85 hours of curtailment a year, mostly partial, as reported for Duke University's 2025 national study "
+                       "(loads curtailed for 0.25 % of their maximum uptime); a national estimate, not measured for this site; the "
+                       "energy figure is an upper bound: the largest step-down for every one of those hours"),
+        "source": src,
+    }
+
+
+def present_plan(rep: dict) -> dict | None:
+    """The presentation's order of the verified fixes and what to weigh them against. None when nothing holds.
+        main   fix indices walked through one by one (<= PRESENT_MAIN), the first is the lead
+        more   the other verified fixes, listed under "More options"
+        flex   the operating rule (_flex_info), when the flexible fix holds
+        often  at which load levels the full campus overloads the grid (the engine's per-level check), so a price is
+               weighed against how often the condition occurs: every_level (even 3 AM), peak_only (only at the 4 PM
+               peak and above), heat_only (only in a heat wave); relative to the peak, whatever level the case is at
+        blackout  the blackout's estimated cost {low, high} (costs.py), what the fixes prevent"""
+    fixes = rep.get("fixes") or []
+    case = rep.get("case") or {}
+    sites = case.get("sites") or []
+    total = float(sum(float(s.get("mw") or 0) for s in sites) or case.get("mw") or 0)
+    lf = float(case.get("load_factor") or 1.0)
+    holds = [i for i, f in enumerate(fixes) if f.get("verdict") == "holds" and f.get("family") not in ("remove", "time_of_day")]
+    if not holds:
+        return None
+    full = sorted((i for i in holds if fixes[i].get("family") in ("upgrade", "agentic") and (fixes[i].get("kept_pct") or 0) >= 99.5),
+                  key=lambda i: _key(fixes[i]))
+    flex_i = next((i for i in holds if fixes[i].get("family") == "flexible"), None)
+    flex = _flex_info(flex_i, fixes[flex_i], total, lf) if flex_i is not None and total else None
+    main: list[int] = []
+    if flex and flex["peak_only"]:
+        main.append(flex_i)  # no new equipment: it only steps down on the hottest afternoons
+    main += full[: PRESENT_MAIN - len(main)]
+
+    def rest_key(i: int) -> tuple:
+        f = fixes[i]
+        fam = f.get("family")
+        return (0 if fam in ("upgrade", "agentic") else 1 + (MORE_ORDER.index(fam) if fam in MORE_ORDER else 9), _key(f))
+
+    rest = sorted((i for i in holds if i not in main), key=rest_key)
+    if not main and rest:
+        main = rest[:1]  # nothing keeps the full campus: the closest to it leads (a small lowering first)
+        rest = rest[1:]
+    often = None
+    tod = next((f for f in fixes if f.get("family") == "time_of_day"), None)
+    lv = [x for x in ((tod or {}).get("detail") or {}).get("levels") or [] if isinstance(x, dict) and x.get("level") is not None]
+    if lv:
+        lv = sorted(({"level": float(x["level"]), "name": x.get("name"), "over": not x.get("holds")} for x in lv), key=lambda x: x["level"])
+    elif flex:
+        lv = [{"level": x["level"], "name": x["name"], "over": not x["full"]} for x in flex["levels"]]
+    if lv:
+        over = [x for x in lv if x["over"]]
+        below_peak = [x for x in lv if x["level"] < PEAK_LF - 0.005]
+        to_peak = [x for x in lv if x["level"] <= PEAK_LF + 0.005]
+        often = {"levels": lv, "over_at": [x["name"] for x in over], "every_level": len(over) == len(lv),
+                 "peak_only": bool(over) and bool(below_peak) and not any(x["over"] for x in below_peak),
+                 "heat_only": bool(over) and bool(to_peak) and not any(x["over"] for x in to_peak),
+                 "lowest": lv[0]["name"], "case_level": lf}
+    cost = rep.get("cost") or {}
+    rng = (cost.get("ranges") or {}).get("blackout_usd") or []
+    blackout = None
+    if cost.get("blackout_high_usd") or rng:
+        blackout = {"low": float(rng[0]) if rng else None, "high": float(cost.get("blackout_high_usd") or (rng[1] if len(rng) > 1 else 0))}
+    return {"main": main, "more": rest, "flex": flex, "often": often, "blackout": blackout, "total_mw": total}
 
 
 # ------------------------------------------------------------------------------------------ the AI proposer

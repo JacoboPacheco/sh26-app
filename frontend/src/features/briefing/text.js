@@ -157,7 +157,7 @@ export const FAMILY = {
     upgrade: 'Upgrade lines',
     onsite: 'On-site generation',
     combo: 'Smaller + upgrades',
-    remove: 'No data center',
+    remove: 'Without the campus',
   },
   es: {
     shrink: 'Reducir el centro de datos',
@@ -167,7 +167,7 @@ export const FAMILY = {
     upgrade: 'Mejorar líneas',
     onsite: 'Generación propia',
     combo: 'Menor + mejoras',
-    remove: 'Sin centro de datos',
+    remove: 'Sin el campus',
   },
 }
 

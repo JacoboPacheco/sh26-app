@@ -1,0 +1,1026 @@
+/* PRESENT V2 (user, Sat 17:16-17:19): each beat's own picture on the map, the options folded into three lines, Ask as a
+   sidebar. Tokens only (index.css). Sober incident room: red is what is lost, amber is strain, green is the solution;
+   no glow, no pops; one focal motion at a time; reduced motion shows the finished frame. */
+
+/* ------------------------------------------------------------------ the header: title | options | close */
+.rs {
+  --rs-ask-w: min(400px, 30vw);
+}
+
+html.review-open .map-controls {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rs-top {
+  z-index: 8;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: start;
+  column-gap: var(--space-3);
+}
+
+.rs-top__main {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.rs-top__close {
+  align-self: start;
+}
+
+/* three short lines: sound + captions, language + length, "More options" */
+.rs-opts {
+  position: relative;
+  display: grid;
+  gap: 0.3rem;
+  justify-items: end;
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--glass-edge);
+}
+
+.rs-opts__line {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.rs-opts .rs-tool,
+.rs-opts .rs-seg__btn {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  min-height: 26px;
+}
+
+.rs-opts__more {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  padding: 0.15rem 0.1rem;
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.rs-opts__more:hover,
+.rs-opts__more:focus-visible {
+  color: var(--ink);
+}
+
+.rs-opts__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 3;
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  min-width: 240px;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+}
+
+.rs-opts__panel .rs-menu {
+  right: auto;
+  left: 0;
+}
+
+.rs-tool:focus-visible,
+.rs-seg__btn:focus-visible,
+.rs-opts__more:focus-visible,
+.rs-ctl:focus-visible,
+.rs-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ Ask: the right-hand sidebar */
+.rs-ask {
+  top: calc(var(--gutter) + var(--rs-head-h, var(--rs-top-h)) + var(--space-2));
+  bottom: calc(var(--gutter) + var(--rs-tick-h));
+  right: var(--gutter);
+  width: var(--rs-ask-w);
+  max-height: none;
+  padding: 0;
+  gap: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: rs-ask-in 220ms ease-out both;
+}
+
+@keyframes rs-ask-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+.rs-ask__head {
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.rs-ask__head strong {
+  font-size: 1.05rem;
+}
+
+.rs-ask__hint {
+  margin-top: 0.2rem;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  line-height: 1.35;
+}
+
+.rs-ask__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overscroll-behavior: contain;
+}
+
+/* the answer is the point: larger and easier to read here than in the small box */
+.rs-ask .ask__input {
+  font-size: 1rem;
+  min-height: 44px;
+}
+
+.rs-ask .ask__chips {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.rs-ask .ask__chip {
+  text-align: left;
+  font-size: 0.875rem;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.rs-ask .ask-answer__text {
+  font-size: 1.02rem;
+  line-height: 1.55;
+}
+
+/* the slide, the captions and the controls make room for the sidebar */
+.rs--ask .rs-captions {
+  right: calc(var(--rs-ask-w) + var(--gutter) * 2);
+}
+
+.rs--ask .rs-controls {
+  left: calc((100vw - var(--rs-ask-w) - var(--gutter)) / 2);
+}
+
+.rs--ask .sh-callout {
+  right: calc(var(--rs-ask-w) + var(--gutter) * 2);
+}
+
+.rs--ask .rs-transcript {
+  right: calc(var(--rs-ask-w) + var(--gutter) * 2);
+}
+
+@media (min-width: 861px) {
+  .rs-panel,
+  .rs-transcript {
+    top: calc(var(--gutter) + var(--rs-head-h, var(--rs-top-h)) + var(--space-3));
+  }
+
+  .rs-panel {
+    max-height: calc(100vh - var(--rs-head-h, var(--rs-top-h)) - 2 * var(--gutter) - var(--space-3) - 84px - var(--rs-tick-h));
+  }
+}
+
+@media (min-width: 861px) and (max-width: 1180px) {
+  .rs {
+    --rs-panel-w: min(380px, 38vw);
+    --rs-ask-w: min(340px, 34vw);
+  }
+}
+
+/* ------------------------------------------------------------------ on the map: the beats' pictures */
+.rs-map--still .rs-map__flow,
+.rs-map--still .rs-map__mark-pulse,
+.rs-map--still .rs-map__ln--over,
+.rs-map--still .rs-map__xf--over {
+  animation: none !important;
+}
+
+/* a line the storm cut */
+.rs-map__ln--cut {
+  stroke: var(--overload);
+  stroke-opacity: 0.8;
+  fill: none;
+}
+
+/* the hatch of an area without power */
+.rs-map__hatch {
+  stroke: var(--overload);
+  stroke-opacity: 0.55;
+}
+
+.rs-map__hatch--dim {
+  stroke-opacity: 0.28;
+}
+
+.rs-map__hull {
+  animation: rs-fade 500ms ease-out both;
+}
+
+.rs-map__hull-edge {
+  stroke: var(--overload);
+  stroke-opacity: 0.85;
+  stroke-linejoin: round;
+}
+
+.rs-map__hull--dim .rs-map__hull-edge {
+  stroke-opacity: 0.4;
+}
+
+.rs-map__hull--ok .rs-map__hull-edge {
+  stroke: var(--hr-ok);
+}
+
+.rs-map__label,
+.rs-map__label-sub,
+.rs-map__tag-text,
+.rs-map__tag-sub,
+.rs-map__gauge-title {
+  paint-order: stroke;
+  stroke: rgba(3, 7, 14, 0.92);
+  stroke-width: 3.2px;
+  stroke-linejoin: round;
+  font-family: var(--font);
+}
+
+.rs-map__label {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--ink);
+}
+
+.rs-map__label-sub {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--overload);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes rs-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* the toll: the front reaching outward, each dark substation going dark as it passes */
+.rs-map__front {
+  fill: none;
+  stroke: var(--overload);
+  stroke-width: 1.5px;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rs-front var(--ms, 3600ms) cubic-bezier(0.5, 0, 0.9, 0.6) both;
+}
+
+@keyframes rs-front {
+  from {
+    transform: scale(0.02);
+    opacity: 0.85;
+  }
+  80% {
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+.rs-map__dark {
+  fill: #020408;
+  fill-opacity: 0.9;
+  stroke: var(--overload);
+  stroke-opacity: 0.75;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rs-dark-in 360ms ease-out both;
+}
+
+@keyframes rs-dark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.35);
+  }
+}
+
+.rs-map__origin {
+  fill: none;
+  stroke: var(--overload);
+}
+
+/* power moving along a line: small pale dashes, constant size on screen; the new load's flow warmer and denser */
+.rs-map__flow {
+  fill: none;
+  stroke-linecap: round;
+  animation:
+    rs-flow 1.3s linear infinite,
+    rs-fade 600ms ease-out both;
+}
+
+.rs-map__flow--base {
+  stroke: var(--current);
+  stroke-opacity: 0.75;
+  stroke-width: 2.2px;
+  stroke-dasharray: 2 13;
+}
+
+.rs-map__flow--surge {
+  stroke: var(--strain);
+  stroke-opacity: 0.95;
+  stroke-width: 3px;
+  stroke-dasharray: 3 7;
+  animation:
+    rs-flow 0.75s linear infinite,
+    rs-fade 700ms ease-out both;
+}
+
+@keyframes rs-flow {
+  to {
+    stroke-dashoffset: -30;
+  }
+}
+
+/* a ring on one place: the weak point (strain, then overload), the campus's operating rule (green) */
+.rs-map__mark-ring {
+  fill: none;
+  animation: rs-fade 400ms ease-out both;
+}
+
+.rs-map__mark-pulse {
+  fill: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rs-ring 1.6s ease-out infinite;
+}
+
+.rs-map__mark--strain circle {
+  stroke: var(--strain);
+}
+
+.rs-map__mark--over circle,
+.rs-map__mark--lost circle {
+  stroke: var(--overload);
+}
+
+.rs-map__mark--fix circle {
+  stroke: var(--hr-ok);
+}
+
+.rs-map__mark--site circle {
+  stroke: var(--ink);
+}
+
+/* a pinned tag: what goes here and what it costs */
+.rs-map__tag {
+  animation: rs-tag-in 420ms ease-out both;
+}
+
+@keyframes rs-tag-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.rs-map__tag-dot {
+  fill: var(--ink);
+}
+
+.rs-map__tag-lead {
+  stroke: var(--ink-2);
+  stroke-width: 1;
+}
+
+.rs-map__tag-text {
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  fill: var(--ink);
+}
+
+.rs-map__tag-sub {
+  font-size: 10px;
+  font-weight: 600;
+  fill: var(--ink-2);
+}
+
+.rs-map__tag--fix .rs-map__tag-text {
+  fill: var(--hr-ok);
+}
+
+.rs-map__tag--fix .rs-map__tag-dot {
+  fill: var(--hr-ok);
+}
+
+.rs-map__tag--lost .rs-map__tag-text {
+  fill: var(--overload);
+}
+
+.rs-map__tag--lost .rs-map__tag-dot {
+  fill: var(--overload);
+}
+
+/* the weak point's gauge */
+.rs-map__gauge {
+  animation: rs-fade 500ms ease-out both;
+}
+
+.rs-map__gauge-lead {
+  stroke: var(--strain);
+  stroke-width: 1.2;
+}
+
+.rs-map__gauge-box {
+  fill: rgba(9, 15, 26, 0.94);
+  stroke: var(--glass-edge);
+}
+
+.rs-map__gauge-title {
+  font-size: 11px;
+  font-weight: 700;
+  fill: var(--ink);
+  stroke-width: 0;
+}
+
+.rs-map__gauge-sub {
+  font-size: 9px;
+  font-weight: 600;
+  fill: var(--ink-2);
+  font-family: var(--font);
+}
+
+.rs-map__gauge-track {
+  fill: rgba(150, 190, 240, 0.1);
+}
+
+.rs-map__gauge-fill,
+.rs-map__gauge-over {
+  transform-box: fill-box;
+  transform-origin: left center;
+  animation-name: rs-g-fill;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+}
+
+.rs-map__gauge-fill {
+  fill: var(--strain);
+}
+
+.rs-map__gauge-over {
+  fill: var(--overload);
+}
+
+@keyframes rs-g-fill {
+  from {
+    transform: scaleX(var(--s0, 0));
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.rs-map__gauge-was {
+  stroke: var(--ink-2);
+  stroke-width: 1;
+}
+
+.rs-map__gauge-rating {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+
+.rs-map__gauge-tick,
+.rs-map__gauge-from {
+  font-size: 8.5px;
+  font-weight: 600;
+  fill: var(--ink-2);
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-map__gauge-to {
+  font-size: 12px;
+  font-weight: 800;
+  fill: var(--strain);
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+  animation: rs-fade 300ms ease-out both;
+}
+
+.rs-map__gauge-to--over {
+  fill: var(--overload);
+}
+
+/* ------------------------------------------------------------------ the slide card's parts */
+.sh-kicker--amber .sh-kicker__dot {
+  background: var(--strain);
+}
+
+.sh-spreadnote {
+  margin-top: -0.25rem;
+}
+
+.sh-weak__h {
+  font-size: clamp(1.15rem, 1.6vw, 1.4rem);
+}
+
+.sh-weak__frame {
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--ink);
+  border-left: 3px solid var(--strain);
+  padding: 0.35rem 0 0.35rem 0.75rem;
+}
+
+.sh-weak__trigger {
+  min-height: 1.4em;
+  font-size: 0.9375rem;
+  color: var(--ink-2);
+}
+
+.sh-weak__trigger b {
+  color: var(--overload);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-weak__trigger--on {
+  animation: rs-fade 400ms ease-out both;
+}
+
+.sh-items {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.sh-items__head {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.sh-items ul {
+  display: grid;
+  gap: 0.3rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sh-items__row {
+  display: grid;
+  grid-template-columns: 7.4rem minmax(0, 1fr);
+  gap: 0.6rem;
+  align-items: baseline;
+  font-size: 0.875rem;
+  animation: rs-fade 420ms ease-out both;
+}
+
+.sh-items__row b {
+  color: var(--hr-ok);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-items__total {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  border-top: 1px solid var(--glass-edge);
+  padding-top: 0.35rem;
+}
+
+.sh-items__total b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the operating rule: what the campus runs at, by load level */
+.sh-flex {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.sh-flex__bars {
+  display: grid;
+  gap: 0.3rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sh-flex__bars li {
+  display: grid;
+  grid-template-columns: 6.6rem minmax(0, 1fr) 6rem;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.8125rem;
+  opacity: 0.35;
+  transition: opacity 300ms ease-out;
+}
+
+.sh-flex__bars li.sh-flex--on {
+  opacity: 1;
+}
+
+.sh-flex__bar {
+  height: 7px;
+  border-radius: 2px;
+  background: rgba(150, 190, 240, 0.1);
+  overflow: hidden;
+}
+
+.sh-flex__bar i {
+  display: block;
+  height: 100%;
+  width: var(--w);
+  background: var(--strain);
+}
+
+.sh-flex--full .sh-flex__bar i {
+  background: var(--hr-ok);
+}
+
+.sh-flex__bars b {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.sh-flex__cost {
+  font-size: 0.875rem;
+}
+
+.sh-flex__cost b {
+  color: var(--hr-ok);
+}
+
+.sh-flex__assume {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+/* the price next to what it prevents, on one scale */
+.sh-weigh {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: rgba(150, 190, 240, 0.03);
+}
+
+.sh-weigh__row {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  font-size: 0.8125rem;
+}
+
+.sh-weigh__row i {
+  display: block;
+  height: 8px;
+  width: var(--w);
+  border-radius: 2px;
+}
+
+.sh-weigh__row--lost i {
+  background: var(--overload);
+}
+
+.sh-weigh__row--fix i {
+  background: var(--hr-ok);
+  min-width: 3px;
+}
+
+.sh-weigh--anim .sh-weigh__row i {
+  transform-origin: left;
+  animation: rs-bar 900ms ease-out both;
+}
+
+.sh-weigh--anim .sh-weigh__row--fix i {
+  animation-delay: 350ms;
+}
+
+@keyframes rs-bar {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.sh-weigh__row b {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sh-weigh__often {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.sh-weigh__note {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+/* the paused comparison: the main options, the lead first */
+.sh-plan {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sh-planrow {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+}
+
+.sh-planrow--lead {
+  border-color: color-mix(in srgb, var(--hr-ok) 55%, transparent);
+}
+
+.sh-planrow__role {
+  font-size: 0.6875rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hr-ok);
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.sh-planrow__name {
+  font-weight: 700;
+}
+
+.sh-planrow__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.sh-planrow__meta b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-opt__have {
+  color: var(--hr-ok);
+  font-weight: 700;
+}
+
+/* "More options": folded, quiet */
+.sh-more {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.sh-more summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ink-2);
+  padding: 0.2rem 0;
+}
+
+.sh-more summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sh-more__note {
+  margin: 0.2rem 0 0.35rem;
+  font-size: 0.75rem;
+}
+
+.sh-more ul {
+  display: grid;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sh-more li {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: space-between;
+}
+
+.sh-more li b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* the bottom line: the options against the blackout, on one scale */
+.sh-vs {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.sh-vs__rows {
+  display: grid;
+  gap: 0.6rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sh-vs__row {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.sh-vs__label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.sh-vs__bar {
+  display: block;
+  height: 10px;
+  border-radius: 2px;
+  background: rgba(150, 190, 240, 0.07);
+}
+
+.sh-vs__bar i {
+  display: block;
+  height: 100%;
+  width: var(--w);
+  min-width: 3px;
+  border-radius: 2px;
+}
+
+.sh-vs__row--lost .sh-vs__bar i {
+  background: var(--overload);
+}
+
+.sh-vs__row--fix .sh-vs__bar i {
+  background: var(--hr-ok);
+}
+
+.sh-vs--anim .sh-vs__bar i {
+  transform-origin: left;
+  animation: rs-bar 900ms ease-out both;
+  animation-delay: var(--d);
+}
+
+.sh-vs__value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.7rem;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.sh-vs__value b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-vs__row--lost .sh-vs__value b {
+  color: var(--overload);
+}
+
+/* ------------------------------------------------------------------ narrow screens: Ask is a bottom sheet */
+@media (max-width: 860px) {
+  .rs-top {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rs-opts {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-items: start;
+    border-left: 0;
+    padding-left: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.5rem;
+    align-items: center;
+  }
+
+  .rs-opts__panel {
+    left: 0;
+    right: auto;
+    max-width: calc(100vw - 4 * var(--gutter));
+  }
+
+  .rs-top__close {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .rs-ask {
+    top: auto;
+    left: var(--gutter);
+    right: var(--gutter);
+    width: auto;
+    bottom: calc(var(--gutter) + var(--rs-tick-h) + var(--rs-ctl-h, 88px) + 8px);
+    max-height: 58vh;
+    border-radius: var(--radius-lg) var(--radius-lg) var(--radius) var(--radius);
+    animation-name: rs-sheet-in;
+  }
+
+  @keyframes rs-sheet-in {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+  }
+
+  .rs--ask .rs-captions,
+  .rs--ask .rs-panel {
+    visibility: hidden;
+  }
+
+  .rs--ask .rs-controls {
+    left: var(--gutter);
+  }
+
+  .rs--ask .sh-callout,
+  .rs--ask .rs-transcript {
+    right: var(--gutter);
+  }
+
+  .sh-items__row {
+    grid-template-columns: 6.4rem minmax(0, 1fr);
+  }
+
+  .sh-weigh__row {
+    grid-template-columns: minmax(0, 7rem) minmax(0, 1fr) auto;
+  }
+
+  .sh-flex__bars li {
+    grid-template-columns: 5.4rem minmax(0, 1fr) 5.2rem;
+  }
+}
+
+/* ------------------------------------------------------------------ reduced motion: the finished frame */
+@media (prefers-reduced-motion: reduce) {
+  .rs-ask,
+  .rs-map__hull,
+  .rs-map__front,
+  .rs-map__dark,
+  .rs-map__flow,
+  .rs-map__mark-ring,
+  .rs-map__mark-pulse,
+  .rs-map__tag,
+  .rs-map__gauge,
+  .rs-map__gauge-to,
+  .sh-items__row,
+  .sh-weak__trigger--on,
+  .sh-weigh--anim .sh-weigh__row i,
+  .sh-vs--anim .sh-vs__bar i {
+    animation: none !important;
+  }
+
+  .rs-map__front {
+    display: none;
+  }
+
+  .rs-map__gauge-fill,
+  .rs-map__gauge-over {
+    animation: none !important;
+    transform: none;
+  }
+}
+
+@media print {
+  .rs-opts,
+  .rs-map {
+    display: none !important;
+  }
+}

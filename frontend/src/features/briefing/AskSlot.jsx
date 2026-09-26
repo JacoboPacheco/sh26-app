@@ -27,12 +27,12 @@ class Guard extends Component {
   }
 }
 
-export default function AskSlot({ caseBody, lang, onLangChange, inputRef, note }) {
+export default function AskSlot({ caseBody, lang, onLangChange, inputRef, note, autoFocus = true }) {
   if (!AskBox) return <Missing note={note} />
   return (
     <Guard note={note}>
       <Suspense fallback={<Loading label="…" />}>
-        <AskBox caseBody={caseBody} lang={lang} onLangChange={onLangChange} inputRef={inputRef} autoFocus />
+        <AskBox caseBody={caseBody} lang={lang} onLangChange={onLangChange} inputRef={inputRef} autoFocus={autoFocus} />
       </Suspense>
     </Guard>
   )

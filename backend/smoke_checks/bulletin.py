@@ -67,11 +67,31 @@ def register(ctx):
         opts = fix["options"]
         assert len(opts) >= 2, f"always more than one solution: {[o['family'] for o in opts]}"
         first = opts[0]
-        assert first["family"] in ("upgrade", "agentic", "combo") and (first["kept_pct"] or 0) >= 90, f"the top solution should keep the campus at (nearly) full size: {first['family']} {first['kept_pct']}"
+        # PROPORTIONATE (PRESENT V2): the lead keeps the campus at full size, the smallest verified upgrade of the weak
+        # point, or an operating rule that only steps down at the peak; a smaller campus, another site or on-site
+        # generation never lead or get a beat of their own while a full-size option holds ("More options" only)
+        flex_lead = first["family"] == "flexible" and ((fix.get("present") or {}).get("flex") or {}).get("peak_only")
+        assert first["role"] == "lead" and (flex_lead or (first["family"] in ("upgrade", "agentic") and (first["kept_pct"] or 0) >= 99.5)), \
+            f"the lead should keep the campus at full size: {first['family']} {first['kept_pct']}"
+        assert all(o["role"] == "more" for o in opts if o["family"] in ("shrink", "move", "onsite", "combo", "remove")), [(o["family"], o["role"]) for o in opts]
+        assert not any(o["family"] == "remove" for o in opts), "'don't build it' is never offered as a solution"
+        pres = fix.get("present") or {}
+        assert (pres.get("blackout") or {}).get("high", 0) > 0 and (pres.get("often") or {}).get("levels"), pres
+        if first.get("cost"):  # an upgrade: each element pinned on the map with its own price, adding up to the total
+            assert all(it["high"] >= it["low"] > 0 and it["work"] in ("transformer", "reconductor", "new_line") for it in first["cost"]["items"]), first["cost"]
+            assert abs(sum(it["high"] for it in first["cost"]["items"]) - first["cost"]["high"]) <= 2, "the pinned per-element prices add up to the total"
         assert all(o["verdict"] == "holds" and o["must"]["en"] and o["must"]["es"] for o in opts), "every listed solution is verified and says what you have to do"
-        assert first["cost"] and first["cost"]["high"] >= first["cost"]["low"] > 0, first["cost"]
+        assert flex_lead or (first["cost"] and first["cost"]["high"] >= first["cost"]["low"] > 0), first["cost"]
         assert [g["cues"] for g in fix["narration"]["en"][1:]] and all(any(c["name"] == "option" for c in g["cues"]) for g in fix["narration"]["en"][1:]), "each option is cued"
         assert "you have to do" in fix["narration"]["en"][0]["text"], fix["narration"]["en"][0]["text"]
+        # the headline counts only the options walked through, never the folded "More options"
+        m = re.search(r": (\d+) verified", fix["headline"]["en"])
+        if m:
+            assert int(m.group(1)) == sum(1 for o in opts if o["role"] in ("lead", "alt")), (fix["headline"]["en"], [o["role"] for o in opts])
+        fl = pres.get("flex")
+        if fl:  # Duke's figure as reported (about 85 hours a year), never "0.25 % of the year's hours"
+            assert fl["hours_assumed"] == 85 and "85 hours" in fl["assumption"] and "of the year" not in fl["assumption"], fl
+        assert "weak point is overloaded at every" not in str(fix["narration"]), "the per-level check is the grid's, not the weak point's"
         chain = next(s for s in d["slides"] if s["id"] == "chain")
         assert len(chain["plays"]) == hero["cascade_steps"] and chain["plays"][0]["people_hit"] > 0, chain["plays"][:1]
         assert all({"n", "kind", "label", "loading_pct", "people_hit", "areas"} <= set(p_) for p_ in chain["plays"]), chain["plays"][0]
@@ -159,6 +179,32 @@ def register(ctx):
             blob = " ".join([s["headline"]["en"], *s["lines"]["en"], *(g["text"] for g in s["narration"]["en"])]).lower()
             assert "data center" not in blob and " it only at" not in blob, f"{s['id']} speaks of a data center with none placed: {blob[:200]}"
 
+    def test_peak_means_the_peak():
+        # "only at the peak" is relative to the 4 PM peak, whatever level the case is at: at 9 AM an overload that
+        # starts at 9 AM is not a peak-only one, and in a heat wave an overload only there is not "the summer peak"
+        for body, early in (({**case, "mw": 1000, "load_factor": 0.82}, True), ({**case, "mw": 500, "load_factor": 1.04}, False)):
+            d = ctx.request("POST", "/api/briefing/deck", {**body, "ai": False, "length": "short"})
+            fix = next((s for s in d["slides"] if s["id"] == "fix"), None)
+            if fix is None:
+                continue
+            pres = fix.get("present") or {}
+            often = pres.get("often") or {}
+            over = [float(x["level"]) for x in often.get("levels") or [] if x.get("over")]
+            blob = " ".join(g["text"] for g in fix["narration"]["en"])
+            if any(lv < 0.995 for lv in over):
+                assert not often.get("peak_only") and not often.get("heat_only") and not (pres.get("flex") or {}).get("peak_only"), (body, often)
+                assert "only comes" not in blob and "except at the summer peak" not in blob, blob[:300]
+                assert fix["options"][0]["family"] != "flexible", "an overload from the morning on is not led by a peak-hour rule"
+            elif over and all(lv > 1.005 for lv in over):
+                assert often.get("heat_only"), often
+                assert "summer peak" not in blob, f"a heat-wave-only overload is not 'the summer peak': {blob[:300]}"
+            fl = pres.get("flex")
+            if fl:
+                tot = float(pres.get("total_mw") or body["mw"])
+                assert all(abs(st["step_mw"] - (tot - st["runs_mw"])) <= 0.2 for st in fl["steps"]), fl["steps"]
+                assert fl["step_down_mw"] == max((st["step_mw"] for st in fl["steps"]), default=fl["step_down_mw"]), fl
+            assert early or over, (body, often)
+
     def test_agent_trace_in_deck():
         # "Watch the AI work": the fix slide carries the AI proposer's run (solutions.py → report.agentic) with its trace.
         # Without a key the proposer is off and the trace is empty; with one, once it is done, every round is in it.
@@ -206,5 +252,6 @@ def register(ctx):
     ctx.check("briefing deck with AI: complete with or without a key, fixed opening kept", test_ai_deck)
     ctx.check("legacy /api/bulletin: a paragraph from the deck, with the engine's facts", test_legacy_bulletin)
     ctx.check("briefing deck: a storm reads 'no fix' (no upgrade 'prevents' it); a heat-only case never mentions a data center", test_honest_storm_and_heat)
+    ctx.check("briefing deck: 'only at the peak' is the 4 PM peak whatever the case's hour (9 AM, heat wave), step-downs per level", test_peak_means_the_peak)
     ctx.check("briefing deck: the fix slide carries the AI proposer's trace (every plan, the engine's verdict on each, the revisions)", test_agent_trace_in_deck)
     ctx.check("briefing deck rejects an empty case, a point outside Florida, a size of 0, an unknown line, a bad length", test_validation)

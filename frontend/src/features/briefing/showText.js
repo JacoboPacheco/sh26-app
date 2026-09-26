@@ -75,6 +75,7 @@ export const S = {
     sayPlan: (k, n, name, keep) => `Option ${k} of ${n}: ${name}. ${keep} If you want to build it here, you have to do this.`,
     sayKeepAll: (mw) => `It keeps all ${mw} MW.`,
     sayKeep: (mw, of) => `It keeps ${mw} of the ${of} MW.`,
+    sayFlexKeep: (mw, except) => `It runs all ${mw} MW except ${except || 'at the peak'}, with no new equipment.`,
     sayResult0: 'Re-run on the model: 0 people lose power.',
     sayResultN: (n) => `Re-run on the model: ${n} people still lose power.`,
     partly: 'Partly verified: not everyone keeps power',
@@ -168,6 +169,7 @@ export const S = {
     sayPlan: (k, n, name, keep) => `Opción ${k} de ${n}: ${name}. ${keep} Si quieres construirlo aquí, tienes que hacer esto.`,
     sayKeepAll: (mw) => `Conserva los ${mw} MW completos.`,
     sayKeep: (mw, of) => `Conserva ${mw} de los ${of} MW.`,
+    sayFlexKeep: (mw, except) => `Opera los ${mw} MW completos salvo ${except || 'en el pico'}, sin equipos nuevos.`,
     sayResult0: 'Simulada de nuevo: 0 personas pierden la luz.',
     sayResultN: (n) => `Simulada de nuevo: ${n} personas siguen sin luz.`,
     partly: 'Verificada en parte: no todos mantienen la luz',
@@ -188,6 +190,174 @@ export const S = {
     withoutCampus: 'Sin él',
     limit: 'Límite',
     rank: (n) => `Opción ${n}`,
+  },
+}
+
+// PRESENT V2 (user, Sat 17:16-17:19): each beat's own picture on the map, the grid's weak point before the campus, the
+// fixes placed where they go with what each costs, weighed against the blackout and how often the overload happens.
+const LEVEL_ES = { '3 AM': '3 AM', '9 AM': '9 AM', '4 PM': '4 PM', 'in a heat wave': 'en una ola de calor', 'at the height of a heat wave': 'en el pico de una ola de calor' }
+// a load level at the end of a sentence: "at 3 AM", "at the 4 PM peak", "in a heat wave" (never "at in a heat wave")
+const LEVEL_AT = {
+  en: { '3 AM': 'at 3 AM', '9 AM': 'at 9 AM', '4 PM': 'at the 4 PM peak', 'in a heat wave': 'in a heat wave', 'at the height of a heat wave': 'at the height of a heat wave' },
+  es: { '3 AM': 'a las 3 AM', '9 AM': 'a las 9 AM', '4 PM': 'en el pico de las 4 PM', 'in a heat wave': 'en una ola de calor', 'at the height of a heat wave': 'en el pico de una ola de calor' },
+}
+export const atLevel = (name, lang = 'en') => {
+  const n = String(name || '')
+  const hit = LEVEL_AT[lang === 'es' ? 'es' : 'en'][n]
+  if (hit) return hit
+  if (lang === 'es') return `al ${n.replace(/of peak$/, 'del pico')}` // "85% of peak"
+  return /^\d/.test(n) ? `at ${n}` : n
+}
+export const joinList = (list, lang = 'en') =>
+  list.length > 1 ? `${list.slice(0, -1).join(', ')} ${lang === 'es' ? 'y' : 'and'} ${list[list.length - 1]}` : list[0] || ''
+// the levels an operating rule steps down at (the engine's per-level sizes), in words: "at the 4 PM peak and in a heat wave"
+export const flexWhen = (flex, lang = 'en') => {
+  const steps = flex?.steps || []
+  return steps.length ? joinList(steps.map((x) => atLevel(x.name, lang)), lang) : ''
+}
+const money = (v) => {
+  const n = Number(v) || 0
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2).replace(/\.?0+$/, '')}B`
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1).replace(/\.0$/, '')}M`
+  if (n >= 1e3) return `$${Math.round(n / 1e3)}k`
+  return `$${Math.round(n)}`
+}
+export const moneyShort = money
+export const levelName = (name, lang) => (lang === 'es' ? LEVEL_ES[name] || name : name)
+const num = (v) => Math.round(Number(v) || 0).toLocaleString('en-US')
+
+export const P = {
+  en: {
+    spread: 'The blackout, from where it began',
+    origin: 'First failure',
+    areasKicker: 'Where the lights went out',
+    areaSub: (n) => `${num(n)} without power (estimate)`,
+    weakKicker: 'The weak point',
+    weakFrame: 'Any big new load here (a data center, a factory, a heat wave) finds it first.',
+    gaugeSub: 'today’s grid → with the new load',
+    rating: 'rating',
+    lastMargin: 'The new load uses up the last margin',
+    flowNote: (p) => `${Math.round(p)}% of any new load here flows through it`,
+    stormKicker: 'What the storm cut',
+    stormCut: (n) => `${num(n)} lines cut by the storm`,
+    leadRole: 'Cheapest verified way at full size',
+    leadRoleOnly: 'The verified way at full size',
+    leadFlex: 'Cheapest verified way: no new equipment',
+    leadClosest: 'The closest verified way',
+    altRole: 'Another verified way',
+    altNoStep: 'If you want no step-downs',
+    noEquipment: 'No new equipment',
+    total: 'Total, low to high estimate',
+    perElement: 'Where it goes and what each costs',
+    weighTitle: 'Weighed against what it prevents',
+    blackoutBar: 'Blackout if nothing changes',
+    fixBar: 'This fix',
+    oftenEvery: (low) => `How often: at this size the grid overloads at every load level the model checks, even ${low}. An everyday overload, not a rare event.`,
+    oftenPeak: (list) => `How often: only ${list}, the hottest hours of the year.`,
+    oftenSome: (list) => `How often: at this size the grid overloads ${list}.`,
+    protection: 'The chain reaction assumes each overloaded line trips on its own protection with no operator acting; operators would cut load first. The fix removes the overload itself.',
+    flexTitle: 'What the campus runs at, by load level',
+    flexFull: 'full size',
+    flexExcept: (list) => `full size except ${list}`,
+    flexNow: 'this case',
+    flexCompute: (mwh, pct, h) => `Its cost is compute, not equipment: at most about ${num(mwh)} MWh a year${pct != null ? ` (${pct}% of its energy)` : ''}, even if it stepped down the full amount in all ${h} hours.`,
+    flexAssume: (h) => `Assumption: about ${h} hours of curtailment a year, mostly partial, as reported for Duke University’s 2025 national study of flexible loads (0.25% of their maximum uptime); not measured for this site.`,
+    flexTagHead: 'Steps down to',
+    moreTitle: 'More options',
+    moreNoteUp: 'Also verified on the model: pricier upgrade plans.',
+    moreNoteLess: 'Also verified on the model. They build less here, or build it elsewhere.',
+    moreNoteBoth: 'Also verified on the model: pricier upgrade plans, and ways that build less here or elsewhere.',
+    work: {
+      transformer: (o, n) => `Transformer ${num(o)} → ${num(n)} MVA`,
+      reconductor: (mi, kv) => `Rebuild ${mi} mi of ${kv} kV line`,
+      new_line: (mi, kv) => `New ${kv} kV line, ${mi} mi`,
+    },
+    compared: 'The options, against the blackout',
+    ifNothing: 'If nothing changes',
+    keepsAll: 'keeps the full campus',
+    keeps: (pct) => `keeps ${pct}%`,
+    keepsAtHour: (pct) => `runs ${pct}% at this hour`,
+    trigger: 'The trigger',
+    triggerTag: (mw) => `${num(mw)} MW data center`,
+    hospitalsKicker: 'Hospitals on backup power',
+    hospitalsN: (n) => `${n} ${n === 1 ? 'hospital' : 'hospitals'} on backup`,
+    costBlackout: (v) => `Blackout: up to ${v}`,
+    costFix: (v) => `Upgrades: up to ${v}`,
+    noFixReach: 'No fix reaches them',
+    sidebarHint: 'Ask anything about this case. The answers use the engine’s numbers.',
+    options: 'Options',
+    moreOptions: 'More options',
+    fewerOptions: 'Fewer options',
+    version: 'Version',
+    full: 'Full',
+    shortV: 'Short',
+    view: 'View',
+  },
+  es: {
+    spread: 'El apagón, desde donde empezó',
+    origin: 'Primera falla',
+    areasKicker: 'Dónde se fue la luz',
+    areaSub: (n) => `${num(n)} sin luz (estimación)`,
+    weakKicker: 'El punto débil',
+    weakFrame: 'Cualquier carga grande nueva aquí (un centro de datos, una fábrica, una ola de calor) lo encuentra primero.',
+    gaugeSub: 'red de hoy → con la nueva carga',
+    rating: 'capacidad',
+    lastMargin: 'La nueva carga agota el último margen',
+    flowNote: (p) => `El ${Math.round(p)}% de cualquier carga nueva aquí pasa por ahí`,
+    stormKicker: 'Lo que cortó la tormenta',
+    stormCut: (n) => `${num(n)} líneas cortadas por la tormenta`,
+    leadRole: 'La manera verificada más barata a tamaño completo',
+    leadRoleOnly: 'La manera verificada a tamaño completo',
+    leadFlex: 'La manera verificada más barata: sin equipos nuevos',
+    leadClosest: 'La manera verificada más cercana',
+    altRole: 'Otra manera verificada',
+    altNoStep: 'Si no quieres recortes',
+    noEquipment: 'Sin equipos nuevos',
+    total: 'Total, estimación baja a alta',
+    perElement: 'Dónde va y cuánto cuesta cada parte',
+    weighTitle: 'Frente a lo que evita',
+    blackoutBar: 'Apagón si nada cambia',
+    fixBar: 'Esta solución',
+    oftenEvery: (low) => `Con qué frecuencia: con este tamaño la red se sobrecarga en todos los niveles de carga del modelo, incluso ${low}. Una sobrecarga diaria, no un caso raro.`,
+    oftenPeak: (list) => `Con qué frecuencia: solo ${list}, las horas más calurosas del año.`,
+    oftenSome: (list) => `Con qué frecuencia: con este tamaño la red se sobrecarga ${list}.`,
+    protection: 'La reacción en cadena supone que cada línea sobrecargada se dispara por su propia protección sin que actúe un operador; los operadores cortarían carga antes. La solución elimina la sobrecarga en sí.',
+    flexTitle: 'Lo que opera el campus, por nivel de carga',
+    flexFull: 'tamaño completo',
+    flexExcept: (list) => `tamaño completo salvo ${list}`,
+    flexNow: 'este caso',
+    flexCompute: (mwh, pct, h) => `Su costo es cómputo, no equipos: como mucho unos ${num(mwh)} MWh al año${pct != null ? ` (${pct}% de su energía)` : ''}, aun si recortara todo el escalón en las ${h} horas.`,
+    flexAssume: (h) => `Supuesto: unas ${h} horas de recorte al año, casi siempre parcial, según lo publicado sobre el estudio nacional de 2025 de la Universidad de Duke sobre cargas flexibles (0,25% de su tiempo máximo de operación); no medido para este sitio.`,
+    flexTagHead: 'Recorta a',
+    moreTitle: 'Más opciones',
+    moreNoteUp: 'También verificadas en el modelo: planes de refuerzo más caros.',
+    moreNoteLess: 'También verificadas en el modelo. Construyen menos aquí, o lo construyen en otro lugar.',
+    moreNoteBoth: 'También verificadas en el modelo: planes de refuerzo más caros, y maneras que construyen menos aquí o en otro lugar.',
+    work: {
+      transformer: (o, n) => `Transformador ${num(o)} → ${num(n)} MVA`,
+      reconductor: (mi, kv) => `Reconstruir ${mi} mi de línea de ${kv} kV`,
+      new_line: (mi, kv) => `Línea nueva de ${kv} kV, ${mi} mi`,
+    },
+    compared: 'Las opciones, frente al apagón',
+    ifNothing: 'Si nada cambia',
+    keepsAll: 'conserva el campus completo',
+    keeps: (pct) => `conserva el ${pct}%`,
+    keepsAtHour: (pct) => `opera al ${pct}% a esta hora`,
+    trigger: 'El detonante',
+    triggerTag: (mw) => `Centro de datos de ${num(mw)} MW`,
+    hospitalsKicker: 'Hospitales con energía de respaldo',
+    hospitalsN: (n) => `${n} ${n === 1 ? 'hospital' : 'hospitales'} con respaldo`,
+    costBlackout: (v) => `Apagón: hasta ${v}`,
+    costFix: (v) => `Refuerzos: hasta ${v}`,
+    noFixReach: 'Ninguna solución los alcanza',
+    sidebarHint: 'Pregunta lo que quieras sobre este caso. Las respuestas usan las cifras del motor.',
+    options: 'Opciones',
+    moreOptions: 'Más opciones',
+    fewerOptions: 'Menos opciones',
+    version: 'Versión',
+    full: 'Completa',
+    shortV: 'Corta',
+    view: 'Vista',
   },
 }
 

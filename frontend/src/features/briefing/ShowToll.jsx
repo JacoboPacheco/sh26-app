@@ -1,8 +1,11 @@
+import { useEffect, useMemo } from 'react'
+import { useOverload } from '../../store'
 import { LABEL, moneyIn, outageText, outageUnit } from '../cost/figures'
+import { spreadOf } from './beatMaps'
 import { Kicker } from './ShowBits'
-import { tollOf } from './showDeck'
-import { S } from './showText'
-import { easeOutQuart, useTween } from './useShowClock'
+import { SPREAD_MS, tollOf } from './showDeck'
+import { P, S } from './showText'
+import { easeOutQuart, useElapsed, useTween } from './useShowClock'
 
 // "$1.08 billion" → the figure and its unit word, set in two sizes (the results panel's toll does the same)
 function parts(v, lang) {
@@ -11,13 +14,39 @@ function parts(v, lang) {
   return m ? { figure: m[1], unit: m[2] } : { figure: s, unit: '' }
 }
 
-// The first thing on screen: the expected cost counts up while the time without power counts up to its value,
-// both written exactly as the results panel writes them ("$1.08 billion", "about 22 hours"; one set of numbers,
-// features/cost/figures.js). Both are estimates from the engine's report; the deck's own words follow.
-export default function ShowToll({ slide, deck, report, lang, animate }) {
+// The first thing on screen: the blackout reaching outward on the map from where it began (the map starts calm; every
+// substation dark when it settled goes dark as the front passes it) while the expected cost LEAPS each time the front
+// reaches another area, and the time without power counts up. Both figures are written exactly as the results panel
+// writes them ("$1.08 billion", "about 22 hours"; one set of numbers, features/cost/figures.js). Paused or reduced
+// motion: the finished picture (the map's own blackout, the first failure marked).
+export default function ShowToll({ slide, deck, report, lang, animate, stage }) {
   const t = S[lang]
+  const O = useOverload()
   const toll = tollOf(deck, report)
-  const cost = useTween(toll.cost ?? 0, { ms: 3000, delay: 300, active: animate && toll.cost != null, ease: easeOutQuart })
+  const { cascade, subPos, branchById } = O
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sp = useMemo(() => spreadOf({ cascade, subPos, branchById }, report), [cascade, subPos, branchById, report])
+  const clock = useElapsed(animate && !!sp, SPREAD_MS + 900)
+  const done = !animate || !sp || clock >= SPREAD_MS
+  useEffect(() => {
+    if (!stage || !sp) return undefined
+    if (animate) {
+      stage.camera({ points: sp.extent })
+      stage.layer({ key: 'toll', spread: { origin: sp.origin, dots: sp.dots, ms: sp.ms } })
+    } else stage.layer({ key: 'toll-still', marks: [{ at: sp.origin, tone: 'over', r: 11 }] })
+    return undefined
+  }, [animate, sp, stage])
+  // the front has passed everything: the map shows its own finished blackout, the first failure marked
+  useEffect(() => {
+    if (!animate || !sp || !done || !stage) return
+    stage.mapStep('final')
+    stage.layer({ key: 'toll-still', marks: [{ at: sp.origin, tone: 'over', r: 11 }] })
+  }, [animate, sp, done, stage])
+  useEffect(() => () => stage?.layer(null), [stage])
+  const frac = sp ? sp.at(clock) : 1
+  const leaps = sp && animate ? sp.leaps(clock) : 0
+  const tween = useTween(toll.cost ?? 0, { ms: 3000, delay: 300, active: animate && toll.cost != null && !sp, ease: easeOutQuart })
+  const cost = sp ? (toll.cost ?? 0) * frac : tween
   const hours = useTween(toll.hours ?? 0, { ms: 4300, delay: 700, active: animate && toll.hours != null, ease: easeOutQuart })
   const costDone = !animate || toll.cost == null || cost >= toll.cost - 1
   const shown = parts(costDone ? toll.cost : cost, lang)
@@ -37,7 +66,7 @@ export default function ShowToll({ slide, deck, report, lang, animate }) {
       <section className="sh-block" aria-label={t.tollCost}>
         <Kicker tone="red">{t.tollCost}</Kicker>
         <p className="sh-mega">
-          <span aria-hidden="true">
+          <span aria-hidden="true" key={animate ? `leap-${leaps}` : 'still'} className={animate && leaps > 0 && !costDone ? 'sh-jolt' : undefined}>
             {toll.cost == null ? '' : shown.figure}
             {toll.cost != null && shown.unit && <span className="sh-mega__u"> {shown.unit}</span>}
           </span>
@@ -80,6 +109,7 @@ export default function ShowToll({ slide, deck, report, lang, animate }) {
         </section>
       )}
 
+      {sp && <p className="sh-note sh-spreadnote">{P[lang].spread}</p>}
       <h2 className="rs-headline" id={`rs-h-${slide.id}`}>
         {headline}
       </h2>

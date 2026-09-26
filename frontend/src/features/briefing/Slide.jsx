@@ -1,9 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Badge, Button } from '../../ui'
 import { Count, Gauge, Kicker } from './ShowBits'
+import { AreaTour, CostLayer, EventLayer, HospitalsLayer, NoFixLayer, StormLayer } from './ShowBeats'
+import ShowBottom from './ShowBottom'
 import ShowChain from './ShowChain'
-import ShowSolutions, { Frame, OptionRows } from './ShowSolutions'
+import ShowSolutions from './ShowSolutions'
 import ShowToll from './ShowToll'
+import ShowWeakPoint from './ShowWeakPoint'
 import { S } from './showText'
 import { bestApply, linesOf } from './stage'
 import { reportPeople } from '../cost/figures'
@@ -26,10 +29,30 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
   const checked = deck?.ai?.numbers_checked || 0
   const noFix = !!report?.no_fix
   const nSolutions = options.length
+  const [areaOn, setAreaOn] = useState(null) // the area the map's tour is on (the areas slide)
+  const fixSlide = (deck?.slides || []).find((x) => (x.kind || x.id) === 'fix')
 
   let body
   if (kind === 'toll') {
-    body = <ShowToll slide={slide} deck={deck} report={report} lang={lang} animate={animate} />
+    body = <ShowToll slide={slide} deck={deck} report={report} lang={lang} animate={animate} stage={stage} />
+  } else if (kind === 'cause' && slide.weak_point && report?.root_cause) {
+    body = <ShowWeakPoint slide={slide} report={report} lang={lang} animate={animate} stage={stage} />
+  } else if (kind === 'bottom_line' && !noFix && nSolutions > 0) {
+    const more = (slide.lines?.[lang] || slide.lines?.en || []).filter((x) => !/^(Apply|Aplica)/.test(x))
+    body = (
+      <>
+        <h2 className="rs-headline" id={`rs-h-${slide.id}`}>
+          {headline}
+        </h2>
+        <ShowBottom fixSlide={fixSlide} report={report} lang={lang} animate={animate} options={options} stage={stage} />
+        {more.length > 0 && <Lines lines={more} lang={lang} />}
+        {apply && (
+          <div className="rs-apply">
+            <Button onClick={() => onApply(apply)}>{t.applyBest}</Button>
+          </div>
+        )}
+      </>
+    )
   } else if (kind === 'chain') {
     body = <ShowChain slide={slide} report={report} lang={lang} animate={animate} stage={stage} cueStep={live?.cueStep} />
   } else if (kind === 'fix' && nSolutions > 0) {
@@ -45,6 +68,7 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
         <h2 className="rs-nofix-band" id={`rs-h-${slide.id}`}>
           {headline}
         </h2>
+        <NoFixLayer report={report} lang={lang} stage={stage} animate={animate} />
         {report?.no_fix && <ProofTable report={report} lang={lang} />}
         {report?.split && <SplitBar split={report.split} lang={lang} />}
         {!(report?.no_fix?.proof?.length) && <Lines lines={lines} />}
@@ -57,7 +81,16 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
         <h2 className="rs-headline" id={`rs-h-${slide.id}`}>
           {headline}
         </h2>
-        {kind === 'areas' && report?.areas?.length > 0 ? <AreaBars areas={report.areas.filter((a) => Number(a.people) > 0).slice(0, 5)} lang={lang} animate={animate} on={animate ? live?.area : null} /> : null}
+        {kind === 'areas' && report?.areas?.length > 0 ? (
+          <>
+            <AreaTour report={report} lang={lang} animate={animate} stage={stage} onArea={setAreaOn} />
+            <AreaBars areas={report.areas.filter((a) => Number(a.people) > 0).slice(0, 5)} lang={lang} animate={animate} on={animate ? areaOn : null} />
+          </>
+        ) : null}
+        {kind === 'event' && <EventLayer report={report} lang={lang} stage={stage} animate={animate} />}
+        {kind === 'hospitals' && <HospitalsLayer report={report} lang={lang} stage={stage} animate={animate} />}
+        {kind === 'cost' && <CostLayer report={report} lang={lang} stage={stage} animate={animate} />}
+        {kind === 'cause' && report?.root_cause?.cause === 'storm' && <StormLayer report={report} stage={stage} animate={animate} />}
         {kind === 'cause' && report?.root_cause?.pct_with != null ? <CauseGauges rc={report.root_cause} lang={lang} /> : null}
         {!(kind === 'areas' && report?.areas?.length) && !(kind === 'cause' && report?.root_cause?.pct_with != null) && (
           <Lines lines={lines} verdicts={kind === 'fix'} lang={lang} />
@@ -67,13 +100,6 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
           <div className="rs-apply">
             <Button onClick={() => onApply(apply)}>{t.applyBest}</Button>
           </div>
-        )}
-        {kind === 'bottom_line' && !noFix && nSolutions > 0 && (
-          <section className="sh-compare">
-            <Frame agentic={deck?.agentic} options={options} lang={lang} />
-            <Kicker tone="green">{S[lang].compared}</Kicker>
-            <OptionRows options={options} lang={lang} animate={animate} delay={500} />
-          </section>
         )}
         {kind === 'bottom_line' && noFix && report?.recovery?.waves?.length > 0 && <Recovery report={report} lang={lang} animate={animate} stage={stage} wave={wave} />}
         {kind === 'bottom_line' && report && <Takeaway report={report} lang={lang} />}

@@ -102,6 +102,25 @@ LOAD_WHEN = {
 }
 LOAD_WORD = {0.62: ("overnight", "de madrugada"), 0.82: ("morning", "por la mañana"), 1.0: ("summer afternoon", "tarde de verano"),
              1.04: ("heat wave", "ola de calor"), 1.08: ("peak of a heat wave", "pico de una ola de calor")}
+# the same levels as the end of a sentence ("... 550 megawatts at the summer peak")
+LEVEL_AT = {0.62: ("overnight", "de madrugada"), 0.82: ("in the morning", "por la mañana"), 1.0: ("at the summer peak", "en el pico de verano"),
+            1.04: ("in a heat wave", "en una ola de calor"), 1.08: ("at the height of a heat wave", "en el pico de una ola de calor")}
+
+
+def level_at(lf: float, lang: str) -> str:
+    """'at the summer peak' / 'en el pico de verano' for a load level; any other level as a share of the peak."""
+    for k, v in LEVEL_AT.items():
+        if abs(float(lf) - k) < 0.005:
+            return v[0 if lang == "en" else 1]
+    p = round(float(lf) * 100)
+    return f"at {p} percent of the summer peak load" if lang == "en" else f"al {p} por ciento de la carga pico de verano"
+
+
+def _flex_steps(fx: dict) -> list[tuple[float, float]]:
+    """(load level, MW it runs at) for each level the engine checked where the flexible campus runs below full size."""
+    out = [(float(x["level"]), float(x.get("runs_mw") or 0)) for x in ((fx.get("detail") or {}).get("levels") or [])
+           if isinstance(x, dict) and x.get("level") is not None and not x.get("full")]
+    return sorted(out)
 
 # catastrophes.json presets, spoken (numbers in words: a spelled number is never mistaken for a fact)
 PRESET_SAY = {
@@ -1346,11 +1365,22 @@ def s_cost(w: Writer, lv: Level) -> dict:
     return out
 
 
+def _heat_room(w: Writer) -> float | None:
+    """The site's room in a heat wave (the flexible fix's per-level check), when the engine ran it."""
+    fx = next((f for f in w.fixes if f.get("family") == "flexible"), None)
+    for x in ((fx or {}).get("detail") or {}).get("levels") or []:
+        if isinstance(x, dict) and abs(float(x.get("level") or 0) - 1.04) < 0.005 and w.lf < 1.04 - 0.005:
+            return float(x.get("runs_mw") or 0)
+    return None
+
+
 def s_cause(w: Writer, lv: Level) -> dict:
     rc = w.r.get("root_cause") or {}
     line = rc.get("line") or {}
-    bid = line.get("id")
     cause = rc.get("cause") or "none"
+    if cause in ("campus", "last_straw") and line.get("id") is not None and w.sites:
+        return _s_weak_point(w, lv, rc)
+    bid = line.get("id")
     pw, po = rc.get("pct_with"), rc.get("pct_without")
     share = rc.get("campus_share_pct")
     out = {"kind": "cause", "headline": {}, "lines": {}, "narr": {}}
@@ -1450,6 +1480,66 @@ def s_cause(w: Writer, lv: Level) -> dict:
     return out
 
 
+def _s_weak_point(w: Writer, lv: Level, rc: dict) -> dict:
+    """Why it happened, grid first (user, Sat 17:16-17:19: "point toward a problem in the current power grid"): the
+    weak point is the element that fails first; on today's grid it already carries most of its rating, most of any new
+    load at the site flows through it, and any big new load there (a data center, a factory, a heat wave) finds it
+    first. The campus is the trigger that uses up the last margin."""
+    line = rc.get("line") or {}
+    bid = line.get("id")
+    pw, po = rc.get("pct_with"), rc.get("pct_without")
+    share = rc.get("path_share_pct")
+    room, heat = w.room, _heat_room(w)
+    if heat is not None:
+        w.add("deck.room_heat_mw", "Room at the site before the first overload in a heat wave", round(heat, 1), "MW")
+    sw = (w.r.get("strain") or {}).get("with_campus") or {}
+    out = {"kind": "cause", "headline": {}, "lines": {}, "narr": {}}
+    for lang in LANGS:
+        en = lang == "en"
+        label = w.line_label(bid, lang, fallback=line.get("label"))
+        dc = w.dc(lang)
+        parts: list[tuple[str, bool | int]] = [(("Why it happened." if en else "Por qué pasó."), False)]
+        parts.append(((f"The weak point is {label}." if en else f"El punto débil es {label}."), False))
+        if po is not None:
+            parts.append(((f"On today's grid, before any new load, it already carries {pct_say(po, 'en')} of its rating." if en
+                           else f"En la red de hoy, antes de cualquier carga nueva, ya lleva el {pct_say(po, 'es')} de su capacidad."), False))
+        if share is not None and share >= 5:
+            parts.append(((f"About {pct_say(share, 'en')} of any new load here flows through it." if en
+                           else f"Cerca del {pct_say(share, 'es')} de cualquier carga nueva aquí pasa por ahí."), True))
+        parts.append((("Any big new load here, a data center, a factory or a heat wave, finds it first." if en
+                       else "Cualquier carga grande nueva aquí, un centro de datos, una fábrica o una ola de calor, lo encuentra primero."), False))
+        if pw is not None:
+            parts.append(((f"{cap(dc)} used up the last margin and took it to {pct_say(pw, 'en')}." if en
+                           else f"{cap(dc)} agotó el último margen y lo llevó al {pct_say(pw, 'es')}."), False))
+        out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang]))]
+        out["headline"][lang] = cap((f"The weak point: {label}" if en else f"El punto débil: {label}"))
+        lines = []
+        if po is not None:
+            lines.append((f"Before any new load: {round(po)}% of its rating" if en else f"Antes de cualquier carga nueva: {round(po)}% de su capacidad"))
+        if share is not None and share >= 5:
+            lines.append((f"{round(share)}% of any new load here flows through it" if en else f"El {round(share)}% de cualquier carga nueva aquí pasa por ahí"))
+        if room is not None:
+            h = (f" ({round(heat):,} MW in a heat wave)" if en else f" ({round(heat):,} MW en una ola de calor)") if heat is not None else ""
+            lines.append((f"Room before the first overload: {round(room):,} MW{h}" if en else f"Margen antes de la primera sobrecarga: {round(room):,} MW{h}"))
+        elif int(sw.get("over") or 0) > 0:
+            n_over = int(sw["over"])
+            lines.append((f"With the new load: {n_over} {'line' if n_over == 1 else 'lines'} over {'its' if n_over == 1 else 'their'} rating" if en
+                          else f"Con la nueva carga: {n_over} {'línea' if n_over == 1 else 'líneas'} sobre su capacidad"))
+        out["lines"][lang] = [x[:LINE_MAX] for x in lines[:3]]
+    out["big"] = ({"value": pw, "display": {"en": f"{round(pw)}%", "es": f"{round(pw)}%"},
+                   "label": {"en": "the weak point's loading with the new load" + (f" ({round(po)}% before)" if po is not None else ""),
+                             "es": "carga del punto débil con la nueva carga" + (f" ({round(po)}% antes)" if po is not None else "")},
+                   "fact_key": "cause.pct_with", "tone": "alert"} if pw is not None else None)
+    pts = w.line_pts(bid)
+    site = w.site_pt()
+    out["camera"] = cam("line", pts + ([site] if site else []), center=pts[0] if pts else None, line_ids=[bid]) if pts else region_cam(w)
+    out["map"] = mapspec("cause", 0, 0, highlight=[bid])
+    out["weak_point"] = {"id": bid, "pct_without": po, "pct_with": pw, "path_share_pct": share, "room_mw": room, "room_heat_mw": heat,
+                         "transformer": bool(line.get("transformer"))}
+    out["facts_used"] = w.keys("cause.line", "cause.pct_with", "cause.pct_without", "cause.path_share_pct", "deck.room_mw", "event.room_mw", "deck.room_heat_mw")
+    return out
+
+
 def _upgrade_what(fx: dict, lang: str) -> str:
     """'one line and one transformer' / 'una línea y un transformador', from the fix's upgrade list."""
     d = fx.get("detail") or {}
@@ -1497,6 +1587,15 @@ def _fix_phrase(w: Writer, fx: dict, lang: str) -> str:
             "construirlos en otro lugar" if w.multi else "construirlo en otro lugar")
     if fam == "flexible":
         it_en, it_es = ("them", "hacerlos flexibles") if w.multi else ("it", "hacerlo flexible")
+        steps = _flex_steps(fx)  # the engine's size at each level it runs lower (never "at the peak" when it is 9 AM)
+        if steps:
+            tot = " in all" if w.multi and en else " en total" if w.multi else ""
+            at = [(mw_say(r, lang) + tot, level_at(lv_, lang)) for lv_, r in steps]
+            if len(at) <= 2:
+                said = (" and " if en else " y ").join(f"{m} {a}" for m, a in at)
+            else:
+                said = f"{at[0][0]} {at[0][1]}, " + ("down to " if en else "hasta ") + f"{at[-1][0]} {at[-1][1]}"
+            return f"make {it_en} flexible, stepping down to {said}" if en else f"{it_es}, bajando a {said}"
         if size is not None:
             return (f"make {it_en} flexible, curtailing to {mw_say(size, lang)}{' in all' if w.multi else ''} at the peak" if en
                     else f"{it_es}, recortando a {mw_say(size, lang)}{' en total' if w.multi else ''} en el pico")
@@ -1588,34 +1687,77 @@ def s_fix(w: Writer, lv: Level) -> dict:
         out["map"] = mapspec("calm", 0, 0)
         out["facts_used"] = w.keys("event.room_mw", "deck.room_mw")
         return out
-    # the verified solutions, best first: building it HERE at (nearly) the full amount before anything smaller
-    sol = [w.fixes[i] for i in (w.r.get("solutions") or []) if isinstance(i, int) and 0 <= i < len(w.fixes)] or [best]
-    if best not in sol:
-        sol.insert(0, best)
+    # the verified solutions in the presentation's PROPORTIONATE order (solutions.present_plan): the cheapest way to keep
+    # the campus at full size first (an operating rule when the overload only comes at the peak, else the smallest
+    # verified upgrade of the weak point), pricier full-size plans after; a smaller campus, another site or on-site
+    # generation only under "More options" (they lead only when nothing full size verifies); never "don't build it"
+    import solutions  # noqa: PLC0415 — late: solutions imports briefing
+
+    plan = solutions.present_plan(w.r) or {"main": [], "more": []}
+    main = [w.fixes[i] for i in plan["main"] if isinstance(i, int) and 0 <= i < len(w.fixes)] or [best]
+    more = [w.fixes[i] for i in plan.get("more") or [] if isinstance(i, int) and 0 <= i < len(w.fixes) and w.fixes[i] not in main]
+    sol = main + more
     ordered = sorted(w.fixes, key=lambda f: (f not in sol, sol.index(f) if f in sol else 0, FAMILY_ORDER.index(f["family"]) if f.get("family") in FAMILY_ORDER else 99))
     listed = [f for f in ordered if f.get("verdict") in ("holds", "partly", "fails") and f.get("family") != "remove"][:5]
-    n_opts = len(sol) if len(sol) <= 2 else max(2, min(len(sol), 1 + lv.checks))  # always more than one when more than one holds
-    opts = sol[:n_opts]
+    opts = main[: max(2, 1 + lv.checks)]  # the options narrated one by one (the lead, then the alternatives)
+    flex_lead = main[0].get("family") == "flexible"
     strain0 = (w.r.get("strain") or {}).get("with_campus")  # the grid's strain with the campus and no fix
     agent = _agentic_block(w.r.get("agentic"))
+    often = plan.get("often") or {}
+    blackout = plan.get("blackout") or {}
     for lang in LANGS:
         en = lang == "en"
         where = w.where(lang) or w.place or ""
         size = mw_say(w.mw, lang)
-        if w.multi:
+        if not w.sites:  # a heat or storm case with no campus: nothing to build, only the lights to keep on
+            intro = ("How to fix it. To keep the lights on, this is what you have to do." if en
+                     else "Cómo evitarlo. Para mantener la luz, esto es lo que tienes que hacer.")
+        elif w.multi:
             intro = (f"How to fix it. If you want to build {words(len(w.sites), 'en')} campuses, {size} in all, this is what you have to do." if en
                      else f"Cómo evitarlo. Si quieres construir {words(len(w.sites), 'es', before_noun=True)} campus, {size} en total, esto es lo que tienes que hacer.")
         else:
             intro = (f"How to fix it. If you want to build {size} here" + (f" at {where}" if where else "") + ", this is what you have to do." if en
                      else f"Cómo evitarlo. Si quieres construir {size} aquí" + (f", en {where}" if where else "") + ", esto es lo que tienes que hacer.")
+        # what the price is weighed against: how often the condition occurs (the engine's per-level check of the whole
+        # grid with the full campus, relative to the 4 PM peak whatever level the case is at), and the blackout it prevents
+        how_often = ""
+        over_at = join([level_at(float(x["level"]), lang) for x in (often.get("levels") or []) if x.get("over")], lang)
+        if often.get("every_level") and w.sites:
+            how_often = ("At this size the grid overloads at every load level the model checks, even overnight: this is not a rare event." if en
+                         else "Con este tamaño, la red se sobrecarga en todos los niveles de carga que revisa el modelo, incluso de madrugada: no es un caso raro.")
+        elif (often.get("peak_only") or often.get("heat_only")) and over_at:
+            how_often = (f"The overload only comes {over_at}, the hottest hours of the year." if en
+                         else f"La sobrecarga solo llega {over_at}, las horas más calurosas del año.")
+        elif over_at and w.sites:
+            how_often = (f"At this size the grid overloads {over_at}." if en else f"Con este tamaño, la red se sobrecarga {over_at}.")
+        prevents = ""
+        if blackout.get("high"):
+            usd, scaled = usd_say(blackout["high"], lang)
+            if scaled is not None:
+                w.add(f"deck.fix.blackout_high.scaled.{lang}", "The blackout's cost, high end, scaled", scaled, "USD (scaled)", True)
+            prevents = (f"The blackout it prevents is estimated at up to {usd}." if en else f"El apagón que evita se estima en hasta {usd}.")
         said_relief = ""
         said_agent = _agent_say(agent, lang)  # what Gemini proposed and the engine verified: kept longer than the generic line
-        segs = [_seg("presenter", sentences([(intro, False), (said_agent or ("There is more than one way, and the engine re-ran every one." if en else "Hay más de una manera, y el motor probó cada una."), True if said_agent else 2)], lv, PRESENTER_MAX[lang]))]
+        more_than_one = sum(1 for f in sol if f.get("verdict") == "holds") > 1
+        generic = (("There is more than one way, and the engine re-ran every one." if en else "Hay más de una manera, y el motor probó cada una.")
+                   if more_than_one else ("The engine re-ran it on the model." if en else "El motor la probó en el modelo."))
+        segs = [_seg("presenter", sentences([(intro, False), (prevents, True), (how_often, True),
+                                             (said_agent or generic, True if said_agent else 2)],
+                                            lv, PRESENTER_MAX[lang]))]
         for k, fx in enumerate(opts):
             o = fx.get("outcome") or {}
             ph = _fix_phrase(w, fx, lang)
+            if k > 0 and flex_lead and fx.get("family") in ("upgrade", "agentic"):
+                ph = (f"if you want no step-downs, {ph}" if en else f"si no quieres recortes, {ph[:1].lower() + ph[1:]}")
             kept, pct, cost = fx.get("kept_mw"), fx.get("kept_pct"), fx.get("cost")
-            if pct is not None and pct >= 99.5:
+            fl = plan.get("flex") or {}
+            if fx.get("family") == "flexible" and fl.get("peak_only") and fl.get("steps"):
+                # an operating rule, not a smaller campus: full size at every level but the ones the engine found over
+                ex = join([level_at(float(s_["level"]), lang) for s_ in fl["steps"]], lang)
+                keeps = (f"It runs all {size} except {ex}." if en else f"Opera los {size} completos salvo {ex}.")
+            elif not w.sites:
+                keeps = ""  # no campus: nothing to keep
+            elif pct is not None and pct >= 99.5:
                 keeps = (f"It keeps all {size}." if en else f"Conserva los {size} completos.")
             elif kept is not None:
                 keeps = (f"It keeps {mw_say(kept, lang)} of the {num(w.mw, lang)}." if en else f"Conserva {mw_say(kept, lang)} de los {num(w.mw, lang)}.")
@@ -1625,6 +1767,8 @@ def s_fix(w: Writer, lv: Level) -> dict:
             if cost and cost.get("high"):
                 usd, _ = usd_say(cost["high"], lang)
                 money = (f"It costs an estimated {usd}." if en else f"Cuesta unos {usd}, según la estimación.")
+            elif fx.get("family") == "flexible":
+                money = ("It needs no new equipment." if en else "No necesita equipos nuevos.")
             works = ("With it, no line trips." if en else "Con ella, ninguna línea se dispara.") if int(o.get("steps") or 0) == 0 else (
                 f"With it, {people_say(o.get('people') or 0, 'en')} still lose power." if en else f"Con ella, {people_say(o.get('people') or 0, 'es')} siguen sin luz.")
             by = (" The AI proposed this one, and the engine checked it." if en else " La IA propuso esta, y el motor la comprobó.") if fx.get("by") == "gemini" else ""
@@ -1642,17 +1786,33 @@ def s_fix(w: Writer, lv: Level) -> dict:
             segs.append(_seg("analyst", cue("option", k) + text))
         out["narr"][lang] = segs
         pre = ("Preventable" if en else "Evitable") if w.verdict == "preventable" else ("Partly preventable" if en else "Evitable en parte")
-        n_hold = sum(1 for f in sol if f.get("verdict") == "holds")
+        # the headline counts the options walked through (the ones that keep the campus at full size, or only step down
+        # at the peak), never the folded "More options"; "cheapest first" only when their prices do go up
+        walked = [f for f in main if f.get("verdict") == "holds" and (not w.sites or
+            (f.get("kept_pct") or 0) >= 99.5 or (f.get("family") == "flexible" and (plan.get("flex") or {}).get("peak_only")))]
+        n_hold = len(walked)
+        highs = [float((f.get("cost") or {}).get("high") or 0) for f in walked]
+        rising = n_hold > 1 and all(a <= b for a, b in zip(highs, highs[1:]))
+        size_word = (" full-size" if en else "") if all((f.get("kept_pct") or 0) >= 99.5 for f in walked) else ""
         target = (mw_show(w.mw) + (f" at {where}" if where and not w.multi else "")) if en else (mw_show(w.mw) + (f" en {where}" if where and not w.multi else ""))
-        if w.verdict == "preventable" and n_hold:
+        if w.verdict == "preventable" and n_hold and not w.sites:
+            out["headline"][lang] = (f"To keep the lights on: {n_hold} verified {'way' if n_hold == 1 else 'ways'}" if en
+                                     else f"Para mantener la luz: {n_hold} {'manera verificada' if n_hold == 1 else 'maneras verificadas'}")
+        elif w.verdict == "preventable" and n_hold:
             if en:
-                out["headline"][lang] = f"To build {target}: {n_hold} verified {'way' if n_hold == 1 else 'ways'}"
+                out["headline"][lang] = f"To build {target}: {n_hold} verified{size_word} {'way' if n_hold == 1 else 'ways'}" + (", cheapest first" if rising else "")
             else:
-                out["headline"][lang] = f"Para construir {target}: {n_hold} {'manera verificada' if n_hold == 1 else 'maneras verificadas'}"
+                full_es = " a tamaño completo" if all((f.get("kept_pct") or 0) >= 99.5 for f in walked) else ""
+                out["headline"][lang] = (f"Para construir {target}: {n_hold} {'manera verificada' if n_hold == 1 else 'maneras verificadas'}{full_es}"
+                                         + (", de la más barata a la más cara" if rising else ""))
         else:
-            out["headline"][lang] = f"{pre}: {(best.get('action') or _fix_phrase(w, best, lang))[:80]}"
+            out["headline"][lang] = f"{pre}: {((best.get('action') if en else None) or cap(_fix_phrase(w, best, lang)))[:80]}"
+        shown = [f for f in listed if f in main][:3] or listed[:1]
         out["lines"][lang] = [f"{(f.get('action') if en else None) or cap(_fix_phrase(w, f, lang))} · {VERDICT_CHIP.get(f.get('verdict'), ('', ''))[0 if en else 1]}"[:LINE_MAX]
-                              for f in listed[:3]]
+                              for f in shown]
+        n_more = len([f for f in more if f.get("verdict") == "holds"])
+        if n_more:  # the rest are listed on screen under "More options", never read out as the answer
+            out["lines"][lang].append((f"More options: {n_more} more verified" if en else f"Más opciones: {n_more} verificadas más"))
     ap = best.get("apply") or {}
     up_ids = [int(k) for k in (ap.get("upgrades") or {})]
     all_ids = sorted({int(k) for f in opts for k in ((f.get("apply") or {}).get("upgrades") or {})})
@@ -1663,14 +1823,22 @@ def s_fix(w: Writer, lv: Level) -> dict:
     out["chips"] = [{"family": f.get("family"), "verdict": f.get("verdict"),
                      "label": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
                      "people": (f.get("outcome") or {}).get("people")} for f in ordered]
+    # every verified option, in the presentation's order: role 'lead' (the first), 'alt' (walked through after it),
+    # 'more' (listed under "More options", never a beat of its own)
     out["options"] = [{
         "fix": w.fixes.index(f), "family": f.get("family"),
+        "role": "lead" if k == 0 else "alt" if f in opts else "more",
         "name": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
         "kept_mw": f.get("kept_mw"), "kept_pct": f.get("kept_pct"), "must": f.get("must") or {"en": [], "es": []},
         "cost": f.get("cost"), "by": f.get("by") or "engine", "verdict": f.get("verdict"), "outcome": f.get("outcome"), "strain": f.get("strain"),
-        "lines": [{"id": x["id"], "label": x.get("label"), "old_mva": x.get("old_mva"), "new_mva": x.get("new_mva")} for x in ((f.get("detail") or {}).get("list") or [])[:20]],
+        "lines": [{"id": x["id"], "label": x.get("label"), "old_mva": x.get("old_mva"), "new_mva": x.get("new_mva"), "transformer": bool(x.get("transformer")), "km": x.get("km")}
+                  for x in ((f.get("detail") or {}).get("list") or [])[:20]],
         "apply": f.get("apply"),
-    } for f in opts]
+        "sites": [{"town": s.get("town"), "lat": s.get("lat"), "lon": s.get("lon")} for s in ((f.get("detail") or {}).get("sites") or [])[:3] if isinstance(s, dict)],
+    } for k, f in enumerate(opts + [x for x in main + more if x not in opts])]
+    # what the options are weighed against (solutions.present_plan): how often the full campus overloads the grid, the
+    # blackout's estimated cost, and the operating rule's per-level sizes with its labeled, sourced assumption
+    out["present"] = {k: plan.get(k) for k in ("often", "blackout", "flex", "total_mw")}
     if all_ids:
         pts = [p for bid in all_ids for p in w.line_pts(bid)]
         out["camera"] = cam("bbox", pts, line_ids=all_ids)
@@ -1751,8 +1919,10 @@ def s_no_fix(w: Writer, lv: Level) -> dict:
                           else f"La mejor solución que probamos, {fam_}, salva solo una parte.")
         body = sentences([
             ((f"No fix exists for {people_say(n, lang)}." if en else f"No hay solución para {people_say(n, lang)}."), False),
-            ((f"Even with unlimited line ratings and no data center, they stay dark: {cause_}." if en
-              else f"Aun con líneas de capacidad ilimitada y sin centro de datos, siguen sin luz: {cause_}."), False),
+            (((f"Whatever the campus does, and even with unlimited line ratings, they stay dark: {cause_}." if w.sites
+               else f"Even with unlimited line ratings, they stay dark: {cause_}.") if en
+              else (f"Haga lo que haga el campus, y aun con líneas de capacidad ilimitada, siguen sin luz: {cause_}." if w.sites
+                    else f"Aun con líneas de capacidad ilimitada, siguen sin luz: {cause_}.")), False),
             (best_s, True),
             (("Only rebuilding brings them back." if en else "Solo reconstruir les devuelve la luz.") if w.storm and not lv.short else "", False),
         ], lv, PRESENTER_MAX[lang])
@@ -1926,6 +2096,13 @@ def s_bottom(w: Writer, lv: Level) -> dict:
             w.add("strengthen.cost", "What those upgrades cost (high end)", round(cap["cost"]), "USD")
     best = w.best
     ap = (best or {}).get("apply") if w.verdict in ("preventable", "partly") else None
+    import solutions  # noqa: PLC0415 — late: solutions imports briefing
+
+    plan = solutions.present_plan(w.r) or {}
+    lead = w.fixes[plan["main"][0]] if plan.get("main") and 0 <= plan["main"][0] < len(w.fixes) else best
+    rc = w.r.get("root_cause") or {}
+    weak = (rc.get("line") or {}).get("id") if rc.get("cause") in ("campus", "last_straw") and w.sites else None
+    bo = (plan.get("blackout") or {}).get("high")
     for lang in LANGS:
         en = lang == "en"
         if w.verdict == "preventable" and best:
@@ -1935,9 +2112,22 @@ def s_bottom(w: Writer, lv: Level) -> dict:
             if scaled is not None:
                 w.add(f"deck.best.cost_high.scaled.{lang}", "The best fix's cost, high end, scaled", scaled, "USD (scaled)", True)
             for_ = ((f", for up to {usd}" if en else f", por hasta {usd}") if usd else "")
+            # the grid's weak point, the proportionate fix, and what it is weighed against (PRESENT V2, Sat 17:16-17:19)
+            said_weak = ((f"The weak point is {w.line_label(weak, 'en')}." if en else f"El punto débil es {w.line_label(weak, 'es')}.") if weak is not None else "")
+            if lead is not None and lead is not best and lead.get("family") == "flexible":
+                fix_s = (f"The cheapest verified way: {_fix_phrase(w, lead, lang)}, with no new equipment. With no step-downs: {_fix_phrase(w, best, lang)}{for_}." if en
+                         else f"La manera verificada más barata: {_fix_phrase(w, lead, lang)}, sin equipos nuevos. Sin recortes: {_fix_phrase(w, best, lang)}{for_}.")
+            else:
+                fix_s = (f"The verified fix: {_fix_phrase(w, best, lang)}{for_}, and every line stays within its limit." if en
+                         else f"La solución verificada: {_fix_phrase(w, best, lang)}{for_}, y todas las líneas aguantan.")
+            against = ""
+            if bo:
+                bo_usd, bo_scaled = usd_say(bo, lang)
+                if bo_scaled is not None:
+                    w.add(f"deck.fix.blackout_high.scaled.{lang}", "The blackout's cost, high end, scaled", bo_scaled, "USD (scaled)", True)
+                against = (f"The blackout it prevents: up to {bo_usd}." if en else f"El apagón que evita: hasta {bo_usd}.")
             s = sentences([(("Bottom line: this blackout is preventable." if en else "En resumen: este apagón se puede evitar."), False),
-                           ((f"The verified fix: {_fix_phrase(w, best, lang)}{for_}, and every line stays within its limit." if en
-                             else f"La solución verificada: {_fix_phrase(w, best, lang)}{for_}, y todas las líneas aguantan."), True)], lv, PRESENTER_MAX[lang])
+                           (said_weak, 2), (fix_s, True), (against, 2)], lv, PRESENTER_MAX[lang])
             h = "Preventable" if en else "Se puede evitar"
         elif w.verdict == "partly" and best:
             o = best.get("outcome") or {}
@@ -2291,12 +2481,32 @@ AI_PURPOSE = {
     "areas": "where the lights went out: the people still without power when it settles, in total, and that these are estimates",
     "hospitals": "hospitals in the dark areas would need backup power (counts only, no names)",
     "cost": "what it would cost, each figure an estimate with its assumption",
-    "cause": "why it happened: the first line to fail, with and without the data center",
-    "fix": "the best verified fix and what it does (an analyst lists the other fixes right after you)",
+    "cause": ("why it happened, the grid first: name the weak point (the line or transformer that fails first), how loaded it "
+              "already is on today's grid before any new load, and the share of any new load that flows through it; any big "
+              "new load there (a data center, a factory, a heat wave) finds it first; the data center is the trigger that uses "
+              "up the last margin. Never say the data center alone is the problem, never say not to build it"),
+    "fix": ("the cheapest verified way to keep the campus at full size, what it costs next to the blackout it prevents, and "
+            "how often the overload happens (an analyst lists the other fixes right after you); never lead with building "
+            "smaller, elsewhere or not at all"),
     "no_fix": "why no fix exists for most of these people, and that only rebuilding brings them back",
     "recovery": "why repair order matters, and hardening before the next storm",
     "bottom_line": "the one-sentence conclusion (the fixed closing follows you)",
 }
+# the cause slide when the engine says the new load is NOT what set it off (the heat, the demand, the storm, plants
+# offline): the weak-point framing above ("the data center is the trigger") would blame a campus for an outage it did
+# not cause, or one that doesn't exist
+AI_PURPOSE_CAUSE_OTHER = (
+    "why it happened, exactly as the DATA's conclusion says: the first line to overload and how loaded it was, and the "
+    "cause the conclusion names. Never say or imply that a data center caused it or triggered it"
+)
+
+
+def _ai_purpose(w: "Writer", sid: str) -> str:
+    if sid == "cause":
+        rc = w.r.get("root_cause") or {}
+        if not (rc.get("cause") in ("campus", "last_straw") and w.sites):
+            return AI_PURPOSE_CAUSE_OTHER
+    return AI_PURPOSE.get(sid, sid)
 AI_TIMEOUT_S = 10  # per socket read inside llm
 AI_DEADLINE_S = 15  # the whole call
 AI_CACHE = 128
@@ -2446,14 +2656,32 @@ def ai_data(w: Writer, sid: str) -> dict:
             d["conclusion"] = "the storm's damage caused it, not the data center" + (
                 "; without the data center the same people lose power" if w.sites else "")
             return d
+        if not (rc.get("cause") in ("campus", "last_straw") and w.sites):
+            # the heat, the demand or plants offline set it off, not a campus (the template says the same)
+            if line.get("id") is not None:
+                d["first_line_to_overload"] = {lang: w.line_label(line.get("id"), lang, fallback=line.get("label")) for lang in LANGS}
+            if rc.get("pct_with") is not None:
+                d["its_loading"] = _both(lambda lang: pct_say(rc["pct_with"], lang))
+            if rc.get("pct_without") is not None and w.sites:
+                d["its_loading_even_without_the_data_center"] = _both(lambda lang: pct_say(rc["pct_without"], lang))
+            if rc.get("cause") == "heat":
+                d["conclusion"] = ("the heat is the cause, not the data center" if w.sites
+                                   else "demand alone is the cause; there is no data center in this case")
+            elif rc.get("cause") == "plant":
+                d["conclusion"] = "the power plants offline are the cause" + ("; the data center did not cause it" if w.sites else "")
+            elif not w.sites:
+                d["conclusion"] = "there is no data center in this case"
+            d["note"] = "never say or imply a data center caused or triggered it"
+            return d
         if line.get("id") is not None:
-            d["first_line_to_fail"] = {lang: w.line_label(line.get("id"), lang, fallback=line.get("label")) for lang in LANGS}
-        if rc.get("pct_with") is not None:
-            d["its_loading_with_the_data_center"] = _both(lambda lang: pct_say(rc["pct_with"], lang))
+            d["weak_point_first_to_fail"] = {lang: w.line_label(line.get("id"), lang, fallback=line.get("label")) for lang in LANGS}
         if rc.get("pct_without") is not None and w.sites:
-            d["its_loading_without_the_data_center"] = _both(lambda lang: pct_say(rc["pct_without"], lang))
-        if w.sites:
-            d["nobody_loses_power_without_the_data_center"] = rc.get("people_without_campus") == 0
+            d["its_loading_on_todays_grid_before_any_new_load"] = _both(lambda lang: pct_say(rc["pct_without"], lang))
+        if rc.get("path_share_pct") is not None and w.sites and float(rc["path_share_pct"]) >= 5:
+            d["share_of_any_new_load_here_that_flows_through_it"] = _both(lambda lang: pct_say(rc["path_share_pct"], lang))
+        if rc.get("pct_with") is not None:
+            d["its_loading_once_the_new_load_uses_up_the_last_margin"] = _both(lambda lang: pct_say(rc["pct_with"], lang))
+        d["note"] = "the grid's weak point is the problem; the new load is the trigger"
     elif sid == "fix":
         if w.best is None:
             d["room_at_site"] = _both(lambda lang: mw_say(w.room or 0, lang))
@@ -2464,6 +2692,24 @@ def ai_data(w: Writer, sid: str) -> dict:
             d["verdict"] = w.best.get("verdict")
             d["with_it"] = ({"en": "no line trips", "es": "ninguna línea se dispara"} if int(o.get("steps") or 0) == 0
                             else _both(lambda lang: people_say(o.get("people") or 0, lang) + (" still lose power" if lang == "en" else " siguen sin luz")))
+            import solutions  # noqa: PLC0415 — late: solutions imports briefing
+
+            plan = solutions.present_plan(r) or {}
+            if plan.get("main"):
+                lead = w.fixes[plan["main"][0]]
+                d["cheapest_verified_way_to_keep_it_full_size"] = _both(lambda lang: _fix_phrase(w, lead, lang))
+                if (lead.get("cost") or {}).get("high"):
+                    d["its_cost_high_end"] = _both(lambda lang: usd_say(lead["cost"]["high"], lang)[0])
+            if (plan.get("blackout") or {}).get("high"):
+                d["blackout_it_prevents_high_end"] = _both(lambda lang: usd_say(plan["blackout"]["high"], lang)[0])
+            often = plan.get("often") or {}
+            over_at = [x for x in (often.get("levels") or []) if x.get("over")]
+            if often.get("every_level") and w.sites:
+                d["how_often"] = "at this size the grid overloads at every load level the model checks, even overnight: not a rare event"
+            elif over_at:
+                only = bool(often.get("peak_only") or often.get("heat_only"))
+                d["how_often"] = _both(lambda lang: (("only " if lang == "en" else "solo ") if only else "")
+                                       + join([level_at(float(x["level"]), lang) for x in over_at], lang))
             d["note"] = "an analyst lists the other fixes right after you"
     elif sid == "no_fix":
         nf = r.get("no_fix") or {}
@@ -2474,7 +2720,7 @@ def ai_data(w: Writer, sid: str) -> dict:
         d["fixes_run_in_the_model"] = _both(lambda lang: join([FAMILY_SAY[p_["family"]][0 if lang == "en" else 1] for p_ in ran], lang))
         if w.sites:
             d["data_center_fixes"] = "not needed: without the data center the same people lose power (verified)"
-        d["proof"] = "even with unlimited line ratings and no data center they stay dark: " + ("the storm cut the lines that serve them" if w.storm else "demand is more than the remaining lines can carry")
+        d["proof"] = "whatever the campus does, and even with unlimited line ratings, they stay dark: " + ("the storm cut the lines that serve them" if w.storm else "demand is more than the remaining lines can carry")
         d["only_rebuilding_brings_them_back"] = bool(w.storm)
     elif sid == "recovery":
         rec = r.get("recovery") or {}
@@ -2509,7 +2755,7 @@ def _prompt(w: Writer, slots: list[dict]) -> str:
         by_id.setdefault(sl["id"], {})[sl["lang"]] = sl
     for sid, langs in by_id.items():
         lines.append(f"- id: {sid}")
-        lines.append(f"  PURPOSE: {AI_PURPOSE.get(sid, sid)}")
+        lines.append(f"  PURPOSE: {_ai_purpose(w, sid)}")
         # the model runs long: it is asked for ~80 % of the real limit, which validate_ai enforces
         lines.append("  max_chars: " + ", ".join(f"{lang} {int(langs[lang]['max'] * 0.8)}" for lang in LANGS if lang in langs))
         lines.append("  DATA: " + json.dumps(ai_data(w, sid), ensure_ascii=False))
