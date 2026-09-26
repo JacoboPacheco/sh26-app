@@ -1391,3 +1391,17 @@ a {
   font-size: 0.75rem;
   padding: 0 0.3rem;
 }
+
+/* Build plans (GridLock) as its own page at #/plans, and the header link to it */
+.plans-page {
+  height: 100dvh;
+  background: var(--bg);
+}
+
+.plans-link {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: 0.8125rem;
+  color: var(--accent);
+  text-align: right;
+}

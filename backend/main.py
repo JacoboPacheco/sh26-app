@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from slowapi.errors import RateLimitExceeded
@@ -94,6 +95,7 @@ async def reject_oversized_uploads(request: Request, call_next):
 
 allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
 
+app.add_middleware(GZipMiddleware, minimum_size=1000)  # the grid and Build plans payloads shrink ~10x
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,

@@ -29,17 +29,19 @@ const PREVIEWS = Object.fromEntries(Object.entries(import.meta.glob('./features/
 // The next application shell, built in features/app/ alongside this one: #/next… renders it instead.
 const loadNext = import.meta.glob('./features/app/NextApp.jsx')['./features/app/NextApp.jsx']
 const NEXT = loadNext ? lazy(loadNext) : null
+// Build plans (Sperry GridLock): a full page with its own map at #/plans
+const PLANS = lazy(() => import('./features/gridlock/BuildPlansPage'))
 
-function useIsNext() {
-  const read = () => window.location.hash.startsWith('#/next')
-  const [on, setOn] = useState(read)
+function useHashPrefix(prefix) {
+  const [on, setOn] = useState(() => window.location.hash.startsWith(prefix))
   useEffect(() => {
-    const f = () => setOn(read())
+    const f = () => setOn(window.location.hash.startsWith(prefix))
     window.addEventListener('hashchange', f)
     return () => window.removeEventListener('hashchange', f)
-  }, [])
+  }, [prefix])
   return on
 }
+const useIsNext = () => useHashPrefix('#/next')
 
 function usePreviewName() {
   const read = () => window.location.hash.match(/^#\/preview\/([\w-]+)/)?.[1] || null
@@ -65,6 +67,15 @@ function App() {
   // in as the seeded demo account on load, so per-user features need no login screen.
   const { user } = useAuth()
   const next = useIsNext()
+  const plans = useHashPrefix('#/plans')
+  if (plans)
+    return (
+      <Suspense fallback={<Loading />}>
+        <div className="plans-page">
+          <PLANS extra={<a href="#/">Back to Overload</a>} />
+        </div>
+      </Suspense>
+    )
   return (
     <OverloadProvider user={user}>
       {next && NEXT ? (
@@ -144,6 +155,9 @@ function MissionControl({ user }) {
         <ScenarioBar />
         <div className="mc-top__right">
           <HeatClock />
+          <a className="plans-link" href="#/plans">
+            Build plans: are neighboring utilities building together?
+          </a>
           {user && <span className="signed-in">Signed in as {user.email}</span>}
         </div>
       </header>
