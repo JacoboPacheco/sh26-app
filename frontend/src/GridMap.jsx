@@ -10,6 +10,13 @@ const FOCUS_MAX_ZOOM = 6
 const FOCUS_MIN_BOX = 140 // map units (~1.4° of latitude): the tightest a focus zooms
 const EASE_MS = 900
 
+// Keep at least a quarter of the map on screen whatever the pan: Florida can't be lost off an edge.
+function clampView({ k, tx, ty }) {
+  const x = Math.min(WIDTH * 0.75, Math.max(WIDTH * 0.25 - WIDTH * k, tx))
+  const y = Math.min(HEIGHT * 0.75, Math.max(HEIGHT * 0.25 - HEIGHT * k, ty))
+  return { k, tx: x, ty: y }
+}
+
 // What a map layer needs to draw at the right size: the current zoom and the projection.
 const MapViewCtx = createContext({ k: 1, project })
 export const useMapView = () => useContext(MapViewCtx)
@@ -31,6 +38,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
   const easeTimer = useRef(null)
   const [view, setView] = useState({ k: 1, tx: 0, ty: 0 })
   const [easing, setEasing] = useState(false)
+  const [panning, setPanning] = useState(false)
 
   // animate the next view change (a camera move), then drop the transition so panning stays direct
   const easeTo = useCallback((next) => {
@@ -110,8 +118,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
       const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse())
       setView((v) => {
         const k = Math.min(MAX_ZOOM, Math.max(1, v.k * (e.deltaY < 0 ? 1.25 : 0.8)))
-        if (k === 1) return { k: 1, tx: 0, ty: 0 }
-        return { k, tx: p.x - ((p.x - v.tx) * k) / v.k, ty: p.y - ((p.y - v.ty) * k) / v.k }
+        return clampView({ k, tx: p.x - ((p.x - v.tx) * k) / v.k, ty: p.y - ((p.y - v.ty) * k) / v.k })
       })
     }
     svg.addEventListener('wheel', onWheel, { passive: false })
@@ -142,13 +149,23 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
     const dx = e.clientX - d.x
     const dy = e.clientY - d.y
     if (!d.moved && Math.hypot(dx, dy) < 5) return
+    if (!d.moved) setPanning(true)
     d.moved = true
-    if (view.k > 1) setView((v) => ({ ...v, tx: d.tx + dx / d.scale, ty: d.ty + dy / d.scale }))
+    setView((v) => clampView({ ...v, tx: d.tx + dx / d.scale, ty: d.ty + dy / d.scale }))
+  }
+
+  // the + / − buttons zoom around the middle of the map
+  function zoomBy(factor) {
+    const cx = WIDTH / 2
+    const cy = HEIGHT / 2
+    const k = Math.min(MAX_ZOOM, Math.max(1, view.k * factor))
+    easeTo(clampView({ k, tx: cx - ((cx - view.tx) * k) / view.k, ty: cy - ((cy - view.ty) * k) / view.k }))
   }
 
   function onPointerUp(e) {
     const d = drag.current
     drag.current = null
+    setPanning(false)
     if (tool) {
       const p = toMap(e.clientX, e.clientY)
       if (p) tool.up?.(p)
@@ -172,17 +189,20 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
   const zoomBucket = k < 1.5 ? 1 : k < 2.5 ? 2 : k < 4 ? 3 : k < 6 ? 5 : 8
 
   return (
-    <div className={`map${tool ? ' map--tool' : ''}`} style={tool?.cursor ? { cursor: tool.cursor } : undefined}>
+    <div className={`map${tool ? ' map--tool' : ''}${panning ? ' map--panning' : ''}`} style={tool?.cursor ? { cursor: tool.cursor } : undefined}>
       <svg
         ref={svgRef}
         className={`map-svg${headroomMode ? ' map-svg--headroom' : ''}`}
         viewBox={`0 0 ${WIDTH.toFixed(0)} ${HEIGHT.toFixed(0)}`}
         role="img"
-        aria-label="Map of the synthetic Florida grid. Click the map or drop the data center on it to place it."
+        aria-label="Map of the synthetic Florida grid. Click to place the data center, drag to move around, scroll or use + and − to zoom."
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={() => (drag.current = null)}
+        onPointerCancel={() => {
+          drag.current = null
+          setPanning(false)
+        }}
         onDragOver={(e) => e.preventDefault()}
         onDrop={onDrop}
       >
@@ -231,9 +251,22 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
         </g>
       </svg>
       {overlay?.({ svgRef, gRef })}
-      <button type="button" className="map-reset" onClick={() => easeTo({ k: 1, tx: 0, ty: 0 })} disabled={k === 1}>
-        All of Florida
-      </button>
+      <div className="map-controls">
+        <button type="button" className="map-ctl" onClick={() => zoomBy(1.6)} disabled={k >= MAX_ZOOM} aria-label="Zoom in">
+          +
+        </button>
+        <button type="button" className="map-ctl" onClick={() => zoomBy(1 / 1.6)} disabled={k <= 1} aria-label="Zoom out">
+          −
+        </button>
+        <button
+          type="button"
+          className="map-ctl map-ctl--text"
+          onClick={() => easeTo({ k: 1, tx: 0, ty: 0 })}
+          disabled={k === 1 && view.tx === 0 && view.ty === 0}
+        >
+          All of Florida
+        </button>
+      </div>
     </div>
   )
 }

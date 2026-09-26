@@ -651,22 +651,46 @@ a {
   user-select: none;
 }
 
-.map-reset {
+/* map controls: zoom in / out / back to all of Florida */
+.map-controls {
   position: absolute;
   right: calc(var(--right-w) + var(--gutter) * 2);
   bottom: 128px;
+  display: flex;
+  gap: 4px;
+}
+
+.map-ctl {
   font: inherit;
-  font-size: 0.8125rem;
-  padding: 0.35rem 0.7rem;
-  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 600;
+  min-width: 2.1rem;
+  height: 2.1rem;
+  padding: 0 0.6rem;
+  border-radius: var(--radius);
   border: 1px solid var(--glass-edge);
   background: var(--glass);
   color: var(--ink);
   cursor: pointer;
 }
 
-.map-reset:disabled {
-  display: none;
+.map-ctl--text {
+  font-size: 0.8125rem;
+}
+
+.map-ctl:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.map-ctl:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* dragging the map: the hand closes */
+.map--panning,
+.map--panning .map-svg {
+  cursor: grabbing;
 }
 
 .map-sea {
@@ -1041,7 +1065,7 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .map-reset {
+  .map-controls {
     right: var(--space-2);
     bottom: var(--space-2);
   }
