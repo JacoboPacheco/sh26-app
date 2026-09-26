@@ -69,6 +69,8 @@ def register(ctx):
         for p in r["presets"]:
             assert p["hypothetical"] is True and p["region"] == "FL" and p["tracks"], p["id"]
             assert "hurricane " not in p["name"].lower(), p["name"]
+        tx = [p["id"] for p in ctx.request("GET", "/api/briefing/presets?region=TX")["presets"]]
+        assert tx == ["tx-gulf-landfall"], tx
 
     def hero_fixes_are_verified():
         r = got.get("hero") or ctx.request("POST", "/api/briefing", case)

@@ -1092,7 +1092,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                     FAMILY_LABEL[fam],
                     "not_needed",
                     floor_oc,
-                    f"Without the data center the same {_big(floor['people'])} people lose power (verified), so changing the campus does not help.",
+                    f"Without the data center the same {_big(floor['people'])} people (estimate) lose power, verified by the no-campus run, so changing the campus does not help.",
                     {},
                     None,
                     0,
@@ -1282,7 +1282,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 fixes.append(_fix(fam, action, v, oc, f"Keeps {mid_total:,.0f} MW with fewer upgrades than the full size needs.", {"mw": mid_total, "lines": len(lst), "mva": mva, "km": km, "list": lst[:20], "checked_by": how}, ap, _ms(t0)))
             elif fam == "remove":
                 v = J.verdict(floor_oc)
-                trade = "No campus at this site." if v == "holds" else f"Even with no data center, {_big(floor['people'])} people lose power (verified)."
+                trade = "No campus at this site." if v == "holds" else f"Even with no data center, {_big(floor['people'])} people (estimate) lose power, verified by the no-campus run."
                 fixes.append(_fix(fam, "Don't build the data center here", v, floor_oc, trade, {"checked_by": "the no-campus run"}, {"lat": None, "lon": None, "mw": None, "sites": []}, _ms(t0)))
         except EngineGap:
             raise
@@ -1931,7 +1931,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
             "fixes_save_at_most_pct": saved_pct,
             "proof": [{"family": f["family"], "verdict": f["verdict"], "people": (f.get("outcome") or {}).get("people")} for f in fixes],
             "sentence": (
-                f"No fix exists for about {_big(bound['people'])} people: every fix family was tried, and even with unlimited line ratings and no data center "
+                f"No fix exists for about {_big(bound['people'])} people (estimate): every fix family was tried, and even with unlimited line ratings and no data center "
                 f"they stay cut off; the best fix saves at most {saved_pct}% — only rebuilding lines brings them back."
             ),
         }
@@ -1950,7 +1950,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     if no_fix and recovery and recovery.get("still_out_after_all"):
         left = int(recovery["still_out_after_all"])
         no_fix["after_rebuild_people"] = left
-        no_fix["sentence"] += f" Even with every line rebuilt, about {_big(left)} people stay dark at this load: only cutting demand could reach them."
+        no_fix["sentence"] += f" Even with every line rebuilt, about {_big(left)} people (estimate) stay dark at this load: only cutting demand could reach them."
 
     case_out = {
         **c.header,

@@ -63,6 +63,28 @@
       ],
       "load_factor": 1.3,
       "campus": null
+    },
+    {
+      "id": "tx-gulf-landfall",
+      "region": "TX",
+      "name": "A Category 5 comes ashore on the Texas coast",
+      "description": "A hypothetical Category 5 storm comes ashore on the upper Texas Gulf coast and heads inland to the north, 60 km wide on each side of its path. No data center.",
+      "tracks": [
+        {"points": [[-94.6, 28.6], [-95.2, 29.3], [-95.7, 30.1], [-96.3, 31.0], [-96.9, 32.0]], "radius_km": 60}
+      ],
+      "load_factor": 1.0,
+      "campus": null
+    },
+    {
+      "id": "ny-noreaster-hudson",
+      "region": "NY",
+      "name": "A nor'easter up the Hudson Valley",
+      "description": "A hypothetical nor'easter tracks north from the coast up the Hudson Valley, 50 km wide on each side of its path. No data center.",
+      "tracks": [
+        {"points": [[-73.6, 40.4], [-73.9, 41.0], [-73.95, 41.7], [-73.8, 42.4], [-73.7, 43.1]], "radius_km": 50}
+      ],
+      "load_factor": 1.0,
+      "campus": null
     }
   ]
 }
