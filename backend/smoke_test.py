@@ -330,7 +330,7 @@ def test_scenario_validation():
     request("POST", "/api/scenarios", {"name": "   ", **ORLANDO}, headers=h, expect=422)
     request("POST", "/api/scenarios", {"name": "x" * 81, **ORLANDO}, headers=h, expect=422)
     request("POST", "/api/scenarios", {"name": "NYC", "lat": 40.7, "lon": -74.0, "mw": 500}, headers=h, expect=422)
-    request("POST", "/api/scenarios", {"name": "Too big", **ORLANDO, "mw": 9999}, headers=h, expect=422)
+    request("POST", "/api/scenarios", {"name": "Too big", **ORLANDO, "mw": 50001}, headers=h, expect=422)
     # malformed numbers are a 422, never a 500
     request("POST", "/api/scenarios", {"name": "Huge", **ORLANDO, "mw": 10**400}, headers=h, expect=422)
     request("POST", "/api/scenarios", {"name": "NaN", **ORLANDO, "mw": float("nan")}, headers=h, expect=422)
