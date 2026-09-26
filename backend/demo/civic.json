@@ -1,0 +1,1592 @@
+{
+  "generated": "2026-09-26",
+  "method": "Built by hand-checking public pages, 2026-09-26. Each state entry names the body that decides electric rates and large-load or data center tariffs, with its official site and the page where the public comments or searches dockets. Policy entries appear only where a real, dated rule, law or docket was found; docket and case numbers are copied as published by the commission, a legislature or the source named in the entry's summary (the Edison Electric Institute list of large-load tariffs, Sept. 2026, is the source where an entry says so, and its docket numbers were not independently re-checked on each commission's site). Proposal entries cover the five Florida proposals in frontend/src/data/florida_five.json plus 19 of the largest announced, paused, contested or approved campuses in backend/demo/datacenters_us.json; each status_note says 'as reported' and names its source, and unknown values are null. Nothing here implies wrongdoing, names an undisclosed tenant, or predicts an outage. Dates are YYYY-MM, or YYYY when only the year is published, or null when no date was found. Every URL returned HTTP 200 to a script, or is listed under verification: fetched with a different tool, or blocking automated requests (403, bot filter or unreachable from the build machine) but seen in search results. Extra optional keys: state 'note', decision_body 'how_to_comment'.",
+  "states": {
+    "AL": {
+      "commission": "Alabama Public Service Commission",
+      "url": "https://psc.alabama.gov/",
+      "comment_url": "https://www.pscpublicaccess.alabama.gov/pscpublicaccess/",
+      "policy": [
+        {
+          "title": "Docket 33709: how Alabama Power contracts with large data center customers will be reviewed",
+          "summary": "The commission opened a generic proceeding on June 29, 2026 to set the process for considering electric-service contracts between Alabama Power and large-load data center customers.",
+          "url": "https://www.pscpublicaccess.alabama.gov/pscpublicaccess/PSC/DocketDetailsPage.aspx?DocketId=704fddec-2d56-4cb1-8647-7ae1eacf0108",
+          "date": "2026-06"
+        },
+        {
+          "title": "Docket U-5024: special contracts for Alabama Power customers above 30 MW",
+          "summary": "The commission approved on Jan. 7, 2025 a change letting Alabama Power require customers above 30 MW to take service under a special contract that can carry protective terms, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2025-01"
+        }
+      ],
+      "note": "Comments are taken in dockets that open a comment period; search the docket number in Document Access."
+    },
+    "AZ": {
+      "commission": "Arizona Corporation Commission",
+      "url": "https://www.azcc.gov/",
+      "comment_url": "https://efiling.azcc.gov/online-services/utilities-public-comment-external",
+      "policy": [
+        {
+          "title": "Large Load Users Development Workshop (Docket E-00000A-25-0069)",
+          "summary": "The commission held an April 2026 workshop on connecting large users such as data centers to the grid without raising costs for other customers.",
+          "url": "https://www.azcc.gov/news/home/2026/04/20/acc-large-load-data-center-workshop-highlights",
+          "date": "2026-04"
+        }
+      ],
+      "note": "Salt River Project is governed by its own elected board, not the commission."
+    },
+    "AR": {
+      "commission": "Arkansas Public Service Commission",
+      "url": "https://apsc.arkansas.gov/",
+      "comment_url": "https://apsc.arkansas.gov/home/public-comments/",
+      "policy": []
+    },
+    "CA": {
+      "commission": "California Public Utilities Commission",
+      "url": "https://www.cpuc.ca.gov/",
+      "comment_url": "https://www.cpuc.ca.gov/publiccomment",
+      "policy": [
+        {
+          "title": "Application A2411007: PG&E Electric Rule 30 for transmission-level service",
+          "summary": "The commission approved interim use of a rule that lets large customers who fund needed transmission upfront connect faster, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "CO": {
+      "commission": "Colorado Public Utilities Commission",
+      "url": "https://puc.colorado.gov/",
+      "comment_url": "https://puc.colorado.gov/participate",
+      "policy": [
+        {
+          "title": "Proceeding 26AL-0137E: Xcel Energy large load tariff",
+          "summary": "Xcel Energy asked for a new tariff for customers adding 50 MW or more of load; it was pending as of September 2026, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "CT": {
+      "commission": "Connecticut Public Utilities Regulatory Authority",
+      "url": "https://portal.ct.gov/pura",
+      "comment_url": "https://portal.ct.gov/PURA/Consumer-Services/File-a-Public-Comment/File-a-Public-Comment",
+      "policy": []
+    },
+    "DE": {
+      "commission": "Delaware Public Service Commission",
+      "url": "https://depsc.delaware.gov/",
+      "comment_url": "https://delafile.delaware.gov/Complaints/AddPublicComments.aspx",
+      "policy": [
+        {
+          "title": "Docket 25-0826: Delmarva Power large load tariff",
+          "summary": "The commission opened the docket in October 2025 to create a large-load tariff for Delmarva Power territory and paused new large-load interconnections until one is in place; Delmarva filed a proposed tariff on Dec. 19, 2025.",
+          "url": "https://depsc.delaware.gov/2025/10/14/delaware-psc-opens-docket-for-large-load-tariff-pauses-interconnections/",
+          "date": "2025-10"
+        }
+      ]
+    },
+    "DC": {
+      "commission": "District of Columbia Public Service Commission",
+      "url": "https://dcpsc.org/",
+      "comment_url": "https://edocket.dcpsc.org/public/search",
+      "policy": [],
+      "note": "Search formal cases in the eDocket system; comments and filings appear on each case."
+    },
+    "FL": {
+      "commission": "Florida Public Service Commission",
+      "url": "https://www.floridapsc.com/",
+      "comment_url": "https://www.floridapsc.com/ClerkOffice/Docket",
+      "policy": [
+        {
+          "title": "Senate Bill 484 (Chapter 2026-65): data centers and large loads",
+          "summary": "Signed May 7, 2026 and effective July 1, 2026, it bars utilities from shifting large data center costs to residential and small-business customers, defines a large-scale data center as 50 MW or more, has each utility file a tariff for commission approval by Oct. 1, 2026, and keeps local governments' land-use authority.",
+          "url": "https://www.flsenate.gov/Session/Bill/2026/484",
+          "date": "2026-05"
+        },
+        {
+          "title": "Docket 20250011-EI: FPL rate settlement with new large-load tariffs",
+          "summary": "The settlement created large-load contract tariffs LLCS-1 and LLCS-2 for new load of 50 MW or more (with minimum terms, take-or-pay, exit fees and collateral), effective Jan. 1, 2026, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.psc.state.fl.us/clerks-office-dockets-level2?docketNo=20250011",
+          "date": "2026-01"
+        },
+        {
+          "title": "Docket 20260064-EI: Duke Energy Florida large load tariff",
+          "summary": "Duke filed a Large Load Customer Policy on April 22, 2026 for loads of 50 MW or more; the commission suspended it in June, held a hearing Aug. 25-26, 2026, and a vote was expected after mid-September (as reported).",
+          "url": "https://www.floridapsc.com/clerks-office-dockets-level2?DocketNo=20260064",
+          "date": "2026-04"
+        }
+      ]
+    },
+    "GA": {
+      "commission": "Georgia Public Service Commission",
+      "url": "https://psc.ga.gov/",
+      "comment_url": "https://psc.ga.gov/public-comments/",
+      "policy": [
+        {
+          "title": "Docket 44280: Georgia Power rule for customers above 100 MW",
+          "summary": "The commission voted unanimously on Jan. 23, 2025 to let Georgia Power bill new customers above 100 MW under longer contracts (up to 15 years) with minimum bills and upstream cost recovery, and to send each such contract to the commission for review.",
+          "url": "https://psc.ga.gov/site/assets/files/8617/media_advisory_data_centers_rule_1-23-2025.pdf",
+          "date": "2025-01"
+        }
+      ],
+      "note": "Comments must be submitted 24 hours before a commission vote."
+    },
+    "ID": {
+      "commission": "Idaho Public Utilities Commission",
+      "url": "https://puc.idaho.gov/",
+      "comment_url": "https://puc.idaho.gov/Form/CaseComment",
+      "policy": [
+        {
+          "title": "Case IPC-E-21-37: Idaho Power Schedule 20 for speculative high-density loads",
+          "summary": "Effective Jan. 1, 2024, the schedule applies to very energy-dense new loads such as cryptocurrency mining, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2024-01"
+        }
+      ]
+    },
+    "IL": {
+      "commission": "Illinois Commerce Commission",
+      "url": "https://icc.illinois.gov/",
+      "comment_url": "https://icc.illinois.gov/consumers/make-a-public-comment",
+      "policy": [
+        {
+          "title": "Dockets 25-0679 and 25-0677: ComEd rules for large-load service requests",
+          "summary": "The commission approved revisions to Rider DE and ComEd's general terms that set requirements for large-load customers' new service requests, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "IN": {
+      "commission": "Indiana Utility Regulatory Commission",
+      "url": "https://www.in.gov/iurc/",
+      "comment_url": "https://www.in.gov/oucc/contact-us/",
+      "policy": [
+        {
+          "title": "Cause 46097: Indiana Michigan Power industrial tariff for large loads",
+          "summary": "The commission approved on Feb. 19, 2025 an all-party settlement changing I&M's Tariff I.P. to address large load customers such as data centers.",
+          "url": "https://www.in.gov/iurc/files/ord_46097_021925.pdf",
+          "date": "2025-02"
+        }
+      ],
+      "note": "Consumers send comments on a pending case to the Office of Utility Consumer Counselor; search cases at https://iurc.portal.in.gov/."
+    },
+    "IA": {
+      "commission": "Iowa Utilities Commission",
+      "url": "https://iuc.iowa.gov/",
+      "comment_url": "https://iuc.iowa.gov/customer-assistance/how-do-i-file-comment-objection-or-letter-support-open-docket",
+      "policy": [
+        {
+          "title": "Docket TF-2025-0007: Interstate Power and Light individual customer rate agreements",
+          "summary": "The commission approved service agreements under IPL's Rider ICR for large customers, including a second one for a data center operator (TF-2025-0047), as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "KS": {
+      "commission": "Kansas Corporation Commission",
+      "url": "https://www.kcc.ks.gov/",
+      "comment_url": "https://www.kcc.ks.gov/public-comments",
+      "policy": [
+        {
+          "title": "Docket 25-EKME-315-TAR: Evergy large load service rate plan",
+          "summary": "The commission approved a large-load service rate plan and tariffs for Evergy, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "KY": {
+      "commission": "Kentucky Public Service Commission",
+      "url": "https://psc.ky.gov/",
+      "comment_url": "https://psc.ky.gov/case/searchcasespubliccomments",
+      "policy": [
+        {
+          "title": "Cases 2025-00113 and 2025-00114: Extremely High Load Factor tariff for LG&E and KU",
+          "summary": "In February 2026 the commission approved, within the utilities' rate cases, a new tariff for extremely high load factor customers, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2026-02"
+        }
+      ]
+    },
+    "LA": {
+      "commission": "Louisiana Public Service Commission",
+      "url": "https://www.lpsc.louisiana.gov/",
+      "comment_url": null,
+      "policy": [
+        {
+          "title": "Docket U-36595: Entergy Louisiana rate for large, high-load-factor customers",
+          "summary": "Entergy Louisiana offers a rate for customers with at least 70 MW of firm load at an 80 percent monthly load factor, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ],
+      "note": "The commission's site offers docket search and complaint filing; confirm the commission's current procedure before sending written comments on a docket."
+    },
+    "ME": {
+      "commission": "Maine Public Utilities Commission",
+      "url": "https://www.maine.gov/mpuc/",
+      "comment_url": "https://www.maine.gov/mpuc/about/how-to-participate",
+      "policy": [
+        {
+          "title": "L.D. 307: data center coordination council and a temporary limit on data centers of 20 MW or more",
+          "summary": "The bill would have paused state and local permits for data centers of 20 MW or more until Nov. 1, 2027; the Legislature passed it in April 2026 (as reported) and the governor vetoed it on April 24, 2026, saying she would create a commission by executive order.",
+          "url": "https://www.maine.gov/governor/mills/official_documents/veto_messages/2026-04-ld-307-act-establish-maine-data-center-coordination",
+          "date": "2026-04"
+        }
+      ]
+    },
+    "MD": {
+      "commission": "Maryland Public Service Commission",
+      "url": "https://psc.maryland.gov/",
+      "comment_url": "https://psc.maryland.gov/online-services/file-a-public-comment/",
+      "policy": [
+        {
+          "title": "PC72: large-load rate schedules under the 2025 Next Generation Energy Act",
+          "summary": "On Sept. 1, 2026 Potomac Edison and the Maryland Exelon utilities each filed proposed rate schedules for large load customers, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2026-09"
+        }
+      ]
+    },
+    "MA": {
+      "commission": "Massachusetts Department of Public Utilities",
+      "url": "https://www.mass.gov/orgs/department-of-public-utilities",
+      "comment_url": "https://www.mass.gov/how-to/file-comments-or-pleadings-with-the-dpu",
+      "policy": [
+        {
+          "title": "DPU directive on data center interconnection requests above 25 MW",
+          "summary": "On Sept. 8, 2026 the department directed Eversource, National Grid and Unitil to describe how they will make sure data center projects above 25 MW are legitimate before using study and interconnection resources.",
+          "url": "https://www.mass.gov/doc/directive-to-the-electric-distribution-companies-regarding-data-center-interconnection-requests/download",
+          "date": "2026-09"
+        }
+      ]
+    },
+    "MI": {
+      "commission": "Michigan Public Service Commission",
+      "url": "https://www.michigan.gov/mpsc",
+      "comment_url": "https://www.michigan.gov/mpsc/consumer/get-involved",
+      "policy": [
+        {
+          "title": "Case U-21990: DTE Electric data center contracts and a large-load tariff",
+          "summary": "On Dec. 18, 2025 the commission approved DTE Electric's energy contracts for a 1.4 GW data center with conditions, and directed DTE to file a large-load tariff for customers above 100 MW.",
+          "url": "https://www.michigan.gov/mpsc/commission/news-releases/2025/12/18/mpsc-approves-dte-electric-energy-contracts-for-data-center",
+          "date": "2025-12"
+        },
+        {
+          "title": "Case U-22061: DTE Electric proposed revisions for large load customers",
+          "summary": "DTE has proposed revisions to its Rate Schedule D11 with added terms for large load customers, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "MN": {
+      "commission": "Minnesota Public Utilities Commission",
+      "url": "https://mn.gov/puc/",
+      "comment_url": "https://mn.gov/puc/get-involved/public-comments/",
+      "policy": [
+        {
+          "title": "2025 data center law (Special Session HF 16 / Chapter 12)",
+          "summary": "Effective June 15, 2025, it has the commission develop a new class of very large customers and approve any service agreement between such a customer and its utility.",
+          "url": "https://www.house.mn.gov/NewLaws/story/2025/5641",
+          "date": "2025-06"
+        },
+        {
+          "title": "Docket 25-289: Xcel Energy Large General Time of Day service",
+          "summary": "The commission approved a tariff for Xcel customers with new demand of 100 MW or more, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "MS": {
+      "commission": "Mississippi Public Service Commission",
+      "url": "https://www.psc.ms.gov/",
+      "comment_url": "https://www.psc.ms.gov/exec-sec/dockets",
+      "policy": [
+        {
+          "title": "Rule 27: special contracts for electric service",
+          "summary": "Electric utilities may contract with a customer for special service, and the commission must approve the contract, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "MO": {
+      "commission": "Missouri Public Service Commission",
+      "url": "https://psc.mo.gov/",
+      "comment_url": "https://efis.psc.mo.gov/PublicComment/EmailForm",
+      "policy": [
+        {
+          "title": "Cases EO-2025-0154 and ET-2025-0184: Evergy and Ameren large load rates",
+          "summary": "The commission approved Evergy's Large Load Power Service plan for customers with at least 75 MW of demand, and a rate structure for Ameren Missouri's large load customers, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "MT": {
+      "commission": "Montana Public Service Commission",
+      "url": "https://psc.mt.gov/",
+      "comment_url": "https://psc.mt.gov/Documents-Proceedings/Public-Participation",
+      "policy": [
+        {
+          "title": "Docket 2026.04.023: NorthWestern Energy Large New Load Tariff",
+          "summary": "NorthWestern Energy applied in March 2026 for approval of a tariff for large new loads, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2026-03"
+        }
+      ]
+    },
+    "NE": {
+      "commission": "Nebraska Power Review Board",
+      "url": "https://powerreview.nebraska.gov/",
+      "comment_url": null,
+      "policy": [],
+      "note": "Nebraska's electric utilities are all publicly owned, so the Nebraska Public Service Commission (https://psc.nebraska.gov/) does not set electric rates; residents raise concerns with their public power district or cooperative board or city council."
+    },
+    "NV": {
+      "commission": "Public Utilities Commission of Nevada",
+      "url": "https://www.puc.nv.gov/",
+      "comment_url": "https://www.puc.nv.gov/dockets/",
+      "policy": [
+        {
+          "title": "Docket 20-08014: Microsoft's proposed Ratepayer Protection Tariff",
+          "summary": "Filed in May 2026, it would have a large customer pay the cost of infrastructure built for it (its contributed share) while system-wide benefits may be reviewed for the rate base; the commission is expected to take public comment before deciding.",
+          "url": "https://www.utilitydive.com/news/microsoft-seeks-nevada-tariff-to-shield-ratepayers-from-data-center-costs/822250/",
+          "date": "2026-05"
+        }
+      ],
+      "note": "The commission's docket search lists comment options for each docket."
+    },
+    "NH": {
+      "commission": "New Hampshire Public Utilities Commission",
+      "url": "https://www.puc.nh.gov/",
+      "comment_url": "https://www.puc.nh.gov/public-participation/filing-public-comments",
+      "policy": []
+    },
+    "NJ": {
+      "commission": "New Jersey Board of Public Utilities",
+      "url": "https://www.nj.gov/bpu/",
+      "comment_url": "https://publicaccess.bpu.state.nj.us/",
+      "policy": [
+        {
+          "title": "Bills S731 / A796: large load data center tariff",
+          "summary": "Announced as signed on July 7, 2026, it requires each electric utility to file a tariff for data centers of 50 MW or more that makes them commit to take at least 85 percent of requested service for at least 10 years, and gives the board 12 months to set tariff standards.",
+          "url": "https://www.nj.gov/governor/news/2026/20260707a.shtml",
+          "date": "2026-07"
+        }
+      ],
+      "note": "Use the Post Comments button on a matter in the Public Document Search."
+    },
+    "NM": {
+      "commission": "New Mexico Public Regulation Commission",
+      "url": "https://www.prc.nm.gov/",
+      "comment_url": "https://e360.prc.nm.gov/portal/public/",
+      "policy": [
+        {
+          "title": "Case 25-00082-UT: El Paso Electric large load tariffs",
+          "summary": "El Paso Electric proposed, in its rate review, two large load tariffs built on its Large Power Service tariff, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "NY": {
+      "commission": "New York State Public Service Commission",
+      "url": "https://dps.ny.gov/",
+      "comment_url": "https://documents.dps.ny.gov/public/common/search.html",
+      "policy": [
+        {
+          "title": "Executive Order 62: temporary moratorium on data centers",
+          "summary": "Issued July 14, 2026, it pauses data center construction and expansion (with exceptions such as manufacturing, research and medical uses) until a Generic Environmental Impact Statement is finished.",
+          "url": "https://www.governor.ny.gov/executive-order/no-62-establishing-temporary-moratorium-data-centers-new-york-while-state-develops",
+          "date": "2026-07"
+        },
+        {
+          "title": "Case 26-E-0045: interconnection reforms for large loads",
+          "summary": "The commission opened the proceeding on Feb. 12, 2026 to reform how large users such as data centers connect, with a staff white paper due Feb. 12, 2027 (as reported).",
+          "url": "https://www.governor.ny.gov/news/governor-hochul-announces-psc-proceeding-her-plan-ensure-data-centers-pay-their-fair-share",
+          "date": "2026-02"
+        }
+      ],
+      "note": "On the case page in the Document and Matter Management system, use Post Comments."
+    },
+    "NC": {
+      "commission": "North Carolina Utilities Commission",
+      "url": "https://www.ncuc.gov/",
+      "comment_url": "https://www.ncuc.gov/search/searchdocket.html",
+      "policy": [
+        {
+          "title": "Docket E-7 Sub 1329: Duke Energy Carolinas rate review and a separate large load tariff proceeding",
+          "summary": "Under a proposed settlement, the parties support an expedited separate proceeding to set a formal large load tariff before new rates take effect, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ],
+      "note": "Written comments are filed as a statement of position under the docket number."
+    },
+    "ND": {
+      "commission": "North Dakota Public Service Commission",
+      "url": "https://www.psc.nd.gov/",
+      "comment_url": "https://www.psc.nd.gov/case-search",
+      "policy": [
+        {
+          "title": "Case PU-22-337: Montana-Dakota Utilities high density computing tariff",
+          "summary": "The commission approved a contracted-demand tariff for customers with at least 10 MW of high density computing load at an 85 percent load factor, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "OH": {
+      "commission": "Public Utilities Commission of Ohio",
+      "url": "https://puco.ohio.gov/",
+      "comment_url": "https://puco.ohio.gov/documents-and-rules/resources/file-a-comment",
+      "policy": [
+        {
+          "title": "Case 24-508-EL-ATA: AEP Ohio data center tariff",
+          "summary": "On July 9, 2025 the commission ordered AEP Ohio to create a data center tariff; new data centers above 25 MW must pay for at least 85 percent of their contracted capacity for up to 12 years.",
+          "url": "https://content.govdelivery.com/accounts/OHPUC/bulletins/3e8bb79",
+          "date": "2025-07"
+        },
+        {
+          "title": "Cases 26-0697-EL-ATA and 26-0755-EL-ATA: FirstEnergy Ohio and Duke Energy Ohio data center tariffs",
+          "summary": "FirstEnergy's Ohio utilities filed a proposed data center tariff in June 2026 and Duke Energy Ohio has proposed a data center rate (Rate DC), as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2026-06"
+        }
+      ]
+    },
+    "OK": {
+      "commission": "Oklahoma Corporation Commission",
+      "url": "https://oklahoma.gov/occ.html",
+      "comment_url": "https://oklahoma.gov/occ/divisions/public-utility/case-public-comments.html",
+      "policy": [
+        {
+          "title": "Causes PUD2025-000075 and PUD2026-000046: PSO and OG&E large load terms",
+          "summary": "PSO proposed new terms for new large load customers and OG&E proposed an Extra Large Power and Light tariff on June 17, 2026, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2026-06"
+        }
+      ]
+    },
+    "OR": {
+      "commission": "Oregon Public Utility Commission",
+      "url": "https://www.oregon.gov/puc",
+      "comment_url": "https://apps.puc.state.or.us/DocketPublicComment",
+      "policy": [
+        {
+          "title": "Docket UM 2377: Portland General Electric Schedule 96 for large data centers",
+          "summary": "Under the 2025 POWER Act (HB 3546) the commission approved a rate class for large loads, contract rules, and a 1-cent-per-kWh surcharge for customers with 100 MW or more of allocated capacity.",
+          "url": "https://www.oregon.gov/puc/news-events/Documents/PR-202609.pdf",
+          "date": "2026-05"
+        }
+      ]
+    },
+    "PA": {
+      "commission": "Pennsylvania Public Utility Commission",
+      "url": "https://www.puc.pa.gov/",
+      "comment_url": "https://www.puc.pa.gov/filing-resources/file-or-obtain-information/",
+      "policy": [
+        {
+          "title": "Docket M-2025-3054271: model tariff for large-load customers",
+          "summary": "The commission adopted a model tariff framework for customers over 50 MW individually or 100 MW together, with a Final Order released May 13, 2026.",
+          "url": "https://www.puc.pa.gov/press-release/2026/puc-releases-final-order-establishing-first-of-its-kind-large-load-model-tariff-framework-05132026",
+          "date": "2026-05"
+        },
+        {
+          "title": "Docket R-2025-3057164: PPL Electric rate settlement with a large load tariff",
+          "summary": "The commission approved a settlement in PPL's rate review that included a large load tariff, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ],
+      "note": "Search dockets at https://www.puc.pa.gov/search/docket-search/."
+    },
+    "RI": {
+      "commission": "Rhode Island Public Utilities Commission",
+      "url": "https://ripuc.ri.gov/",
+      "comment_url": "https://ripuc.ri.gov/events-and-actions/commission-dockets",
+      "policy": []
+    },
+    "SC": {
+      "commission": "South Carolina Public Service Commission",
+      "url": "https://psc.sc.gov/",
+      "comment_url": "https://dms.psc.sc.gov/Web/dockets",
+      "policy": [
+        {
+          "title": "Dockets 2025-172-E, 2025-154-E and 2026-138-E: Duke Energy large load additions",
+          "summary": "In its rate reviews Duke agreed to seek a generic docket on new loads of 50 MW or more (rates, line extensions, interconnection), and the companies filed to open it (2026-138-E), as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "SD": {
+      "commission": "South Dakota Public Utilities Commission",
+      "url": "https://puc.sd.gov/",
+      "comment_url": "https://puc.sd.gov/Dockets/default.aspx",
+      "policy": [
+        {
+          "title": "2026 data center law for facilities of 10 MW or more",
+          "summary": "Signed in March 2026, it requires data center companies to pay the electrical infrastructure costs attributable to them and to keep water use from overburdening local resources, bars the state from overriding local data center ordinances, and a companion bill lets the commission bill data center companies for its regulatory review costs (as reported).",
+          "url": "https://southdakotasearchlight.com/2026/03/24/data-center-restrictions-signed-into-south-dakota-law-after-push-for-incentives-failed/",
+          "date": "2026-03"
+        }
+      ],
+      "note": "Public comments on an active case are emailed to the commission with the docket number; they are posted in the docket."
+    },
+    "TN": {
+      "commission": "Tennessee Public Utility Commission",
+      "url": "https://www.tn.gov/tpuc.html",
+      "comment_url": "https://tpucdockets.tn.gov/indexes/TPUCActiveDocketIndex.htm",
+      "policy": [
+        {
+          "title": "TVA board approves a separate data center rate",
+          "summary": "On Aug. 20, 2026 the Tennessee Valley Authority board approved a separate, higher rate for data centers served by TVA (as reported by the Chattanooga Times Free Press).",
+          "url": "https://www.timesfreepress.com/news/2026/aug/20/tva-to-charge-data-centers-more-for-power-under/",
+          "date": "2026-08"
+        }
+      ],
+      "note": "The commission does not regulate TVA or municipal power systems; TVA sets its own wholesale rates."
+    },
+    "TX": {
+      "commission": "Public Utility Commission of Texas",
+      "url": "https://www.puc.texas.gov/",
+      "comment_url": "https://interchange.puc.texas.gov/",
+      "policy": [
+        {
+          "title": "Senate Bill 6 (2025) and PUC Project 58317: large load interconnection",
+          "summary": "Signed June 20, 2025, SB 6 sets new interconnection and cost rules for loads of 75 MW or more in the ERCOT grid, and the commission opened Project 58317 on June 30, 2025 to write the rules.",
+          "url": "https://interchange.puc.texas.gov/search/filings/?UtilityType=A&ControlNumber=58317",
+          "date": "2025-06"
+        }
+      ]
+    },
+    "UT": {
+      "commission": "Utah Public Service Commission",
+      "url": "https://psc.utah.gov/",
+      "comment_url": "https://psc.utah.gov/all-electric-dockets/",
+      "policy": [
+        {
+          "title": "Senate Bill 132 (2025): Electric Utility Amendments",
+          "summary": "Effective May 7, 2025, it sets processes for service to loads of 100 MW or more within five years (including private and connected generation) and has the commission study a large load flexible tariff.",
+          "url": "https://le.utah.gov/Session/2025/bills/enrolled/SB0132.pdf",
+          "date": "2025-05"
+        }
+      ]
+    },
+    "VT": {
+      "commission": "Vermont Public Utility Commission",
+      "url": "https://puc.vermont.gov/",
+      "comment_url": "https://epuc.vermont.gov/?q=node/32",
+      "policy": [
+        {
+          "title": "H.727: rules for data centers using 20 MW or more",
+          "summary": "The Legislature passed it on May 26, 2026 (large load contracts approved by the commission, a certificate of public good, contracts of at least 10 years); the governor vetoed it on May 28, 2026 and a May 29 House vote to override fell short (as reported).",
+          "url": "https://governor.vermont.gov/press-release/action-taken-governor-phil-scott-legislation-may-28-2026",
+          "date": "2026-05"
+        }
+      ]
+    },
+    "VA": {
+      "commission": "Virginia State Corporation Commission",
+      "url": "https://www.scc.virginia.gov/",
+      "comment_url": "https://www.scc.virginia.gov/case-information/submit-public-comments/",
+      "policy": [
+        {
+          "title": "Case PUR-2025-00058: Dominion new GS-5 rate class for large customers",
+          "summary": "In its Nov. 25, 2025 order the commission created a class for customers of 25 MW or more (75 percent load factor or higher) with minimum demand charges and long contracts, effective Jan. 1, 2027.",
+          "url": "https://www.scc.virginia.gov/about-the-scc/newsreleases/release/scc-issues-order-on-dev-biennial-review-2025/scc-rules-in-dev-biennial-review-case.html",
+          "date": "2025-11"
+        },
+        {
+          "title": "Case PUR-2025-00057: Appalachian Power large power service changes",
+          "summary": "The commission approved revisions to Appalachian Power's Large Power Service schedule for potential large additions, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": null
+        }
+      ]
+    },
+    "WA": {
+      "commission": "Washington Utilities and Transportation Commission",
+      "url": "https://www.utc.wa.gov/",
+      "comment_url": "https://www.utc.wa.gov/get-help-utility-or-transportation-service/submit-comment",
+      "policy": [
+        {
+          "title": "Docket UE-260162: large energy loads and data centers",
+          "summary": "The commission opened the docket on April 7, 2026 to look at how investor-owned utilities connect large loads such as data centers, and held workshops on April 27 and Aug. 12, 2026.",
+          "url": "https://www.utc.wa.gov/casedocket/2026/260162/docsets",
+          "date": "2026-04"
+        }
+      ]
+    },
+    "WV": {
+      "commission": "West Virginia Public Service Commission",
+      "url": "https://www.psc.state.wv.us/",
+      "comment_url": "https://www.psc.state.wv.us/scripts/onlinecomments/default.cfm",
+      "policy": [
+        {
+          "title": "Case 24-0611-E-T-PW: Appalachian Power and Wheeling Power large load tariffs",
+          "summary": "In March 2025 the commission approved revisions to the Large Capacity Power and Industrial Power tariffs, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2025-03"
+        }
+      ]
+    },
+    "WI": {
+      "commission": "Public Service Commission of Wisconsin",
+      "url": "https://psc.wi.gov/",
+      "comment_url": "https://apps.psc.wi.gov/APPS/dockets/publicComment.aspx",
+      "policy": [
+        {
+          "title": "Docket 6630-TE-113: We Energies Very Large Customer tariff",
+          "summary": "The commission approved a data center rate plan in April 2026 with changes: a 15-year minimum term, eligibility lowered from 500 MW to 100 MW, and full-cost payment under the Full-Benefits model.",
+          "url": "https://psc.wi.gov/Documents/PressReleases/04.24.2026PressRelease.PDF",
+          "date": "2026-04"
+        }
+      ]
+    },
+    "WY": {
+      "commission": "Wyoming Public Service Commission",
+      "url": "https://psc.wyo.gov/",
+      "comment_url": "https://psc.wyo.gov/home/public-notices",
+      "policy": [
+        {
+          "title": "Record 14242: Large Power Contract Service (Black Hills Energy)",
+          "summary": "Approved in 2016, the tariff has large customers buy their own energy and fund the transmission and distribution built for them, as listed by the Edison Electric Institute (utility trade group), Sept. 2026.",
+          "url": "https://www.eei.org/-/media/Project/EEI/Documents/Issues%20and%20Policy/List%20of%20Large%20Customer%20Projects%20and%20Tariffs",
+          "date": "2016"
+        }
+      ],
+      "note": "Public comments on an open docket can be emailed to the commission with the docket number."
+    }
+  },
+  "proposals": {
+    "stonebridge-fort-meade": {
+      "county": "Polk County",
+      "municipality": "Fort Meade",
+      "decision_body": {
+        "name": "City of Fort Meade City Commission",
+        "url": "https://www.cityoffortmeade.org/departments/city_commssion.php",
+        "comment_url": null,
+        "how_to_comment": "The city's commission page lists a mailing address (P.O. Box 856, Fort Meade, FL 33841), the deputy city clerk's office (863-285-1173) and each commissioner's email; mail addressed to the Commission goes to the whole Commission."
+      },
+      "utility": {
+        "name": "Duke Energy",
+        "source": "https://www.fox13news.com/news/fort-meade-data-center-project-community-opposition"
+      },
+      "cases": [
+        {
+          "commission": "Florida Public Service Commission",
+          "number": "20260064-EI",
+          "title": "Duke Energy Florida: petition to approve a large load tariff",
+          "url": "https://www.floridapsc.com/clerks-office-dockets-level2?DocketNo=20260064",
+          "why": "Duke Energy is reported as the utility for this facility; this docket decides the large load policy (50 MW or more) Duke proposes under Florida's SB 484. A hearing was held Aug. 25-26, 2026 and a vote was expected after mid-September."
+        }
+      ],
+      "status_note": "As reported by FOX 13 and WUSF, the Fort Meade City Commission unanimously approved a development agreement with the developer in April 2026 (April 14 per FOX 13). The Florida Department of Commerce then wrote to the city about energy, water and transportation risks, and the Southwest Florida Water Management District told the city its current water permit does not cover the facility. Residents filed two lawsuits on May 14, 2026 (The Citrus Tea). Permits from the water management district and others were still required as of the latest reports found.",
+      "sources": [
+        {
+          "title": "FOX 13: Fort Meade moves forward with $2.6B data center project despite community opposition",
+          "url": "https://www.fox13news.com/news/fort-meade-data-center-project-community-opposition"
+        },
+        {
+          "title": "WUSF: Fort Meade is one step closer to building Florida's first hyperscale AI data center (April 8, 2026)",
+          "url": "https://www.wusf.org/environment/2026-04-08/fort-meade-is-one-step-closer-to-building-floridas-first-hysperscale-ai-data-center"
+        },
+        {
+          "title": "WUSF: Florida's commerce secretary comes out strongly against proposed AI data center (April 20, 2026)",
+          "url": "https://www.wusf.org/economy-business/2026-04-20/florida-commerce-secretary-opposes-proposed-ai-data-center"
+        },
+        {
+          "title": "Florida Department of Commerce letter to the Fort Meade City Commission (April 2026, PDF)",
+          "url": "https://npr.brightspotcdn.com/c1/05/48b3f71a4de98d2aa86e5dede270/fort-meade-data-center-4-15-26.pdf"
+        },
+        {
+          "title": "The Citrus Tea: Fort Meade residents file two lawsuits (June 23, 2026)",
+          "url": "https://thecitrustea.com/2026/06/23/fort-meade-residents-file-two-lawsuits-to-block-stonebridge-data-center-as-watchdogs-launch-recall-push/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "atlas-compute-fort-pierce": {
+      "county": "St. Lucie County",
+      "municipality": null,
+      "decision_body": {
+        "name": "St. Lucie County Board of County Commissioners",
+        "url": "https://stluciecofl.portal.civicclerk.com/",
+        "comment_url": "https://www.stlucieco.gov/departments-and-services/board-of-county-commissioners/general-rules-and-procedures-for-bocc-meetings",
+        "how_to_comment": "Public comment is taken on agenda items at commission meetings (staff, applicant and commissioner questions come first); agendas and video are in the county meeting portal."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by WPTV and WFLX (March 2026), St. Lucie County officials said no application had been filed for the Atlas Compute site at Midway Industrial Park; the county issued a zoning verification letter for four parcels in December 2025. The company's Nov. 6, 2025 release describes a 240 MW first phase with expansion capacity to 1 GW. No later filing was found as of the check date.",
+      "sources": [
+        {
+          "title": "Atlas Compute release: 240 MW campus with 1 GW expansion capacity (Nov. 6, 2025, company press release)",
+          "url": "https://www.globenewswire.com/news-release/2025/11/06/3182873/0/en/Atlas-Compute-Secures-Land-and-Utilities-for-240-MW-AI-Data-Center-Campus-in-Central-Florida-with-1-GW-Expansion-Capacity.html"
+        },
+        {
+          "title": "WPTV: Is another data center coming to St. Lucie County?",
+          "url": "https://www.wptv.com/news/region-st-lucie-county/fort-pierce/florida-based-company-announced-plans-to-build-ai-data-center-in-fort-pierce"
+        },
+        {
+          "title": "WFLX: Florida-based company announced plans to build AI data center in Fort Pierce (March 12, 2026)",
+          "url": "https://www.wflx.com/2026/03/12/florida-based-company-announced-plans-build-ai-data-center-fort-pierce/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "sentinel-grove-fort-pierce": {
+      "county": "St. Lucie County",
+      "municipality": null,
+      "decision_body": {
+        "name": "St. Lucie County Board of County Commissioners",
+        "url": "https://stluciecofl.portal.civicclerk.com/",
+        "comment_url": "https://www.stlucieco.gov/departments-and-services/board-of-county-commissioners/general-rules-and-procedures-for-bocc-meetings",
+        "how_to_comment": "Public comment is taken on agenda items at commission meetings; agendas and video are in the county meeting portal."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by WPTV and Port St. Lucie Talks, the county Planning and Zoning Commission voted 4-2 to recommend against the comprehensive plan amendment, and the applicants voluntarily withdrew the land-use application on Feb. 26, 2026, saying they were watching the outcome of state data center bills. The County Commission never voted on it.",
+      "sources": [
+        {
+          "title": "WPTV: Proposed AI data center in St. Lucie County faces pushback",
+          "url": "https://www.wptv.com/news/treasure-coast/region-st-lucie-county/proposed-15-million-square-feet-ai-data-center-in-st-lucie-county-faces-push-back"
+        },
+        {
+          "title": "Port St. Lucie Talks: Sentinel Grove data center project paused (March 12, 2026)",
+          "url": "https://portstlucietalks.com/sentinel-grove-data-center-project-paused-near-fort-pierce-amid-florida-ai-legislation/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "pba-holdings-loxahatchee": {
+      "county": "Palm Beach County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Palm Beach County Board of County Commissioners",
+        "url": "https://discover.pbc.gov/countycommissioners/Pages/Agenda.aspx",
+        "comment_url": "https://discover.pbc.gov/countycommissioners/Pages/Agenda.aspx",
+        "how_to_comment": "The county posts each meeting's agenda and lets the public submit comments on agenda items through its Submit Public Comment form; to speak in person, fill out a comment card on arrival."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by WLRN, the Board of County Commissioners voted 5-1 on July 16, 2026 to deny the requested development order amendment for a data center campus at 20125 Southern Blvd. On Aug. 27, 2026 the board gave initial approval, 7-0, to a one-year moratorium on new large-scale (50 MW or more) data centers; a second and final vote was tentatively planned for the end of September (WFLX).",
+      "sources": [
+        {
+          "title": "WLRN: Palm Beach County rejects controversial Project Tango AI data center (July 16, 2026)",
+          "url": "https://www.wlrn.org/government-politics/2026-07-16/project-tango-ai-data-center-palm-beach-rejected"
+        },
+        {
+          "title": "WLRN: Palm Beach County commissioners put initial halt on massive AI data centers (Aug. 27, 2026)",
+          "url": "https://www.wlrn.org/government-politics/2026-08-27/palm-beach-county-artificial-intelligence-data-centers"
+        },
+        {
+          "title": "WFLX: Palm Beach County commissioners give initial approval to 1-year moratorium (Aug. 28, 2026)",
+          "url": "https://www.wflx.com/2026/08/28/palm-beach-county-commissioners-give-initial-approval-1-year-moratorium-new-hyperscale-ai-data-centers/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "nextnrg-near-jacksonville-international-airport": {
+      "county": "Nassau County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Nassau County Board of County Commissioners",
+        "url": "https://www.nassaucountyfl.com/6/Agendas-Meetings",
+        "comment_url": null,
+        "how_to_comment": "Commission meetings are held in Yulee; the county's Fact-Finding Committee on data center development holds publicly noticed workshops (see its page) and reports policy options to the commissioners."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by the Jax Daily Record (April 2026), Nassau County said no application of any kind had been filed and its staff knew of the project only from the company's September 2025 press release. The commissioners approved a 12-month moratorium on accepting or reviewing data center applications in June 2026 (News4Jax, June 9, 2026) and formed a fact-finding committee. The company's CEO told First Coast News he is not in the data center business and wants to build a solar farm rather than a data center.",
+      "sources": [
+        {
+          "title": "Jax Daily Record: Proposed Nassau County data center details remain unknown to county (April 6, 2026)",
+          "url": "https://www.jaxdailyrecord.com/news/2026/apr/06/announced-nassau-county-data-center-details-remain-unknown-to-county/"
+        },
+        {
+          "title": "News4Jax: Nassau County approves data center moratorium (June 9, 2026)",
+          "url": "https://www.news4jax.com/news/local/2026/06/09/nassau-county-approves-data-center-moratorium/"
+        },
+        {
+          "title": "Jacksonville Today: Concerns grow over proposed AI data center in Nassau County (June 1, 2026)",
+          "url": "https://jaxtoday.org/2026/06/01/data-center-nassau-county/"
+        },
+        {
+          "title": "First Coast News (via Yahoo): CEO says he wants to build solar farm, not data center in Nassau County",
+          "url": "https://www.yahoo.com/news/articles/energy-companys-ceo-says-wants-215155950.html"
+        },
+        {
+          "title": "Nassau County: Fact-Finding Committee on data center development",
+          "url": "https://www.nassaucountyfl.com/1531/Fact-Finding-Committee"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "qts-gainesville": {
+      "county": "Prince William County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Prince William County Board of County Supervisors",
+        "url": "https://www.pwcva.gov/department/planning-office/pw-digital-gateway",
+        "comment_url": "https://www.pwcva.gov/department/planning-office/pw-digital-gateway",
+        "how_to_comment": "The county's Digital Gateway page has a Public Comment Form; comments become public records under Virginia's Freedom of Information Act."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported, courts voided the Board's rezoning approvals for improper public notice (a Circuit Court ruling in 2025 and a Virginia Court of Appeals decision on March 31, 2026). The county withdrew from the lawsuit on April 15, 2026, and the developer dropped its final appeal in July 2026 (FOX 5). The county's page says a July 29, 2026 Court of Appeals order confirms the rezonings are void and zoning reverted to the earlier districts; any new rezoning would need a standard application with public hearings.",
+      "sources": [
+        {
+          "title": "Prince William County: PW Digital Gateway status page",
+          "url": "https://www.pwcva.gov/department/planning-office/pw-digital-gateway"
+        },
+        {
+          "title": "FOX 5 DC: QTS drops appeal, ending plans for massive Prince William County data center",
+          "url": "https://www.fox5dc.com/news/qts-drops-appeal-ending-plans-massive-prince-william-county-data-center"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "starwood-digital-ventures-new-castle-delaware-city": {
+      "county": "New Castle County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Delaware Coastal Zone Industrial Control Board (appeals of DNREC Coastal Zone Act decisions)",
+        "url": "https://dnrec.delaware.gov/coastal-zone-act/industrial-control-board/",
+        "comment_url": null,
+        "how_to_comment": "DNREC posts each Coastal Zone Act decision and its comment period on its public notice pages; the Delaware Public Service Commission takes comments on the state's large-load tariff docket 25-0826 through DelaFile."
+      },
+      "utility": null,
+      "cases": [
+        {
+          "commission": "Coastal Zone Industrial Control Board",
+          "number": "CZ-2026-01",
+          "title": "Starwood Digital Ventures v. DNREC (CZICB Appeal No. 2026-01)",
+          "url": "https://documents.dnrec.delaware.gov/Admin/CZICB/Decisions/CZ-2026-01-Starwood-Digital-Ventures.pdf",
+          "why": "The board's decision and final order (dated April 17, 2026) affirmed the DNREC Secretary's finding that the project is a prohibited heavy industry use in the coastal zone."
+        }
+      ],
+      "status_note": "Per DNREC records, the Secretary's Coastal Zone Act status decision of Feb. 3-4, 2026 found the campus (11 buildings, 516 backup generators) prohibited as heavy industry. The developer appealed; after a hearing on March 24-26, 2026 the Coastal Zone Industrial Control Board voted unanimously to affirm, and its written final order is dated April 17, 2026. Further appeals were not shown in the sources checked.",
+      "sources": [
+        {
+          "title": "DNREC public notice CCE20260043: Starwood Digital Ventures status decision (Feb. 4, 2026)",
+          "url": "https://dnrec.delaware.gov/public-notices/cce20260043/"
+        },
+        {
+          "title": "Coastal Zone Industrial Control Board: decision and final order, Appeal CZ-2026-01 (April 17, 2026, PDF)",
+          "url": "https://documents.dnrec.delaware.gov/Admin/CZICB/Decisions/CZ-2026-01-Starwood-Digital-Ventures.pdf"
+        },
+        {
+          "title": "Technical.ly: Delaware's Project Washington data center plan has been halted",
+          "url": "https://technical.ly/civics/delaware-data-center-halted-project-washington/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "related-digital-saline-township": {
+      "county": "Washtenaw County",
+      "municipality": "Saline Township",
+      "decision_body": {
+        "name": "Saline Township Board of Trustees",
+        "url": "https://www.salinetownship.org/government/board-of-trustees",
+        "comment_url": null,
+        "how_to_comment": "See the township website for meeting notices and public comment rules."
+      },
+      "utility": {
+        "name": "DTE Electric",
+        "source": "https://www.michigan.gov/mpsc/commission/news-releases/2025/12/18/mpsc-approves-dte-electric-energy-contracts-for-data-center"
+      },
+      "cases": [
+        {
+          "commission": "Michigan Public Service Commission",
+          "number": "U-21990",
+          "title": "DTE Electric application for approval of energy contracts with a data center",
+          "url": "https://www.michigan.gov/mpsc/commission/news-releases/2025/12/18/mpsc-approves-dte-electric-energy-contracts-for-data-center",
+          "why": "The commission approved the contracts for a 1.4 GW data center on Dec. 18, 2025 with conditions and directed DTE to file a large-load tariff for customers above 100 MW. The Michigan Attorney General and environmental groups have appealed (Aug. 2026, as reported)."
+        }
+      ],
+      "status_note": "As reported, the township board voted on Sept. 10, 2025 to deny the needed rezoning, the developer sued, and a court entered a consent judgment on Oct. 15, 2025 allowing the project to proceed (Planet Detroit). A resident's lawsuit was rejected in February 2026 (WEMU). Construction was reported under way in 2026 (Fortune, May 2026), and the appeal of the MPSC approval was pending in August 2026 (Michigan Advance).",
+      "sources": [
+        {
+          "title": "MPSC: approves DTE Electric energy contracts for data center with conditions (Dec. 18, 2025)",
+          "url": "https://www.michigan.gov/mpsc/commission/news-releases/2025/12/18/mpsc-approves-dte-electric-energy-contracts-for-data-center"
+        },
+        {
+          "title": "Planet Detroit: Judge denies resident's move to intervene in data center settlement (Feb. 2026)",
+          "url": "https://planetdetroit.org/2026/02/judge-denies-data-center-intervention/"
+        },
+        {
+          "title": "WEMU: Lawsuit aimed at stopping Saline Township data center rejected (Feb. 20, 2026)",
+          "url": "https://www.wemu.org/wemu-news/2026-02-20/lawsuit-aimed-at-stopping-saline-township-data-center-rejected-by-washtenaw-county-judge"
+        },
+        {
+          "title": "Fortune: A Michigan farm town voted down plans for a giant data center; weeks later, construction began (May 6, 2026)",
+          "url": "https://fortune.com/2026/05/06/ai-data-center-michigan-saline-politics-farmland/"
+        },
+        {
+          "title": "Michigan Advance: Nessel and groups file arguments in appeal of DTE Saline data center contract (Aug. 10, 2026)",
+          "url": "https://michiganadvance.com/2026/08/10/nessel-and-environmental-groups-file-initial-arguments-in-appeal-of-dte-saline-data-center-contract/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "borderplex-digital-assets-santa-teresa": {
+      "county": "Doña Ana County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Doña Ana County Board of County Commissioners",
+        "url": "https://www.donaana.gov/about_us/project_jupiter.php",
+        "comment_url": null,
+        "how_to_comment": "The county's Project Jupiter page has overview, latest updates, project documents and a community questions section."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "The county's page describes the campus as led by STACK Infrastructure with BorderPlex Digital Assets, with an estimated investment of up to $165 billion. As reported by the Albuquerque Journal and the Daily Lobo, county commissioners approved industrial revenue bonds and other incentives, construction began in 2025, and the county appointed a citizen monitoring committee. Pending lawsuits allege the commission violated state law in how it adopted ordinances (allegations; not decided).",
+      "sources": [
+        {
+          "title": "Doña Ana County: Project Jupiter",
+          "url": "https://www.donaana.gov/about_us/project_jupiter.php"
+        },
+        {
+          "title": "Albuquerque Journal: Doña Ana County appoints Project Jupiter data center monitoring committee",
+          "url": "https://www.abqjournal.com/news/county-appoints-project-jupiter-citizen-monitor-committee/3127495"
+        },
+        {
+          "title": "The Daily Lobo: Project Jupiter, where the AI data center project stands (Aug. 2026)",
+          "url": "https://www.dailylobo.com/article/2026/08/project-jupiter-where-the-ai-data-center-project-stands-in-nm"
+        },
+        {
+          "title": "NPR: Worries over water as a giant data center moves into the New Mexico desert (June 12, 2026)",
+          "url": "https://www.npr.org/2026/06/12/nx-s1-5786551/worries-over-water-as-a-giant-data-center-moves-into-the-new-mexico-desert"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "tecfusions-upper-burrell-township": {
+      "county": "Westmoreland County",
+      "municipality": "Upper Burrell Township",
+      "decision_body": {
+        "name": "Upper Burrell Township Board of Supervisors",
+        "url": "https://upperburrelltwp.com/supervisors/",
+        "comment_url": null,
+        "how_to_comment": "Public comment is taken at the supervisors' meetings (state your name and address for the minutes); agendas and minutes are posted on the township website."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by PublicSource (Sept. 3, 2026), the township adopted a 180-day moratorium on new data center development in May 2026 that ends Nov. 2, 2026 and does not cover permits already granted. Supervisors approved a land development plan for one existing building on Aug. 5, 2026; residents and an advocacy group sued the supervisors in the Westmoreland County Court of Common Pleas over that approval. The planning commission approved a draft zoning ordinance on July 21, 2026 that would require developers to provide baseload generation power, and supervisors hope to act on it in October.",
+      "sources": [
+        {
+          "title": "PublicSource: Upper Burrell residents question data center transparency (Sept. 3, 2026)",
+          "url": "https://www.publicsource.org/upper-burrell-data-center-transparency-backlash/"
+        },
+        {
+          "title": "Pennsylvania Capital-Star: Upper Burrell residents decry transparency as data center progresses",
+          "url": "https://penncapital-star.com/energy-environment/upper-burrell-residents-decry-transparency-as-data-center-progresses-despite-moratorium-and-a-lawsuit/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "tallgrass-cheyenne": {
+      "county": "Laramie County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Laramie County Board of County Commissioners",
+        "url": "https://www.laramiecountywy.gov/County-Government/Elected-Officials/County-Commissioners",
+        "comment_url": null,
+        "how_to_comment": "The commission meets on the first and third Tuesdays; the county site lists how to comment on agenda items and posts agendas, minutes and video."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by WyoFile, Laramie County commissioners unanimously approved the Project Jade campus and Tallgrass's Cheyenne Power Hub (2.7 GW of gas-fired generation) in early January 2026 after a public hearing where residents raised water concerns. The Wyoming Tribune Eagle later reported that Crusoe pulled out of Project Jade; the power hub was reported to be continuing.",
+      "sources": [
+        {
+          "title": "WyoFile: Laramie County approves construction of what could become the largest data center in US (Jan. 2026)",
+          "url": "https://wyofile.com/laramie-county-approves-construction-of-what-could-become-the-largest-data-center-in-us/"
+        },
+        {
+          "title": "Wyoming Tribune Eagle: Crusoe pulls out of Project Jade data center",
+          "url": "https://www.wyomingnews.com/news/local_news/crusoe-pulls-out-of-project-jade-data-center/article_b9a8bde9-21c0-4e8a-9051-9154b91bf0eb.html"
+        },
+        {
+          "title": "Oil City News: Crusoe, Tallgrass get green light for Wyoming AI energy campus (Jan. 6, 2026)",
+          "url": "https://oilcity.news/wyoming-news/2026/01/06/crusoe-tallgrass-get-green-light-for-wyoming-ai-energy-campus-2/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "tpg-real-estate-adamstown-buckeystown-area": {
+      "county": "Frederick County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Frederick County Council and County Executive",
+        "url": "https://frederickcountymd.gov/9310/Data-Centers",
+        "comment_url": "https://frederickcountymd.gov/9310/Data-Centers",
+        "how_to_comment": "The county's Data Centers page links a public portal for comments on the proposed community benefits agreement and lists open houses."
+      },
+      "utility": {
+        "name": "Potomac Edison (FirstEnergy)",
+        "source": "https://www.firstenergycorp.com/newsroom/news_articles/potomac-edison-planning-to-build-new-substation-at-frederick-dat.html"
+      },
+      "cases": [],
+      "status_note": "Per the county's page, the County Executive rejected the Development Rights and Responsibilities Agreement application for the Frederick Digital Campus on Sept. 14, 2026, and ordered a pause on new data center development until Dec. 31, 2026, later extended to July 1, 2027 (projects with prior approvals or under construction are not affected). As reported (Nature Forward), the county council created a single overlay zone around the campus in January 2026, and per a WYPR headline the Maryland Supreme Court shut down a ballot referendum on it on June 30, 2026.",
+      "sources": [
+        {
+          "title": "Frederick County: Data Centers",
+          "url": "https://frederickcountymd.gov/9310/Data-Centers"
+        },
+        {
+          "title": "WYPR: Frederick County rejects agreement with data center developer amid public outcry (Sept. 15, 2026)",
+          "url": "https://www.wypr.org/wypr-news/2026-09-15/frederick-county-rejects-agreement-with-data-center-developer-amidst-public-outcry"
+        },
+        {
+          "title": "WYPR: Maryland Supreme Court shuts down Frederick County data center referendum (June 30, 2026)",
+          "url": "https://www.wypr.org/wypr-news/2026-06-30/maryland-supreme-court-shuts-down-frederick-county-data-center-referendum"
+        },
+        {
+          "title": "Nature Forward: Quantum Frederick, Frederick County, MD (Maryland data center series, part 3)",
+          "url": "https://natureforward.org/quantum-frederick-frederick-county-md-maryland-data-center-series-pt-3/"
+        },
+        {
+          "title": "FirstEnergy: Potomac Edison planning to build new substation at Frederick data campus",
+          "url": "https://www.firstenergycorp.com/newsroom/news_articles/potomac-edison-planning-to-build-new-substation-at-frederick-dat.html"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "tract-lockhart": {
+      "county": "Caldwell County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Caldwell County Commissioners Court",
+        "url": "https://caldwellcounty.texas.gov/government/commissioners-court",
+        "comment_url": null,
+        "how_to_comment": "The county publishes recaps of each Commissioners Court meeting on its news page."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "The county's May 15, 2026 news release says the Commissioners Court unanimously approved Resolution 29-2026 on May 14, stating its position on data centers: opposition to open-loop evaporative cooling or other high-volume potable water use, and a request that the Texas Legislature give counties more regulatory authority. No county vote specific to a named data center project was found.",
+      "sources": [
+        {
+          "title": "Caldwell County: Commissioners approve resolution regarding data centers (May 15, 2026)",
+          "url": "https://caldwellcounty.texas.gov/news/data-centers-resolution-2026"
+        },
+        {
+          "title": "Caldwell County: Commissioners Court recap, March 12, 2026",
+          "url": "https://caldwellcounty.texas.gov/news/commissioners-court-recap-march-12-2026-2026-03-16"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "meta-holly-ridge": {
+      "county": "Richland Parish",
+      "municipality": null,
+      "decision_body": {
+        "name": "Louisiana Public Service Commission",
+        "url": "https://www.lpsc.louisiana.gov/",
+        "comment_url": null,
+        "how_to_comment": "Search Docket U-37425 in the commission's online document access to see filings and the service list."
+      },
+      "utility": {
+        "name": "Entergy Louisiana",
+        "source": "https://lpscpubvalence.lpsc.louisiana.gov/portal/PSC/DocketDetails?docketId=32146"
+      },
+      "cases": [
+        {
+          "commission": "Louisiana Public Service Commission",
+          "number": "U-37425",
+          "title": "Entergy Louisiana, ex parte: generation and transmission resources to serve a single customer in north Louisiana",
+          "url": "https://lpscpubvalence.lpsc.louisiana.gov/portal/PSC/DocketDetails?docketId=32146",
+          "why": "The commission approved the utility's plan for three gas plants and related transmission on Aug. 20, 2025 by a 4-1 vote (as reported); the docket remained open with follow-on filings."
+        }
+      ],
+      "status_note": "As reported by KNOE and the Louisiana Illuminator, the commission voted 4-1 on Aug. 20, 2025 to approve Entergy Louisiana's application for gas plants and transmission to serve the campus in Richland Parish. The docket has stayed open with further proceedings.",
+      "sources": [
+        {
+          "title": "LPSC Docket U-37425 details",
+          "url": "https://lpscpubvalence.lpsc.louisiana.gov/portal/PSC/DocketDetails?docketId=32146"
+        },
+        {
+          "title": "KNOE: Entergy Louisiana gains regulatory approval for massive Meta data center project (Aug. 20, 2025)",
+          "url": "https://www.knoe.com/2025/08/20/entergy-gains-regulatory-approval-massive-meta-power-project/"
+        },
+        {
+          "title": "Entergy: Entergy Louisiana receives LPSC approval for major infrastructure investments",
+          "url": "https://www.entergy.com/news/entergy-louisiana-receives-lpsc-approval-for-major-infrastructure-investments-to-support-metas-data-center-and-improve-reliability"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "google-hermantown": {
+      "county": "St. Louis County",
+      "municipality": "Hermantown",
+      "decision_body": {
+        "name": "Hermantown City Council",
+        "url": "https://hermantownmn.com/project/",
+        "comment_url": "https://hermantownmn.com/project/",
+        "how_to_comment": "Written comments go to the address listed on the city's project page, which also posts the environmental review documents, comment periods and meeting information."
+      },
+      "utility": {
+        "name": "Minnesota Power",
+        "source": "https://legalectric.org/f/2026/04/ESA_20263-229694-01.pdf"
+      },
+      "cases": [
+        {
+          "commission": "Minnesota Public Utilities Commission",
+          "number": "E015/M-26-159",
+          "title": "Minnesota Power: petition to approve an electric service agreement with Harmony Group, LLC for a Hermantown data center",
+          "url": "https://www.edockets.state.mn.us/",
+          "why": "The commission decides whether the 15-year service agreement (about 700 MW of new wind and battery resources) is approved; Minnesota Power filed the petition March 27, 2026 and comments were accepted through July 21, 2026 (as reported). Search 26-159 in eDockets."
+        }
+      ],
+      "status_note": "Per the city's project page, the updated environmental review (AUAR) draft was open for comment June 11 to July 16, 2026, and the final was submitted Aug. 4, 2026; Google presented to the City Council and Planning and Zoning Commission Aug. 17-20 and gave a project update on Sept. 21, 2026. As reported by Northern News Now, a Sept. 8, 2026 council meeting was paused during heated public comment. The PUC docket is pending.",
+      "sources": [
+        {
+          "title": "City of Hermantown: Project page (environmental review, comment periods)",
+          "url": "https://hermantownmn.com/project/"
+        },
+        {
+          "title": "KAXE: More details emerge as Google, Hermantown work out data center agreements (May 20, 2026)",
+          "url": "https://www.kaxe.org/local-news/2026-05-20/more-details-emerge-as-google-hermantown-work-out-data-center-agreements"
+        },
+        {
+          "title": "Minnesota Power petition to the PUC for the electric service agreement (March 26-27, 2026, PDF)",
+          "url": "https://legalectric.org/f/2026/04/ESA_20263-229694-01.pdf"
+        },
+        {
+          "title": "Northern News Now: Heated data center debate results in pause to Hermantown city council meeting (Sept. 9, 2026)",
+          "url": "https://www.northernnewsnow.com/2026/09/09/heated-data-center-debate-results-pause-hermantown-city-council-meeting/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "peterson-companies-culpeper": {
+      "county": "Culpeper County",
+      "municipality": "Town of Culpeper",
+      "decision_body": {
+        "name": "Culpeper County Board of Supervisors",
+        "url": "https://web.culpepercounty.gov/bos",
+        "comment_url": "https://go.boarddocs.com/va/ccva/Board.nsf/Public",
+        "how_to_comment": "The board meets the first Tuesday of each month at 10 a.m. and 7 p.m. at 302 N. Main Street; agendas are in BoardDocs and you can email all members at BOS@culpepercounty.gov."
+      },
+      "utility": {
+        "name": "Dominion Energy",
+        "source": "https://www.petersoncos.com/blog/peterson-companies-announces-2-million-sq-ft-data-center-campus-in-virginias-culpeper-county/"
+      },
+      "cases": [
+        {
+          "commission": "Virginia State Corporation Commission",
+          "number": "PUR-2025-00058",
+          "title": "Dominion Energy Virginia biennial review: new GS-5 rate class",
+          "url": "https://www.scc.virginia.gov/about-the-scc/newsreleases/release/scc-issues-order-on-dev-biennial-review-2025/scc-rules-in-dev-biennial-review-case.html",
+          "why": "Dominion is the reported power source; its Nov. 25, 2025 order created a rate class for customers of 25 MW or more (75 percent load factor or higher) with minimum demand charges and long contracts, effective Jan. 1, 2027."
+        }
+      ],
+      "status_note": "As reported by the Culpeper Times, the Board of Supervisors approved rezoning of a 34.4-acre parcel for the campus in 2023; an adjoining 115 acres had previously been rezoned by the Town of Culpeper. The developer says power would come from two Dominion Energy substations. No pending local vote was found as of the check date.",
+      "sources": [
+        {
+          "title": "InsideNoVa (Culpeper Times): McDevitt Drive rezoning request for data center approved (2023)",
+          "url": "https://www.insidenova.com/culpeper/mcdevitt-drive-rezoning-request-for-data-center-approved/article_60a4e23c-1bfd-11ee-97f7-d7fff798cb24.html"
+        },
+        {
+          "title": "Peterson Companies: announces 2 million sq ft data center campus in Culpeper County (developer announcement)",
+          "url": "https://www.petersoncos.com/blog/peterson-companies-announces-2-million-sq-ft-data-center-campus-in-virginias-culpeper-county/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "prologis-newnan": {
+      "county": "Coweta County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Coweta County Board of Commissioners",
+        "url": "https://www.coweta.ga.us/169/Board-of-Commissioners",
+        "comment_url": null,
+        "how_to_comment": "Agendas and minutes are in the county's CivicClerk portal (cowetacoga.portal.civicclerk.com)."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by the AJC and The Real Deal, the Board of Commissioners voted 3-2 in April 2026 to rezone about 830 acres from Rural Conservation to Industrial for the campus after 15 months of debate and a moratorium. Residents filed an appeal in Coweta County Superior Court on May 5, 2026 asking to reverse the rezoning (The Citizen; CBS Atlanta).",
+      "sources": [
+        {
+          "title": "AJC: $17B Project Sail data center project approved south of Atlanta (April 2026)",
+          "url": "https://www.ajc.com/business/2026/04/coweta-votes-to-turn-this-800-acre-forest-into-17b-data-center-campus/"
+        },
+        {
+          "title": "The Real Deal: Prologis wins approval for massive Georgia data center campus (April 10, 2026)",
+          "url": "https://therealdeal.com/national/atlanta/2026/04/10/prologis-wins-approval-for-massive-georgia-data-center/"
+        },
+        {
+          "title": "The Citizen: Coweta residents sue to block Project Sail data center (May 11, 2026)",
+          "url": "https://thecitizen.com/2026/05/11/coweta-residents-sue-to-block-project-sail-data-center/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "beale-infrastructure-tucson": {
+      "county": "Pima County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Pima County Board of Supervisors",
+        "url": "https://www.pima.gov/project-blue-faq",
+        "comment_url": null,
+        "how_to_comment": "The county's Project Blue FAQ page summarizes the agreement and board actions."
+      },
+      "utility": {
+        "name": "Tucson Electric Power",
+        "source": "https://azluminaria.org/2025/12/03/arizona-corporation-commission-gives-green-light-to-project-blue-power-agreement/"
+      },
+      "cases": [
+        {
+          "commission": "Arizona Corporation Commission",
+          "number": "E-01933A-25-0187",
+          "title": "Tucson Electric Power: energy supply agreement with the Project Blue developer",
+          "url": "https://edocket.azcc.gov/search/docket-search",
+          "why": "The commission approved the agreement on Dec. 3, 2025 by a 4-1 vote (as reported); on Feb. 19, 2026 the Arizona Attorney General appealed in Maricopa County Superior Court, arguing the rate-setting provision violates the Arizona Constitution (the Attorney General's release)."
+        }
+      ],
+      "status_note": "As reported, the Pima County Board of Supervisors approved a community-benefit agreement 3-2 on Dec. 16, 2025 and the county's sale of the site closed Dec. 24, 2025. The Attorney General's appeal of the Corporation Commission approval is pending.",
+      "sources": [
+        {
+          "title": "AZ Luminaria: Arizona Corporation Commission gives green light to Project Blue power agreement (Dec. 3, 2025)",
+          "url": "https://azluminaria.org/2025/12/03/arizona-corporation-commission-gives-green-light-to-project-blue-power-agreement/"
+        },
+        {
+          "title": "Arizona Attorney General: Mayes appeals Corporation Commission approval of the TEP data center deal (Feb. 19, 2026)",
+          "url": "https://www.azag.gov/press-release/attorney-general-mayes-appeals-arizona-corporation-commissions-approval-tucson"
+        },
+        {
+          "title": "Pima County: Project Blue FAQ",
+          "url": "https://www.pima.gov/project-blue-faq"
+        },
+        {
+          "title": "Tucson Sentinel: Project Blue side deal approved by Pima County supervisors (Dec. 16, 2025)",
+          "url": "https://www.tucsonsentinel.com/local/report/121625_project_blue_deal/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "homer-city-redevelopment-homer-city": {
+      "county": "Indiana County",
+      "municipality": "Center Township",
+      "decision_body": {
+        "name": "Pennsylvania Department of Environmental Protection, Northwest Regional Office (air-quality and other permits)",
+        "url": "https://www.pa.gov/agencies/dep/dep-regions/northwest-regional-office/homer-city-generation-redevelopment",
+        "comment_url": null,
+        "how_to_comment": "DEP's Homer City page posts permit documents and the hearing record; a public hearing on the air permit was held Sept. 17, 2025."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "Per DEP's page, the department issued a final plan approval (32-00457A) for the gas plant on Nov. 18, 2025 and renewed the Title V operating permit (32-00055) on Feb. 26, 2026; other mining, water, waste and waterway permitting processes remain active.",
+      "sources": [
+        {
+          "title": "Pennsylvania DEP: Homer City generation site redevelopment",
+          "url": "https://www.pa.gov/agencies/dep/dep-regions/northwest-regional-office/homer-city-generation-redevelopment"
+        },
+        {
+          "title": "Technical.ly: PA OKs air permit for Homer City gas plant fueling data centers",
+          "url": "https://technical.ly/civics/homer-city-indiana-county-pennsylvania-data-center-permit-approval/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "vantage-data-centers-port-washington": {
+      "county": "Ozaukee County",
+      "municipality": "City of Port Washington",
+      "decision_body": {
+        "name": "Port Washington Common Council",
+        "url": "https://www.portwashingtonwi.gov/Home/Components/News/News/553/15",
+        "comment_url": null,
+        "how_to_comment": "The city's data center project page posts documents and updates."
+      },
+      "utility": {
+        "name": "We Energies",
+        "source": "https://www.wispolitics.com/2026/utility-data-center-developers-want-tech-giant-exempted-from-billion-dollar-collateral-requirements/"
+      },
+      "cases": [
+        {
+          "commission": "Public Service Commission of Wisconsin",
+          "number": "6630-TE-113",
+          "title": "Wisconsin Electric Power Company (We Energies): Very Large Customer and Bespoke Resources tariffs",
+          "url": "https://psc.wi.gov/Documents/PressReleases/04.24.2026PressRelease.PDF",
+          "why": "We Energies' data center rate plan, approved in April 2026 with changes, sets how large data centers in its territory pay for power and grid costs (15-year minimum term, eligibility from 100 MW)."
+        }
+      ],
+      "status_note": "As reported by BizTimes, the Common Council unanimously approved a development agreement on Aug. 20, 2025 for the campus (about 1.3 GW on 672 acres). In August 2026 the Public Service Commission voted unanimously to make American Transmission Company restart its application for the transmission lines to serve the campus, restarting the 180-day review (Wisconsin Watch, Aug. 7, 2026).",
+      "sources": [
+        {
+          "title": "BizTimes: Port Washington approves $8 billion data centers project (Aug. 2025)",
+          "url": "https://biztimes.com/port-washington-approves-8-billion-vantage-data-centers-project/"
+        },
+        {
+          "title": "Wisconsin Watch: PSC forces ATC to restart application to plug in Port Washington data center (Aug. 2026)",
+          "url": "https://wisconsinwatch.org/2026/08/wisconsin-psc-regulators-data-center-connection-project-atc-back-to-drawing-board-port-washington/"
+        },
+        {
+          "title": "Public Service Commission of Wisconsin: news release on We Energies data center tariff (April 24, 2026, PDF)",
+          "url": "https://psc.wi.gov/Documents/PressReleases/04.24.2026PressRelease.PDF"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "xai-southaven": {
+      "county": "DeSoto County",
+      "municipality": "Southaven",
+      "decision_body": {
+        "name": "Mississippi Environmental Quality Permit Board (Mississippi Department of Environmental Quality)",
+        "url": "https://www.mdeq.ms.gov/permits/permit-board/",
+        "comment_url": null,
+        "how_to_comment": "MDEQ held a public hearing on the draft air permit on Feb. 17, 2026; permit decisions and appeal hearings are noticed on the MDEQ site."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by Mississippi Today, the Permit Board unanimously approved a construction permit for 41 gas-fired turbines at the site on March 10, 2026 after a public hearing where every speaker asked MDEQ to deny or delay it; residents and groups then petitioned MDEQ for a hearing to challenge the permit (April 2026).",
+      "sources": [
+        {
+          "title": "Mississippi Today: Permit hearing set for xAI turbines in Southaven (Feb. 9, 2026)",
+          "url": "https://mississippitoday.org/2026/02/09/permit-hearing-set-for-xai-turbines-in-southaven/"
+        },
+        {
+          "title": "Mississippi Today: State board approves xAI permit (March 10, 2026)",
+          "url": "https://mississippitoday.org/2026/03/10/xai-permit-approved-southaven/"
+        },
+        {
+          "title": "Mississippi Today: Southaven residents and advocate groups appeal state's decision (April 10, 2026)",
+          "url": "https://mississippitoday.org/2026/04/10/xai-southaven-permit-appeal/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "nebius-independence": {
+      "county": "Jackson County",
+      "municipality": "Independence",
+      "decision_body": {
+        "name": "Independence City Council",
+        "url": "https://www.independencemo.gov/",
+        "comment_url": null,
+        "how_to_comment": "The city's Nebius data center FAQ page answers common questions about the project."
+      },
+      "utility": {
+        "name": "Independence Power & Light (city-owned)",
+        "source": "https://www.independencemo.gov/community-faqs/nebius-data-center-faqs"
+      },
+      "cases": [],
+      "status_note": "As reported by KCUR, the City Council voted 5-2 on March 2, 2026 to approve a Chapter 100 tax abatement for the project. Construction began in May 2026, and in July 2026 the city paused new data center applications, which does not affect this project (KCTV5, July 8, 2026).",
+      "sources": [
+        {
+          "title": "City of Independence: Nebius data center FAQs",
+          "url": "https://www.independencemo.gov/community-faqs/nebius-data-center-faqs"
+        },
+        {
+          "title": "KCUR: Independence gives billions in tax breaks for a massive data center despite outcry (March 3, 2026)",
+          "url": "https://www.kcur.org/politics-elections-and-government/2026-03-03/independence-gives-billions-in-tax-breaks-for-a-massive-data-center-despite-outcry-from-residents"
+        },
+        {
+          "title": "KCTV5: Independence hits pause on data centers as Nebius construction moves forward (July 8, 2026)",
+          "url": "https://www.kctv5.com/2026/07/08/independence-hits-pause-data-centers-nebius-construction-moves-forward/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "qts-data-centers-van-wert": {
+      "county": "Van Wert County",
+      "municipality": "Van Wert",
+      "decision_body": {
+        "name": "Van Wert City Council",
+        "url": "https://vanwert.org/agenda/",
+        "comment_url": null,
+        "how_to_comment": "Council meets at 6:30 p.m. on the second and fourth Mondays in Council Chambers at 515 East Main Street; agendas are posted on the city site."
+      },
+      "utility": {
+        "name": "American Electric Power (AEP)",
+        "source": "https://q.com/news/city-of-van-wert-and-qts-announce-data-center-campus-in-northwest-ohio/"
+      },
+      "cases": [
+        {
+          "commission": "Public Utilities Commission of Ohio",
+          "number": "24-0508-EL-ATA",
+          "title": "AEP Ohio data center tariff",
+          "url": "https://content.govdelivery.com/accounts/OHPUC/bulletins/3e8bb79",
+          "why": "If served by AEP Ohio, new data centers above 25 MW pay for at least 85 percent of their contracted capacity under this approved tariff; the developer says it will fund the energy infrastructure the campus needs."
+        }
+      ],
+      "status_note": "As reported, Van Wert City Council annexed the site and rezoned it I-2 General Industrial shortly before the city and QTS announced, on May 29, 2026, a data center campus of roughly $10 billion (Lima Ohio; The VW Independent). The developer's announcement says it will pay for the energy infrastructure improvements and that there will be no cost impact to existing customers.",
+      "sources": [
+        {
+          "title": "City of Van Wert and QTS announce data center campus (QTS release, May 29, 2026)",
+          "url": "https://q.com/news/city-of-van-wert-and-qts-announce-data-center-campus-in-northwest-ohio/"
+        },
+        {
+          "title": "The VW Independent: Van Wert data center end user named (May 29, 2026)",
+          "url": "https://thevwindependent.com/news/2026/05/29/qts-data-centers-is-the-end-user-for-vw-data-center/"
+        },
+        {
+          "title": "Van Wert City Council: agendas and reports",
+          "url": "https://vanwert.org/agenda/"
+        }
+      ],
+      "checked": "2026-09-26"
+    },
+    "creekstone-energy-delta": {
+      "county": "Millard County",
+      "municipality": null,
+      "decision_body": {
+        "name": "Millard County Commission",
+        "url": "https://millardcounty.gov/your-government/elected-officials/commission/",
+        "comment_url": null,
+        "how_to_comment": "The commission meets in regular session at the Millard County Courthouse in Fillmore; agendas and minutes are on the county site, and the Planning Commission meets monthly in Delta."
+      },
+      "utility": null,
+      "cases": [],
+      "status_note": "As reported by KSL (Nov. 2025), the Millard County Commission unanimously approved the zoning proposal and conditional use permit for the campus, which plans up to 10 GW over a decade from several power sources. An April 2026 company announcement (Utah Business) says the county also approved zoning for more than 1 GW of solar for the project.",
+      "sources": [
+        {
+          "title": "KSL: Creekstone Energy closes funding round to advance world's largest data center campus in Utah (Nov. 13, 2025)",
+          "url": "https://www.ksl.com/article/51403916/creekstone-energy-closes-funding-round-to-advance-worlds-largest-data-center-campus-in-utah"
+        },
+        {
+          "title": "Utah Business: Creekstone secures largest solar lease in Utah's history (April 22, 2026, company press release)",
+          "url": "https://www.utahbusiness.com/press-releases/2026/04/22/creekstone-energy-secures-largest-solar-lease-utah-millard-county-delta/"
+        }
+      ],
+      "checked": "2026-09-26"
+    }
+  },
+  "verification": {
+    "checked": "2026-09-26",
+    "urls_total": 218,
+    "http_200_by_script": 187,
+    "fetched_by_fetch_tool": [
+      "https://dps.ny.gov/",
+      "https://mn.gov/puc/get-involved/public-comments/",
+      "https://www.globenewswire.com/news-release/2025/11/06/3182873/0/en/Atlas-Compute-Secures-Land-and-Utilities-for-240-MW-AI-Data-Center-Campus-in-Central-Florida-with-1-GW-Expansion-Capacity.html",
+      "https://www.governor.ny.gov/executive-order/no-62-establishing-temporary-moratorium-data-centers-new-york-while-state-develops",
+      "https://www.governor.ny.gov/news/governor-hochul-announces-psc-proceeding-her-plan-ensure-data-centers-pay-their-fair-share",
+      "https://www.wispolitics.com/2026/utility-data-center-developers-want-tech-giant-exempted-from-billion-dollar-collateral-requirements/"
+    ],
+    "fetched_with_certificate_check_off": [
+      "https://discover.pbc.gov/countycommissioners/Pages/Agenda.aspx",
+      "https://psc.mt.gov/",
+      "https://psc.mt.gov/Documents-Proceedings/Public-Participation"
+    ],
+    "not_fetchable": [
+      {
+        "url": "https://michiganadvance.com/2026/08/10/nessel-and-environmental-groups-file-initial-arguments-in-appeal-of-dte-saline-data-center-contract/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://mississippitoday.org/2026/02/09/permit-hearing-set-for-xai-turbines-in-southaven/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://mississippitoday.org/2026/03/10/xai-permit-approved-southaven/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://mississippitoday.org/2026/04/10/xai-southaven-permit-appeal/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://mn.gov/puc/",
+        "reason": "bot filter page for scripts",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://penncapital-star.com/energy-environment/upper-burrell-residents-decry-transparency-as-data-center-progresses-despite-moratorium-and-a-lawsuit/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://psc.utah.gov/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "live (HTTP 403 to automated requests); its docket page was in search results"
+      },
+      {
+        "url": "https://psc.utah.gov/all-electric-dockets/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://ripuc.ri.gov/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://ripuc.ri.gov/events-and-actions/commission-dockets",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://southdakotasearchlight.com/2026/03/24/data-center-restrictions-signed-into-south-dakota-law-after-push-for-incentives-failed/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://upperburrelltwp.com/supervisors/",
+        "reason": "unreachable from the build machine",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://web.culpepercounty.gov/bos",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.laramiecountywy.gov/County-Government/Elected-Officials/County-Commissioners",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.mass.gov/doc/directive-to-the-electric-distribution-companies-regarding-data-center-interconnection-requests/download",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.mass.gov/how-to/file-comments-or-pleadings-with-the-dpu",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.mass.gov/orgs/department-of-public-utilities",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.portwashingtonwi.gov/Home/Components/News/News/553/15",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.puc.nh.gov/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.puc.nh.gov/public-participation/filing-public-comments",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.stlucieco.gov/departments-and-services/board-of-county-commissioners/general-rules-and-procedures-for-bocc-meetings",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      },
+      {
+        "url": "https://www.tucsonsentinel.com/local/report/121625_project_blue_deal/",
+        "reason": "HTTP 403 to automated requests",
+        "seen_in": "search results"
+      }
+    ]
+  }
+}

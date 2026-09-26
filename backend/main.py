@@ -46,6 +46,7 @@ import plants
 import scenarios
 import sitereport
 import towns
+import unlock
 import uploads
 import vote
 import voice
@@ -127,6 +128,7 @@ app.include_router(gridlock.router)
 app.include_router(danger.router)
 app.include_router(vote.router)
 app.include_router(sitereport.router)
+app.include_router(unlock.router)
 
 
 @app.get("/api/health")

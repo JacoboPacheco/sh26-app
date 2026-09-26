@@ -1,0 +1,136 @@
+"""Smoke checks for Strengthen the grid (owned by the unlock track). Loaded by smoke_test.py.
+
+ctx: check(name, fn), request(method, path, data=None, headers=None, expect=200),
+auth() -> headers for this run's throwaway user, expected (expected_whatif.json).
+
+Read-only: a study stores nothing (an in-memory job and cache). One Florida study at 1,000 MW runs as a
+background job (~10 s on a laptop, bounded at 60 s plus the Gemini step); the checks poll it, then
+re-run what it claims through the public cascade route: a site the plan unlocks must overload before and
+hold with the plan's upgrades."""
+
+import math
+import time
+
+MW = 1000
+DONE_S = 150  # the study's own bound (60 s on Florida) + Gemini + a slow host
+POLL_S = 1.5
+AI_STATUS = {"used", "not_configured", "offline", "none_verified", "skipped", "error"}
+
+
+def register(ctx):
+    state = {}
+
+    def validation():
+        for body, what in (
+            ({"region": "FL", "mw": 50}, "a size below the range"),
+            ({"region": "FL", "mw": 60000}, "a size above the range"),
+            ({"region": "US", "mw": 1000}, "the national map"),
+            ({"region": "ZZ", "mw": 1000}, "an unknown state"),
+            ({"region": "FL", "mw": 1000, "load_factor": 3}, "a load level out of range"),
+        ):
+            r = ctx.request("POST", "/api/unlock/start", body, expect=422)
+            assert r.get("detail"), f"no readable reason for {what}"
+        ctx.request("GET", "/api/unlock/jobs/AAAAAAAAAAAAAAAA", expect=404)
+        ctx.request("GET", "/api/unlock/jobs/x", expect=422)
+
+    def study():
+        start = ctx.request("POST", "/api/unlock/start", {"region": "FL", "mw": MW, "load_factor": 1.0})
+        assert start["status"] in ("queued", "running", "done") and start["id"], start
+        t0 = time.monotonic()
+        while True:
+            s = ctx.request("GET", f"/api/unlock/jobs/{start['id']}")
+            assert s["region"] == "FL" and s["mw"] == MW, s
+            assert s["progress"]["message"], s["progress"]
+            if s["status"] == "done":
+                break
+            assert s["status"] in ("queued", "running"), s.get("error") or s["status"]
+            if s["partial"]["sites"]:
+                assert all(math.isfinite(x["lat"]) and math.isfinite(x["lon"]) for x in s["partial"]["sites"])
+            assert time.monotonic() - t0 < DONE_S, f"not done after {DONE_S} s: {s['progress']}"
+            time.sleep(POLL_S)
+        r = s["result"]
+        state["r"] = r
+        assert r["synthetic"] is True and "Synthetic grid model" in r["note"], r["note"]
+        assert r["already_failing"] is False
+        assert r["region"] == "FL" and r["mw"] == MW
+        n = r["sites_total"]
+        assert n >= 100 and len(r["sites"]) == n, (n, len(r["sites"]))
+        # the structural points: ranked, placed, explained
+        pts = r["points"]
+        assert 5 <= len(pts) <= 20, len(pts)
+        assert [p["rank"] for p in pts] == list(range(1, len(pts) + 1))
+        imp = [p["importance"] for p in pts]
+        assert imp == sorted(imp, reverse=True) and imp[0] == 1.0 and imp[-1] > 0, imp
+        for p in pts:
+            assert p["kind"] in ("line", "transformer") and p["reason"].endswith("."), p
+            for end in (p["from"], p["to"]):
+                assert math.isfinite(end["lat"]) and math.isfinite(end["lon"]) and end["name"], end
+            assert p["sites_blocked"] + p["first_fail"] + p["trips"] > 0, p
+        # the plan: cheapest first, every step verified by the engine, the numbers add up
+        steps = r["steps"]
+        assert steps, "no upgrade unlocks any site"
+        ok = r["before"]["sites_ok"]
+        cum = 0
+        for st in steps:
+            assert st["by"] == "engine" and st["projects"], st["n"]
+            assert st["verified"] + st["unverified"] == st["newly_count"], st
+            assert st["sites_ok"] == ok + st["newly_count"], (st["n"], st["sites_ok"], ok, st["newly_count"])
+            ok = st["sites_ok"]
+            cum += st["cost"]["high"]
+            assert abs(st["cum_cost"]["high"] - cum) <= len(steps), (st["cum_cost"], cum)
+            # a step's cost is the change in the plan's low and high totals (a second raise of one line can move
+            # its low end more than its high end: re-conductored before, a new line now); the totals stay ordered
+            assert st["cost"]["low"] >= 0 and st["cost"]["high"] >= 0 and st["cum_cost"]["low"] <= st["cum_cost"]["high"], st["cost"]
+            for pj in st["projects"]:
+                for k in ("id", "name", "kind", "from", "to", "rating_before_mva", "rating_after_mva", "cost", "owner", "window", "geometry"):
+                    assert k in pj, f"project record without {k}"
+                assert pj["window"] is None and pj["owner"] and pj["by"] == "engine", pj
+                assert pj["rating_original_mva"] <= pj["rating_before_mva"] < pj["rating_after_mva"] <= 5 * pj["rating_original_mva"] + 0.5, pj  # (ratings are rounded to 0.1)
+                assert pj["cost"]["low"] >= 0 and pj["cost"]["high"] >= 0, pj["cost"]
+                assert pj["geometry"]["coords"] and all(len(c) == 2 for c in pj["geometry"]["coords"]), pj["geometry"]
+        assert sum(s["verified"] for s in steps) >= 1, "no unlocked site was verified by the engine"
+        h = r["headline"]
+        more = sum(s["newly_count"] for s in steps)
+        assert h["more_sites"] == more == r["after"]["sites_ok"] - r["before"]["sites_ok"], (h, r["before"], r["after"])
+        assert abs(h["gw"] - more * MW / 1000) < 0.05 and h["upgrades"] == steps[-1]["cum_upgrades"], h
+        assert abs(h["cost_high"] - steps[-1]["cum_cost"]["high"]) <= len(steps) + 1, (h["cost_high"], steps[-1]["cum_cost"])
+        assert 0 < h["cost_low"] <= h["cost_high"], h
+        assert r["after"]["worst"]["people_hit"] <= r["before"]["worst"]["people_hit"], (r["before"]["worst"], r["after"]["worst"])
+        lr = r["learned"]
+        assert lr["cascades"] >= 1 and lr["solves"] >= lr["cascades"] and lr["sites"] == n, lr
+        assert all(s["name"] and s["url"].startswith("https://") for s in r["sources"]), r["sources"]
+        # the AI: whatever it proposed, only engine-verified bundles are listed
+        ai = r["ai"]
+        assert ai["status"] in AI_STATUS, ai["status"]
+        for b in ai["bundles"]:
+            assert b["by"] == "gemini" and b["verified"] >= 1 and b["more_sites"] >= 1, b
+            assert all(pj["by"] == "gemini" and pj["window"] is None for pj in b["projects"]), b["name"]
+
+    def engine_agrees():
+        r = state.get("r")
+        assert r, "the study didn't run"
+        st = r["steps"][0]
+        site = st["newly"][0]
+        ups = {}
+        for s in r["steps"][: st["n"]]:
+            for pj in s["projects"]:
+                ups[str(pj["branch_id"])] = pj["rating_after_mva"]
+        case = {"lat": site["lat"], "lon": site["lon"], "mw": MW}
+        before = ctx.request("POST", "/api/grid/cascade", case)
+        assert before["total_steps"] > 0, f"{site['area']}: expected the campus to overload a line before the upgrades"
+        after = ctx.request("POST", "/api/grid/cascade", {**case, "upgrades": ups})
+        assert after["total_steps"] == 0 and int(after.get("people_hit", after["people"]) or 0) == 0, (site["area"], after["total_steps"])
+        assert after["lost_mw"] <= 0.5 and not after["site_cut_off"], (site["area"], after["lost_mw"])
+
+    def cached_rerun():
+        t0 = time.monotonic()
+        again = ctx.request("POST", "/api/unlock/start", {"region": "FL", "mw": MW + 10, "load_factor": 1.0})  # rounds to the same 50 MW step
+        assert again["cached"] is True and again["status"] == "done", again
+        s = ctx.request("GET", f"/api/unlock/jobs/{again['id']}")
+        assert s["status"] == "done" and s["result"]["headline"] == state["r"]["headline"], "the cached study differs"
+        assert time.monotonic() - t0 < 10, "a cached study should come back at once"
+
+    ctx.check("unlock: bad sizes, the national map, unknown states and jobs are refused", validation)
+    ctx.check("unlock: Florida at 1,000 MW finds weak points and a verified plan", study)
+    ctx.check("unlock: the cascade route agrees a site the plan unlocks now holds", engine_agrees)
+    ctx.check("unlock: the same study again comes from the cache", cached_rerun)

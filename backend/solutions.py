@@ -256,7 +256,8 @@ def kick(key: str) -> None:
     rep = _b().report_by_key(key)
     if rep is None or key in _running or rep.get("agentic") is not None:
         return
-    if not configured() or rep.get("verdict") not in ("preventable", "partly") or not rep.get("fixes"):
+    has_campus = bool((rep.get("case") or {}).get("sites") or (rep.get("case") or {}).get("mw"))
+    if not configured() or not has_campus or rep.get("verdict") not in ("preventable", "partly") or not rep.get("fixes"):
         rep["agentic"] = {"status": "off", "added": 0}
         return
     rep["agentic"] = {"status": "running", "added": 0}
@@ -395,6 +396,8 @@ def _check(c, J, plan: tuple, base_ups: dict) -> tuple[dict | None, str]:
     b = _b()
     g = c.g
     ups_new, keep, name, why = plan
+    if not c.sites:  # nothing to keep at full size: the proposer is for a data center's case
+        return None, f"Plan '{name}' skipped: this case has no data center."
     upgrades = {**{int(k): float(v) for k, v in base_ups.items()}, **ups_new}
     mws = b._site_mws(c, keep)
     total = float(sum(s.mw for s in c.sites))

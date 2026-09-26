@@ -103,3 +103,32 @@
   min-width: 11rem;
   padding-block: 0.25rem;
 }
+
+/* the one-line pitch under the hook */
+.pitch {
+  margin-top: var(--space-1);
+  max-width: 26rem;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  color: var(--ink-2);
+}
+
+/* The header's links: one quiet row under the clock (they used to stack down behind the right panel). */
+.mc-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.15rem 0.9rem;
+  max-width: 21rem;
+  margin-top: var(--space-1);
+  font-size: 0.8rem;
+}
+.mc-nav a {
+  color: var(--accent);
+}
+@media (min-width: 861px) {
+  .mc-right.glass {
+    top: 178px;
+    max-height: calc(100vh - 178px - 128px);
+  }
+}

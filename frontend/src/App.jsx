@@ -1,3 +1,4 @@
+import HowAiIsUsed from './features/ai/HowAiIsUsed'
 import BoomLayer from './features/boom/BoomLayer'
 import BoomPanel from './features/boom/BoomPanel'
 import DangerLayer from './features/danger/DangerLayer'
@@ -10,6 +11,8 @@ import HurricaneLayer from './features/hurricane/HurricaneLayer'
 import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
 import PlantsLayer from './features/plants/PlantsLayer'
+import UnlockLayer from './features/unlock/UnlockLayer'
+import UnlockPanel from './features/unlock/UnlockPanel'
 import PlantsPanel from './features/plants/PlantsPanel'
 import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
@@ -62,6 +65,7 @@ const MODES = [
   { id: 'hurricane', label: 'Hurricane', Panel: HurricanePanel },
   { id: 'boom', label: 'AI boom', Panel: BoomPanel },
   { id: 'fix', label: 'Fix it', Panel: FixPanel },
+  { id: 'unlock', label: 'Strengthen', Panel: UnlockPanel },
   { id: 'plants', label: 'Plants', Panel: PlantsPanel },
 ]
 
@@ -154,6 +158,7 @@ function MissionControl({ user }) {
           <BoomLayer />
           <BestSitesLayer />
           <PlantsLayer />
+          <UnlockLayer />
         </GridMap>
       ) : (
         <div className="mc-loading">{gridError ? <ErrorBanner error={gridError} onRetry={loadGrid} /> : <Loading label={`Loading ${o.regions?.find((r) => r.code === o.region)?.name || 'the'} grid…`} />}</div>
@@ -166,16 +171,20 @@ function MissionControl({ user }) {
             <RegionPicker />
           </div>
           <p className="hook">When the next AI data center plugs in, whose lights go out?</p>
+          <p className="pitch">AI finds where data centers strain the grid, tests the fixes that take the strain away, and shows how many more it can safely carry.</p>
         </div>
         <ScenarioBar />
         <div className="mc-top__right">
           <HeatClock />
-          <a className="plans-link" href="#/vote">
-            Before the vote: look up a proposed data center
-          </a>
-          <a className="plans-link" href="#/plans">
-            Build plans: are neighboring utilities building together?
-          </a>
+          <nav className="mc-nav" aria-label="More of Overload">
+            <a href="#/vote" title="Look up a proposed data center: what it could do to a grid, what it could cost, what to ask before the vote">
+              Before the vote
+            </a>
+            <a href="#/plans" title="Are neighboring utilities building together?">
+              Build plans
+            </a>
+            <HowAiIsUsed />
+          </nav>
           {user && <span className="signed-in">Signed in as {user.email}</span>}
         </div>
       </header>

@@ -1,0 +1,839 @@
+/* Strengthen the grid (the unlock track). Sober incident room: plain tabular figures, amber for the weak
+   points (strain), GREEN (--hr-ok) only for the fix and what it unlocks, red nowhere (nothing here is lost). */
+
+/* ------------------------------------------------------------------ panel */
+.ul {
+  gap: var(--space-3);
+}
+
+.ul-head {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ul-lede {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.ul-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.ul-size {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ul-size__h {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.ul-chips {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.ul-chip {
+  font: inherit;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.35rem 0.2rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--glass-edge);
+  background: var(--glass-hi);
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ul-chip--on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ul-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ul-run {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.ul-run .btn {
+  flex: 1 1 auto;
+}
+
+.ul-level,
+.ul-small,
+.ul-stale {
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  margin: 0;
+}
+
+.ul-warn {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--strain);
+  background: var(--glass-hi);
+  font-size: 0.85rem;
+}
+
+.ul-h {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.ul-link {
+  font: inherit;
+  font-size: 0.8rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  justify-self: start;
+}
+
+/* progress: four phases, the one running carries a thin bar */
+.ul-progress {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ul-phases {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.ul-phase {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: var(--space-2);
+  align-items: start;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.ul-phase__mark {
+  width: 10px;
+  height: 10px;
+  margin-top: 4px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border);
+}
+
+.ul-phase--done .ul-phase__mark {
+  background: var(--hr-ok);
+  border-color: var(--hr-ok);
+}
+
+.ul-phase--now .ul-phase__mark {
+  border-color: var(--accent);
+  animation: ul-breathe 1.2s ease-in-out infinite;
+}
+
+.ul-phase--now,
+.ul-phase--done {
+  color: var(--ink);
+}
+
+.ul-phase__text {
+  display: grid;
+  gap: 1px;
+}
+
+.ul-phase__text span {
+  color: var(--ink-2);
+  font-size: 0.75rem;
+}
+
+.ul-bar {
+  display: block;
+  height: 3px;
+  margin-top: 4px;
+  background: var(--glass-edge);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ul-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left;
+  transition: transform 0.4s ease;
+}
+
+.ul-msg {
+  margin: 0;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+@keyframes ul-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* the headline: one plain figure, then the sentence */
+.ul-result {
+  gap: var(--space-4);
+}
+
+.ul-hl {
+  display: grid;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.ul-hl__fig {
+  display: grid;
+  gap: 2px;
+}
+
+.ul-hl__n {
+  font-size: 2.4rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-hl__cap {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  line-height: 1.3;
+}
+
+.ul-hl__line {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.ul-slider {
+  display: grid;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-slider input {
+  width: 100%;
+  accent-color: var(--hr-ok);
+}
+
+/* the chart */
+.ul-chart {
+  position: relative;
+  display: grid;
+  gap: 4px;
+}
+
+.ul-chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  cursor: crosshair;
+  overflow: visible;
+}
+
+.ul-grid {
+  stroke: var(--glass-edge);
+  stroke-width: 1;
+}
+
+.ul-tick {
+  fill: var(--ink-2);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-note {
+  fill: var(--ink-2);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-note--end {
+  fill: var(--ink);
+  font-weight: 700;
+}
+
+.ul-curve {
+  fill: none;
+  stroke: var(--hr-ok);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ul-curve--ghost {
+  stroke: var(--line);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+
+.ul-curve--dim {
+  opacity: 0.4;
+}
+
+.ul-cross {
+  stroke: var(--ink-2);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.ul-end {
+  fill: var(--hr-ok);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.ul-diamond rect {
+  fill: var(--accent);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.ul-diamond {
+  cursor: pointer;
+}
+
+.ul-diamond--on rect {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.ul-hit {
+  fill: transparent;
+}
+
+.ul-tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 10px));
+  pointer-events: none;
+  display: grid;
+  gap: 1px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.ul-tip strong {
+  font-size: 0.85rem;
+}
+
+.ul-tip__who {
+  color: var(--ink-2);
+}
+
+.ul-axis-x {
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  text-align: right;
+}
+
+.ul-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: var(--space-3);
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.ul-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ul-key--line {
+  width: 14px;
+  height: 2px;
+  background: var(--hr-ok);
+  border-radius: 1px;
+}
+
+.ul-key--diamond {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  transform: rotate(45deg);
+}
+
+/* before / after */
+.ul-compare {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-compare caption {
+  text-align: left;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  padding-bottom: 4px;
+}
+
+.ul-compare th,
+.ul-compare td {
+  padding: 4px 0;
+  border-top: 1px solid var(--glass-edge);
+  text-align: right;
+  vertical-align: top;
+}
+
+.ul-compare th[scope='row'] {
+  text-align: left;
+  font-weight: 400;
+  color: var(--ink-2);
+  padding-right: var(--space-2);
+}
+
+.ul-compare thead th {
+  border-top: 0;
+  font-weight: 600;
+  color: var(--ink-2);
+  font-size: 0.72rem;
+}
+
+.ul-compare td + td,
+.ul-compare thead th + th {
+  padding-left: var(--space-3);
+}
+
+.ul-after {
+  color: var(--hr-ok);
+  font-weight: 600;
+}
+
+/* blackouts prevented + the selected site */
+.ul-prev {
+  gap: var(--space-2);
+}
+
+.ul-prev__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ul-prev__list li,
+.ul-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2);
+  align-items: center;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--hr-ok);
+}
+
+.ul-card {
+  grid-template-columns: 1fr;
+  border-left-color: var(--accent);
+  padding: var(--space-2);
+  background: var(--glass-hi);
+}
+
+.ul-card .btn,
+.ul-prev__list .btn {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+  justify-self: start;
+}
+
+/* the plan's steps */
+.ul-steps,
+.ul-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.ul-step__btn,
+.ul-point__btn {
+  font: inherit;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.6rem 1fr;
+  gap: var(--space-2);
+  text-align: left;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ul-step__btn:hover,
+.ul-point__btn:hover,
+.ul-point--on .ul-point__btn {
+  background: var(--glass-hi);
+}
+
+.ul-step__n,
+.ul-point__rank {
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  padding-top: 1px;
+}
+
+.ul-step--on .ul-step__n {
+  color: var(--hr-ok);
+}
+
+.ul-step:not(.ul-step--on) .ul-step__body {
+  opacity: 0.6;
+}
+
+.ul-step__body,
+.ul-point__body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ul-step__what,
+.ul-point__name {
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.ul-step__more {
+  color: var(--ink-2);
+}
+
+.ul-step__meta,
+.ul-point__meta,
+.ul-point__why {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.ul-tag {
+  font-size: 0.68rem;
+  line-height: 1.5;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--glass-edge);
+  color: var(--ink-2);
+}
+
+.ul-tag--engine {
+  border-color: color-mix(in srgb, var(--hr-ok) 55%, transparent);
+  color: var(--hr-ok);
+}
+
+.ul-tag--ai {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--accent);
+}
+
+.ul-tag--wp {
+  border-color: color-mix(in srgb, var(--strain) 55%, transparent);
+  color: var(--strain);
+}
+
+/* Gemini's bundles */
+.ul-ai {
+  gap: var(--space-2);
+}
+
+.ul-bundle {
+  display: grid;
+  gap: 6px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+}
+
+.ul-bundle--on {
+  border-color: var(--hr-ok);
+}
+
+.ul-bundle__top {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.ul-bundle__why,
+.ul-bundle__num {
+  margin: 0;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.ul-bundle__num strong {
+  color: var(--ink);
+}
+
+.ul-bundle .btn {
+  justify-self: start;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+.ul-details summary {
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.ul-details ul {
+  padding-left: 1.1rem;
+  margin: 4px 0 0;
+}
+
+.ul-learned,
+.ul-honest {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.ul-learned strong {
+  color: var(--ink);
+}
+
+.ul-honest p {
+  margin: 0 0 4px;
+}
+
+.ul-honest ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.ul-honest a {
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------------ map layer */
+.ul-layer line,
+.ul-layer circle:not(.ul-site__hit) {
+  vector-effect: non-scaling-stroke;
+}
+
+.ul-wp {
+  cursor: pointer;
+}
+
+.ul-wp__halo {
+  fill: color-mix(in srgb, var(--strain) 9%, transparent);
+  stroke: color-mix(in srgb, var(--strain) 60%, transparent);
+  stroke-width: 1px;
+}
+
+.ul-wp__line {
+  stroke: var(--strain);
+  stroke-width: 2.4px;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.ul-wp__core {
+  fill: var(--strain);
+}
+
+.ul-wp__label {
+  fill: var(--ink);
+  stroke: var(--night);
+  paint-order: stroke;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.ul-wp--on .ul-wp__halo {
+  stroke: var(--ink);
+  stroke-width: 1.6px;
+}
+
+.ul-wp--fixed .ul-wp__halo {
+  fill: color-mix(in srgb, var(--hr-ok) 10%, transparent);
+  stroke: color-mix(in srgb, var(--hr-ok) 70%, transparent);
+}
+
+.ul-wp--fixed .ul-wp__line,
+.ul-wp--fixed .ul-wp__core {
+  stroke: var(--hr-ok);
+  fill: var(--hr-ok);
+}
+
+.ul-layer--bundle .ul-wp {
+  opacity: 0.55;
+}
+
+.ul-up {
+  stroke: var(--hr-ok);
+  stroke-width: 2px;
+  stroke-linecap: round;
+  fill: none;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.ul-up--new {
+  stroke-width: 3px;
+  opacity: 1;
+}
+
+.ul-up--new {
+  animation: ul-land 0.8s ease-out;
+}
+
+@keyframes ul-land {
+  from {
+    stroke-width: 9px;
+    opacity: 0.15;
+  }
+}
+
+.ul-site {
+  cursor: pointer;
+}
+
+.ul-site__hit {
+  fill: transparent;
+}
+
+.ul-site__dot {
+  fill: var(--lit);
+  stroke: var(--night);
+  stroke-width: 1px;
+  transition: fill 0.35s ease;
+}
+
+.ul-site--ok .ul-site__dot {
+  fill: var(--lit);
+  opacity: 0.55;
+}
+
+.ul-site--untested .ul-site__dot {
+  fill: var(--line);
+  opacity: 0.35;
+}
+
+.ul-site--blocked .ul-site__dot {
+  fill: none;
+  stroke: var(--strain);
+  stroke-width: 1.4px;
+}
+
+.ul-site--blackout .ul-site__dot {
+  fill: var(--strain);
+  opacity: 0.6;
+}
+
+.ul-site--unlocked .ul-site__dot {
+  fill: var(--hr-ok);
+  transform: scale(1.3);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.ul-site--new .ul-site__dot {
+  transition: none; /* the pop is green from its first frame */
+  animation: ul-pop 0.9s ease-out;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes ul-pop {
+  from {
+    transform: scale(3);
+  }
+}
+
+.ul-site__sel {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ul-up--new,
+  .ul-site--new .ul-site__dot,
+  .ul-phase--now .ul-phase__mark {
+    animation: none;
+  }
+
+  .ul-bar span,
+  .ul-site__dot {
+    transition: none;
+  }
+}
+
+.ul-card p {
+  margin: 0;
+}
+
+.ul-compare td.ul-foot {
+  text-align: left;
+  color: var(--ink-2);
+  font-size: 0.72rem;
+  padding-top: 6px;
+}
