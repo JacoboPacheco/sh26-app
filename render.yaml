@@ -49,3 +49,5 @@ services:
         value: "0"
       - key: TIMELAPSE_WARM
         value: "0"
+      - key: NARRATE_WARM
+        value: "0"
