@@ -12,6 +12,8 @@
 //   - lights the blast front passes: a small pop of sparks (the biggest few only)
 //   - areas that lose power: a smoldering hot spot that lingers and decays (the biggest few only)
 //   - hospitals whose substation goes dark: a pulsing red marker
+// In a hurricane the rain puts most of it out: every downed line still arcs and sparks, but only the
+// few biggest catch fire, they burn smaller and go out after a few seconds, and fewer hot spots glow.
 // Caps keep it near 750 sprites a frame at most (about 60 fps on a laptop GPU, 30+ in software).
 // Reduced motion: the same things as static markers (no flicker, no particles).
 
@@ -29,6 +31,11 @@ const MAX_BURSTS = 40 // arcs, flashes and spark showers (the flames' own are in
 const MAX_POPS = 44
 const MAX_SMOLDER = 64
 const MAX_HOSPITALS = 60
+// a hurricane (the run has a storm step): the rain keeps the fires few, small and short
+const RAIN_FLAMES = 4
+const RAIN_BURN_MS = 3200
+const RAIN_SIZE = 0.8
+const RAIN_SMOLDER = 14
 // A quality governor: when frames run slow (a software renderer, a small laptop, a storm with dozens of
 // fires) the flames and smoke thin out a little at a time and come back when the frames recover.
 let Q = 1 // 0.4..1, the share of each fire's particles that are drawn
@@ -83,6 +90,7 @@ export function buildFires({ schedule, subById, branchById, project, hospitals }
   const popCand = []
   const dark = new Map() // sub id -> the time the darkness reaches it
   let seed = 101
+  const rain = schedule.tiers.some((t) => t.action === 'storm')
 
   schedule.tiers.forEach((tier) => {
     const I = tier.intensity ?? 0.5
@@ -96,7 +104,7 @@ export function buildFires({ schedule, subById, branchById, project, hospitals }
       const transformer = b.from_sub === b.to_sub
       const kv = transformer ? subById.get(b.from_sub)?.kv_max || b.kv : b.kv
       // a storm's many lines share the tier's people, so each fire is smaller and the cluster doesn't merge into one blob
-      const size = fireSize({ kv, people: (tier.people || 0) / Math.max(1, tier.lines.length), intensity: I, crack, transformer })
+      const size = fireSize({ kv, people: (tier.people || 0) / Math.max(1, tier.lines.length), intensity: I, crack, transformer }) * (rain ? RAIN_SIZE : 1)
       cand.push({
         x: (a[0] + z[0]) / 2,
         y: (a[1] + z[1]) / 2,
@@ -125,7 +133,7 @@ export function buildFires({ schedule, subById, branchById, project, hospitals }
   cand.sort((p, q) => q.size * (q.canBurn ? 1 : 0.2) - p.size * (p.canBurn ? 1 : 0.2))
   const emitters = cand.slice(0, MAX_BURSTS).map((c, i) => {
     const r = rng(c.seed)
-    const flame = c.canBurn && i < MAX_FLAMES
+    const flame = c.canBurn && i < (rain ? RAIN_FLAMES : MAX_FLAMES)
     const n = flame ? Math.round(11 + 8 * c.size) : 0
     const arr = (len, f) => Float32Array.from({ length: len }, f)
     return {
@@ -150,7 +158,7 @@ export function buildFires({ schedule, subById, branchById, project, hospitals }
       sa: arr(44, () => r() * TAU),
       sv: arr(44, () => 90 + r() * 260),
       sl: arr(44, () => 500 + r() * 800),
-      life: c.crack ? CRACK_BURN_MS : null,
+      life: rain ? RAIN_BURN_MS : c.crack ? CRACK_BURN_MS : null,
       dir: c.transformer ? r() * TAU : 0,
     }
   })
@@ -167,7 +175,7 @@ export function buildFires({ schedule, subById, branchById, project, hospitals }
     })
     .filter(Boolean)
     .sort((p, q) => q.load - p.load)
-    .slice(0, MAX_SMOLDER)
+    .slice(0, rain ? RAIN_SMOLDER : MAX_SMOLDER)
     .map((s, i) => ({ ...s, size: clamp(0.55 + Math.log10(Math.max(s.load, 1)) * 0.3, 0.55, 1.4), seed: 500 + i * 17 }))
 
   const hosp = []
