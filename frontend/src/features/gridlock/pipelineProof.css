@@ -1,0 +1,472 @@
+/* PipelineProof: the fault test + the downloads in Sperry's format. Tokens only (index.css); sober, tabular figures,
+   red only for records that slipped through. */
+
+.pp {
+  --pp-set-aside: #d6e2f1; /* ordinal gray ramp, validated on --surface (dataviz validate_palette --ordinal) */
+  --pp-flagged: #95a7c1;
+  --pp-missed: var(--overload);
+  display: grid;
+  gap: var(--space-5);
+  color: var(--ink);
+  min-width: 0;
+}
+
+.pp-test {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.pp-kicker {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.pp-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+  max-width: 62ch;
+}
+
+.pp-mark {
+  background: rgba(255, 176, 58, 0.22); /* --strain, faint: marks the changed characters, not a warning */
+  color: var(--ink);
+  border-bottom: 1px solid var(--strain);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.pp-hero {
+  display: inline-block;
+  font-size: 3rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: proportional-nums;
+  vertical-align: -0.12em;
+}
+
+.pp-lede {
+  color: var(--ink-2);
+  max-width: 72ch;
+}
+
+.pp-fine {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  max-width: 90ch;
+}
+
+.pp-fine code,
+.pp-check code,
+.pp-records code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.8em;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* ---- the meter: one bar, 2px surface gaps between segments, the legend carries the numbers */
+.pp-meter {
+  margin: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.pp-meter__bar {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+}
+
+.pp-meter__seg {
+  min-width: 3px;
+  flex-basis: 0;
+}
+
+.pp-meter__seg:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.pp-meter__seg:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.pp-seg--set_aside {
+  background: var(--pp-set-aside);
+}
+
+.pp-seg--flagged {
+  background: var(--pp-flagged);
+}
+
+.pp-seg--missed {
+  background: var(--pp-missed);
+}
+
+.pp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.pp-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pp-legend__item strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pp-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.pp-lost,
+.pp-legend__item strong.pp-lost {
+  color: var(--overload);
+}
+
+.pp-control {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-3);
+  max-width: 80ch;
+}
+
+.pp-control strong {
+  color: var(--ink);
+}
+
+/* ---- the format test: a real format of the filings read correctly, kept apart from the catches */
+.pp-format {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  max-width: 90ch;
+}
+
+.pp-format h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 0 var(--space-1);
+}
+
+.pp-format strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pp-format code {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.8em;
+  color: var(--ink);
+}
+
+/* ---- the table: scrolls inside its own box on a phone, never the page */
+.pp-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.pp-scroll:focus-visible {
+  outline-offset: -2px;
+}
+
+.pp-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.pp-table th,
+.pp-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.pp-table tbody tr:last-child th,
+.pp-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.pp-table thead th {
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.pp-table tbody th {
+  font-weight: 400;
+  width: 26%;
+}
+
+.pp-kind {
+  display: block;
+  font-weight: 600;
+}
+
+.pp-met {
+  display: block;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  margin-top: 2px;
+}
+
+.pp-num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pp-table td.pp-num .pp-met {
+  white-space: normal;
+}
+
+.pp-count {
+  font-weight: 600;
+}
+
+.pp-ex {
+  width: 30%;
+  max-width: 280px;
+}
+
+.pp-after,
+.pp-before {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 280px;
+}
+
+.pp-after {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 0.8125rem;
+}
+
+.pp-before {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.pp-check {
+  display: block;
+}
+
+.pp-check + .pp-check {
+  margin-top: var(--space-1);
+}
+
+.pp-check code {
+  display: block;
+}
+
+/* ---- what slipped through / what couldn't be repaired */
+.pp-slipped h4,
+.pp-note h4,
+.pp-dl h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-2);
+}
+
+.pp-slipped > ul,
+.pp-note > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+  max-width: 90ch;
+}
+
+.pp-slipped > ul > li {
+  display: grid;
+  grid-template-columns: 3ch 1fr;
+  gap: var(--space-3);
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.pp-slipped strong,
+.pp-note strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pp-slipped__n {
+  font-weight: 700;
+  text-align: right;
+}
+
+.pp-slipped details {
+  margin-top: var(--space-1);
+}
+
+.pp-slipped summary {
+  cursor: pointer;
+  color: var(--current);
+  width: fit-content;
+}
+
+.pp-records {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  display: grid;
+  gap: 2px;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.pp-note {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.pp-note > ul > li {
+  max-width: 90ch;
+}
+
+/* ---- downloads */
+.pp-dl {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--glass-edge);
+  padding-top: var(--space-4);
+}
+
+.pp-dl__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.pp-dl__row .btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.4rem;
+}
+
+.pp-dl__csv {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.pp-dl__csv .field {
+  min-width: 13rem;
+}
+
+/* a phone: each fault becomes a small card (label above each value) instead of a table scrolled sideways */
+@media (max-width: 640px) {
+  .pp-scroll {
+    overflow: visible;
+    background: transparent;
+    border: 0;
+  }
+
+  .pp-table,
+  .pp-table tbody,
+  .pp-table tr,
+  .pp-table th,
+  .pp-table td {
+    display: block;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .pp-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .pp-table tr {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    background: var(--surface);
+    border: 1px solid var(--glass-edge);
+    border-radius: var(--radius);
+    padding: var(--space-2) 0;
+    margin-bottom: var(--space-2);
+  }
+
+  .pp-table tbody th,
+  .pp-table .pp-ex,
+  .pp-table .pp-by {
+    grid-column: 1 / -1;
+    width: auto;
+  }
+
+  .pp-table .pp-by {
+    order: 5;
+  }
+
+  .pp-table th,
+  .pp-table td,
+  .pp-table tbody tr:last-child th,
+  .pp-table tbody tr:last-child td {
+    border-bottom: 0;
+    padding: var(--space-1) var(--space-3);
+  }
+
+  .pp-table td::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--ink-2);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .pp-num {
+    text-align: left;
+  }
+
+  .pp-after,
+  .pp-before {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 520px) {
+  .pp-hero {
+    font-size: 2.5rem;
+  }
+
+  .pp-dl__row,
+  .pp-dl__csv {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pp-dl__csv .field {
+    min-width: 0;
+  }
+}

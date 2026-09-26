@@ -13,6 +13,10 @@ data/projects.json and data/basemap.json from the public filings; this module lo
   GET /api/gridlock/opportunities         the top overlaps with both projects inlined
   GET /api/gridlock/estimate/{overlap_id} a rough, sourced low-high estimate of what a pair could share
   GET /api/gridlock/sperry-check          Sperry's worked example reproduced live (center method)
+  GET /api/gridlock/export.xlsx           every project + flagged overlap in Sperry's own table format (their columns first)
+  GET /api/gridlock/export.csv            one of those tables as CSV (?table=projects|overlaps|set_aside)
+  GET /api/gridlock/export.geojson        every validated project as a GeoJSON feature
+  GET /api/gridlock/fault-test            the fault-injection report (demo/gridlock/faults.py): bad records caught, by check
 
 Until projects.json exists (the pipeline runs separately), every endpoint works from Sperry's
 worked example (demo/gridlock/sperry_example.json) and says so (`fallback: true`).
@@ -41,17 +45,23 @@ aren't coordinating ("could coordinate"); estimates are low-high ranges with the
 and assumptions, never a single falsely precise number.
 """
 
+import csv
+import io
 import json
 import math
 import os
 import re
 import threading
-from datetime import date, timedelta
+import zipfile
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from xml.sax.saxutils import escape as _xml_escape
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response
+
+from limiter import limiter
 
 router = APIRouter(tags=["gridlock"])
 
@@ -1439,3 +1449,573 @@ def sperry_check_route():
         "settings": f"closest points within {MAX_KM_DEFAULT:g} km, DESC x Georgia Power",
     }
     return out
+
+
+# ----------------------------------------------------------------------------- exports in Sperry's table format
+#
+# Sperry Tech's worked example (Projects_Overlaps.xlsx in their ShellHacks 2026 starter package) has two sheets,
+# `projects` and `overlaps`. The export uses their sheet names and exactly their columns in their order, filled from the
+# whole pipeline; Overload's own columns sit to the right of theirs. No spreadsheet library: the workbook is a handful of
+# SpreadsheetML parts written with zipfile (inline strings, real numbers and dates, a frozen header, filters).
+
+SPERRY_PROJECT_COLS = [
+    "project_id", "utility", "state", "project_name", "name_a", "lat_a", "lon_a", "name_b", "lat_b", "lon_b",
+    "lat_center", "lon_center", "in_service_date", "overlap_count", "overlap_1", "overlap_2", "overlap_3",
+]
+SPERRY_OVERLAP_COLS = [
+    "overlap_id", "distance_mi", "time_gap (day)", "utility_a", "project_id_a", "project_name_a",
+    "utility_b", "project_id_b", "project_name_b",
+]
+EXPORT_DISCLAIMER = (
+    "Generated from public filings (DESC 2024-2028 list; Georgia 2025 IRP Vol. 3 public disclosure); "
+    "locations approximate where marked; not an official utility record."
+)
+OSM_ATTRIBUTION = "Locations: (c) OpenStreetMap contributors, ODbL 1.0 (openstreetmap.org/copyright), via Overpass and Nominatim."
+# the file names in Sperry's package ("Project Listings"), so a reader can open their own copy at the cited page
+PDF_NAMES = {
+    "desc": "2024-2028-2million-and-above-project-descriptions.pdf",
+    "ga_irp": "2025 IRP Volume 3 PUBLIC DISCLOSURE.pdf",
+    "sperry_example": "Projects_Overlaps.xlsx",
+}
+FAULT_FILE = DATA_DIR / "fault_report.json"
+EXPORT_TABLES = ("projects", "overlaps", "set_aside")
+AHEAD_WORDS = {"future": "still ahead", "open": "open now", "past": "ended (as filed)"}
+NO_SHARED_WINDOW = "no shared window"
+
+
+def _shared_window(o: dict) -> str | None:
+    """The overlaps sheet's shared_window: where today falls in the two build windows' SHARED period. `ahead` is also set
+    for pairs whose windows never overlap (it then describes both windows), so only a real shared period gets a word."""
+    if o.get("same_window"):
+        return AHEAD_WORDS.get(o.get("ahead"))
+    return NO_SHARED_WINDOW if o.get("same_window") is False else None  # None: a project has no in-service date
+
+
+def _window_filed(p: dict) -> bool:
+    """True when _window takes the build window from the filing (its first branch), not an assumed one."""
+    bw = p.get("build_window")
+    if not isinstance(bw, dict):
+        return False
+    s, e = _date(bw.get("start")), _date(bw.get("end"))
+    return bool(s and e and s <= e and not _window_assumed(p))
+
+
+class _Formula:
+    """A cell formula ({row} is this row's number) with the value Excel would compute, cached in the file."""
+
+    def __init__(self, expr: str, value):
+        self.expr, self.value = expr, value
+
+
+def _yn(v) -> str | None:
+    return None if v is None else ("yes" if v else "no")
+
+
+def _round(v, nd):
+    return None if v is None else round(float(v), nd)
+
+
+def _pdf(st: dict, prov: dict) -> tuple[str | None, str | None]:
+    src = {s.get("id"): s for s in st["doc"].get("sources") or []}.get(prov.get("source")) or {}
+    return PDF_NAMES.get(prov.get("source")) or src.get("file"), src.get("url")
+
+
+def _center_of(a: dict, b: dict, p: dict) -> tuple[float | None, float | None]:
+    """Sperry's rule: the midpoint of the located endpoints, or the one located endpoint (their IF(ISBLANK(...)))."""
+    out = []
+    for k in ("lat", "lon"):
+        va, vb = a.get(k), b.get(k)
+        if va is not None and vb is not None:
+            out.append((va + vb) / 2)
+        else:
+            out.append(va if va is not None else vb)
+    if out[0] is None:
+        c = p.get("center") or [None, None]
+        return c[0], c[1]
+    return out[0], out[1]
+
+
+def _sorted_projects(st: dict) -> list[dict]:
+    order = {c: k for k, c in enumerate(UTILITY_ORDER)}
+    return sorted(st["projects"], key=lambda p: (order.get(p.get("utility"), 99), p["id"]))
+
+
+def _project_table(st: dict, overlaps: list[dict], chosen: set, months: int) -> tuple[list[tuple], list[list]]:
+    partners: dict[str, list[str]] = {}
+    for o in overlaps:  # already in rank order
+        partners.setdefault(o["a"], []).append(o["b"])
+        partners.setdefault(o["b"], []).append(o["a"])
+    extra = [
+        "compared", "confidence", "kv", "kind", "in_service_as_filed", "build_window_start", "build_window_end", "window_filed",
+        "cost_usd", "zone", "teams_no", "confidence_a", "confidence_b", "osm_url_a", "osm_url_b", "match_a", "match_b",
+        "geometry_basis", "pdf_file", "pdf_page", "detail_page", "source_url", "checks_passed", "checks_run", "check_warnings",
+        "overlaps_all",
+    ]
+    cols = [(c, None) for c in SPERRY_PROJECT_COLS] + [(c, "extra") for c in extra]
+    rows = []
+    for p in _sorted_projects(st):
+        eps = [e or {} for e in (p.get("endpoints") or [])] + [{}, {}]
+        a, b = eps[0], eps[1]
+        lat_c, lon_c = _center_of(a, b, p)
+        mine = partners.get(p["id"], [])
+        win = _window(p, months)  # the window the overlaps were scored with (as filed, else assumed at this setting)
+        prov = p.get("provenance") or {}
+        pdf_file, url = _pdf(st, prov)
+        chk = [c for c in p.get("checks") or [] if isinstance(c, dict)]
+        rows.append([
+            p["id"], p.get("utility_name") or UTILITIES.get(p.get("utility"), (p.get("utility"),))[0], p.get("state"), p.get("name"),
+            a.get("name"), a.get("lat"), a.get("lon"), b.get("name"), b.get("lat"), b.get("lon"),
+            _Formula("IF(ISBLANK(I{row}), F{row}, IF(ISBLANK(F{row}), I{row}, (F{row}+I{row})/2))", lat_c),
+            _Formula("IF(ISBLANK(J{row}), G{row}, IF(ISBLANK(G{row}), J{row}, (G{row}+J{row})/2))", lon_c),
+            _date(p.get("in_service")), len(mine), *(mine[:3] + [None] * (3 - len(mine[:3]))),
+            _yn(p.get("utility") in chosen), p.get("confidence"), "/".join(str(k) for k in p.get("kv") or []) or None,
+            (p.get("kind") or "").replace("_", " ") or None, p.get("in_service_raw"),
+            win[0] if win else None, win[1] if win else None, _yn(_window_filed(p)) if win else None, p.get("cost_usd"),
+            p.get("zone"), p.get("teams_no"), a.get("confidence"), b.get("confidence"),
+            (a.get("osm") or {}).get("url"), (b.get("osm") or {}).get("url"), a.get("match"), b.get("match"),
+            (p.get("geometry") or {}).get("basis"), pdf_file, prov.get("page"), prov.get("detail_page"), url,
+            sum(1 for c in chk if c.get("status") == "pass"), len(chk),
+            "; ".join(f"{c.get('id')}: {c.get('detail')}" for c in chk if c.get("status") == "warn") or None,
+            ", ".join(mine) or None,
+        ])
+    return cols, rows
+
+
+def _overlap_table(st: dict, overlaps: list[dict], method: str) -> tuple[list[tuple], list[list]]:
+    extra = [
+        "rank", "pair_id", "closest_points_km", "closest_points_mi", "center_distance_mi", "crosses", "tier", "tier_label", "score",
+        "windows_overlap_months", "window_gap_days", "shared_window", "in_service_a", "in_service_b", "confidence_a",
+        "confidence_b", "could_share", "in_sperry_example", "why",
+    ]
+    cols = [(c, None) for c in SPERRY_OVERLAP_COLS] + [(c, "extra") for c in extra]
+    rows = []
+    for o in overlaps:
+        pa, pb = st["by_id"][o["a"]], st["by_id"][o["b"]]
+        dist = o["distance_mi"] if method == "closest" else o["center_distance_mi"]
+        rows.append([
+            f"OVL_{o['rank']}", _round(dist, 2), o.get("time_gap_days"),
+            pa.get("utility_name") or o["a_utility"], o["a"], pa.get("name"),
+            pb.get("utility_name") or o["b_utility"], o["b"], pb.get("name"),
+            o["rank"], o["id"], _round(o["distance_km"], 3), _round(o["distance_mi"], 2), _round(o["center_distance_mi"], 2),
+            _yn(o.get("crosses")), o["tier"], o["tier_label"], o["score"], o.get("windows_overlap_months"), o.get("window_gap_days"),
+            _shared_window(o), _date(pa.get("in_service")), _date(pb.get("in_service")),
+            pa.get("confidence"), pb.get("confidence"), o.get("share"),
+            f"Sperry {o['sperry']}" if o.get("sperry") else None,  # their numbering, not this sheet's overlap_id
+            "; ".join(o.get("reasons") or []),
+        ])
+    return cols, rows
+
+
+def _set_aside_table(st: dict) -> tuple[list[tuple], list[list]]:
+    cols = [(c, None) for c in ("project_id", "utility", "state", "project_name", "in_service_date", "reasons",
+                                "pdf_file", "pdf_page", "detail_page", "source_url")]
+    rows = []
+    for q in st["quarantine"]:
+        prov = q.get("provenance") or {}
+        pdf_file, url = _pdf(st, prov)
+        rows.append([
+            q.get("id"), q.get("utility_name") or q.get("utility"), q.get("state"), q.get("name"), _date(q.get("in_service")),
+            "; ".join(q.get("reasons") or []) or None, pdf_file, prov.get("page"), prov.get("detail_page"), url,
+        ])
+    return cols, rows
+
+
+def _export_tables(st: dict, prm: dict) -> dict:
+    res = _compute(st, prm)
+    overlaps = res["overlaps"]
+    chosen = set(prm["a"]) | set(prm["b"])
+    return {
+        "projects": _project_table(st, overlaps, chosen, prm["window_months"]),
+        "overlaps": _overlap_table(st, overlaps, prm["method"]),
+        "set_aside": _set_aside_table(st),
+        "total_pairs": res["total_pairs"],
+    }
+
+
+def _settings_line(prm: dict) -> str:
+    def names(codes):
+        return " + ".join(UTILITIES[c][0] for c in codes)
+
+    how = "closest points" if prm["method"] == "closest" else "centers (Sperry's method)"
+    return (f"{names(prm['a'])} x {names(prm['b'])}; an overlap is a pair whose {how} are within {prm['max_km']:g} km "
+            f"({prm['max_km'] / KM_PER_MI:.1f} mi); build windows as filed, else {prm['window_months']} months before in-service")
+
+
+def _about_rows(st: dict, prm: dict, t: dict) -> list[tuple[str, str]]:
+    fault = None
+    if FAULT_FILE.exists():
+        try:
+            fault = _read_json(FAULT_FILE).get("headline")
+        except (OSError, ValueError, AttributeError):
+            fault = None
+    closest = prm["method"] == "closest"
+    rows = [
+        ("Disclaimer", EXPORT_DISCLAIMER),
+        ("Generated", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+         + f" by Overload (pipeline data built {st['doc'].get('built_at') or 'n/a'})"),
+        ("Comparison", _settings_line(prm)),
+        ("Counts", f"{len(t['projects'][1])} validated projects; {len(t['overlaps'][1])} flagged overlaps out of {t['total_pairs']:,} "
+                   f"cross-utility pairs; {len(t['set_aside'][1])} records set aside by the checks (sheet set_aside, with reasons)"),
+        ("Sheets", "projects and overlaps use exactly the columns of Sperry Tech's Projects_Overlaps.xlsx, in their order "
+                   "(projects A-Q, overlaps A-I, gray headers). Overload's columns follow to the right (blue headers)."),
+        ("distance_mi", "miles between the two projects' closest points (a line is its route or straight segment, a substation "
+                        "its point); center_distance_mi is Sperry's center-to-center distance" if closest
+         else "miles between the two projects' centers (Sperry's method); closest_points_mi is the closest-point distance"),
+        ("time_gap (day)", "days between the two in-service dates, as in Sperry's sheet"),
+        ("lat_center / lon_center", "Sperry's own formula: the midpoint of the located endpoints, or the one located endpoint"),
+        ("overlap_1..3", "the project's top three partners by rank; overlap_count and overlaps_all cover every flagged pair"),
+        ("in_service_date", "a real date cell; Excel serial numbers and two-digit years in the sources were normalized "
+                            "(in_service_as_filed keeps the text as filed)"),
+        ("confidence", "location confidence: high, medium or low. Low means 'in this area', not 'at this fence line'; "
+                       "match_a / match_b say how each point was found"),
+        ("build_window_start / _end", "the build window each overlap was scored with: as filed when window_filed is yes, else "
+                                      f"assumed {prm['window_months']} months before in-service (the Comparison setting)"),
+        ("shared_window", "for pairs whose build windows overlap (windows_overlap_months > 0): whether that shared period is still "
+                          f"ahead, open now, or ended before today as filed; '{NO_SHARED_WINDOW}' when the windows don't overlap "
+                          "(window_gap_days says how far apart); blank when a project has no in-service date"),
+        ("in_sperry_example", "for the six pairs in Sperry's worked example, their own id for the pair (e.g. 'Sperry OVL_1'); "
+                              "their numbering, not this sheet's overlap_id, which follows our rank"),
+    ]
+    for s in st["doc"].get("sources") or []:
+        rows.append(("Source", f"{s.get('title')} {s.get('url') or ''}".strip()))
+    rows += [
+        ("Map data", OSM_ATTRIBUTION + " State outlines: U.S. Census Bureau cb_2024_us_state_20m (public domain)."),
+        ("Checks", "every record passed the pipeline's blocking checks; checks_passed / checks_run and check_warnings say how it fared"),
+    ]
+    if fault:
+        rows.append(("Fault test", f"{fault} (backend/demo/gridlock/faults.py; data/fault_report.json)"))
+    rows.append(("Rebuild", "backend/venv/Scripts/python backend/demo/gridlock/build.py"))
+    return rows
+
+
+# --- SpreadsheetML -------------------------------------------------------------------------------------------------
+
+_XML_BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
+EXCEL_EPOCH = date(1899, 12, 30)
+# cellXfs: 0 normal, 1 Sperry's header, 2 date, 3 coordinate, 4 two decimals, 5 integer, 6 three decimals, 7 wrapped,
+# 8 title, 9 Overload's header
+_STYLES = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+    '<numFmts count="3"><numFmt numFmtId="164" formatCode="m/d/yyyy"/><numFmt numFmtId="165" formatCode="0.000000"/>'
+    '<numFmt numFmtId="166" formatCode="0.000"/></numFmts>'
+    '<fonts count="3"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+    '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+    '<font><b/><sz val="14"/><name val="Calibri"/><family val="2"/></font></fonts>'
+    '<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFE7E6E6"/><bgColor indexed="64"/></patternFill></fill>'
+    '<fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/><bgColor indexed="64"/></patternFill></fill></fills>'
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    '<cellXfs count="10">'
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+    '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
+    '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    '<xf numFmtId="2" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    '<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    '<xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>'
+    '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'
+    '<xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
+    "</cellXfs>"
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+    "</styleSheet>"
+)
+_NUM_STYLE = {
+    "lat_a": 3, "lon_a": 3, "lat_b": 3, "lon_b": 3, "lat_center": 3, "lon_center": 3, "distance_mi": 4,
+    "closest_points_mi": 4, "center_distance_mi": 4, "closest_points_km": 6, "cost_usd": 5, "time_gap (day)": 5,
+    "window_gap_days": 5,
+}
+_NS_MAIN = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+_NS_R = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"'
+_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+
+
+def _col_letter(n: int) -> str:
+    s = ""
+    n += 1
+    while n:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+
+def _xs(v) -> str:
+    return _xml_escape(_XML_BAD.sub("", str(v))[:32000])
+
+
+def _cell(ref: str, v, style: int = 0, row: int = 0) -> str:
+    s = f' s="{style}"' if style else ""
+    if v is None or v == "":
+        return ""
+    if isinstance(v, _Formula):
+        val = "" if v.value is None else f"<v>{v.value!r}</v>"
+        return f'<c r="{ref}"{s}><f>{_xs(v.expr.format(row=row))}</f>{val}</c>'
+    if isinstance(v, bool):
+        v = "yes" if v else "no"
+    if isinstance(v, date):
+        return f'<c r="{ref}" s="2"><v>{(v - EXCEL_EPOCH).days}</v></c>'
+    if isinstance(v, (int, float)):
+        if isinstance(v, float) and not math.isfinite(v):
+            return ""
+        return f'<c r="{ref}"{s}><v>{v!r}</v></c>'
+    return f'<c r="{ref}" t="inlineStr"{s}><is><t xml:space="preserve">{_xs(v)}</t></is></c>'
+
+
+def _sheet_xml(cols: list[tuple], rows: list[list], selected: bool = False) -> str:
+    names = [c for c, _ in cols]
+    widths = []
+    for k, name in enumerate(names):
+        cells = [r[k].value if isinstance(r[k], _Formula) else r[k] for r in rows[:400]]
+        longest = max([len(name)] + [len(str(v)) for v in cells if v is not None])
+        widths.append(min(60, max(9, longest + 2)))
+    last = _col_letter(len(cols) - 1)
+    tab = ' tabSelected="1"' if selected else ""
+    out = [
+        _XML_HEAD, f"<worksheet {_NS_MAIN} {_NS_R}>",
+        f'<dimension ref="A1:{last}{len(rows) + 1}"/>',
+        f'<sheetViews><sheetView{tab} workbookViewId="0">'
+        '<pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>',
+        '<sheetFormatPr defaultRowHeight="15"/>',
+        "<cols>" + "".join(f'<col min="{k + 1}" max="{k + 1}" width="{w}" customWidth="1"/>' for k, w in enumerate(widths)) + "</cols>",
+        "<sheetData>",
+        '<row r="1">' + "".join(_cell(f"{_col_letter(k)}1", n, 9 if kind == "extra" else 1) for k, (n, kind) in enumerate(cols)) + "</row>",
+    ]
+    for i, r in enumerate(rows, start=2):
+        cells = "".join(_cell(f"{_col_letter(k)}{i}", v, _NUM_STYLE.get(names[k], 0), i) for k, v in enumerate(r))
+        out.append(f'<row r="{i}">{cells}</row>')
+    out.append("</sheetData>")
+    out.append(f'<autoFilter ref="A1:{last}{max(2, len(rows) + 1)}"/>')
+    out.append("</worksheet>")
+    return "".join(out)
+
+
+def _about_xml(rows: list[tuple[str, str]]) -> str:
+    body = ['<row r="1">' + _cell("A1", "Overload: GridLock export (Sperry Tech table format)", 8) + "</row>"]
+    for i, (k, v) in enumerate(rows, start=3):
+        body.append(f'<row r="{i}">' + _cell(f"A{i}", k, 1) + _cell(f"B{i}", v, 7) + "</row>")
+    return (
+        f"{_XML_HEAD}<worksheet {_NS_MAIN} {_NS_R}>"
+        f'<dimension ref="A1:B{len(rows) + 2}"/><sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+        '<sheetFormatPr defaultRowHeight="15"/><cols><col min="1" max="1" width="24" customWidth="1"/>'
+        '<col min="2" max="2" width="120" customWidth="1"/></cols><sheetData>' + "".join(body) + "</sheetData></worksheet>"
+    )
+
+
+def _xlsx(sheets: list[tuple[str, str, str | None]], active: int, title: str) -> bytes:
+    """sheets: [(name, worksheet xml, autofilter range like 'A1:AQ195' or None)]."""
+    n = len(sheets)
+    ct = (
+        f'{_XML_HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        + "".join(f'<Override PartName="/xl/worksheets/sheet{i}.xml" '
+                  'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' for i in range(1, n + 1))
+        + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+        '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'
+        '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'
+        "</Types>"
+    )
+    pkg = "http://schemas.openxmlformats.org/package/2006/relationships"
+    rels = (
+        f'{_XML_HEAD}<Relationships xmlns="{pkg}">'
+        f'<Relationship Id="rId1" Type="{_REL}/officeDocument" Target="xl/workbook.xml"/>'
+        f'<Relationship Id="rId2" Type="{pkg}/metadata/core-properties" Target="docProps/core.xml"/>'
+        f'<Relationship Id="rId3" Type="{_REL}/extended-properties" Target="docProps/app.xml"/>'
+        "</Relationships>"
+    )
+    wb_rels = (
+        f'{_XML_HEAD}<Relationships xmlns="{pkg}">'
+        + "".join(f'<Relationship Id="rId{i}" Type="{_REL}/worksheet" Target="worksheets/sheet{i}.xml"/>' for i in range(1, n + 1))
+        + f'<Relationship Id="rId{n + 1}" Type="{_REL}/styles" Target="styles.xml"/></Relationships>'
+    )
+    defined = []
+    for i, (name, _xml, rng) in enumerate(sheets):
+        if rng:
+            (c0, r0), (c1, r1) = (re.match(r"([A-Z]+)(\d+)", x).groups() for x in rng.split(":"))
+            defined.append(f'<definedName name="_xlnm._FilterDatabase" localSheetId="{i}" hidden="1">'
+                           f"{name}!${c0}${r0}:${c1}${r1}</definedName>")
+    workbook = (
+        f"{_XML_HEAD}<workbook {_NS_MAIN} {_NS_R}>"
+        f'<bookViews><workbookView activeTab="{active}"/></bookViews><sheets>'
+        + "".join(f'<sheet name="{_xs(name)}" sheetId="{i}" r:id="rId{i}"/>' for i, (name, _x, _r) in enumerate(sheets, start=1))
+        + "</sheets>" + (f"<definedNames>{''.join(defined)}</definedNames>" if defined else "") + "</workbook>"
+    )
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    core = (
+        f"{_XML_HEAD}"
+        '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '
+        'xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" '
+        'xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
+        f"<dc:title>{_xs(title)}</dc:title><dc:creator>Overload</dc:creator><dc:description>{_xs(EXPORT_DISCLAIMER)}</dc:description>"
+        f'<dcterms:created xsi:type="dcterms:W3CDTF">{now}</dcterms:created>'
+        f'<dcterms:modified xsi:type="dcterms:W3CDTF">{now}</dcterms:modified></cp:coreProperties>'
+    )
+    app = (f"{_XML_HEAD}<Properties xmlns=\"http://schemas.openxmlformats.org/officeDocument/2006/extended-properties\">"
+           "<Application>Overload</Application></Properties>")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", ct)
+        z.writestr("_rels/.rels", rels)
+        z.writestr("docProps/core.xml", core)
+        z.writestr("docProps/app.xml", app)
+        z.writestr("xl/workbook.xml", workbook)
+        z.writestr("xl/_rels/workbook.xml.rels", wb_rels)
+        z.writestr("xl/styles.xml", _STYLES)
+        for i, (_name, xml, _rng) in enumerate(sheets, start=1):
+            z.writestr(f"xl/worksheets/sheet{i}.xml", xml)
+    return buf.getvalue()
+
+
+def build_workbook(st: dict, prm: dict) -> bytes:
+    t = _export_tables(st, prm)
+    sheets = []
+    for name in ("projects", "overlaps", "set_aside"):
+        cols, rows = t[name]
+        rng = f"A1:{_col_letter(len(cols) - 1)}{max(2, len(rows) + 1)}"
+        sheets.append((name, _sheet_xml(cols, rows, selected=(name == "overlaps")), rng))
+    sheets.append(("about", _about_xml(_about_rows(st, prm, t)), None))
+    return _xlsx(sheets, active=1, title="Overload GridLock export: projects and overlaps")
+
+
+# --- CSV, GeoJSON ---------------------------------------------------------------------------------------------------
+
+
+def _plain(v):
+    """A cell's value for CSV / GeoJSON: formulas as their value, dates as ISO text."""
+    if isinstance(v, _Formula):
+        v = v.value
+    if isinstance(v, date):
+        return v.isoformat()
+    return v
+
+
+def _csv_safe(v):
+    """Text a spreadsheet would run as a formula gets a leading apostrophe (CSV injection)."""
+    if isinstance(v, str) and v and (v[0] in "=+@\t\r" or (v[0] == "-" and not re.match(r"-\d", v))):
+        return "'" + v
+    return v
+
+
+def build_csv(st: dict, prm: dict, table: str) -> bytes:
+    cols, rows = _export_tables(st, prm)[table]
+    buf = io.StringIO()
+    w = csv.writer(buf, lineterminator="\r\n")
+    w.writerow([c for c, _ in cols])
+    for r in rows:
+        w.writerow(["" if _plain(v) is None else _csv_safe(_plain(v)) for v in r])
+    return buf.getvalue().encode("utf-8-sig")  # the BOM makes Excel read the titles' en dashes as UTF-8
+
+
+def build_geojson(st: dict, prm: dict) -> dict:
+    cols, rows = _export_tables(st, prm)["projects"]
+    names = [c for c, _ in cols]
+    feats = []
+    for p, r in zip(_sorted_projects(st), rows):
+        coords = _geometry_coords(p)
+        if not coords:
+            continue
+        geom = {"type": "Point", "coordinates": coords[0]} if len(coords) == 1 else {"type": "LineString", "coordinates": coords}
+        props = {n: _plain(v) for n, v in zip(names, r)}
+        props["tags"] = p.get("tags")
+        feats.append({"type": "Feature", "id": p["id"], "geometry": geom, "properties": props})
+    return {
+        "type": "FeatureCollection",
+        "name": "overload_gridlock_projects",
+        "disclaimer": EXPORT_DISCLAIMER,
+        "attribution": OSM_ATTRIBUTION,
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "comparison": _settings_line(prm),
+        "params": prm,
+        "sources": [{"title": s.get("title"), "url": s.get("url")} for s in st["doc"].get("sources") or []],
+        "features": feats,
+    }
+
+
+def _export_name(prm: dict, ext: str, table: str | None = None) -> str:
+    who = f"{'-'.join(prm['a'])}_{'-'.join(prm['b'])}_{prm['max_km']:g}km" + ("" if prm["method"] == "closest" else "_centers")
+    return f"Projects_Overlaps_Overload_{who}.{ext}" if table is None else f"Overload_{table}_{who}.{ext}"
+
+
+def _download(body: bytes, media: str, filename: str) -> Response:
+    return Response(content=body, media_type=media, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
+@router.get("/api/gridlock/export.xlsx")
+@limiter.limit("30/minute")
+def export_xlsx(
+    request: Request,
+    max_km: float = Query(MAX_KM_DEFAULT),
+    window_months: int = Query(WINDOW_DEFAULT),
+    method: str = Query("closest"),
+    a: str = Query("DESC"),
+    b: str = Query("GPC"),
+):
+    prm = _params(max_km, window_months, method, a, b)
+    st = _load()
+    body = build_workbook(st, prm)  # built per request (~20 ms): the about sheet's time is this file's, not the day's first
+    return _download(body, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", _export_name(prm, "xlsx"))
+
+
+@router.get("/api/gridlock/export.csv")
+@limiter.limit("30/minute")
+def export_csv(
+    request: Request,
+    table: str = Query("projects"),
+    max_km: float = Query(MAX_KM_DEFAULT),
+    window_months: int = Query(WINDOW_DEFAULT),
+    method: str = Query("closest"),
+    a: str = Query("DESC"),
+    b: str = Query("GPC"),
+):
+    table = (table or "").strip().lower()
+    if table not in EXPORT_TABLES:
+        raise HTTPException(status_code=422, detail=f"table must be one of: {', '.join(EXPORT_TABLES)}")
+    prm = _params(max_km, window_months, method, a, b)
+    st = _load()
+    body = build_csv(st, prm, table)
+    return _download(body, "text/csv; charset=utf-8", _export_name(prm, "csv", table))
+
+
+@router.get("/api/gridlock/export.geojson")
+@limiter.limit("30/minute")
+def export_geojson(
+    request: Request,
+    max_km: float = Query(MAX_KM_DEFAULT),
+    window_months: int = Query(WINDOW_DEFAULT),
+    method: str = Query("closest"),
+    a: str = Query("DESC"),
+    b: str = Query("GPC"),
+):
+    prm = _params(max_km, window_months, method, a, b)
+    st = _load()
+    body = json.dumps(_finite(build_geojson(st, prm)), separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return _download(body, "application/geo+json", _export_name(prm, "geojson", "projects"))
+
+
+_fault_cache: dict = {"key": None, "bytes": None}
+
+
+@router.get("/api/gridlock/fault-test")
+@limiter.limit("60/minute")
+def fault_test(request: Request):
+    """The committed fault-injection report: the kinds of bad record this pipeline has met, injected into real validated
+    records and pushed through the same checks. Regenerate with backend/demo/gridlock/faults.py."""
+    key = _file_key(FAULT_FILE)
+    if key is None:
+        raise HTTPException(status_code=404, detail="No fault report yet: run backend/venv/Scripts/python backend/demo/gridlock/faults.py")
+    if _fault_cache["key"] != key:
+        try:
+            doc = _read_json(FAULT_FILE)
+        except (OSError, ValueError) as e:
+            raise HTTPException(status_code=500, detail=f"fault_report.json could not be read: {e}") from e
+        _fault_cache["bytes"] = json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        _fault_cache["key"] = key
+    return Response(content=_fault_cache["bytes"], media_type="application/json")

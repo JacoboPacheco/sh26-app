@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Button, EmptyState, ErrorBanner, Loading } from '../../ui'
 import { CheckIcon } from './DetailCard'
 import { useGridlock } from './context'
+import PipelineProof from './PipelineProof'
 import { fmtBuiltAt, fmtInt, sourceLink, toneOf, utilityName } from './format'
 import './gridlock.css'
 
@@ -23,6 +24,8 @@ export default function PipelinePanel() {
       <Stages report={report} />
       <Counts />
       <Checks checks={report.checks} />
+      {/* the checks under fire: bad records injected into real ones, caught or missed; the tables in Sperry's own format */}
+      <PipelineProof params={g.params} />
       <Extraction x={report.extraction} />
       <Quarantine />
       <Sources context={report.context_sources} />

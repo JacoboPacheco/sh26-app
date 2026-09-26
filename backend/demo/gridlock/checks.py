@@ -13,8 +13,12 @@ import re
 from collections import Counter
 
 import geo
+from normalize import fix_voltage_typos
 
 DATE_MIN, DATE_MAX = "2020-01-01", "2040-12-31"
+# a letter O for a zero inside a voltage that the typo repair can't read ('23O-115kV', '50O/230KV'; the repair only
+# reads '23O KV'): flagged, never guessed. Found by faults.py, which slipped '23O-115kV' past every check.
+LETTER_O_KV = re.compile(r"\b\d{2}[Oo](?=(?:\s*[-/]\s*\d{2,3}(?:\.\d+)?)*\s*-?\s*KV\b)", re.I)
 MAX_SPAN_KM = 150
 CONF = ["low", "medium", "high"]
 
@@ -176,9 +180,12 @@ def costs_consistent(p, ctx):
 
 
 def voltage_found(p, ctx):
+    stray = [m.group(0) for m in LETTER_O_KV.finditer(fix_voltage_typos(p["name"])[0])]
+    stray_note = (f"the title has {', '.join(repr(s) for s in stray)} inside a voltage (a letter O for a zero?); "
+                  "it was not read as a voltage, check the title") if stray else None
     if not p["kv"]:
-        return _r("warn", "no voltage in the title or description")
-    notes = [n for n in p.get("_kv_notes", []) if "typo" in n]
+        return _r("warn", "no voltage in the title or description" + (f"; {stray_note}" if stray_note else ""))
+    notes = [n for n in p.get("_kv_notes", []) if "typo" in n] + ([stray_note] if stray_note else [])
     if notes:
         return _r("warn", "; ".join(notes))
     return _r("pass", "/".join(map(str, p["kv"])) + " kV")

@@ -1,0 +1,1447 @@
+{
+ "generated_at": "2026-09-26T16:08:55Z",
+ "command": "backend/venv/Scripts/python backend/demo/gridlock/faults.py",
+ "mode": "every eligible record, once per fault",
+ "seed": 2026,
+ "per_kind": null,
+ "source": {
+  "file": "backend/demo/gridlock/data/projects.json",
+  "built_at": "2026-09-26T08:31:03Z",
+  "validated_records": 194
+ },
+ "control": {
+  "records": 191,
+  "kept": 191,
+  "left_out": [
+   {
+    "id": "DESC-06367ACH",
+    "why": "the re-run differs: its place names came from the detail page or the description, not the title"
+   },
+   {
+    "id": "DESC-6859",
+    "why": "the re-run differs: its place names came from the detail page or the description, not the title"
+   },
+   {
+    "id": "GA-09662",
+    "why": "the re-run differs: its place names came from the detail page or the description, not the title"
+   }
+  ],
+  "differs_from_published": [],
+  "note": "Before any fault, 191 of the 194 validated records are re-run through the same code with nothing changed: every one is kept, with the same check results the pipeline published. So each catch below is the fault's doing, not a false alarm."
+ },
+ "checks": [
+  {
+   "id": "extract_complete",
+   "label": "Every field parsed from the PDF",
+   "blocking": true
+  },
+  {
+   "id": "id_unique",
+   "label": "Project id is unique",
+   "blocking": true
+  },
+  {
+   "id": "date_valid",
+   "label": "In-service date readable and 2020-2040",
+   "blocking": true
+  },
+  {
+   "id": "place_named",
+   "label": "Title names a place",
+   "blocking": true
+  },
+  {
+   "id": "located",
+   "label": "At least one endpoint located",
+   "blocking": true
+  },
+  {
+   "id": "in_region",
+   "label": "Located inside SC or GA",
+   "blocking": true
+  },
+  {
+   "id": "in_territory",
+   "label": "Within reach of the filer's state",
+   "blocking": true
+  },
+  {
+   "id": "span_plausible",
+   "label": "Line endpoints under 150 km apart",
+   "blocking": true
+  },
+  {
+   "id": "two_parsers_agree",
+   "label": "Two table parsers agree (Georgia)",
+   "blocking": false
+  },
+  {
+   "id": "table_matches_detail",
+   "label": "Table row matches its detail page (Georgia)",
+   "blocking": false
+  },
+  {
+   "id": "costs_consistent",
+   "label": "Cost columns add up (DESC)",
+   "blocking": false
+  },
+  {
+   "id": "date_normalized",
+   "label": "Date needed no repair",
+   "blocking": false
+  },
+  {
+   "id": "voltage_found",
+   "label": "Voltage found, no typo",
+   "blocking": false
+  },
+  {
+   "id": "fully_located",
+   "label": "Both endpoints located",
+   "blocking": false
+  },
+  {
+   "id": "length_consistent",
+   "label": "Located span fits the filed miles",
+   "blocking": false
+  },
+  {
+   "id": "zone_consistent",
+   "label": "Near its planning zone's other projects (Georgia)",
+   "blocking": false
+  }
+ ],
+ "summary": {
+  "kinds": 9,
+  "injected": 1452,
+  "caught": 1421,
+  "missed": 31,
+  "set_aside": 1027,
+  "flagged": 394
+ },
+ "headline": "We tried to break it: 1,421 of 1,452 bad records caught",
+ "origins": {
+  "filings": {
+   "label": "met in the two filings or Sperry's sheet",
+   "kinds": [
+    "excel_serial",
+    "malformed_amount",
+    "customer_only",
+    "same_name_far",
+    "kv_letter_o"
+   ]
+  },
+  "common": {
+   "label": "a common data-entry error (not seen in these filings)",
+   "kinds": [
+    "impossible_date",
+    "duplicate_id",
+    "other_state",
+    "swapped_latlon"
+   ]
+  },
+  "format": {
+   "label": "a format the filings really use: must be read correctly, not counted as bad data",
+   "kinds": [
+    "two_digit_year"
+   ]
+  }
+ },
+ "format_test": {
+  "kinds": 1,
+  "injected": 172,
+  "read_correctly": 172,
+  "not_read_correctly": 0,
+  "line": "Format test, not counted above: 172 of 172 dates rewritten with a two-digit year (12/31/26, the way DESC files them) were read as the right date"
+ },
+ "kinds": [
+  {
+   "id": "excel_serial",
+   "label": "Excel serial date",
+   "origin": "filings",
+   "met_in": "Sperry's worked example stores two in-service dates as 45809 and 45778",
+   "about": "a date stored as an Excel day number (45809)",
+   "expect": "read as the right date and flagged",
+   "where": "in-service date",
+   "eligible": 191,
+   "injected": 191,
+   "caught": 191,
+   "missed": 0,
+   "catch_rate": 1.0,
+   "outcomes": {
+    "set_aside": 0,
+    "flagged": 191,
+    "noted": 0,
+    "missed": 0
+   },
+   "caught_by": [
+    {
+     "check": "date_normalized",
+     "label": "Date needed no repair",
+     "blocking": false,
+     "first": 191,
+     "any": 191
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 41,
+     "caught": 41
+    },
+    "Georgia": {
+     "injected": 150,
+     "caught": 150
+    }
+   },
+   "value_correct": {
+    "checked": 191,
+    "correct": 191
+   },
+   "examples": [
+    {
+     "record": "DESC-6810O",
+     "utility": "DESC",
+     "field": "in-service date",
+     "before": "12/31/2027",
+     "after": "46752",
+     "outcome": "flagged",
+     "caught_by": [
+      "date_normalized"
+     ],
+     "noted_by": [],
+     "detail": "Excel serial date 46752"
+    },
+    {
+     "record": "GA-11821",
+     "utility": "GPC",
+     "field": "in-service date",
+     "before": "6/1/2025",
+     "after": "45809",
+     "outcome": "flagged",
+     "caught_by": [
+      "date_normalized"
+     ],
+     "noted_by": [],
+     "detail": "Excel serial date 45809"
+    }
+   ],
+   "misses": [],
+   "value_wrong": []
+  },
+  {
+   "id": "impossible_date",
+   "label": "Impossible date",
+   "origin": "common",
+   "met_in": null,
+   "about": "a calendar date that doesn't exist, like 04/31/26",
+   "expect": "set aside",
+   "where": "in-service date",
+   "eligible": 191,
+   "injected": 191,
+   "caught": 191,
+   "missed": 0,
+   "catch_rate": 1.0,
+   "outcomes": {
+    "set_aside": 191,
+    "flagged": 0,
+    "noted": 0,
+    "missed": 0
+   },
+   "caught_by": [
+    {
+     "check": "date_valid",
+     "label": "In-service date readable and 2020-2040",
+     "blocking": true,
+     "first": 191,
+     "any": 191
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 41,
+     "caught": 41
+    },
+    "Georgia": {
+     "injected": 150,
+     "caught": 150
+    }
+   },
+   "value_correct": null,
+   "examples": [
+    {
+     "record": "DESC-6808J",
+     "utility": "DESC",
+     "field": "in-service date",
+     "before": "06/01/24",
+     "after": "02/31/24",
+     "outcome": "set_aside",
+     "caught_by": [
+      "date_valid"
+     ],
+     "noted_by": [],
+     "detail": "in-service date '02/31/24' could not be read ('02/31/24' is not a valid calendar date)"
+    },
+    {
+     "record": "GA-18492",
+     "utility": "GPC",
+     "field": "in-service date",
+     "before": "5/1/2025",
+     "after": "04/31/25",
+     "outcome": "set_aside",
+     "caught_by": [
+      "date_valid"
+     ],
+     "noted_by": [],
+     "detail": "in-service date '04/31/25' could not be read ('04/31/25' is not a valid calendar date)"
+    }
+   ],
+   "misses": [],
+   "value_wrong": []
+  },
+  {
+   "id": "malformed_amount",
+   "label": "Malformed amount",
+   "origin": "filings",
+   "met_in": "DESC's filing prints $19,00,181 on PDF page 22",
+   "about": "a digit missing from a thousands group",
+   "expect": "repaired from the Total and flagged",
+   "where": "cost row (DESC)",
+   "eligible": 41,
+   "injected": 41,
+   "caught": 41,
+   "missed": 0,
+   "catch_rate": 1.0,
+   "outcomes": {
+    "set_aside": 0,
+    "flagged": 41,
+    "noted": 0,
+    "missed": 0
+   },
+   "caught_by": [
+    {
+     "check": "costs_consistent",
+     "label": "Cost columns add up (DESC)",
+     "blocking": false,
+     "first": 41,
+     "any": 41
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 41,
+     "caught": 41
+    }
+   },
+   "value_correct": {
+    "checked": 41,
+    "correct": 39
+   },
+   "examples": [
+    {
+     "record": "DESC-06810F",
+     "utility": "DESC",
+     "field": "cost row",
+     "before": "$500,000",
+     "after": "$500,00",
+     "outcome": "flagged",
+     "caught_by": [
+      "costs_consistent"
+     ],
+     "noted_by": [],
+     "detail": "2026 filed as '$500,00' (broken thousands grouping); read as $10,500,000, the value the Total implies"
+    }
+   ],
+   "misses": [],
+   "value_wrong": [
+    {
+     "record": "DESC-06810F",
+     "utility": "DESC",
+     "field": "cost row",
+     "before": "$500,000",
+     "after": "$500,00",
+     "outcome": "flagged",
+     "caught_by": [
+      "costs_consistent"
+     ],
+     "noted_by": [],
+     "detail": "2026 filed as '$500,00' (broken thousands grouping); read as $10,500,000, the value the Total implies",
+     "note": "flagged, but the amount came out as 2026 $10,500,000: this page's Total doesn't equal its columns, so the Total can't give the missing digit back"
+    },
+    {
+     "record": "DESC-0139MN",
+     "utility": "DESC",
+     "field": "cost row",
+     "before": "$6,631,000",
+     "after": "$6,63,000",
+     "outcome": "flagged",
+     "caught_by": [
+      "costs_consistent"
+     ],
+     "noted_by": [],
+     "detail": "2024 filed as '$6,63,000'; could not be reconciled with the Total; the columns shown add to $4,561,933 but the Total says $11,116,933 ($6,555,000 more); kept the filed Total",
+     "note": "flagged, but the amount came out as 2024 $663,000: this page's Total doesn't equal its columns, so the Total can't give the missing digit back"
+    }
+   ]
+  },
+  {
+   "id": "duplicate_id",
+   "label": "Duplicate project id",
+   "origin": "common",
+   "met_in": null,
+   "about": "two records claiming one project id or TEAMS number",
+   "expect": "both set aside",
+   "where": "project id",
+   "eligible": 191,
+   "injected": 191,
+   "caught": 191,
+   "missed": 0,
+   "catch_rate": 1.0,
+   "outcomes": {
+    "set_aside": 191,
+    "flagged": 0,
+    "noted": 0,
+    "missed": 0
+   },
+   "caught_by": [
+    {
+     "check": "id_unique",
+     "label": "Project id is unique",
+     "blocking": true,
+     "first": 191,
+     "any": 191
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 41,
+     "caught": 41
+    },
+    "Georgia": {
+     "injected": 150,
+     "caught": 150
+    }
+   },
+   "value_correct": null,
+   "examples": [
+    {
+     "record": "DESC-6808U",
+     "utility": "DESC",
+     "field": "project id",
+     "before": "DESC-6808U",
+     "after": "DESC-6809N (another record's id)",
+     "outcome": "set_aside",
+     "caught_by": [
+      "id_unique"
+     ],
+     "noted_by": [],
+     "detail": "2 records share the id DESC-6809N"
+    },
+    {
+     "record": "GA-20590",
+     "utility": "GPC",
+     "field": "project id",
+     "before": "GA-20590",
+     "after": "GA-20428 (another record's id)",
+     "outcome": "set_aside",
+     "caught_by": [
+      "id_unique"
+     ],
+     "noted_by": [],
+     "detail": "2 records share the id GA-20428"
+    }
+   ],
+   "misses": [],
+   "value_wrong": []
+  },
+  {
+   "id": "customer_only",
+   "label": "Customer-only title",
+   "origin": "filings",
+   "met_in": "Georgia titles like 'CC - PROJECT CHRONOS- SK/HYUNDAI' name a customer, not a place",
+   "about": "a title that names a customer code instead of a place",
+   "expect": "set aside",
+   "where": "title",
+   "eligible": 191,
+   "injected": 191,
+   "caught": 191,
+   "missed": 0,
+   "catch_rate": 1.0,
+   "outcomes": {
+    "set_aside": 191,
+    "flagged": 0,
+    "noted": 0,
+    "missed": 0
+   },
+   "caught_by": [
+    {
+     "check": "place_named",
+     "label": "Title names a place",
+     "blocking": true,
+     "first": 191,
+     "any": 191
+    },
+    {
+     "check": "located",
+     "label": "At least one endpoint located",
+     "blocking": true,
+     "first": 0,
+     "any": 191
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 41,
+     "caught": 41
+    },
+    "Georgia": {
+     "injected": 150,
+     "caught": 150
+    }
+   },
+   "value_correct": null,
+   "examples": [
+    {
+     "record": "DESC-6810J",
+     "utility": "DESC",
+     "field": "title",
+     "before": "Elloree – Santee City 46 kV: Rebuild",
+     "after": "CC - PROJECT ORION",
+     "outcome": "set_aside",
+     "caught_by": [
+      "place_named",
+      "located"
+     ],
+     "noted_by": [],
+     "detail": "the title names no place to map (names a customer or program, not a place: 'PROJECT ORION')"
+    },
+    {
+     "record": "GA-19187",
+     "utility": "GPC",
+     "field": "title",
+     "before": "GRID - BREMEN - CROOKED CREEK (APC) 115 KV PROJECT",
+     "after": "CC - PROJECT VANTAGE",
+     "outcome": "set_aside",
+     "caught_by": [
+      "place_named",
+      "located"
+     ],
+     "noted_by": [],
+     "detail": "the title names no place to map (names a customer or program, not a place: 'PROJECT VANTAGE')"
+    }
+   ],
+   "misses": [],
+   "value_wrong": []
+  },
+  {
+   "id": "same_name_far",
+   "label": "Same-name substation 200 km away",
+   "origin": "filings",
+   "met_in": "a name that exists twice in one state, e.g. GA-13166's 'First Avenue'",
+   "about": "a match to a same-name substation elsewhere in the state",
+   "expect": "set aside or flagged",
+   "where": "located point",
+   "eligible": 191,
+   "injected": 191,
+   "caught": 160,
+   "missed": 31,
+   "catch_rate": 0.8377,
+   "outcomes": {
+    "set_aside": 66,
+    "flagged": 94,
+    "noted": 0,
+    "missed": 31
+   },
+   "caught_by": [
+    {
+     "check": "zone_consistent",
+     "label": "Near its planning zone's other projects (Georgia)",
+     "blocking": false,
+     "first": 94,
+     "any": 94
+    },
+    {
+     "check": "span_plausible",
+     "label": "Line endpoints under 150 km apart",
+     "blocking": true,
+     "first": 66,
+     "any": 66
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 41,
+     "caught": 18
+    },
+    "Georgia": {
+     "injected": 150,
+     "caught": 142
+    }
+   },
+   "value_correct": null,
+   "examples": [
+    {
+     "record": "GA-19598",
+     "utility": "MEAG",
+     "field": "located point",
+     "before": "Dresden at 33.3511, -84.9060",
+     "after": "Dresden at 33.3325, -82.7530 (200 km away, still in GA)",
+     "outcome": "set_aside",
+     "caught_by": [
+      "span_plausible"
+     ],
+     "noted_by": [],
+     "detail": "endpoints are 213 km apart (> 150 km): at least one match is probably the wrong place"
+    },
+    {
+     "record": "DESC-6846A",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Sumter at 33.8977, -80.3240",
+     "after": "Sumter at 34.3453, -82.4283 (200 km away, still in SC)",
+     "outcome": "set_aside",
+     "caught_by": [
+      "span_plausible"
+     ],
+     "noted_by": [],
+     "detail": "endpoints are 164 km apart (> 150 km): at least one match is probably the wrong place"
+    }
+   ],
+   "misses": [
+    {
+     "record": "DESC-0139MN",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Okatie at 32.3338, -81.0326",
+     "after": "Okatie at 33.8868, -82.1158 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6810U",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Elloree at 33.5324, -80.5797",
+     "after": "Elloree at 34.4174, -82.4680 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6808U",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Hopkins at 33.8887, -80.9208",
+     "after": "Hopkins at 32.0900, -80.9208 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6810J",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Elloree at 33.5324, -80.5797",
+     "after": "Elloree at 34.4174, -82.4680 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6810T",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "St Matthews at 33.6674, -80.7712",
+     "after": "St Matthews at 34.5524, -82.6626 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6809N",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Batesburg at 33.9135, -81.5644",
+     "after": "Batesburg at 32.1749, -81.0145 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-05004P",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Summerville at 33.0237, -80.1448",
+     "after": "Summerville at 34.7598, -80.7114 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-06810H",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Summerville at 33.0237, -80.1448",
+     "after": "Summerville at 33.9090, -82.0217 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6809E",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Stevens Creek at 33.5626, -82.0514",
+     "after": "Stevens Creek at 34.4476, -80.1624 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6810O",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Urquhart at 33.4329, -81.9111",
+     "after": "Urquhart at 34.9857, -83.0086 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "GA-20764",
+     "utility": "GPC",
+     "field": "located point",
+     "before": "Atkinson at 33.8255, -84.4714",
+     "after": "Atkinson at 33.3425, -82.3916 (200 km away, still in GA)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-point project in planning zone 201, which has too few confidently located projects for a median, so the zone check has nothing to compare against"
+    },
+    {
+     "record": "DESC-6805G",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Edenwood at 33.9589, -81.0501",
+     "after": "Edenwood at 33.9399, -78.8820 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-0167CD",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Union Pier at 32.7909, -79.9292",
+     "after": "Union Pier at 34.3439, -81.0183 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-06005B",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Harleyville at 33.2099, -80.4512",
+     "after": "Harleyville at 34.4723, -81.9938 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6808R",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Wateree at 33.8263, -80.6241",
+     "after": "Wateree at 34.2740, -82.7266 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6808W",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Hopkins at 33.8887, -80.9208",
+     "after": "Hopkins at 33.8697, -78.7544 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-0147CK",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Cainhoy at 32.9414, -79.8423",
+     "after": "Cainhoy at 33.3897, -81.9232 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6809G",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Stevens Creek at 33.5626, -82.0514",
+     "after": "Stevens Creek at 34.4476, -80.1624 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-06810G",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Goose Creek Reservoir at 32.9559, -80.0477",
+     "after": "Goose Creek Reservoir at 34.2183, -81.5857 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-06371D",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Wagener at 33.6501, -81.3606",
+     "after": "Wagener at 34.9123, -82.9115 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-0147BJ",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Jack Primus at 32.9194, -79.9045",
+     "after": "Jack Primus at 33.8047, -81.7791 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6810A",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Thurmond at 33.6601, -82.1959",
+     "after": "Thurmond at 34.5451, -80.3048 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-1060AIL",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Williams St at 33.9881, -81.0379",
+     "after": "Williams St at 32.1894, -81.0379 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "DESC-6808J",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Eastover at 33.8699, -80.7432",
+     "after": "Eastover at 33.8509, -78.5773 (200 km away, still in SC)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-substation project: no second endpoint and no planning zone (DESC files none), so nothing in the record says where in the state it should be"
+    },
+    {
+     "record": "GA-20776",
+     "utility": "GTC",
+     "field": "located point",
+     "before": "Villa Rica at 33.7410, -84.8549",
+     "after": "Villa Rica at 34.1888, -82.7544 (200 km away, still in GA)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-point project in planning zone 201, which has too few confidently located projects for a median, so the zone check has nothing to compare against"
+    },
+    {
+     "record": "GA-21118",
+     "utility": "MEAG",
+     "field": "located point",
+     "before": "Athena at 33.9764, -83.3461",
+     "after": "Athena at 32.6953, -81.8349 (200 km away, still in GA)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "the end moved toward the other one: they are 111 km apart, under the 150 km limit, and its center is 56 km from planning zone 215's median (the zone check allows 100)"
+    },
+    {
+     "record": "GA-20505",
+     "utility": "GTC",
+     "field": "located point",
+     "before": "V. Rica at 33.7410, -84.8549",
+     "after": "V. Rica at 34.1888, -82.7544 (200 km away, still in GA)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-point project in planning zone 201, which has too few confidently located projects for a median, so the zone check has nothing to compare against"
+    },
+    {
+     "record": "GA-20761",
+     "utility": "GPC",
+     "field": "located point",
+     "before": "Atkinson at 33.8255, -84.4714",
+     "after": "Atkinson at 33.3425, -82.3916 (200 km away, still in GA)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-point project in planning zone 201, which has too few confidently located projects for a median, so the zone check has nothing to compare against"
+    },
+    {
+     "record": "GA-20781",
+     "utility": "GPC",
+     "field": "located point",
+     "before": "Villa Rica at 33.7410, -84.8549",
+     "after": "Villa Rica at 31.9424, -84.8549 (200 km away, still in GA)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-point project in planning zone 201, which has too few confidently located projects for a median, so the zone check has nothing to compare against"
+    },
+    {
+     "record": "GA-20858",
+     "utility": "GTC",
+     "field": "located point",
+     "before": "Adamsville at 33.7492, -84.4985",
+     "after": "Adamsville at 32.0106, -85.0474 (200 km away, still in GA)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-point project in planning zone 201, which has too few confidently located projects for a median, so the zone check has nothing to compare against"
+    },
+    {
+     "record": "GA-21097",
+     "utility": "GPC",
+     "field": "located point",
+     "before": "East Point at 33.6763, -84.4630",
+     "after": "East Point at 31.9378, -85.0114 (200 km away, still in GA)",
+     "outcome": "missed",
+     "caught_by": [],
+     "noted_by": [],
+     "detail": null,
+     "why_missed": "a single-point project in planning zone 201, which has too few confidently located projects for a median, so the zone check has nothing to compare against"
+    }
+   ],
+   "value_wrong": []
+  },
+  {
+   "id": "other_state",
+   "label": "Point in another state",
+   "origin": "common",
+   "met_in": null,
+   "about": "a match to a same-name place across the border, e.g. Jasper, Tennessee",
+   "expect": "set aside",
+   "where": "located point",
+   "eligible": 191,
+   "injected": 191,
+   "caught": 191,
+   "missed": 0,
+   "catch_rate": 1.0,
+   "outcomes": {
+    "set_aside": 191,
+    "flagged": 0,
+    "noted": 0,
+    "missed": 0
+   },
+   "caught_by": [
+    {
+     "check": "in_region",
+     "label": "Located inside SC or GA",
+     "blocking": true,
+     "first": 191,
+     "any": 191
+    },
+    {
+     "check": "in_territory",
+     "label": "Within reach of the filer's state",
+     "blocking": true,
+     "first": 0,
+     "any": 94
+    },
+    {
+     "check": "span_plausible",
+     "label": "Line endpoints under 150 km apart",
+     "blocking": true,
+     "first": 0,
+     "any": 66
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 41,
+     "caught": 41
+    },
+    "Georgia": {
+     "injected": 150,
+     "caught": 150
+    }
+   },
+   "value_correct": null,
+   "examples": [
+    {
+     "record": "DESC-6808J",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Eastover at 33.8699, -80.7432",
+     "after": "Eastover at 34.2257, -77.9447 (Wilmington, North Carolina)",
+     "outcome": "set_aside",
+     "caught_by": [
+      "in_region",
+      "in_territory"
+     ],
+     "noted_by": [],
+     "detail": "located outside South Carolina and Georgia: Eastover (34.2257, -77.9447)"
+    },
+    {
+     "record": "GA-20326",
+     "utility": "GPC",
+     "field": "located point",
+     "before": "Anthony Shoals at 34.0018, -82.6363",
+     "after": "Anthony Shoals at 31.2232, -85.3905 (Dothan, Alabama)",
+     "outcome": "set_aside",
+     "caught_by": [
+      "in_region"
+     ],
+     "noted_by": [],
+     "detail": "located outside South Carolina and Georgia: Anthony Shoals (31.2232, -85.3905)"
+    }
+   ],
+   "misses": [],
+   "value_wrong": []
+  },
+  {
+   "id": "two_digit_year",
+   "label": "Two-digit year",
+   "origin": "format",
+   "met_in": "DESC files dates like 12/31/23; a regex once read 6/1/2033 as 2020",
+   "about": "a date written with a two-digit year (12/31/26)",
+   "expect": "read as the right year",
+   "where": "in-service date",
+   "eligible": 172,
+   "injected": 172,
+   "caught": null,
+   "missed": null,
+   "catch_rate": null,
+   "outcomes": {
+    "set_aside": 0,
+    "flagged": 0,
+    "noted": 172,
+    "missed": 0
+   },
+   "caught_by": [],
+   "by_filing": {
+    "DESC": {
+     "injected": 22,
+     "caught": 22
+    },
+    "Georgia": {
+     "injected": 150,
+     "caught": 150
+    }
+   },
+   "value_correct": {
+    "checked": 172,
+    "correct": 172
+   },
+   "examples": [
+    {
+     "record": "DESC-6810U",
+     "utility": "DESC",
+     "field": "in-service date",
+     "before": "12/31/2026",
+     "after": "12/31/26",
+     "outcome": "noted",
+     "caught_by": [],
+     "noted_by": [
+      "date_normalized",
+      "date_valid"
+     ],
+     "detail": "two-digit year '26' read as 2026"
+    },
+    {
+     "record": "GA-20767",
+     "utility": "GPC",
+     "field": "in-service date",
+     "before": "6/1/2033",
+     "after": "6/1/33",
+     "outcome": "noted",
+     "caught_by": [],
+     "noted_by": [
+      "date_normalized",
+      "date_valid"
+     ],
+     "detail": "two-digit year '33' read as 2033"
+    }
+   ],
+   "misses": [],
+   "value_wrong": [],
+   "read_correctly": 172,
+   "not_read_correctly": 0
+  },
+  {
+   "id": "kv_letter_o",
+   "label": "Letter O in a voltage",
+   "origin": "filings",
+   "met_in": "Georgia's Table 2 prints 'THALMANN AND COLERAIN 23O KV'",
+   "about": "a letter O typed for a zero in a voltage",
+   "expect": "read as the right voltage and flagged",
+   "where": "title",
+   "eligible": 74,
+   "injected": 74,
+   "caught": 74,
+   "missed": 0,
+   "catch_rate": 1.0,
+   "outcomes": {
+    "set_aside": 6,
+    "flagged": 68,
+    "noted": 0,
+    "missed": 0
+   },
+   "caught_by": [
+    {
+     "check": "voltage_found",
+     "label": "Voltage found, no typo",
+     "blocking": false,
+     "first": 68,
+     "any": 68
+    },
+    {
+     "check": "located",
+     "label": "At least one endpoint located",
+     "blocking": true,
+     "first": 6,
+     "any": 6
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 14,
+     "caught": 14
+    },
+    "Georgia": {
+     "injected": 60,
+     "caught": 60
+    }
+   },
+   "value_correct": {
+    "checked": 74,
+    "correct": 65
+   },
+   "examples": [
+    {
+     "record": "DESC-06367DG",
+     "utility": "DESC",
+     "field": "title",
+     "before": "Jasper – Okatie 230 kV #2: Construct",
+     "after": "Jasper – Okatie 23O kV #2: Construct",
+     "outcome": "flagged",
+     "caught_by": [
+      "voltage_found"
+     ],
+     "noted_by": [],
+     "detail": "voltage typo '23O KV' read as 230 kV"
+    },
+    {
+     "record": "GA-20248",
+     "utility": "GPC",
+     "field": "title",
+     "before": "BAY CREEK - CONYERS 230KV REBUILD",
+     "after": "BAY CREEK - CONYERS 23OKV REBUILD",
+     "outcome": "flagged",
+     "caught_by": [
+      "voltage_found"
+     ],
+     "noted_by": [],
+     "detail": "voltage typo '23O KV' read as 230 kV"
+    }
+   ],
+   "misses": [],
+   "value_wrong": [
+    {
+     "record": "DESC-05004P",
+     "utility": "DESC",
+     "field": "title",
+     "before": "Summerville: Replace and Spare 230-115kV 336MVA Auto Bank",
+     "after": "Summerville: Replace and Spare 23O-115kV 336MVA Auto Bank",
+     "outcome": "flagged",
+     "caught_by": [
+      "voltage_found"
+     ],
+     "noted_by": [],
+     "detail": "the title has '23O' inside a voltage (a letter O for a zero?); it was not read as a voltage, check the title",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    },
+    {
+     "record": "GA-10814",
+     "utility": "GTC",
+     "field": "title",
+     "before": "GTC: BAY CREEK 230/115KV SECOND AUTO TRANSFORMER",
+     "after": "GTC: BAY CREEK 23O/115KV SECOND AUTO TRANSFORMER",
+     "outcome": "set_aside",
+     "caught_by": [
+      "located"
+     ],
+     "noted_by": [],
+     "detail": "no endpoint matched an OpenStreetMap feature or place: Bay Creek 23o/115kv",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    },
+    {
+     "record": "GA-17075",
+     "utility": "GPC",
+     "field": "title",
+     "before": "SAV: LITTLE OGEECHEE 230-115KV: RELAY MODERNIZATION",
+     "after": "SAV: LITTLE OGEECHEE 23O-115KV: RELAY MODERNIZATION",
+     "outcome": "set_aside",
+     "caught_by": [
+      "located"
+     ],
+     "noted_by": [],
+     "detail": "no endpoint matched an OpenStreetMap feature or place: Little Ogeechee 23o-115kv",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    },
+    {
+     "record": "DESC-06076A",
+     "utility": "DESC",
+     "field": "title",
+     "before": "Canadys-Ritter 115KV-Rebld SPDC 230/115KV 1272 (Approx 18 Miles)",
+     "after": "Canadys-Ritter 115KV-Rebld SPDC 23O/115KV 1272 (Approx 18 Miles)",
+     "outcome": "flagged",
+     "caught_by": [
+      "voltage_found"
+     ],
+     "noted_by": [],
+     "detail": "the title has '23O' inside a voltage (a letter O for a zero?); it was not read as a voltage, check the title",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    },
+    {
+     "record": "DESC-6805G",
+     "utility": "DESC",
+     "field": "title",
+     "before": "Edenwood Sub: #1 & #2 230-115kV Autobanks, Replace with 336MVA",
+     "after": "Edenwood Sub: #1 & #2 23O-115kV Autobanks, Replace with 336MVA",
+     "outcome": "flagged",
+     "caught_by": [
+      "voltage_found"
+     ],
+     "noted_by": [],
+     "detail": "the title has '23O' inside a voltage (a letter O for a zero?); it was not read as a voltage, check the title",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    },
+    {
+     "record": "GA-20787",
+     "utility": "GPC",
+     "field": "title",
+     "before": "SAV: LITTLE OGEECHEE 230/115KV BANK REPLACEMENT",
+     "after": "SAV: LITTLE OGEECHEE 23O/115KV BANK REPLACEMENT",
+     "outcome": "set_aside",
+     "caught_by": [
+      "located"
+     ],
+     "noted_by": [],
+     "detail": "no endpoint matched an OpenStreetMap feature or place: Little Ogeechee 23o/115kv",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    },
+    {
+     "record": "GA-14222",
+     "utility": "GPC",
+     "field": "title",
+     "before": "THOMSON PRIMARY 230/115KV SECOND TRANSFORMER",
+     "after": "THOMSON PRIMARY 23O/115KV SECOND TRANSFORMER",
+     "outcome": "set_aside",
+     "caught_by": [
+      "located"
+     ],
+     "noted_by": [],
+     "detail": "no endpoint matched an OpenStreetMap feature or place: Thomson Primary 23o/115kv",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    },
+    {
+     "record": "GA-20760",
+     "utility": "GTC",
+     "field": "title",
+     "before": "GTC: HOPEWELL 230/115 KV BANK A",
+     "after": "GTC: HOPEWELL 23O/115 KV BANK A",
+     "outcome": "set_aside",
+     "caught_by": [
+      "located"
+     ],
+     "noted_by": [],
+     "detail": "no endpoint matched an OpenStreetMap feature or place: Hopewell 23o/115",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    },
+    {
+     "record": "GA-19630",
+     "utility": "MEAG",
+     "field": "title",
+     "before": "MEAG: THOMASVILLE 230/115KV AUTOBANK REPLACEMENT",
+     "after": "MEAG: THOMASVILLE 23O/115KV AUTOBANK REPLACEMENT",
+     "outcome": "set_aside",
+     "caught_by": [
+      "located"
+     ],
+     "noted_by": [],
+     "detail": "no endpoint matched an OpenStreetMap feature or place: Thomasville 23o/115kv",
+     "note": "flagged, but the voltage came out as [115] instead of [230, 115]"
+    }
+   ]
+  },
+  {
+   "id": "swapped_latlon",
+   "label": "Swapped latitude and longitude",
+   "origin": "common",
+   "met_in": null,
+   "about": "a coordinate pair entered the wrong way round",
+   "expect": "set aside",
+   "where": "located point",
+   "eligible": 191,
+   "injected": 191,
+   "caught": 191,
+   "missed": 0,
+   "catch_rate": 1.0,
+   "outcomes": {
+    "set_aside": 191,
+    "flagged": 0,
+    "noted": 0,
+    "missed": 0
+   },
+   "caught_by": [
+    {
+     "check": "in_region",
+     "label": "Located inside SC or GA",
+     "blocking": true,
+     "first": 191,
+     "any": 191
+    },
+    {
+     "check": "in_territory",
+     "label": "Within reach of the filer's state",
+     "blocking": true,
+     "first": 0,
+     "any": 191
+    },
+    {
+     "check": "span_plausible",
+     "label": "Line endpoints under 150 km apart",
+     "blocking": true,
+     "first": 0,
+     "any": 67
+    }
+   ],
+   "by_filing": {
+    "DESC": {
+     "injected": 41,
+     "caught": 41
+    },
+    "Georgia": {
+     "injected": 150,
+     "caught": 150
+    }
+   },
+   "value_correct": null,
+   "examples": [
+    {
+     "record": "DESC-6805G",
+     "utility": "DESC",
+     "field": "located point",
+     "before": "Edenwood at 33.9589, -81.0501",
+     "after": "Edenwood at -81.0501, 33.9589 (swapped)",
+     "outcome": "set_aside",
+     "caught_by": [
+      "in_region",
+      "in_territory"
+     ],
+     "noted_by": [],
+     "detail": "located outside South Carolina and Georgia: Edenwood (-81.0501, 33.9589)"
+    },
+    {
+     "record": "GA-21142",
+     "utility": "GPC",
+     "field": "located point",
+     "before": "Klondike at 33.6370, -84.1245",
+     "after": "Klondike at -84.1245, 33.6370 (swapped)",
+     "outcome": "set_aside",
+     "caught_by": [
+      "in_region",
+      "in_territory"
+     ],
+     "noted_by": [],
+     "detail": "located outside South Carolina and Georgia: Klondike (-84.1245, 33.6370)"
+    }
+   ],
+   "misses": [],
+   "value_wrong": []
+  }
+ ],
+ "outcomes": {
+  "set_aside": "a blocking check failed: the record went to quarantine with the reason",
+  "flagged": "kept, but a check now warns about it, with the reason",
+  "noted": "format test only: kept and read as the right value (not a catch: nothing was wrong)",
+  "missed": "nothing noticed, or the value came out wrong without a warning"
+ },
+ "method": [
+  "DESC records: the fault goes into the PDF page text itself, which is re-parsed (extract_desc.parse_page) and re-normalized (build.normalize_desc).",
+  "Georgia records: the fault goes into the parsed Table 2 row (title, need date, TEAMS number), re-normalized by build._common; the two-parser and detail-page checks need the PDF and say n/a.",
+  "Location faults move the located point the way a wrong match would; build.geometry_of rebuilds the geometry.",
+  "A title whose place names change goes back through the locate stage (cached OpenStreetMap, no network).",
+  "Every record then runs through checks.run, the same 16 checks the build uses; a duplicate id runs in a batch with the record it copies."
+ ],
+ "seconds": 0.5
+}

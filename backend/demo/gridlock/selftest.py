@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import checks  # noqa: E402
 import extract_desc  # noqa: E402
 import extract_ga  # noqa: E402
 import locate  # noqa: E402
@@ -33,6 +34,13 @@ CASES = [
     ("kV typo 23O", lambda: N.kv_of("THALMANN AND COLERAIN 23O KV LINE RELAY PANEL UPGRADES")[0], [230]),
     ("kV pair", lambda: N.kv_of("Okatie 230-115kV Substation, Jasper – Yemassee 230kV #1 Fold-in")[0], [230, 115]),
     ("kV drops distribution", lambda: N.kv_of("Union Pier 115-13.8 kV Sub: Tap")[0], [115]),
+    # a letter O inside a voltage pair isn't repaired, so the check flags it (faults.py slipped '23O-115kV' past every check)
+    ("kV typo inside a pair flagged", lambda: checks.voltage_found(
+        {"name": "Summerville: Replace and Spare 23O-115kV 336MVA Auto Bank", "kv": [115], "_kv_notes": []}, {})[0], "warn"),
+    ("kV typo 50O/230KV flagged", lambda: checks.voltage_found(
+        {"name": "BOWEN #10 50O/230KV AUTOBANK REPLACEMENT", "kv": [230], "_kv_notes": []}, {})[0], "warn"),
+    ("repaired kV typo not flagged twice", lambda: checks.voltage_found(
+        {"name": "THALMANN AND COLERAIN 23O KV LINE RELAY PANEL UPGRADES", "kv": [230], "_kv_notes": []}, {}), ("pass", "230 kV")),
     # endpoint names, the five Sperry projects' titles among them
     ("ends GOSHEN (SAV)", lambda: _keys("SAV: GOSHEN (SAV) - MCINTOSH 115KV LINE REBUILD"), ["GOSHEN", "MCINTOSH"]),
     ("ends THURMOND DAM (USA) #5", lambda: _keys("EVANS PRIMARY - THURMOND DAM (USA) #5 115KV REBUILD"), ["EVANS PRIMARY", "THURMOND DAM"]),
