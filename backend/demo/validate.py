@@ -28,7 +28,6 @@ SITES = {
     "Miami": (25.7617, -80.1918, 1500),
     "Tampa": (27.9506, -82.4572, 500),
     "Jacksonville": (30.3322, -81.6557, 500),
-    "Tallahassee": (30.4383, -84.2807, 500),
 }
 
 
@@ -85,7 +84,7 @@ def main() -> None:
         casc = g.cascade(bus, mw)
         print(f"{name:12s} {mw:5d} MW at sub {sub} ({g.sub_name[g.bus_sub_idx[bus]]}, {g.bus_kv[bus]:.0f} kV): "
               f"{len(ov)} over limit, headroom {head:.0f} MW, cascade {casc['total_steps']} steps -> {casc['outcome']}, "
-              f"lost {casc['lost_mw']:.0f} MW (~{casc['homes']:,} homes)")
+              f"existing load lost {casc['lost_mw']:.0f} MW (~{casc['homes']:,} homes), site itself dark {casc['site_dark_mw']:.0f} MW")
         if ov:
             any_over = True
         if name == "Orlando":

@@ -186,33 +186,46 @@ def main() -> None:
     kept_bus = {b["id"] for b in out_buses}
 
     out_branches = []
+    n_raised = 0
     for br in inside:
         f, t = int(br["from_bus_id"]), int(br["to_bus_id"])
         if f not in kept_bus or t not in kept_bus:
             continue
         kv = max(fnum(bus_row[f], "baseKV"), fnum(bus_row[t], "baseKV"))
+        pf = fnum(br, "Pf")
         rate = fnum(br, "rateA")
+        rate_est = False
         if rate <= 0:
-            rate = default_rate(kv)
+            # 0 means "unlimited" in the dataset (mostly transformers and generator step-ups):
+            # give it the kV-class default or 30 % above its own base flow, whichever is larger.
+            rate = max(default_rate(kv), round(abs(pf) * 1.3, 1))
+            rate_est = True
             n_default_rate += 1
-        out_branches.append(
-            {
-                "id": int(br.get("branch_id") or len(out_branches) + 1),
-                "f": f,
-                "t": t,
-                "x": fnum(br, "x"),
-                "rate": rate,
-                "kv": kv,
-                "pf_ref": round(fnum(br, "Pf"), 3),
-            }
-        )
+        elif abs(pf) > rate:
+            # the dataset's own solved case exceeds this rating: raise it so the base case is calm
+            rate = round(abs(pf) * 1.1, 1)
+            rate_est = True
+            n_raised += 1
+        entry = {
+            "id": int(br.get("branch_id") or len(out_branches) + 1),
+            "f": f,
+            "t": t,
+            "x": fnum(br, "x"),
+            "rate": rate,
+            "kv": kv,
+            "pf_ref": round(pf, 3),
+        }
+        if rate_est:
+            entry["rate_est"] = True
+        out_branches.append(entry)
+    print(f"{n_raised} rated branches exceeded their rating in the dataset's own base case; rating raised to base flow + 10 %")
     out_ties = [{"bus": b, "mw": round(mw, 3)} for b, mw in sorted(ties.items()) if b in kept_bus]
 
     total_pd = sum(b["pd"] for b in out_buses)
     total_pg = sum(b["pg"] for b in out_buses)
     total_tie = sum(t["mw"] for t in out_ties)
     print(f"load {total_pd:.0f} MW, generation {total_pg:.0f} MW, ties {total_tie:+.0f} MW, "
-          f"mismatch (≈ AC losses) {total_pg + total_tie - total_pd:+.0f} MW; {n_default_rate} branches got a default rating")
+          f"mismatch (~ AC losses) {total_pg + total_tie - total_pd:+.0f} MW; {n_default_rate} branches got a default rating")
 
     data = {
         "meta": {
@@ -223,7 +236,8 @@ def main() -> None:
             "built_at": time.strftime("%Y-%m-%d %H:%M"),
             "notes": [
                 f"{len(dropped)} disconnected islands dropped ({dropped_load:.0f} MW)",
-                f"{n_default_rate} branches with rating 0 given a default by kV class",
+                f"{n_default_rate} branches with rating 0 ('unlimited') given max(kV-class default, base flow + 30 %)",
+                f"{n_raised} branches over their rating in the dataset's base case had it raised to base flow + 10 %",
                 f"net tie import {total_tie:+.0f} MW held fixed; generation dispatched to balance",
             ],
         },

@@ -45,6 +45,8 @@ class State:
     lu: object = field(repr=False, default=None)  # splu factor of the reduced B'
     keep: np.ndarray | None = field(repr=False, default=None)  # bus indices kept in the reduced system
     weights: np.ndarray | None = field(repr=False, default=None)  # slack distribution per bus
+    lost_existing_mw: float = 0.0  # of lost_mw, the part that was existing load (homes)
+    lost_extra_mw: float = 0.0  # of lost_mw, the part that was the added load (the data center)
 
 
 class Grid:
@@ -175,12 +177,17 @@ class Grid:
             else:
                 weights[idx] = 1.0 / len(idx)
         P = (gen + tie - served) / BASE_MVA
-        return P, served, gen, tie, lost, dark, comp, np.array(refs, dtype=int), weights
+        # Split the shed load into existing load (homes) and the added load (the data center itself).
+        with np.errstate(divide="ignore", invalid="ignore"):
+            frac = np.where(load > _EPS, served / load, 1.0)
+        lost_existing = float((self.pd * (1.0 - frac)).sum())
+        lost_extra = float((extra_load * (1.0 - frac)).sum())
+        return P, served, gen, tie, lost, dark, comp, np.array(refs, dtype=int), weights, lost_existing, lost_extra
 
     def solve(self, active: np.ndarray, extra_load: np.ndarray | None = None) -> State:
         if extra_load is None:
             extra_load = np.zeros(self.n)
-        P, served, gen, tie, lost, dark, comp, refs, weights = self._balance(active, extra_load)
+        P, served, gen, tie, lost, dark, comp, refs, weights, lost_existing, lost_extra = self._balance(active, extra_load)
         b = 1.0 / self.x[active]
         fa, ta = self.f[active], self.t[active]
         rows = np.concatenate([fa, ta, fa, ta])
@@ -209,6 +216,8 @@ class Grid:
             lu=lu,
             keep=keep,
             weights=weights,
+            lost_existing_mw=lost_existing,
+            lost_extra_mw=lost_extra,
         )
 
     # ------------------------------------------------------------------ what-if
@@ -256,7 +265,7 @@ class Grid:
             t_pos = (rate - f0) / dF  # flow rising toward +rate
             t_neg = (-rate - f0) / dF  # flow falling toward -rate
         t = np.where(dF > _EPS, t_pos, np.where(dF < -_EPS, t_neg, np.inf))
-        t = np.where(np.abs(f0) >= rate, 0.0, t)  # already over: nothing fits
+        t = np.where(np.abs(f0) >= rate, np.inf, t)  # already over in the base case: not a *new* overload
         t = np.where(t < 0, np.inf, t)
         active = self.base.active[:, None]
         t = np.where(active, t, np.inf)
@@ -312,8 +321,9 @@ class Grid:
                         "tripped": tripped_ids,
                         "dark_subs": sorted({int(self.sub_ids[self.bus_sub_idx[i]]) for i in np.flatnonzero(newly_dark)}),
                         "hot": [self.branch_info(i, state) for i in np.flatnonzero(state.active & (state.loading_pct > HOT_PCT))],
-                        "lost_mw": round(state.lost_mw, 1),
-                        "homes": int(round(state.lost_mw * HOMES_PER_MW)),
+                        "lost_mw": round(state.lost_existing_mw, 1),
+                        "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
+                        "site_dark_mw": round(state.lost_extra_mw, 1),
                     }
                 )
             prev_dark = prev_dark | state.dark_bus
@@ -335,8 +345,9 @@ class Grid:
             "outcome": "islanded" if state.lost_mw > 0.5 else "settled",
             "capped": capped,
             "total_steps": n,
-            "lost_mw": round(state.lost_mw, 1),
-            "homes": int(round(state.lost_mw * HOMES_PER_MW)),
+            "lost_mw": round(state.lost_existing_mw, 1),
+            "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
+            "site_dark_mw": round(state.lost_extra_mw, 1),
         }
 
     # ------------------------------------------------------------------ payloads

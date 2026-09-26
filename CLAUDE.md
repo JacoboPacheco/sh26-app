@@ -125,8 +125,7 @@ Map: no map library — SVG with a simple projection over a committed Florida ou
 ## Current status
 PHASE: 2 — spec done, skeleton not started
 deployed: no
-DO FIRST: milestone 0 — run `backend/venv/Scripts/python backend/demo/build_grid.py` (downloads six public CSVs into `backend/demo/raw/`, writes `florida_grid.json`), then `backend/venv/Scripts/python backend/demo/validate.py`; pass/fail rules in SPEC.md → Milestone 0; kill switch 3:00 AM Sat (K+4).
-WAITING ON YOU: okay to download the six public CSVs (~25 MB total, raw.githubusercontent.com, Breakthrough Energy PowerSimData, CC-BY 4.0) — the build script does it.
-working: `backend/powerflow.py` (DC power flow, what-if, headroom, cascade, drawable payload) passes `scratch/test_powerflow.py` on a 4-bus case: KCL, dense-solve agreement, headroom equals bisection, cascade islands and terminates.
-in progress: milestone 0 — `build_grid.py` and `validate.py` written, not yet run on real data. Acceptance: `validate.py` prints `MILESTONE 0: PASS` and writes `backend/demo/expected_whatif.json`.
+DO FIRST: the walking skeleton from SPEC.md (M1 → M2 → M3), copying the EXAMPLE feature's shape; `backend/powerflow.py` already does all the math — the routers only call `Grid.whatif / cascade / headroom_by_sub / drawable`.
+working: milestone 0 DONE Sat 00:10 (K+1:10) — `backend/demo/florida_grid.json` (peninsular Florida: 2,469 buses, 1,329 substations, 3,347 branches, 0.59 MB) built by `build_grid.py`; `validate.py` prints `MILESTONE 0: PASS` (DC flows vs dataset Pf correlation 1.000, base case calm at max 95 %, median headroom 216 MW, Orlando 500 MW → 7 lines over, headroom 217 MW, 3-step cascade). `backend/powerflow.py` passes `scratch/test_powerflow.py` (KCL, dense-solve agreement, headroom = bisection, cascade islands). Rebuild only with `build_grid.py --no-download` (raw CSVs cached in `backend/demo/raw/`, gitignored).
+in progress: nothing — skeleton not started. Acceptance for M1: SPEC.md → Must-have M1.
 [Line 1 is always `PHASE: n — reason`, line 2 `deployed: yes/no`; then, when they apply, one per line: `DO FIRST: …`, `BLOCKED: …`, `WAITING ON YOU: …`, `LATER: …` (Workflow and PLAYBOOK say when); then working / broken / in progress + its acceptance check.]

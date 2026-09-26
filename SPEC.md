@@ -59,7 +59,7 @@ AC power flow, voltages, frequency or dynamics; real utility data, real-time dat
 
 ## Milestones
 
-- **Milestone 0 — validation gate, by 3:00 AM Sat (K+4).** `backend/demo/build_grid.py` builds the JSON; `backend/demo/validate.py` prints: (a) the Pearson correlation between our DC base-case branch flows and the dataset's solved `Pf` on Florida branches, (b) the share of branches over 100 % in our base case, (c) the seeded Orlando drop's overloaded set and headroom, which it writes to `expected_whatif.json`. **Pass:** correlation ≥ 0.9, base-case overloads ≤ 2 % of branches, and a 500 MW drop somewhere in Florida produces at least one overload. **Fail at 3:00 AM:** rebuild with `interconnect == "Texas"` (an island by design, no boundary cut) and re-validate; if the DC power flow itself is untrustworthy, switch to the `RUNNER-UP` in CLAUDE.md → Decisions (Next Stop) via `/spec` again ("Restart on runner-up").
+- **Milestone 0 — validation gate, by 3:00 AM Sat (K+4). PASSED Sat 00:10 (K+1:10): correlation 1.000, 0 base-case overloads, 19 of 20 random 500 MW sites overload something; `expected_whatif.json` written for Orlando (7 branches, headroom 217 MW).** `backend/demo/build_grid.py` builds the JSON; `backend/demo/validate.py` prints: (a) the Pearson correlation between our DC base-case branch flows and the dataset's solved `Pf` on Florida branches, (b) the share of branches over 100 % in our base case, (c) the seeded Orlando drop's overloaded set and headroom, which it writes to `expected_whatif.json`. **Pass:** correlation ≥ 0.9, base-case overloads ≤ 2 % of branches, and a 500 MW drop somewhere in Florida produces at least one overload. **Fail at 3:00 AM:** rebuild with `interconnect == "Texas"` (an island by design, no boundary cut) and re-validate; if the DC power flow itself is untrustworthy, switch to the `RUNNER-UP` in CLAUDE.md → Decisions (Next Stop) via `/spec` again ("Restart on runner-up").
 - **Milestone 1 — walking skeleton, by K+10 (9:00 AM Sat):** M1–M3 ugly but end to end; `demo_path.py` green in `/check`; the template's EXAMPLE feature removed; the human clicked through on localhost. Then deploy (PLAYBOOK → Deploy) and, per Decisions, the design direction before more features.
 - **Phase 3:** nice-to-haves 1–2, then the Gemini extra, then 4–5.
 
@@ -108,6 +108,7 @@ Latency ("within a second" for a drop, ~0.6 s per cascade step) and the validati
 
 ## Open questions (don't block the skeleton)
 
-- Whether the Panhandle's ties to Alabama and Georgia leave the cut well-conditioned; if the Panhandle misbehaves, drop zone 21 and say "peninsular Florida".
+- ~~Whether the Panhandle's ties leave the cut well-conditioned.~~ Resolved Sat 00:10: in the model the Panhandle (284 buses, 3.5 GW) connects only through Alabama/Georgia, so the build keeps the largest component: peninsular Florida, 2,469 buses, 1,329 substations, 3,347 branches. Say "peninsular Florida" on screen if asked.
+- Resolved Sat 00:10: 644 branches the dataset marks "unlimited" (rating 0, mostly transformers) get max(kV-class default, base flow + 30 %) and carry `rate_est: true`; the base case is calm (max 95 % loading). The homes counter counts existing load only; the data center's own blackout is reported separately (`site_dark_mw`).
 - The exact homes-per-MW constant (700 is ~1.4 kW average household load); label it an estimate either way.
 - Whether the cascade should trip one line per step (better animation) or every line over 100 % (faster spread); start with one per step.
