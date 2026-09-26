@@ -41,6 +41,7 @@ import fixit
 import forecast
 import grid
 import gridlock
+import gridreader
 import hospitals
 import hurricane
 import llm
@@ -133,16 +134,17 @@ app.include_router(voice.router)
 app.include_router(plants.router)
 app.include_router(ask.router)
 app.include_router(gridlock.router)
+app.include_router(gridreader.router)
 app.include_router(agreement.router)
 app.include_router(negotiate.router)
 app.include_router(danger.router)
 app.include_router(vote.router)
 app.include_router(analyst.router)
 app.include_router(unlock.router)
+app.include_router(narrate.router)
 app.include_router(views.router)
 app.include_router(sitereport.router)
 app.include_router(sources.router)
-app.include_router(narrate.router)
 
 
 @app.get("/api/health")
