@@ -388,6 +388,7 @@ a {
 /* mode switcher: the scenario you're building */
 .modes {
   display: flex;
+  flex-wrap: wrap; /* five modes: a second row when the panel is narrow, never clipped */
   gap: 2px;
   padding: var(--space-2) var(--space-2) 0;
   border-bottom: 1px solid var(--glass-edge);
