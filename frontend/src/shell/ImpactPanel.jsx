@@ -17,8 +17,12 @@ export default function ImpactPanel() {
   // never counts down mid-replay (the result sentence gives the final number)
   const peak = cascade && step > 0 ? Math.max(...cascade.steps.slice(0, step).map((s) => s[key] ?? 0)) : (view?.[key] ?? view?.homes ?? 0)
   const final = done ? cascade.steps[n - 1][key] ?? 0 : null
-  // while playing, the number climbs steadily across each step's interval instead of jumping
-  const homes = useCountUp(peak, playing ? STEP_MS : 500, { linear: playing })
+  // While playing, the counter climbs steadily from 0 to the cascade's worst across the whole
+  // replay (never below what has really happened so far) and lands exactly on it at the end —
+  // a continuous count, not the model's step-by-step jumps. Paused or scrubbed: the exact value.
+  const worst = n ? Math.max(...cascade.steps.map((s) => s[key] ?? 0)) : 0
+  const target = playing && n ? Math.max(peak, Math.round((worst * Math.min(step + 1, n)) / n)) : peak
+  const homes = useCountUp(target, playing ? STEP_MS : 500, { linear: playing })
   return (
     <div className="stack panel-body impact">
       <div className="counter" aria-live="polite">
