@@ -849,6 +849,51 @@ select optgroup {
   background: var(--night);
 }
 
+/* "Run the cascade" beside the dropped data center (shell/CascadeCue): a short leader from the ring,
+   then the button; it fades in once the connect pulse has landed */
+.cascade-cue {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  transform: translate(20px, -50%);
+  pointer-events: none;
+  animation: cascade-cue-in 320ms ease-out 450ms both;
+}
+.cascade-cue::before {
+  content: '';
+  width: 14px;
+  height: 1px;
+  margin-right: 6px;
+  background: var(--ink-2);
+}
+.cascade-cue--flip {
+  flex-direction: row-reverse;
+  transform: translate(calc(-100% - 20px), -50%);
+}
+.cascade-cue--flip::before {
+  margin-right: 0;
+  margin-left: 6px;
+}
+.cascade-cue__btn {
+  pointer-events: auto;
+  white-space: nowrap;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.45);
+}
+@keyframes cascade-cue-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cascade-cue {
+    animation: none;
+  }
+}
+
 .map--tool .map-svg {
   cursor: inherit;
 }

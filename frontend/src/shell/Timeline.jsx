@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import { fmt } from '../geo'
 import { useOverload } from '../store'
 import { Button, ErrorBanner } from '../ui'
+import { useCascadeCueShown } from './CascadeCue'
 import { buildSchedule, titleCase } from './cascadeSchedule'
 
 // The bottom bar: the one place the cascade is started, played and scrubbed, in every mode.
@@ -17,6 +18,8 @@ export default function Timeline() {
   // while the replay plays, the line names the step being played (the store's step moves at its end)
   const shown = live ? Math.min(step + 1, n) : step
   const cur = cascade && shown > 0 ? cascade.steps[shown - 1] : null
+  // the first run's button sits beside the dropped data center while that one is on screen (shell/CascadeCue)
+  const cue = useCascadeCueShown() && !cascade && !cascading
 
   // where each step's mark sits (0..1): the end of its tier in the whole replay
   const marks = useMemo(() => {
@@ -55,9 +58,11 @@ export default function Timeline() {
   return (
     <div className="timeline">
       <div className="timeline__cta">
-        <Button onClick={() => startCascade()} busy={cascading} disabled={!ready}>
-          {cascading ? 'Running…' : cascade ? 'Run it again' : 'Run the cascade'}
-        </Button>
+        {!cue && (
+          <Button onClick={() => startCascade()} busy={cascading} disabled={!ready}>
+            {cascading ? 'Running…' : cascade ? 'Run it again' : 'Run the cascade'}
+          </Button>
+        )}
         {cascade && n > 0 && (
           <Button
             variant="secondary"
@@ -74,7 +79,9 @@ export default function Timeline() {
       <div className="timeline__track">
         {!cascade ? (
           <p className="timeline__hint">
-            {ready ? 'The cascade trips the most overloaded line, re-solves, and repeats until the grid settles or splits.' : `Drop a data center on ${o.region === 'US' ? 'a state' : o.grid?.meta?.region_name || 'the map'} to begin.`}
+            {cue
+              ? 'Press Run the cascade beside the data center: it trips the most overloaded line, re-solves, and repeats until the grid settles or splits.'
+              : ready ? 'The cascade trips the most overloaded line, re-solves, and repeats until the grid settles or splits.' : `Drop a data center on ${o.region === 'US' ? 'a state' : o.grid?.meta?.region_name || 'the map'} to begin.`}
           </p>
         ) : n === 0 ? (
           <p className="timeline__hint">Nothing to cascade — no line is over its limit.</p>

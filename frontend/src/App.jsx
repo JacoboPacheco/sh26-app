@@ -20,6 +20,7 @@ import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
 import TopBar from './shell/TopBar'
 import CascadeFX from './shell/CascadeFX'
+import CascadeCue from './shell/CascadeCue'
 import ImpactPanel from './shell/ImpactPanel'
 import ScenarioBar from './shell/ScenarioBar'
 import Timeline from './shell/Timeline'
@@ -201,6 +202,8 @@ function MissionControl() {
             <ProposalRings />
             <DangerLayer />
             <CascadeFX />
+            {/* "Run the cascade" beside the dropped data center (the bottom bar hides its own meanwhile) */}
+            <CascadeCue />
             <ImpactLayer />
             {/* "Who goes dark first?": the rule picked in the results column, crossfaded over the end state */}
             <DarkFirstLayer />
