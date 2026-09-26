@@ -1,6 +1,7 @@
 import BoomLayer from './features/boom/BoomLayer'
 import BoomPanel from './features/boom/BoomPanel'
 import DangerLayer from './features/danger/DangerLayer'
+import DarkFirstLayer from './features/darkfirst/DarkFirstLayer'
 import BestSitesLayer from './features/fix/BestSitesLayer'
 import FixPanel from './features/fix/FixPanel'
 import GeminiDuelLayer from './features/fix/GeminiDuelLayer'
@@ -201,6 +202,8 @@ function MissionControl() {
             <DangerLayer />
             <CascadeFX />
             <ImpactLayer />
+            {/* "Who goes dark first?": the rule picked in the results column, crossfaded over the end state */}
+            <DarkFirstLayer />
             <HurricaneLayer />
             <BoomLayer />
             <BestSitesLayer />

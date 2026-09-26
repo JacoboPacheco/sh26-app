@@ -6,6 +6,7 @@ import CostCard from '../features/cost/CostCard'
 import OutageCost from '../features/cost/OutageCost'
 import { LABEL, cascadePeople, homesOf } from '../features/cost/figures'
 import { money, moneyParts, moneyRange } from '../features/cost/money'
+import DarkFirst from '../features/darkfirst/DarkFirst'
 import { FlipOffer, FlipResult } from '../features/fix/Flip'
 import { GeminiDuelOffer } from '../features/fix/GeminiDuelLayer'
 import { flipSide, plantsOut, useFixFollowsCase, useFlip } from '../features/fix/flipCase'
@@ -76,6 +77,9 @@ export default function ImpactPanel() {
       {done && !calm && !fixed && <GeminiDuelOffer rate={rate} />}
       {result && <PresentDamage />}
       {(done || (fixed && settled)) && <ToStrengthen />}
+      {/* the same campus under three service rules: who is cut first (features/darkfirst); below the flip, the
+          presentation and the hand-off, so the fix stays in view when the cascade ends */}
+      {done && !calm && !fixed && <DarkFirst />}
       <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>
         <summary>More: incident briefing, cost breakdown, towns, map key</summary>
         {more && (

@@ -52,6 +52,7 @@ import negotiate
 import planner
 import plants
 import scenarios
+import service_rules
 import sitereport
 import sources
 import timelapse
@@ -151,6 +152,7 @@ app.include_router(views.router)
 app.include_router(sitereport.router)
 app.include_router(sources.router)
 app.include_router(timelapse.router)
+app.include_router(service_rules.router)
 
 
 @app.get("/api/health")
