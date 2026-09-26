@@ -21,6 +21,19 @@ import useAuth from './useAuth'
 // Feature previews: each feature folder may have a Preview.jsx; #/preview/<folder> shows it over the
 // live map inside the real app state. How a feature is built and checked before it is mounted.
 const PREVIEWS = import.meta.glob('./features/*/Preview.jsx', { eager: true })
+// The next application shell, built in features/app/ alongside this one: #/next… renders it instead.
+const NEXT = import.meta.glob('./features/app/NextApp.jsx', { eager: true })['./features/app/NextApp.jsx']?.default
+
+function useIsNext() {
+  const read = () => window.location.hash.startsWith('#/next')
+  const [on, setOn] = useState(read)
+  useEffect(() => {
+    const f = () => setOn(read())
+    window.addEventListener('hashchange', f)
+    return () => window.removeEventListener('hashchange', f)
+  }, [])
+  return on
+}
 
 function usePreviewName() {
   const read = () => window.location.hash.match(/^#\/preview\/([\w-]+)/)?.[1] || null
@@ -44,11 +57,8 @@ function App() {
   // Keep this call: with VITE_DEMO_EMAIL/VITE_DEMO_PASSWORD set (frontend/.env) it signs
   // in as the seeded demo account on load, so per-user features need no login screen.
   const { user } = useAuth()
-  return (
-    <OverloadProvider user={user}>
-      <MissionControl user={user} />
-    </OverloadProvider>
-  )
+  const next = useIsNext()
+  return <OverloadProvider user={user}>{next && NEXT ? <NEXT user={user} /> : <MissionControl user={user} />}</OverloadProvider>
 }
 
 // The whole screen is the map; everything else floats over it.

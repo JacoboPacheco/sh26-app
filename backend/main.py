@@ -32,6 +32,7 @@ import costs
 import fixit
 import forecast
 import grid
+import hospitals
 import hurricane
 import llm
 import planner
@@ -96,6 +97,7 @@ app.include_router(forecast.router)
 app.include_router(planner.router)
 app.include_router(catalog.router)
 app.include_router(costs.router)
+app.include_router(hospitals.router)
 
 
 @app.get("/api/health")
