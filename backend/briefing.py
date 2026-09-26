@@ -43,6 +43,7 @@ from pathlib import Path
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from pydantic import Field
 from scipy.optimize import linprog  # imported here so the first restoration plan doesn't pay ~0.5 s for it
 
 import grid
@@ -186,6 +187,8 @@ class EngineGap(RuntimeError):
 class BriefingIn(CaseIn):
     preset: str | None = None  # a catastrophes.json id
     budget_ms: int = 1800  # wall budget for open-ended searches (towns tried for a move beyond the first 12); 300..1800
+    outages: list[int] = Field(default_factory=list)  # Plant Down: plant ids taken offline (plants.py)
+    retire_fuels: list[str] = Field(default_factory=list)  # Plant Down: every plant of these fuels offline
 
 
 @dataclass
@@ -206,6 +209,9 @@ class _Case:
     body: dict  # the normalized request (what `apply` deltas build on)
     people_per_mw: float = 0.0
     extras: dict = field(default_factory=dict)
+    # Plant Down: the plants taken offline (None for every other case). `g` above is then the model
+    # with their generation removed; this holds g_full (every plant running), the plants, the words.
+    plants: dict | None = None
 
 
 # ----------------------------------------------------------------------------- presets + corridor
@@ -300,7 +306,7 @@ def presets_for(region: str | None = None) -> list[dict]:
 
 
 # ----------------------------------------------------------------------------- normalize + key
-def _case_key(code, sites, lf, trip, upgrades, firm, preset_id) -> str:
+def _case_key(code, sites, lf, trip, upgrades, firm, preset_id, plants=None) -> str:
     norm = {
         "v": VERSION,
         "region": code,
@@ -311,7 +317,139 @@ def _case_key(code, sites, lf, trip, upgrades, firm, preset_id) -> str:
         "firm": bool(firm),
         "preset": preset_id,
     }
+    if plants:  # only a Plant Down case carries it, so every other case keeps its key
+        norm["plants"] = [plants["ids"], plants["fuels"], plants["outages"]]
     return hashlib.sha1(json.dumps(norm, sort_keys=True).encode()).hexdigest()
+
+
+# ----------------------------------------------------------------------------- Plant Down cases
+def _plant_case(body: BriefingIn, code: str, g_full: Grid) -> dict | None:
+    """The plants a request takes offline (plants.py), or None. 422s on an unknown plant or fuel."""
+    outages = list(dict.fromkeys(int(i) for i in (getattr(body, "outages", None) or [])))
+    fuels_in = list(getattr(body, "retire_fuels", None) or [])
+    if not outages and not fuels_in:
+        return None
+    import plants  # noqa: PLC0415 — only a plant case needs it
+
+    removed = plants.resolve_removed(code, outages, fuels_in)
+    if not removed:
+        return None  # a retired fuel this state has no plant of: nothing changes
+    fuels = list(dict.fromkeys(plants.normalize_fuel(f) for f in fuels_in))
+    words = plants.describe_removed(removed, fuels)
+    return {
+        "g_full": g_full,
+        "g": plants.grid_without(g_full, code, removed),
+        "removed": removed,
+        "ids": sorted(int(p["id"]) for p in removed),
+        "outages": sorted(outages),
+        "fuels": fuels,
+        "words": words,
+        "output_mw": None,  # filled once the case's extra load is known (build_case)
+        "on": None,  # the same case with every plant running (_plants_on)
+    }
+
+
+def _grid_level(c: _Case, lf: float) -> Grid:
+    """The case's model at another load level: grid_at, with the case's plants still offline."""
+    g = grid_at(lf, c.code)
+    if not c.plants:
+        return g
+    import plants  # noqa: PLC0415
+
+    return plants.grid_without(g, c.code, c.plants["removed"])
+
+
+def _plants_on(c: _Case) -> dict:
+    """The same case with every plant running: its cascade and its step-0 state (cached on the case)."""
+    pl = c.plants
+    if pl.get("on") is None:
+        gf = pl["g_full"]
+        r = _cascade(c, gf, c.extra)
+        st = _solve(c, gf, c.active, c.extra, c.rate)
+        st0 = _solve(c, gf, c.active, None, c.rate) if c.sites else st  # no campus either: the grid alone
+        pl["on"] = {"people": int(r["people"]), "steps": int(r["total_steps"]), "lost_mw": float(r["lost_mw"]), "state": st, "state_no_campus": st0}
+    return pl["on"]
+
+
+def _plant_step(c: _Case, inc: dict) -> dict:
+    """A plant outage that leaves too little generation but overloads no line: the engine sheds load at
+    once and lists no step. Report that moment as step 0 ("plant"), as /api/plants/trip does, so the
+    replay and the timeline show who went dark. Any other case comes back unchanged."""
+    if inc.get("steps") or c.trip:
+        return inc
+    g = c.g
+    st = _solve(c, g, c.active, c.extra, c.rate)
+    lost_now = float(getattr(st, "lost_existing_mw", st.lost_mw))
+    if lost_now <= 0.5:
+        return inc
+    lost = g.lost_by_sub(st)
+    step = {
+        "n": 0,
+        "action": "plant",
+        "tripped": [],
+        "held_line": None,
+        "dark_subs": sorted({int(g.sub_ids[g.bus_sub_idx[i]]) for i in np.flatnonzero(st.dark_bus)}),
+        "newly_affected": sorted(([int(sid), float(mw)] for sid, mw in lost.items()), key=lambda x: -x[1]),
+        "hot": [],
+        "lost_mw": round(lost_now, 1),
+        "people": _people(g, lost_now, c.code),
+        "shed_mw": 0.0,
+        "site_dark_mw": round(float(getattr(st, "lost_extra_mw", 0.0)), 1),
+    }
+    out = {**inc, "steps": [step]}
+    if not out.get("affected"):
+        out["affected"] = {int(k): round(float(v), 1) for k, v in lost.items()}
+    return out
+
+
+def _plant_public(c: _Case, root: dict) -> dict:
+    """The report's `plant_outage`: the plants offline (names as in the model), their MW, what they
+    were making, and the same case with every plant running."""
+    pw = _plant_words(c)
+    on = _plants_on(c)
+    rc_plant = root.get("plant") or {}
+    return {
+        "label": pw["label"],
+        "sentence": f"{pw['went']}. The rest of the grid had to pick up {pw['it']} output.",
+        "plants": [
+            {k: p.get(k) for k in ("id", "name", "sub", "sub_name", "area", "fuel", "pmax", "pg", "lat", "lon")} | {"title": _plant_title(p)}
+            for p in sorted(c.plants["removed"], key=lambda p: -float(p.get("pmax") or 0))[:20]
+        ],
+        "count": c.plants["words"]["count"],
+        "capacity_mw": c.plants["words"]["capacity_mw"],
+        "output_mw": c.plants.get("output_mw"),
+        "fuels": c.plants["fuels"],
+        "outages": c.plants["outages"],
+        "is_cause": root.get("cause") == "plant",
+        "with_plants": {"people": int(on["people"]), "steps": int(on["steps"]), "lost_mw": round(float(on["lost_mw"]), 1)},
+        "people_due_to_plant": int(rc_plant.get("people_due_to_plant") or 0),
+        "pct_with_plant": rc_plant.get("pct_with_plant"),
+        "synthetic": True,
+    }
+
+
+def _plant_title(p: dict) -> str:
+    import plants  # noqa: PLC0415
+
+    return plants.plant_title(p)
+
+
+def _plant_words(c: _Case) -> dict:
+    """Sentence pieces for the plants offline: 'the Homestead 20 nuclear plant' (1,635 MW), its output."""
+    w = c.plants["words"]
+    label = w["label"]
+    out = c.plants.get("output_mw")
+    making = f", making {out:,.0f} MW in this case" if out is not None and out >= 0.5 else ""
+    it = "their" if w["plural"] else "its"
+    return {
+        "label": label,
+        "Label": label[0].upper() + label[1:],
+        "ref": "those plants" if w["plural"] else "the plant",  # after the first mention
+        "size": w["size"],
+        "making": making,
+        "it": it,
+        "went": f"{label[0].upper() + label[1:]} ({w['size']}{making}) went offline",
+    }
 
 
 def build_case(body: BriefingIn) -> _Case:
@@ -335,13 +473,24 @@ def build_case(body: BriefingIn) -> _Case:
     code = region_code(body.region)
     if preset is not None:
         trip = preset_trip(preset)
+    pl = _plant_case(body, code, g)  # Plant Down: the same model with those plants' generation removed
+    if pl is not None:
+        g = pl["g"]
     extra, header = _case_header(g, sites, trip, upgrades)
     buses = [g.site_bus(s.lat, s.lon) for s in sites]
     rate = g.rates_with(upgrades)
     active = np.ones(g.m, dtype=bool)
     for bid in trip:
         active[g.br_index[int(bid)]] = False
-    key = _case_key(code, sites, g.load_factor, trip, upgrades, body.firm, preset["id"] if preset else None)
+    if pl is not None:
+        import plants  # noqa: PLC0415
+
+        try:  # what the plants were making in this case (every plant running, before any cascade)
+            before = pl["g_full"].solve(active, extra, rate)
+            pl["output_mw"] = round(float(sum(plants.plant_output(pl["g_full"], before.gen, p) for p in pl["removed"])), 1)
+        except (ArithmeticError, FloatingPointError, np.linalg.LinAlgError):
+            pl["output_mw"] = None
+    key = _case_key(code, sites, g.load_factor, trip, upgrades, body.firm, preset["id"] if preset else None, pl)
     main = sites[0] if sites else None
     norm_body = {
         "region": code,
@@ -355,7 +504,10 @@ def build_case(body: BriefingIn) -> _Case:
         "firm": bool(body.firm),
         "preset": preset["id"] if preset else None,
     }
-    return _Case(code, g, sites, buses, extra, list(trip), dict(upgrades), bool(body.firm), preset, header, rate, active, key, norm_body, _people_per_mw(code))
+    if pl is not None:  # only a Plant Down case carries them, so the plan re-runs (solutions.py) keep the plants out
+        norm_body["outages"] = pl["outages"]
+        norm_body["retire_fuels"] = pl["fuels"]
+    return _Case(code, g, sites, buses, extra, list(trip), dict(upgrades), bool(body.firm), preset, header, rate, active, key, norm_body, _people_per_mw(code), plants=pl)
 
 
 # ----------------------------------------------------------------------------- engine wrappers
@@ -500,6 +652,10 @@ def _timeline(c: _Case, inc: dict, why_steps: int = WHY_STEPS) -> tuple[list[dic
             if hl is not None and int(hl) in g.br_index:
                 row["held_line"] = {**_line(g, g.br_index[int(hl)]), "shed_mw_cum": s.get("shed_mw")}
             replay_ok = False  # the operator's per-bus cut isn't in the payload; stop replaying
+        elif row["action"] == "plant":  # Plant Down: the plants went offline and what's left couldn't serve everyone
+            pw = _plant_words(c)
+            row["plants"] = {"label": pw["label"], "names": c.plants["words"]["names"][:6], "capacity_mw": c.plants["words"]["capacity_mw"],
+                             "text": f"{pw['went']}; the rest of the grid couldn't make up {pw['it']} output, so load was cut"}
         else:
             new_active = active.copy()
             tripped_labels = set()
@@ -583,6 +739,8 @@ def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
     }
     storm = bool(c.trip)
     floor_cascades = floor["total_steps"] > 0 or floor["people"] > 0
+    if c.plants is not None:
+        return _root_cause_plants(c, first, inc, floor, base, over)
     if not len(over):
         if storm and people_inc > 0:
             cause = "storm"
@@ -664,6 +822,248 @@ def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
     }
 
 
+def _root_cause_plants(c: _Case, first, inc: dict, floor: dict, base: dict, over) -> dict:
+    """The root cause when plants went offline (Plant Down). Said plainly: a power plant went offline,
+    its name as in the model, its MW, and that the rest of the grid had to pick up its output. The first
+    line to fail is judged against the same case with every plant running: if it holds with the plants
+    on, the plant outage is the cause, never the storm or the data center. Otherwise the usual
+    classification stands (_root_cause without plants) and the plant's share is added."""
+    g = c.g
+    pw_ = _plant_words(c)
+    on = _plants_on(c)
+    people_inc, people_on = int(inc["people"]), int(on["people"])
+    due = max(people_inc - people_on, 0)
+    plant = {
+        "label": pw_["label"],
+        "names": c.plants["words"]["names"][:12],
+        "count": c.plants["words"]["count"],
+        "capacity_mw": c.plants["words"]["capacity_mw"],
+        "output_mw": c.plants.get("output_mw"),
+        "fuels": c.plants["fuels"],
+        "people_with_plant": people_on,
+        "people_due_to_plant": due,
+        "steps_with_plant": int(on["steps"]),
+        "pct_with_plant": None,
+    }
+    storm = bool(c.trip)
+    storm_w = _storm_word(c)
+    after = f"after the {storm_w} cut {len(c.trip):,} lines, " if storm else ""
+    pick = f"The rest of the grid had to pick up {pw_['it']} output"
+    dc = "the data center" if len(c.sites) <= 1 else "the data centers"
+
+    ref = pw_["ref"]
+
+    # with every plant running and no campus, is any line over? (if not, what's left with the plants on is the campus's)
+    grid_alone_holds = not len(_over(on["state_no_campus"])) and not storm
+    dc_s = f"{dc}{chr(39) if dc.endswith('s') else chr(39) + 's'}"  # "the data center's" / "the data centers'"
+    # The plants are the cause only when they add people to the outage (or no one loses power and the
+    # question is only which lines trip). When the same people (or more) lose power with every plant
+    # running, the outage is the campus's, the heat's or the storm's, whatever line happened to go first.
+    plant_counts = due > 0 or people_inc == 0
+
+    def with_plants_note() -> str:
+        if people_on == 0 and people_inc > 0:
+            return f" With {ref} running, no one loses power" + (f", {dc} included." if c.sites else ".")
+        if people_inc > people_on:
+            if c.sites and grid_alone_holds:
+                return f" With {ref} running, {_big(people_on)} people (estimate) would still lose power to {dc_s} own overloads, instead of {_big(people_inc)}."
+            return f" With {ref} running, {_big(people_on)} people (estimate) would lose power instead of {_big(people_inc)}."
+        if people_inc == people_on > 0:
+            return f" With {ref} running, the same {_big(people_on)} people (estimate) lose power."
+        if people_on > people_inc:  # the case is worse with the plants running
+            if people_inc == 0:
+                return f" With {ref} running, {_big(people_on)} people (estimate) would lose power; with {ref} offline, no one does."
+            return f" With {ref} running, {_big(people_on)} people (estimate) would lose power instead of {_big(people_inc)}."
+        return ""
+
+    def plant_too() -> str:
+        """The closing words when the plants are not the cause: they were offline too, and what that changed."""
+        if due > 0:
+            return f" Losing {pw_['label']} ({pw_['size']}) made it worse: {_big(people_inc)} people (estimate) lose power instead of {_big(people_on)}."
+        if people_on > people_inc:
+            return f" {pw_['Label']} ({pw_['size']}) was offline too; it adds no one to the outage." + with_plants_note()
+        if people_inc > 0:  # the same count with every plant running (never "picked up its output": that isn't known here)
+            return f" {pw_['Label']} ({pw_['size']}) was offline too, and it adds no one to the outage." + with_plants_note()
+        return f" {pw_['Label']} ({pw_['size']}) was offline too; the rest of the grid picked up {pw_['it']} output, and it adds no one to the outage."
+
+    if not len(over):
+        lost0 = float(getattr(first, "lost_existing_mw", first.lost_mw))
+        cut = f"{lost0:,.0f} MW of load was cut" if lost0 >= 0.5 else "load was cut"
+        if people_inc > 0 and due > 0:
+            cause = "plant"
+            sentence = (
+                f"{(after + pw_['label'])[0].upper() + (after + pw_['label'])[1:]} ({pw_['size']}{pw_['making']}) went offline. "
+                f"{pick}, and it couldn't: {cut} to keep the rest of the grid running."
+                + with_plants_note()
+            )
+        elif storm and people_inc > 0:
+            cause = "storm"
+            sentence = (
+                f"The {storm_w} cut {len(c.trip):,} lines; no line went over its limit afterwards, so the outage is the {storm_w} damage itself. "
+                f"{pw_['Label']} ({pw_['size']}) was offline too, and the rest of the grid picked up {pw_['it']} output."
+            )
+        elif people_inc > 0:  # load was cut with no line over, and the plants add no one to it
+            st0 = on["state_no_campus"]
+            alone_ok = float(getattr(st0, "lost_existing_mw", st0.lost_mw)) <= 0.5 and grid_alone_holds
+            cause = "campus" if c.sites and alone_ok else "heat"
+            sentence = (
+                f"No line went over its limit, but {cut}"
+                + (f": {dc} draws more than the grid can supply there." if cause == "campus" else f" {load_word(c.g.load_factor)}.")
+                + f" {pw_['Label']} ({pw_['size']}) was offline too, and it adds no one to the outage."
+                + with_plants_note()
+            )
+        else:
+            cause = "none"
+            sentence = f"{pw_['went']}. {pick}, and it did: no line went over its limit."
+        return {**base, "cause": cause, "sentence": sentence, "plant": plant}
+
+    i = int(over[np.argmax(first.loading_pct[over])])
+    wo = _solve(c, g, c.active, None, c.rate) if c.sites else first
+    f_with, f_wo = abs(float(first.flow[i])), abs(float(wo.flow[i]))
+    pct_with, pct_wo = float(first.loading_pct[i]), float(wo.loading_pct[i])
+    on_line = max(f_with - f_wo, 0.0) if c.sites else 0.0
+    share = 100.0 * on_line / f_with if f_with > 1e-6 else 0.0
+    st_on, st_on0 = on["state"], on["state_no_campus"]
+    pct_on = float(st_on.loading_pct[i]) if bool(st_on.active[i]) else None
+    pct_on0 = float(st_on0.loading_pct[i]) if bool(st_on0.active[i]) else None
+    plant["pct_with_plant"] = round(pct_on, 1) if pct_on is not None else None
+    info = _line(g, i)
+    label = info["label"]
+    pw, pon = f"{pct_with:.0f}%", (f"{pct_on:.0f}%" if pct_on is not None else None)
+    rest = {
+        **base,
+        "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer")},
+        "pct_with": round(pct_with, 1),
+        "pct_without": round(pct_wo, 1),
+        "pct_before_storm": None,
+        "campus_mw_on_line": round(on_line, 1),
+        "campus_share_pct": round(min(max(share, 0.0), 100.0), 1),
+        "campus_km": None,
+        "plant": plant,
+    }
+    # the plants tipped it: the line holds with them running (everything else the same), or it only
+    # overloads without a campus because they are gone
+    tipped = pct_on is None or pct_on <= OVER_PCT
+    both = False
+    if not tipped and pct_on0 is not None and pct_on0 <= OVER_PCT and pct_wo > OVER_PCT:
+        tipped, both = True, True  # with the plants on it's the campus; with no campus it's the plants: both push it over
+    if tipped and plant_counts:
+        head = f"{(after + pw_['label'])[0].upper() + (after + pw_['label'])[1:]} ({pw_['size']}{pw_['making']}) went offline."
+        if both:
+            sentence = (
+                f"{head} {pick}, and two things pushed {label} over its limit: the lost {'plants' if c.plants['words']['plural'] else 'plant'} and {dc}. "
+                f"It reached {pw} of its rating; with {ref} running it would carry {pon}, and without {dc}, {pct_wo:.0f}%."
+            )
+        else:
+            sentence = (
+                f"{head} {pick}; the power rerouted, and {label} was the first line to fail, at {pw} of its rating"
+                + (f" ({pon} with {ref} running)." if pon else ".")
+            )
+        return {**rest, "cause": "plant", "sentence": sentence + with_plants_note()}
+    if tipped and not both:
+        return _root_cause_not_the_plants(c, first, wo, over, i, rest, plant, on, people_inc, people_on, with_plants_note())
+    # the line is over with the plants running too: the usual cause stands; the plants' share is added
+    if storm:
+        cause = "storm"
+        sentence = f"The {storm_w} cut {len(c.trip):,} lines. The first line to overload afterwards was {label}, at {pw} of its rating, and it overloads with every plant running too ({pon})."
+    elif c.sites and pct_on0 is not None and pct_on0 <= OVER_PCT:
+        cause = "campus" if pct_wo < 90.0 else "last_straw"  # (pct_without, as the deck prints it)
+        sentence = f"The first line to fail was {label}, at {pw} of its rating. With every plant running it would still be at {pon}: {dc} pushes it over."
+    else:
+        cause = "heat"
+        sentence = f"At this load {label} overloads even with every plant running ({pon} of its rating)" + (f" and no data center ({pct_on0:.0f}%)." if c.sites and pct_on0 is not None else ".")
+    return {**rest, "cause": cause, "sentence": sentence + plant_too()}
+
+
+def _root_cause_not_the_plants(c: _Case, first, wo, over, i: int, rest: dict, plant: dict, on: dict, people_inc: int, people_on: int, note: str) -> dict:
+    """The plants took the first line to fail over its limit, but they add no one to the outage: with
+    every plant running the same people (or more) lose power. The outage is then the campus's, the
+    heat's or the storm's, and the report says so on the line that carries it: another line over its
+    limit in the same moment that also overloads with every plant running (the campus's own first,
+    i.e. one under its limit without the campus). The line that went first is kept as `first_failed`."""
+    g = c.g
+    pw_ = _plant_words(c)
+    ref = pw_["ref"]
+    storm = bool(c.trip)
+    storm_w = _storm_word(c)
+    dc = "the data center" if len(c.sites) <= 1 else "the data centers"
+    st_on, st_on0 = on["state"], on["state_no_campus"]
+
+    def pct(st, k):
+        return float(st.loading_pct[k]) if bool(st.active[k]) else None
+
+    def p0(v):
+        return f"{v:.0f}%" if v is not None else None
+
+    info_i = rest["line"]
+    pct_i, pon_i = float(first.loading_pct[i]), pct(st_on, i)
+    after = f"after the {storm_w} cut {len(c.trip):,} lines, " if storm else ""
+    lead = after + info_i["label"]
+    head = (
+        f"{lead[0].upper() + lead[1:]} failed first, at {pct_i:.0f}% of its rating, with {pw_['label']} ({pw_['size']}) offline"
+        + (f"; with {ref} running it would hold ({pon_i:.0f}%)." if pon_i is not None else ".")
+    )
+    first_failed = {**info_i, "pct_with": round(pct_i, 1), "pct_with_plant": round(pon_i, 1) if pon_i is not None else None}
+    same = people_on == people_inc
+    close = f" {ref[0].upper() + ref[1:]} being offline changes which line fails first, not how many people lose power." if same else ""
+
+    on_over = st_on.active & (st_on.loading_pct > OVER_PCT + 1e-6)
+    cands = [int(k) for k in over if int(k) != i and bool(on_over[k])]
+    own = [k for k in cands if float(wo.loading_pct[k]) <= OVER_PCT] if c.sites else []
+    pool = own or cands
+    if pool:  # another line is over in the same moment, and it overloads with every plant running too
+        j = max(pool, key=lambda k: float(first.loading_pct[k]))
+        pw_j, po_j = float(first.loading_pct[j]), float(wo.loading_pct[j])
+        pon_j, pon0_j = pct(st_on, j), pct(st_on0, j)
+        f_with, f_wo = abs(float(first.flow[j])), abs(float(wo.flow[j]))
+        on_line = max(f_with - f_wo, 0.0) if c.sites else 0.0
+        share = 100.0 * on_line / f_with if f_with > 1e-6 else 0.0
+        info = _line(g, j)
+        lj = info["label"]
+        if storm:
+            cause = "storm"
+            body = f" The {storm_w} damage is what matters: {lj} is overloaded too, at {pw_j:.0f}% of its rating, and it overloads with every plant running as well ({p0(pon_j)})."
+        elif c.sites and pon0_j is not None and pon0_j <= OVER_PCT:
+            cause = "campus" if po_j < 90.0 else "last_straw"  # (pct_without, as the deck prints it)
+            body = f" But the outage comes from {dc}: {lj} is overloaded too, at {pw_j:.0f}% of its rating ({po_j:.0f}% without {dc}), and it overloads with every plant running as well ({p0(pon_j)})."
+        else:
+            cause = "heat"
+            body = f" But {lj} is overloaded too, at {pw_j:.0f}% of its rating, and at this load it overloads even with every plant running ({p0(pon_j)})" + (
+                f" and no data center ({p0(pon0_j)})." if c.sites and pon0_j is not None else "."
+            )
+        plant["pct_with_plant"] = round(pon_j, 1) if pon_j is not None else None
+        out = {
+            **rest,
+            "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer")},
+            "pct_with": round(pw_j, 1),
+            "pct_without": round(po_j, 1),
+            "campus_mw_on_line": round(on_line, 1),
+            "campus_share_pct": round(min(max(share, 0.0), 100.0), 1),
+            "plant": plant,
+        }
+        return {**out, "cause": cause, "sentence": head + body + note + close, "first_failed": first_failed}
+
+    # no other line is over in that moment: name what overloads with every plant running instead
+    jj = _over(st_on)
+    j = int(jj[np.argmax(st_on.loading_pct[jj])]) if len(jj) else None
+    pon_j = pct(st_on, j) if j is not None else None
+    pon0_j = pct(st_on0, j) if j is not None else None
+    if storm:
+        cause = "storm"
+    elif c.sites and ((j is not None and pon0_j is not None and pon0_j <= OVER_PCT) or (j is None and not len(_over(st_on0)))):
+        cause = "campus"
+    else:
+        cause = "heat"
+    body = ""
+    if j is not None:
+        lj = _line(g, j)["label"]
+        body = f" With every plant running, {lj} would overload instead ({p0(pon_j)} of its rating" + (f"; {p0(pon0_j)} without {dc})." if c.sites and pon0_j is not None else ").")
+    out = {**rest, "plant": plant}
+    if cause in ("campus", "last_straw") and (rest.get("pct_without") or 0) > OVER_PCT:
+        out["pct_without"] = None  # this line is over without the campus too: its 'without' figure would read as the campus's
+    return {**out, "cause": cause, "sentence": head + body + note + close, "first_failed": first_failed}
+
+
 def _kind(c: _Case, inc: dict, floor: dict) -> str:
     if c.preset:
         return "catastrophe"
@@ -677,6 +1077,23 @@ def _kind(c: _Case, inc: dict, floor: dict) -> str:
 
 
 def _headline(c: _Case, kind: str, inc: dict, areas: list[dict]) -> str:
+    text = _headline_case(c, kind, inc, areas)
+    on = (c.plants or {}).get("on")
+    if on is not None and kind not in ("plant", "calm"):
+        # Plant Down, but the plants are not the first cause (a campus or a storm is): still say they were offline,
+        # and how many people lose power only because of it
+        pw = _plant_words(c)
+        n_inc, n_on = int(inc["people"]), int(on["people"])
+        if n_inc == n_on:
+            text += f" {pw['Label']} ({pw['size']}) was offline too, and it adds no one."
+        elif n_on == 0:
+            text += f" {pw['Label']} ({pw['size']}) was offline too; with {pw['ref']} running, no one would have."
+        else:  # more or fewer with the plants running: say how many
+            text += f" {pw['Label']} ({pw['size']}) was offline too; with {pw['ref']} running, {_big(n_on)} would have."
+    return text
+
+
+def _headline_case(c: _Case, kind: str, inc: dict, areas: list[dict]) -> str:
     n = inc["total_steps"]
     ppl = inc["people"]
     total_mw = sum(s.mw for s in c.sites)
@@ -688,6 +1105,19 @@ def _headline(c: _Case, kind: str, inc: dict, areas: list[dict]) -> str:
     else:
         who = None
     lost = f"an estimated {_big(ppl)} people lost power" if ppl else "no one lost power"
+    if kind == "plant":  # a power plant went offline (Plant Down)
+        pw = _plant_words(c)
+        drawing = f", with {who[0].lower() + who[1:]} drawing power," if who else ""
+        if n and not ppl:  # lines tripped, but everyone kept power: the grid did pick up the output in the end
+            return f"{pw['Label']} ({pw['size']}) went offline {load_word(c.g.load_factor)}{drawing}: {_a(n)} {n}-step cascade, but no one lost power."
+        if n:
+            return f"{pw['Label']} ({pw['size']}) went offline {load_word(c.g.load_factor)}{drawing} and the rest of the grid couldn't pick up {pw['it']} output: {_a(n)} {n}-step cascade, and {lost}."
+        return f"{pw['Label']} ({pw['size']}) went offline {load_word(c.g.load_factor)}{drawing} and the rest of the grid couldn't make up {pw['it']} output; {lost}."
+    if kind == "calm" and c.plants is not None:
+        pw = _plant_words(c)
+        if who:
+            return f"{who} fits {load_word(c.g.load_factor)} even with {pw['label']} ({pw['size']}) offline: the rest of the grid picks up {pw['it']} output."
+        return f"The grid holds {load_word(c.g.load_factor)} with {pw['label']} ({pw['size']}) offline: the rest of the grid picks up {pw['it']} output."
     if kind == "catastrophe":
         return f"{c.preset['name']} (hypothetical): {len(c.trip):,} lines down and an estimated {_big(ppl)} people without power."
     if kind == "storm":
@@ -753,17 +1183,49 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
         F.append(_fact("event.storm_lines_out", "Lines knocked out by the storm", len(c.trip), "lines"))
     if c.preset:
         F.append(_fact("event.preset", "Scenario", c.preset["name"] + " (hypothetical)"))
+    po = rep.get("plant_outage")
+    if po:  # Plant Down: said plainly, with the plant's name as in the model and its MW
+        one = po["count"] == 1
+        F.append(_fact("plant.offline", "Power plant that went offline" if one else "Power plants that went offline", po["label"]))
+        F.append(_fact("plant.names", "Plant name in the model (synthetic)" if one else "Plant names in the model (synthetic), largest first",
+                       "; ".join(p["title"] for p in po["plants"][:8]) + (f"; and {po['count'] - 8} more" if po["count"] > 8 else "")))
+        F.append(_fact("plant.count", "Plants offline", int(po["count"]), "plant" if one else "plants"))
+        F.append(_fact("plant.capacity_mw", "Capacity taken offline", float(po["capacity_mw"]), "MW"))
+        if po.get("output_mw") is not None:
+            F.append(_fact("plant.output_mw", "What it was producing in this case, which the rest of the grid had to pick up" if one
+                           else "What they were producing in this case, which the rest of the grid had to pick up", float(po["output_mw"]), "MW"))
+        if po.get("fuels"):
+            F.append(_fact("plant.fuels", "Fuels retired (every plant of them)", ", ".join(po["fuels"])))
+        F.append(_fact("plant.picked_up", "What the rest of the grid had to do", po["sentence"]))
+        F.append(_fact("plant.people_with_plants", "People without power in the same case with every plant running", int(po["with_plants"]["people"]), "people", True))
+        F.append(_fact("plant.people_due_to_plant", "People who lose power because the plant went offline" if one else "People who lose power because the plants went offline",
+                       int(po["people_due_to_plant"]), "people", True))
+        F.append(_fact("plant.is_cause", "Did the plant outage cause the failure", "yes: the first line to fail holds with every plant running" if po["is_cause"]
+                       else "no: the outage happens with every plant running too"))
+    ff = rc.get("first_failed")  # a plant case whose plants took one line over first but add no one to the outage
+    if ff:
+        F.append(_fact("cause.first_failed", "First line to fail (the plant being offline took it over; it holds with every plant running)", ff["label"]))
+        F.append(_fact("cause.first_failed_pct", "That first line's loading when it failed", ff["pct_with"], "%"))
+        if ff.get("pct_with_plant") is not None:
+            F.append(_fact("cause.first_failed_pct_with_plant", "That first line's loading with every plant running", ff["pct_with_plant"], "%"))
     if rc.get("line"):
-        F.append(_fact("cause.line", "First line to fail", rc["line"]["label"]))
-        F.append(_fact("cause.pct_with", "Its loading when it failed", rc["pct_with"], "%"))
-        if c.sites:
+        if ff and rc["line"]["id"] != ff["id"]:
+            F.append(_fact("cause.line", "Line that carries the outage (over its limit in the same moment, and with every plant running too)", rc["line"]["label"]))
+            F.append(_fact("cause.pct_with", "Its loading in that moment", rc["pct_with"], "%"))
+        else:
+            F.append(_fact("cause.line", "First line to fail", rc["line"]["label"]))
+            F.append(_fact("cause.pct_with", "Its loading when it failed", rc["pct_with"], "%"))
+        if c.sites and rc.get("pct_without") is not None:
             F.append(_fact("cause.pct_without", "Its loading without the data center", rc["pct_without"], "%"))
+        if c.sites:
             F.append(_fact("cause.campus_mw_on_line", "Data center MW on that line", rc["campus_mw_on_line"], "MW"))
             F.append(_fact("cause.campus_share_pct", "Data center's share of that line's flow", rc["campus_share_pct"], "%"))
             if rc.get("campus_km"):
                 F.append(_fact("cause.campus_km", "Distance from the data center to that line", rc["campus_km"], "km"))
         if rc.get("pct_before_storm") is not None:
             F.append(_fact("cause.pct_before_storm", "Its loading before the storm (the heat alone)", rc["pct_before_storm"], "%"))
+        if (rc.get("plant") or {}).get("pct_with_plant") is not None:
+            F.append(_fact("cause.pct_with_plant", "Its loading with every plant running (same case)", rc["plant"]["pct_with_plant"], "%"))
     F.append(_fact("cause.kind", "Cause", rc["cause"]))
     if rc.get("sentence"):
         F.append(_fact("cause.sentence", "Why it happened (engine sentence)", rc["sentence"]))
@@ -849,6 +1311,8 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
         n = r["n"]
         if r["action"] == "storm":
             F.append(_fact(f"step.{n}.line", "Step 0", f"the storm knocked out {len(c.trip):,} lines"))
+        elif r["action"] == "plant" and r.get("plants"):
+            F.append(_fact(f"step.{n}.line", "Step 0", r["plants"]["text"]))
         elif r["lines"]:
             ln = r["lines"][0]
             F.append(_fact(f"step.{n}.line", f"Step {n}: line that tripped", ln["label"]))
@@ -960,7 +1424,7 @@ def allowed_numbers(report: dict, extra_facts: list | None = None) -> set[str]:
 def _labels(report: dict, extra_facts: list | None) -> list[str]:
     out = []
     for f in list(report.get("facts", [])) + list(extra_facts or []):
-        if isinstance(f.get("value"), str) and f.get("key", "").split(".")[0] in ("area", "cause", "step", "fix", "event"):
+        if isinstance(f.get("value"), str) and f.get("key", "").split(".")[0] in ("area", "cause", "step", "fix", "event", "plant"):
             out.append(f["value"])
     for a in report.get("areas", []):
         out.append(a["area"])
@@ -1280,7 +1744,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                     if abs(lf - g.load_factor) < 0.005:
                         mws = shrink_res["mws"]
                     else:
-                        gl = grid_at(lf, c.code)
+                        gl = _grid_level(c, lf)  # (with a Plant Down case's plants still offline)
                         s_hi = 1.0
                         if len(c.sites) == 1:
                             s_hi = min(1.0, site_headroom(gl, c.buses[0]) / total) if total else 0.0
@@ -1312,7 +1776,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
             elif fam == "time_of_day":
                 levels = []
                 for lf in DAY_LEVELS:
-                    gl = grid_at(lf, c.code)
+                    gl = _grid_level(c, lf)
                     extra = _extra_for(gl, c.buses, [s.mw for s in c.sites]) if c.sites else np.zeros(gl.n)
                     ok, st = _fits(c, gl, extra, gl.rates_with(c.upgrades))
                     levels.append({"level": lf, "name": level_name(lf), "over_lines": int(len(_over(st))), "holds": bool(ok)})
@@ -1596,7 +2060,8 @@ _full_lp: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
 
 
 def _full_key(c: _Case, g: Grid) -> tuple:
-    return (c.code, round(g.load_factor, 2), tuple(sorted(c.upgrades.items())))
+    plants_out = tuple(c.plants["ids"]) if c.plants else ()  # a Plant Down model has less generation: its own LP
+    return (c.code, round(g.load_factor, 2), tuple(sorted(c.upgrades.items())), plants_out)
 
 
 def _lp_full(c: _Case, g: Grid) -> np.ndarray | None:
@@ -2005,6 +2470,8 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
 
     t0 = time.perf_counter()
     inc = _cascade(c, g, c.extra)
+    if c.plants is not None:
+        inc = _plant_step(c, inc)
     timing["incident"] = _ms(t0)
 
     t0 = time.perf_counter()
@@ -2034,6 +2501,9 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     areas = _areas(c, inc, rows)
     t0 = time.perf_counter()
     root = _root_cause(c, first, inc, floor)
+    due_plant = int((root.get("plant") or {}).get("people_due_to_plant") or 0)
+    if c.plants is not None and root.get("cause") == "plant" and (due_plant > 0 or event["people"] == 0) and not c.trip and not c.preset:
+        kind = "plant"  # a power plant went offline and that's what put people in the dark: the headline says so, never the heat or the data center
 
     # the no-fix bound: infinite ratings, no campus, the storm's damage only
     bst = _solve(c, g, c.active, None, c.rate * 1e9)
@@ -2091,14 +2561,21 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
         tried = [f for f in fixes if f["verdict"] != "not_checked"]
         saved = max([event["people"] - f["outcome"]["people"] for f in tried if f.get("outcome")] + [0])
         saved_pct = round(100.0 * saved / event["people"]) if event["people"] else 0
+        # a Plant Down case with no storm: nothing is downed; what's missing is the plant's generation
+        plant_short = c.plants is not None and not c.trip and not c.preset
         no_fix = {
             "people": bound["people"],
             "share_pct": bound["share_pct"],
             "fixes_save_at_most_pct": saved_pct,
             "proof": [{"family": f["family"], "verdict": f["verdict"], "people": (f.get("outcome") or {}).get("people")} for f in fixes],
             "sentence": (
-                f"No fix exists for about {_big(bound['people'])} people (estimate). Even with unlimited line capacity and no data center, "
-                f"the damage cuts them off from the power plants that could serve them; only rebuilding the downed lines brings them back. "
+                (
+                    f"No line fix exists for about {_big(bound['people'])} people (estimate). Even with unlimited line capacity and no data center, "
+                    f"the plants still running can't make up the output of {_plant_words(c)['label']}; only bringing {'them' if c.plants['words']['plural'] else 'it'} back, or other generation, serves them. "
+                    if plant_short
+                    else f"No fix exists for about {_big(bound['people'])} people (estimate). Even with unlimited line capacity and no data center, "
+                    f"the damage cuts them off from the power plants that could serve them; only rebuilding the downed lines brings them back. "
+                )
                 + (
                     f"Every fix family was checked, and the best saves at most {saved_pct}% of the outage."
                     if saved_pct >= 1
@@ -2155,11 +2632,12 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
         "agentic": None,
         "strain": strain,  # the lines' loading: grid alone, with the campus (each fix carries its own)
         "firm_note": firm_note,
+        "plant_outage": _plant_public(c, root) if c.plants is not None else None,  # Plant Down: what went offline
         "bound": bound,
         "split": split,
         "no_fix": no_fix,
         "recovery": recovery,
-        "replay": {**c.header, "region": c.code, **inc},
+        "replay": {**c.header, "region": c.code, **inc, **({"outages": c.plants["outages"], "retire_fuels": c.plants["fuels"]} if c.plants else {})},
         "facts": [],
         "timing_ms": {},
         "unchecked": unchecked,
@@ -2232,7 +2710,7 @@ def what_if(report_key: str, change: dict) -> dict:
         lf = _num(change["load_factor"], "Load level")
         if not (math.isfinite(lf) and grid.LOAD_FACTOR_MIN <= lf <= grid.LOAD_FACTOR_MAX):
             raise ValueError(f"Load level must be between {grid.LOAD_FACTOR_MIN} and {grid.LOAD_FACTOR_MAX}")
-        g = grid_at(lf, c.code)
+        g = _grid_level(c, lf)
         delta = {"load_factor": g.load_factor}
         label = f"the same case {load_word(g.load_factor)}"
     elif "area" in change:
@@ -2260,7 +2738,7 @@ def what_if(report_key: str, change: dict) -> dict:
         ap = fx.get("apply") or {}
         delta = dict(ap)
         if ap.get("load_factor") is not None:
-            g = grid_at(float(ap["load_factor"]), c.code)
+            g = _grid_level(c, float(ap["load_factor"]))
         if "mw" in ap:
             if ap["mw"] is None:
                 sites, buses = [], []

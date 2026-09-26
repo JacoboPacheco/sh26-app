@@ -7,10 +7,12 @@
 // in any other mode only the plants taken out stay drawn, so a cascade elsewhere still explains
 // itself. `always` shows it whatever the mode; `view` ({k, project}) replaces the map's context
 // (the Preview, which portals the layer into the map from outside GridMap's tree).
+// With the plant back on the map ("Run it again with the plant back"), the plant is drawn running
+// again in green and the substations it was holding up get a green disc, the biggest areas named.
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { useMapView } from '../../GridMap'
 import { useOverload } from '../../store'
-import { fmt, fuelFamily, fuelLabel, pct, pretty } from './fuels'
+import { approx, fmt, fuelFamily, fuelLabel, pct, pretty } from './fuels'
 import './plants.css'
 import {
   caseWithRegion,
@@ -79,6 +81,9 @@ export default function PlantsLayer({ view, always = false }) {
   const selected = plants?.find((p) => p.id === st.selectedId) || null
   const hovered = plants?.find((p) => p.id === st.hoverId) || null
   const trace = selected ? st.traces[traceKey(region, selected.id, traceBody(caseWithRegion(o, region), st))] : null
+  // the plant-back replay is what the map is showing: those plants run again
+  const backData = st.restore.data && o?.cascade === st.restore.data ? st.restore.data : null
+  const backIds = useMemo(() => new Set((backData?.restored || []).map((p) => p.id)), [backData])
 
   if (!plants || (!on && !removed.size)) return null
   const shown = on ? glyphs : glyphs.filter((g) => removed.has(g.p.id))
@@ -86,25 +91,62 @@ export default function PlantsLayer({ view, always = false }) {
   return (
     // aria-hidden: the panel's plant list and ranking are the keyboard and screen-reader way in
     <g className={`pl-layer${on ? '' : ' pl-layer--quiet'}${st.fuelHover ? ' pl-layer--fuel' : ''}`} aria-hidden="true">
+      {backData && <KeptLit compare={backData.compare} subById={o?.subById} k={k} project={project} />}
       {on && selected && trace?.status === 'done' && <TraceArcs plant={selected} trace={trace.data} grid={o?.grid} k={k} project={project} />}
-      <Glyphs glyphs={shown} k={k} removed={removed} selectedId={st.selectedId} fuelHover={st.fuelHover} interactive={on} />
-      {on && hovered && <HoverLabel plant={hovered} out={removed.has(hovered.id)} k={k} project={project} />}
+      <Glyphs glyphs={shown} k={k} removed={removed} backIds={backIds} selectedId={st.selectedId} fuelHover={st.fuelHover} interactive={on} />
+      {on && hovered && <HoverLabel plant={hovered} out={removed.has(hovered.id) && !backIds.has(hovered.id)} k={k} project={project} />}
+    </g>
+  )
+}
+
+// With the plant back: a green disc on every substation it was holding up (area by MW), and the three
+// biggest areas named with the people they keep (estimates). Fades in once, when the replay lands.
+const KEPT_LABELS = 3
+function KeptLit({ compare, subById, k, project }) {
+  const discs = useMemo(() => {
+    const out = []
+    Object.entries(compare?.held_subs || {}).forEach(([sid, mw]) => {
+      const s = subById?.get(Number(sid))
+      if (!s || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) return
+      const [x, y] = project(s.lon, s.lat)
+      out.push({ sid, x, y, mw: Number(mw) || 0 })
+    })
+    return out.sort((a, b) => b.mw - a.mw)
+  }, [compare, subById, project])
+  if (!discs.length) return null
+  // left of the area's middle (the map's own town labels sit to the right), nudged apart
+  const named = (compare.held_areas || []).slice(0, KEPT_LABELS).map((a) => {
+    const [ax, ay] = project(a.lon, a.lat)
+    return { ...a, ax, ay, text: `${a.area} · ${approx(a.people)} kept on` }
+  })
+  const spots = placeLabels(named, k)
+  return (
+    <g className="pl-kept" pointerEvents="none">
+      {discs.map((d) => (
+        <circle key={d.sid} cx={d.x} cy={d.y} r={(0.9 + Math.sqrt(d.mw) * 0.2) / Math.pow(k, 0.72)} />
+      ))}
+      {named.map((a, i) => (
+        <text key={a.area} x={spots[i].x} y={spots[i].y} fontSize={11 / k} strokeWidth={3 / k} textAnchor="end">
+          {a.text}
+        </text>
+      ))}
     </g>
   )
 }
 
 // The rings (a few hundred), memoized so a hover label or an arc doesn't re-render them.
-const Glyphs = memo(function Glyphs({ glyphs, k, removed, selectedId, fuelHover, interactive }) {
+const Glyphs = memo(function Glyphs({ glyphs, k, removed, backIds, selectedId, fuelHover, interactive }) {
   const sw = 1.1 / k
   const stop = (e) => e.stopPropagation() // a click on a plant picks it; it doesn't drop a data center
   return (
     <g className="pl-glyphs">
       {glyphs.map(({ p, x, y, family }) => {
         const r = radius(p.pmax, k)
-        const out = removed.has(p.id)
+        const back = !!backIds?.has(p.id) // running again in the plant-back replay
+        const out = removed.has(p.id) && !back
         const sel = p.id === selectedId
         const lit = fuelHover != null && p.fuel === fuelHover
-        const cls = `pl pl--${family}${sel ? ' pl--sel' : ''}${out ? ' pl--out' : ''}${lit ? ' pl--lit' : ''}`
+        const cls = `pl pl--${family}${sel ? ' pl--sel' : ''}${out ? ' pl--out' : ''}${back ? ' pl--back' : ''}${lit ? ' pl--lit' : ''}`
         const c = r * 0.62
         return (
           <g

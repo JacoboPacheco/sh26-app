@@ -6,7 +6,10 @@
 // Composes PlantCard, FuelChips, RankingList and the trip result, for a "Plants" mode. The map
 // half is PlantsLayer (a GridMap child). Tripping calls POST /api/plants/trip; the result plays on
 // the map through the app store's showCascade(result) when the store has one, and is always
-// summarized here.
+// summarized here. After a trip, "Run it again with the plant back" replays the same case with every
+// plant running (POST /api/plants/restore, cached by the trip) and says what the plant was holding
+// up; "Take it out again" replays the trip (no request). "Why did it fail?" asks the incident
+// briefing for the root cause, which names the plant. Both only on a press (LAZY).
 import { useEffect } from 'react'
 import { useOverload } from '../../store'
 import { Button, EmptyState, ErrorBanner, Field, Loading } from '../../ui'
@@ -22,7 +25,9 @@ import {
   removedIds,
   selectPlant,
   setPlants,
+  startRestore,
   startTrip,
+  startWhy,
   traceBody,
   tripKey,
   usePlants,
@@ -58,13 +63,25 @@ export default function PlantsPanel() {
     const pendingOurs = st.trip.status === 'loading' && live?.cascading
     const req = startTrip(caseWithRegion(live, region), outages, fuels)
     if (!req) {
-      // every plant is back: take our cascade off the map (a plant trip's result carries removed_mw),
-      // including one still on its way there
-      if (live?.cascade?.removed_mw != null || pendingOurs) live.clearCascade?.()
+      // every plant is back: take our cascade off the map (a plant trip's result carries removed_mw,
+      // a plant-back replay plants_back), including one still on its way there
+      if (live?.cascade?.removed_mw != null || live?.cascade?.plants_back || pendingOurs) live.clearCascade?.()
       return
     }
     if (typeof live?.startCascade === 'function') live.startCascade({}, req)
   }
+  // the same case with every plant running, replayed on the map; the panel compares it with the trip
+  function plantBack() {
+    const live = liveOverload.current || o
+    const req = startRestore(caseWithRegion(live, region), st.outages, st.retireFuels)
+    if (req && typeof live?.startCascade === 'function') live.startCascade({}, req)
+  }
+  // the trip again, from the answer already here (no request)
+  function plantOut() {
+    const live = liveOverload.current || o
+    if (st.trip.data && typeof live?.startCascade === 'function') live.startCascade({}, Promise.resolve(st.trip.data))
+  }
+  const why = () => startWhy(caseWithRegion(liveOverload.current || o, region), st.outages, st.retireFuels)
   const tripOne = (id) => apply([...new Set([...st.outages, id])], st.retireFuels)
   const restoreOne = (id) => apply(st.outages.filter((x) => x !== id), st.retireFuels)
   // Retiring a fuel folds that fuel's hand-tripped plants into it (one piece, not two), so
@@ -107,11 +124,17 @@ export default function PlantsPanel() {
   }
 
   const sorted = [...plants].sort((a, b) => b.pmax - a.pmax)
-  const stale = st.trip.data && st.trip.key !== tripKey(caseBody, st.outages, st.retireFuels)
+  const key = tripKey(caseBody, st.outages, st.retireFuels)
+  const stale = st.trip.data && st.trip.key !== key
   // the app store is showing this very result (startCascade was handed our request)
   const onMap = !stale && !!st.trip.data && o?.cascade === st.trip.data
   // while it plays, the panel follows the map's counter instead of giving the ending away
   const playing = onMap && o?.playing ? { people: o.view?.peopleMax ?? 0, step: o.step ?? 0, total: st.trip.data.steps?.length || 0 } : null
+  // the plant back: only the answer for exactly this case and these plants counts
+  const back = st.restore.key === key ? st.restore : { status: 'idle', data: null, error: null }
+  const backOnMap = !!back.data && o?.cascade === back.data
+  const backPlaying = backOnMap && o?.playing ? { people: o.view?.peopleMax ?? 0, step: o.step ?? 0, total: back.data.steps?.length || 0 } : null
+  const whyNow = st.why.key === key ? st.why : { status: 'idle', data: null, error: null }
 
   return (
     <div className="stack panel-body pl-panel">
@@ -164,7 +187,20 @@ export default function PlantsPanel() {
           onFuel={toggleFuel}
           onRestoreAll={restoreAll}
           onRerun={rerun}
-        />
+        >
+          {st.trip.data && !stale && st.trip.status === 'done' && !playing && (
+            <PlantBack
+              trip={st.trip.data}
+              back={back}
+              backOnMap={backOnMap}
+              backPlaying={backPlaying}
+              why={whyNow}
+              onBack={plantBack}
+              onOut={plantOut}
+              onWhy={why}
+            />
+          )}
+        </TripResult>
       )}
 
       <FuelChips byFuel={data.by_fuel} retired={st.retireFuels} busy={busy} onToggle={toggleFuel} />
@@ -192,7 +228,7 @@ export default function PlantsPanel() {
 }
 
 // What taking those plants out does: the pieces that are out (each removable), then the outcome.
-function TripResult({ trip, outages, fuels, plants, stale, onMap, playing, subById, onRestore, onFuel, onRestoreAll, onRerun }) {
+function TripResult({ trip, outages, fuels, plants, stale, onMap, playing, subById, onRestore, onFuel, onRestoreAll, onRerun, children }) {
   const byId = new Map(plants.map((p) => [p.id, p]))
   const d = trip.data
   const people = d ? (d.people ?? 0) : 0
@@ -280,6 +316,121 @@ function TripResult({ trip, outages, fuels, plants, stale, onMap, playing, subBy
           )}
         </div>
       )}
+      {children}
+    </section>
+  )
+}
+
+// After a trip: the same case with the plant back (what it was holding up), and why it failed.
+function PlantBack({ trip, back, backOnMap, backPlaying, why, onBack, onOut, onWhy }) {
+  const many = (trip.removed?.length || 0) > 1
+  const it = many ? 'the plants' : 'the plant'
+  const It = many ? 'The plants' : 'The plant'
+  const d = back.data
+  const cmp = d?.compare
+  const outPeople = trip.people ?? 0
+  const trips = (trip.steps || []).filter((s) => (s.tripped || []).length).length
+  const showWhy = outPeople > 0 || trips > 0
+  return (
+    <div className="stack pl-back">
+      {back.status === 'loading' && <Loading label={`Running it again with ${it} back…`} />}
+      <ErrorBanner error={back.status === 'error' ? back.error : null} onRetry={onBack} />
+
+      {cmp && backPlaying && (
+        <div className={`pl-verdict${backPlaying.people > 0 ? ' pl-verdict--bad' : ' pl-verdict--live'}`}>
+          <p className="pl-verdict__n">
+            {backPlaying.people > 0 ? (
+              <>
+                With {it} back: <strong>~{approx(backPlaying.people)}</strong> people without power so far <span className="muted">(estimate)</span>
+              </>
+            ) : (
+              <>With {it} back: no one in the dark yet</>
+            )}
+          </p>
+        </div>
+      )}
+
+      {cmp && !backPlaying && back.status !== 'loading' && (
+        <div className="pl-compare" aria-label={`With ${it} back`}>
+          <h4 className="pl-compare__h">With {it} back</h4>
+          <dl className="pl-compare__rows">
+            <div className="pl-compare__row">
+              <dt>{It} out</dt>
+              <dd className={cmp.out.people > 0 ? 'pl-n--bad' : 'pl-n--ok'}>{cmp.out.people > 0 ? `~${approx(cmp.out.people)}` : 'Holds'}</dd>
+            </div>
+            <div className="pl-compare__row">
+              <dt>{It} running</dt>
+              <dd className={cmp.back.people > 0 ? 'pl-n--bad' : 'pl-n--ok'}>{cmp.back.people > 0 ? `~${approx(cmp.back.people)}` : 'Holds'}</dd>
+            </div>
+          </dl>
+          <p className="pl-fine muted">People without power, same case otherwise (estimates).</p>
+          <p className="pl-compare__say">{heldSentence(cmp, it, It)}</p>
+          {cmp.held_areas?.length > 0 && cmp.held_people > 0 && (
+            <ul className="pl-held" aria-label={`Areas ${it} kept lit`}>
+              {cmp.held_areas.slice(0, 5).map((a) => (
+                <li key={a.area}>
+                  <span>{a.area}</span>
+                  <span className="pl-held__n">~{approx(a.people)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="pl-fine muted">
+            {backOnMap ? `On the map: the same case with ${it} running. Green: the areas ${many ? 'they keep' : 'it keeps'} lit.` : `Replay it with ${it} running to see the areas ${many ? 'they keep' : 'it keeps'} lit.`}
+          </p>
+        </div>
+      )}
+
+      <div className="row pl-back__actions">
+        {backOnMap ? (
+          <Button variant="secondary" onClick={onOut}>
+            Take {many ? 'them' : 'it'} out again
+          </Button>
+        ) : (
+          <Button variant="secondary" onClick={onBack} busy={back.status === 'loading'}>
+            Run it again with {it} back
+          </Button>
+        )}
+        {showWhy && (
+          <Button variant="secondary" onClick={onWhy} busy={why.status === 'loading'} disabled={why.status === 'done'}>
+            Why did it fail?
+          </Button>
+        )}
+      </div>
+
+      {why.status === 'loading' && <Loading label="Reading the incident report…" />}
+      <ErrorBanner error={why.status === 'error' ? why.error : null} onRetry={onWhy} />
+      {why.data && <WhyItFailed report={why.data} />}
+    </div>
+  )
+}
+
+function heldSentence(cmp, it, It) {
+  if (cmp.held_people > 0) {
+    const where = (cmp.held_areas || []).slice(0, 3).map((a) => a.area)
+    return `${It} ${it === 'the plants' ? 'were' : 'was'} holding up ~${approx(cmp.held_people)} people${where.length ? `, in ${joinWords(where)} and more` : ''}.`
+  }
+  if (cmp.worse_with_plants) return `This case is no better with ${it} running: ~${approx(cmp.back.people)} people against ~${approx(cmp.out.people)}.`
+  if (cmp.out.people > 0) return `Bringing ${it} back changes nothing here: the same people lose power either way.`
+  return `The grid holds either way: the rest of the grid picks up the output.`
+}
+
+const joinWords = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`)
+
+// The incident briefing's own words: the root cause (it names the plant), and the best fix it verified.
+function WhyItFailed({ report }) {
+  const rc = report.root_cause || {}
+  const best = Number.isInteger(report.best_fix) ? report.fixes?.[report.best_fix] : null
+  return (
+    <section className="pl-why" aria-label="Why it failed">
+      <h4 className="pl-compare__h">Why it failed</h4>
+      <p>{rc.sentence}</p>
+      {best && best.verdict === 'holds' && (
+        <p className="pl-why__fix">
+          <span className="pl-why__tag">Verified fix</span> {best.action}
+        </p>
+      )}
+      <p className="pl-fine muted">From the incident briefing: every number re-run by the engine on the synthetic model.</p>
     </section>
   )
 }

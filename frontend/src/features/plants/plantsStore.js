@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { getPlants, getRanking, getTrace, tripPlants } from './plantsApi'
+import { getPlantBriefing, getPlants, getRanking, getTrace, restorePlants, tripPlants } from './plantsApi'
 
 // Plant Down's own state, shared by the map layer (inside the camera) and the panel, which sit in
 // different parts of the tree. The case itself (site, size, load level, storm, upgrades) still
@@ -14,6 +14,9 @@ import { getPlants, getRanking, getTrace, tripPlants } from './plantsApi'
 //   retireFuels  whole fuel classes taken out
 //   trip         the last POST /api/plants/trip: {status, key, data, error}; `key` says which case
 //                and which plants it answers, so a changed scenario shows as out of date
+//   restore      "Run it again with the plant back": the last POST /api/plants/restore, same shape
+//                and key as `trip` (the same case with every plant running, and the comparison)
+//   why          "Why did it fail?": the incident briefing of the trip's case, same shape and key
 //   traces       per (region, plant, case): {status, data, error}
 //   rankings     per (region, load level): {status, data, error}
 
@@ -44,10 +47,13 @@ const EMPTY = {
   outages: [],
   retireFuels: [],
   trip: { ...IDLE, key: null },
+  restore: { ...IDLE, key: null },
+  why: { ...IDLE, key: null },
   traces: {},
   rankings: {},
 }
 const store = createStore(EMPTY)
+const CLEAR_RESULTS = { trip: { ...IDLE, key: null }, restore: { ...IDLE, key: null }, why: { ...IDLE, key: null } }
 
 export const getPlantsState = store.get
 export const setPlants = store.set
@@ -74,7 +80,7 @@ export function ensurePlants(region, force = false) {
   store.set({
     region,
     list: { status: 'loading', data: fresh ? null : s.list.data, error: null },
-    ...(fresh ? { selectedId: null, hoverId: null, fuelHover: null, outages: [], retireFuels: [], trip: { ...IDLE, key: null }, traces: {} } : {}),
+    ...(fresh ? { selectedId: null, hoverId: null, fuelHover: null, outages: [], retireFuels: [], ...CLEAR_RESULTS, traces: {} } : {}),
   })
   getPlants(region)
     .then((data) => id === listSeq && store.set({ list: { status: 'done', data, error: null } }))
@@ -98,7 +104,9 @@ export const hoverFuel = (fuel) => store.get().fuelHover !== fuel && store.set({
 // "Start over": every plant back, nothing selected, no result.
 export function resetPlants() {
   tripSeq++
-  store.set({ selectedId: null, hoverId: null, fuelHover: null, outages: [], retireFuels: [], trip: { ...IDLE, key: null } })
+  restoreSeq++
+  whySeq++
+  store.set({ selectedId: null, hoverId: null, fuelHover: null, outages: [], retireFuels: [], ...CLEAR_RESULTS })
 }
 
 // ------------------------------------------------------------------ trip
@@ -122,6 +130,39 @@ export function startTrip(caseBody, outages, fuels) {
   req
     .then((data) => id === tripSeq && store.set({ trip: { status: 'done', key, data, error: null } }))
     .catch((error) => id === tripSeq && store.set({ trip: { status: 'error', key, data: null, error } }))
+  return req
+}
+
+// ------------------------------------------------------------------ the plant back
+// "Run it again with the plant back": the same case with every plant running, for the map to replay
+// (startCascade(extra, pending)), and the comparison with the trip. One request on the press; the
+// backend has both runs cached from the trip. Returns the request, or null when nothing is out.
+let restoreSeq = 0
+export function startRestore(caseBody, outages, fuels) {
+  const id = ++restoreSeq
+  if (!outages.length && !fuels.length) return null
+  const key = tripKey(caseBody, outages, fuels)
+  store.set((s) => ({ restore: { status: 'loading', key, data: s.restore.key === key ? s.restore.data : null, error: null } }))
+  const req = restorePlants({ ...caseBody, outages, retire_fuels: fuels })
+  req
+    .then((data) => id === restoreSeq && store.set({ restore: { status: 'done', key, data, error: null } }))
+    .catch((error) => id === restoreSeq && store.set({ restore: { status: 'error', key, data: null, error } }))
+  return req
+}
+
+// ------------------------------------------------------------------ why it failed
+// The incident briefing's root cause for the trip's case (plants out), on a press only: nothing is
+// asked of the server before it (LAZY). The report names the plant, its MW and the pick-up.
+let whySeq = 0
+export function startWhy(caseBody, outages, fuels) {
+  const id = ++whySeq
+  if (!outages.length && !fuels.length) return null
+  const key = tripKey(caseBody, outages, fuels)
+  store.set({ why: { status: 'loading', key, data: null, error: null } })
+  const req = getPlantBriefing({ ...caseBody, outages, retire_fuels: fuels })
+  req
+    .then((data) => id === whySeq && store.set({ why: { status: 'done', key, data, error: null } }))
+    .catch((error) => id === whySeq && store.set({ why: { status: 'error', key, data: null, error } }))
   return req
 }
 

@@ -11,10 +11,16 @@ import { api } from '../../api'
 //   POST /api/plants/{region}/{id}/trace (case)    → the same on the case, before any line trips (+ `out`)
 //   GET  /api/plants/ranking?region=&load_factor=  → {status, done, total, baseline, site, ranking: [{plant, people,
 //        [&lat=&lon=&mw=&firm=]                      added_people, lost_mw, steps, outcome}]} — polled until "ready"
+//   POST /api/plants/restore (the trip's body)     → the same case with every plant running (the cascade shape, to
+//                                                    replay) + {plants_back, restored, compare: {out, back, held_people,
+//                                                    held_mw, held_subs, held_areas}}; cached by the trip before it
+//   POST /api/briefing (case + outages)            → the incident report: root_cause.sentence names the plant
 const q = encodeURIComponent
 
 export const getPlants = (region) => api(`/api/plants?region=${q(region)}`)
 export const tripPlants = (body) => api('/api/plants/trip', { method: 'POST', body })
+export const restorePlants = (body) => api('/api/plants/restore', { method: 'POST', body })
+export const getPlantBriefing = (body) => api('/api/briefing', { method: 'POST', body })
 export function getTrace(region, id, body) {
   const path = `/api/plants/${q(region)}/${q(id)}/trace`
   return body ? api(path, { method: 'POST', body }) : api(path)

@@ -12,6 +12,11 @@ Endpoints (all public, like grid.py; every people number is an estimate):
                                               `retire_fuels` → the same shape as /api/grid/cascade,
                                               plus what was removed, the moment after, and the
                                               same case with every plant running (`baseline`)
+- POST /api/plants/restore                    the same body as a trip → the same case with every plant
+                                              running (the /api/grid/cascade shape, to replay), plus
+                                              `compare`: plant out vs back, and the areas the plant
+                                              was holding up. Both runs are cached by the trip, so the
+                                              "Run it again with the plant back" button costs no solve.
 - GET  /api/plants/{region}/{id}/trace        which areas the plant's power reaches (base case)
 - POST /api/plants/{region}/{id}/trace        the same on a case (before any cascade)
 - GET  /api/plants/ranking?region=FL          the plants a state can least afford to lose: each
@@ -221,6 +226,43 @@ def grid_without_fast(g: Grid, removed: list[dict]) -> Grid:
             setattr(c, k, None)
     c.base = c.solve(np.ones(c.m, dtype=bool))
     return c
+
+
+def plant_title(p: dict) -> str:
+    """The plant's name as in the dataset, readable: "HOMESTEAD 20 nuclear" -> "Homestead 20 nuclear"."""
+    sub = " ".join(w[:1].upper() + w[1:].lower() for w in str(p.get("sub_name") or p.get("name") or "").split())
+    return f"{sub} {p.get('fuel') or ''}".strip()
+
+
+def describe_removed(removed: list[dict], fuels: list[str] | None = None) -> dict:
+    """Words for what was taken out, shared by the trip and the incident briefing:
+    `label` ("the Homestead 20 nuclear plant", "every coal plant in the model"), `size` ("1,635 MW" or
+    "12 plants, 5,210 MW"), `names` (the dataset's names, biggest first), capacity and count."""
+    fuels = [normalize_fuel(f) for f in (fuels or [])]
+    ps = sorted(removed, key=lambda p: -float(p.get("pmax") or 0))
+    n = len(ps)
+    cap = float(sum(float(p.get("pmax") or 0) for p in ps))
+    loose = [p for p in ps if p.get("fuel") not in fuels]  # hand-tripped plants outside the retired fuels
+    parts = []
+    if fuels:
+        parts.append(f"every {' and '.join(fuels) if len(fuels) <= 2 else ', '.join(fuels[:-1]) + ' and ' + fuels[-1]} plant in the model")
+    if len(loose) == 1:
+        parts.append(f"the {plant_title(loose[0])} plant")
+    elif len(loose) == 2:
+        parts.append(f"the {plant_title(loose[0])} and {plant_title(loose[1])} plants")
+    elif loose:
+        parts.append(f"{len(loose)} plants, the largest {plant_title(loose[0])}")
+    label = " and ".join(parts) if parts else "no plant"
+    size = f"{cap:,.0f} MW" if n == 1 else f"{n} plants, {cap:,.0f} MW"
+    return {
+        "label": label,  # lower case, ready for the middle of a sentence
+        "size": size,
+        "names": [plant_title(p) for p in ps],
+        "count": n,
+        "capacity_mw": round(cap, 1),
+        "fuels": fuels,
+        "plural": n > 1,
+    }
 
 
 def people(g: Grid, mw: float) -> int:
@@ -434,27 +476,63 @@ def _firm_buses(g: Grid, sites, firm: bool) -> list[int] | None:
 
 
 _baselines: "OrderedDict[tuple, dict]" = OrderedDict()
+_fulls: "OrderedDict[tuple, dict]" = OrderedDict()  # the whole with-every-plant cascade, for the restore replay
+_outs: "OrderedDict[tuple, dict]" = OrderedDict()  # a trip's own result, trimmed to what the comparison needs
+FULL_KEEP = 6  # whole cascades carry per-line arrays: keep a few
+OUT_KEEP = 32
 
 
-def _baseline(key: tuple, g: Grid, extra, trip, upgrades, firm) -> dict:
-    """The same case with every plant running (cached: the UI trips plant after plant on one case)."""
-    with _tracer_lock:
-        got = _baselines.get(key)
-        if got is not None:
-            _baselines.move_to_end(key)
-            return got
-    r = cascade(g, extra, trip, upgrades, firm)
-    got = {
+def _summary_of(r: dict) -> dict:
+    return {
         "people": int(r.get("people", r.get("homes", 0)) or 0),
         "lost_mw": r["lost_mw"],
         "steps": r["total_steps"],
         "outcome": r["outcome"],
     }
+
+
+def _put(cache: OrderedDict, key, value, keep: int) -> None:
     with _tracer_lock:
-        _baselines[key] = got
-        while len(_baselines) > 32:
-            _baselines.popitem(last=False)
-    return got
+        cache[key] = value
+        cache.move_to_end(key)
+        while len(cache) > keep:
+            cache.popitem(last=False)
+
+
+def _cached(cache: OrderedDict, key):
+    with _tracer_lock:
+        got = cache.get(key)
+        if got is not None:
+            cache.move_to_end(key)
+        return got
+
+
+def _baseline_full(key: tuple, g: Grid, extra, trip, upgrades, firm) -> dict:
+    """The same case with every plant running, the whole cascade (cached; never mutate it)."""
+    got = _cached(_fulls, key)
+    if got is not None:
+        return got
+    r = cascade(g, extra, trip, upgrades, firm)
+    _put(_fulls, key, r, FULL_KEEP)
+    _put(_baselines, key, _summary_of(r), 32)
+    return r
+
+
+def _baseline(key: tuple, g: Grid, extra, trip, upgrades, firm) -> dict:
+    """The same case with every plant running (cached: the UI trips plant after plant on one case)."""
+    got = _cached(_baselines, key)
+    if got is not None:
+        return got
+    return _summary_of(_baseline_full(key, g, extra, trip, upgrades, firm))
+
+
+def _removed_key(removed: list[dict]) -> tuple:
+    return tuple(sorted(int(p["id"]) for p in removed))
+
+
+def _trimmed(r: dict) -> dict:
+    """What the with/without comparison needs from a plant-out run."""
+    return {**_summary_of(r), "affected": {int(k): float(v) for k, v in (r.get("affected") or {}).items()}}
 
 
 def _case_key(code: str, g: Grid, sites, trip, upgrades, firm) -> tuple:
@@ -572,8 +650,13 @@ def _trip(code: str, g: Grid, sites, trip: list[int], upgrades: dict[int, float]
                 "site_dark_mw": round(float(getattr(after, "lost_extra_mw", 0.0)), 1),
             }
         ]
-    base = _baseline(_case_key(code, g, sites, trip, upgrades, firm_flag), g, extra, trip, upgrades, firm)
+        if not res.get("affected"):
+            res["affected"] = {int(k): round(float(v), 1) for k, v in lost.items()}
+    ckey = _case_key(code, g, sites, trip, upgrades, firm_flag)
+    base = _baseline(ckey, g, extra, trip, upgrades, firm)
+    _put(_outs, (ckey, _removed_key(removed)), _trimmed(res), OUT_KEEP)  # "Run it again with the plant back" compares against it
     ppl = int(res.get("people", res.get("homes", 0)) or 0)
+    fuels = list(dict.fromkeys(normalize_fuel(f) for f in body.retire_fuels))
     return {
         **header,
         "region": code,
@@ -581,7 +664,11 @@ def _trip(code: str, g: Grid, sites, trip: list[int], upgrades: dict[int, float]
         "removed_mw": round(sum(p["pmax"] for p in removed), 1),  # capacity taken out
         "removed_output_mw": round(removed_output, 1),  # what it was producing in this case
         "removed": [_summary(p) for p in removed],
-        "retired_fuels": list(dict.fromkeys(normalize_fuel(f) for f in body.retire_fuels)),
+        "retired_fuels": fuels,
+        # the request's own plant fields, echoed so a caller can rebuild the case (the briefing takes them too)
+        "outages": sorted(dict.fromkeys(int(i) for i in body.outages)),
+        "retire_fuels": fuels,
+        "plant": describe_removed(removed, fuels),
         "initial": {
             "overloaded": len(over),
             "lines": over[:20],
@@ -591,6 +678,113 @@ def _trip(code: str, g: Grid, sites, trip: list[int], upgrades: dict[int, float]
         "baseline": base,
         "added_people": max(0, ppl - base["people"]),
         "supply": _supply(c, extra),
+        "estimate": True,
+    }
+
+
+HELD_TOP = 8  # areas listed by name in the comparison
+
+
+def _held(g: Grid, out_aff: dict, back_aff: dict) -> tuple[dict, list[dict]]:
+    """Per substation, the MW that is dark with the plants out but lit with them back (what they were
+    holding up), and the same grouped by area (the town each substation is named after), biggest first."""
+    held: dict[int, float] = {}
+    for sid, mw in out_aff.items():
+        d = float(mw) - float(back_aff.get(int(sid), 0.0))
+        if d > 0.5:
+            held[int(sid)] = round(d, 1)
+    areas: dict[str, dict] = {}
+    for sid, mw in held.items():
+        i = g.sub_index.get(sid)
+        if i is None:
+            continue
+        a = areas.setdefault(area_of(g.sub_name[i]), {"mw": 0.0, "lat": [], "lon": []})
+        a["mw"] += mw
+        a["lat"].append(float(g.sub_lat[i]))
+        a["lon"].append(float(g.sub_lon[i]))
+    listed = sorted(areas.items(), key=lambda kv: -kv[1]["mw"])[:HELD_TOP]
+    return held, [
+        {
+            "area": name,
+            "mw": round(a["mw"], 1),
+            "people": people(g, a["mw"]),
+            "subs": len(a["lat"]),
+            "lat": round(sum(a["lat"]) / len(a["lat"]), 4),
+            "lon": round(sum(a["lon"]) / len(a["lon"]), 4),
+        }
+        for name, a in listed
+    ]
+
+
+@router.post("/api/plants/restore")
+@limiter.limit("60/minute")
+def restore_plants(request: Request, body: PlantCaseIn):
+    """"Run it again with the plant back": the same case (campus, heat, storm, upgrades) with every
+    plant running — the /api/grid/cascade shape, so it replays on the map — and `compare`, the plant-out
+    run against this one: people and MW each way and the areas the plants were holding up. Both runs
+    are cached by the trip that came before, so a press after a trip runs no cascade."""
+    code = region_code(body.region)
+    g, sites, trip, upgrades = check_case(body)
+    removed = resolve_removed(code, body.outages, body.retire_fuels)
+    if not removed:
+        raise HTTPException(status_code=422, detail="No plant is out: take one out first, then bring it back")
+    try:
+        return _restore(code, g, sites, trip, upgrades, removed, body)
+    except (ArithmeticError, np.linalg.LinAlgError, RuntimeError):
+        logging.getLogger("uvicorn.error").exception("plants restore %s %s could not be solved", code, [p["id"] for p in removed][:20])
+        raise HTTPException(status_code=422, detail=UNSOLVABLE) from None
+
+
+def _restore(code: str, g: Grid, sites, trip: list[int], upgrades: dict[int, float], removed: list[dict], body: PlantCaseIn) -> dict:
+    firm_flag = bool(getattr(body, "firm", False))
+    extra, header = _header(g, sites, trip, upgrades)
+    firm = _firm_buses(g, sites, firm_flag)
+    ckey = _case_key(code, g, sites, trip, upgrades, firm_flag)
+    cached = {"back": ckey in _fulls, "out": (ckey, _removed_key(removed)) in _outs}
+    back = _baseline_full(ckey, g, extra, trip, upgrades, firm)
+    out = _cached(_outs, (ckey, _removed_key(removed)))
+    if out is None:  # no trip before this one (or it aged out): run the plant-out case too
+        c = grid_without(g, code, removed)
+        out = _trimmed(cascade(c, _extra(c, sites), trip, upgrades, _firm_buses(c, sites, firm_flag)))
+        if not out["affected"]:
+            # a shortage with no overload sheds load at once and the engine lists no step: the moment after is the outcome
+            active = np.ones(c.m, dtype=bool)
+            for bid in trip:
+                active[c.br_index[bid]] = False
+            after = c.solve(active, _extra(c, sites), c.rates_with(upgrades))
+            lost = c.lost_by_sub(after)
+            if lost:
+                out = {**out, "affected": {int(k): float(v) for k, v in lost.items()}}
+        _put(_outs, (ckey, _removed_key(removed)), out, OUT_KEEP)
+    active = np.ones(g.m, dtype=bool)
+    for bid in trip:
+        active[g.br_index[bid]] = False
+    before = g.solve(active, extra, g.rates_with(upgrades))  # one sparse solve: what the plants make in this case
+    output = sum(plant_output(g, before.gen, p) for p in removed)
+    back_sum = _summary_of(back)
+    held_subs, held_areas = _held(g, out["affected"], {int(k): float(v) for k, v in (back.get("affected") or {}).items()})
+    fuels = list(dict.fromkeys(normalize_fuel(f) for f in body.retire_fuels))
+    out_sum = {k: out[k] for k in ("people", "lost_mw", "steps", "outcome")}
+    return {
+        **header,
+        "region": code,
+        **back,
+        "plants_back": True,  # this replay is the case with the plants running again
+        "restored": [_summary(p) for p in removed],
+        "restored_mw": round(sum(p["pmax"] for p in removed), 1),
+        "restored_output_mw": round(output, 1),
+        # (no `outages` here: this replay IS the case with every plant running, so a briefing of it has none)
+        "plant": describe_removed(removed, fuels),
+        "compare": {
+            "out": out_sum,  # the plants out (the trip)
+            "back": back_sum,  # every plant running (this replay)
+            "held_people": max(0, out_sum["people"] - back_sum["people"]),
+            "held_mw": round(max(0.0, float(out_sum["lost_mw"]) - float(back_sum["lost_mw"])), 1),
+            "worse_with_plants": back_sum["people"] > out_sum["people"],
+            "held_subs": {str(k): v for k, v in held_subs.items()},
+            "held_areas": held_areas,
+            "cached": cached,
+        },
         "estimate": True,
     }
 
