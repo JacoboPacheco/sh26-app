@@ -913,6 +913,10 @@ SURFACES = [
      "gemini": "Writes what the presenter voice says as each campus goes in on the map: where it connects, what stopped it, the upgrade that lets it in and what it costs, in English and Spanish.",
      "check": "Every number in a line must be one of that step's facts from the engine's study, said the way the plan prints it (and every place and the cost must be said); the lines that fail go back to Gemini once with the reasons and are checked again, and a line that still fails is replaced by its template line.",
      "fallback": "Template lines from the same study"},
+    {"id": "show", "name": "Watch the story (the narrated map documentaries)",
+     "gemini": "A director agent on Gemini function calling reads each episode's storyboard through read-only tools (get_scene, get_fact, towns_hit, line_detail, cost_breakdown, agent_turns), drafts what the presenter and the analyst say over every scene (English or Spanish), and tests its own drafts with the engine's checker (check_draft) before it answers.",
+     "check": "Every line is checked before it is shown: every number (digits or spelled out) must be one of the scene's facts from the engine, and estimates are said as estimates; people hit are never called people without power; no names but the ones the facts carry and no real company, utility or storm; no claim about the real grid or the real future; the first scene names the synthetic model (Build together: the public filings, where no line speaks for a utility and each utility's filed year stays its own); no 'will', no blame, no alarm. Scenes that fail go back to Gemini once with the findings; a scene that still fails keeps its template lines. A finished narration is saved and re-checked when it is replayed.",
+     "fallback": "The storyboard's template lines, built from the same facts"},
 ]
 
 

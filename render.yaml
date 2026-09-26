@@ -37,6 +37,9 @@ services:
         value: "1500/day"
       - key: GEMINI_AGENT_MODEL
         value: "gemini-3.5-flash-lite"
+      # Watch the story's director agent (a whole episode per call; cached after the first)
+      - key: GEMINI_SHOW_MODEL
+        value: "gemini-3.5-flash"
       # The free tier gets a fraction of one CPU: no background warm-ups at startup there (each is computed
       # on first use instead). Measured locally Sat 08:50: peak memory 236 MB through every heavy path.
       - key: DANGER_WARM

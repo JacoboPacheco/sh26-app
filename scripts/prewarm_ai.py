@@ -149,6 +149,20 @@ def main():
             time.sleep(2)
         note("Strengthen Florida 1,000 MW", (s or {}).get("status") or "?", dt + time.time() - t0)
 
+    # Watch the story: the five Florida episodes in English (the director agent writes each once; replays are cached)
+    for ep in ("collapse", "hurricane", "boom", "strengthen", "together"):
+        job, dt, code = call("POST", f"/api/show/{ep}", {"region": "FL", "lang": "en"})
+        t0 = time.time()
+        s = job
+        while code == 200 and job and (s or {}).get("status") == "pending" and time.time() - t0 < 240:
+            time.sleep(2)
+            s, _, _ = call("GET", f"/api/show/jobs/{job['id']}")
+        if code == 200 and (s or {}).get("status") == "pending":
+            s, _, _ = call("GET", f"/api/show/jobs/{job['id']}")
+        ai = ((s or {}).get("show") or {}).get("ai") or {}
+        note(f"show: {ep}", (f"{ai.get('status')} {ai.get('scenes_by_gemini')}/{(ai.get('scenes_by_gemini') or 0) + (ai.get('scenes_template') or 0)} scenes"
+                             if (s or {}).get("status") == "done" else f"{(s or {}).get('status')} {(s or {}).get('error') or ''}") if code == 200 else f"HTTP {code}", dt + time.time() - t0)
+
     st, _, _ = call("GET", "/api/ai/status")
     print(f"\nDone: {len(rows)} steps. AI used today {st and st.get('used_today')}/{st and st.get('cap')}; cached answers {st and st.get('cached_answers')}; models out today {st and st.get('models_out_today')}")
 

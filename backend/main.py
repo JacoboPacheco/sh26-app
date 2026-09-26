@@ -54,6 +54,7 @@ import plants
 import scenarios
 import service_rules
 import sitereport
+import show
 import sources
 import timelapse
 import towns
@@ -150,6 +151,7 @@ app.include_router(leadtimes.router)
 app.include_router(narrate.router)
 app.include_router(views.router)
 app.include_router(sitereport.router)
+app.include_router(show.router)
 app.include_router(sources.router)
 app.include_router(timelapse.router)
 app.include_router(service_rules.router)

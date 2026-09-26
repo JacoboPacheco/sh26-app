@@ -4,6 +4,7 @@
 // and Strengthen without leaving the page.
 import { useEffect, useRef } from 'react'
 import HowAiIsUsed from '../features/ai/HowAiIsUsed'
+import { WatchStory } from '../features/show'
 import { useOverload } from '../store'
 import './topbar.css'
 
@@ -45,6 +46,7 @@ export default function TopBar({ active, onPick, withState = false }) {
         ))}
       </nav>
       <div className="appbar__end">
+        <WatchStory className="appbar__story" />
         <HowAiIsUsed className="appbar__ai" />
       </div>
     </header>
