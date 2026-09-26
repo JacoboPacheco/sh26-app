@@ -1583,7 +1583,7 @@ def finish(report: dict, composed: dict, length: str, ai_meta: dict) -> dict:
         for i, (seg, _, _) in enumerate(seq):
             prev_t = seq[i - 1][0]["text"] if i else None
             next_t = seq[i + 1][0]["text"] if i + 1 < len(seq) else None
-            seg["key"] = voice.register(seg["text"], lang, seg["role"], prev_text=prev_t, next_text=next_t)
+            seg["key"] = voice.register(seg["text"], lang, seg["role"], prev_text=prev_t, next_text=next_t, cues=seg["cues"])
     place = (w.preset_name("en") if w.preset else (w.place or w.top_area() or w.region_name))
     place_es = (w.preset_name("es") if w.preset else (w.place or w.top_area() or w.region_name))
     title = {
@@ -1784,6 +1784,27 @@ AI_DEADLINE_S = 15  # the whole call
 AI_CACHE = 128
 _ai_cache: "OrderedDict[str, dict]" = OrderedDict()
 _ai_locks: dict[str, asyncio.Lock] = {}
+# Gemini's prose for the pinned hero decks (backend/demo/prerender_voice.py): the same text after a
+# restart, so the pre-rendered audio still matches it
+PINNED_AI = voice.PINNED_DIR / "ai_bodies.json"
+
+
+def _load_pinned_ai() -> None:
+    try:
+        data = json.loads(PINNED_AI.read_text(encoding="utf-8")) if PINNED_AI.exists() else {}
+    except (OSError, ValueError):
+        data = {}
+    for key, v in data.items():
+        bodies = {tuple(k.split("/", 1)): text for k, text in (v.get("bodies") or {}).items()}
+        _ai_cache[key] = {"bodies": bodies, "meta": v.get("meta") or {"numbers_checked": 0, "rejected": 0, "fallback": False}}
+
+
+def pinned_ai_entry(report: dict, length: str) -> dict | None:
+    """The cached Gemini result for a report, as prerender_voice.py writes it to ai_bodies.json."""
+    hit = _ai_cache.get(f"{VERSION}|{report.get('key')}|{length}")
+    if hit is None:
+        return None
+    return {"bodies": {f"{sid}/{lang}": text for (sid, lang), text in hit["bodies"].items()}, "meta": hit["meta"]}
 _OPENING = re.compile(r"^\s*(this is a simulation|esto es una simulaci[oó]n)", re.IGNORECASE)
 _CLOSING = re.compile(r"(end of (the )?simulated briefing|fin del simulacro)", re.IGNORECASE)
 HOLDS_WORDS = {
@@ -2084,3 +2105,6 @@ async def bulletin(request: Request, body: CaseIn):
     text = ev["headline"]["en"].rstrip(".") + ". " + " ".join(s["text"] for s in ev["narration"]["en"])
     return {"text": text, "fallback": ev["written_by"]["en"] == "template",
             "facts": list(report.get("facts") or []) + deck["extra_facts"], "deck_key": deck["deck_key"]}
+
+
+_load_pinned_ai()
