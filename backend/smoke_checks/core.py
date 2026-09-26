@@ -110,7 +110,19 @@ def register(ctx):
             run = [h["people_hit"] for h in s["hits"]] + [w["people_hit"] for w in s["waves"]]
             assert run == sorted(run) and all(v <= s["people_hit"] for v in run), f"step {s['n']}: hit totals {run[-3:]} vs {s['people_hit']}"
 
+    def test_at_risk_matches_counter():
+        h = ctx.expected["hero"]
+        w = ctx.request("POST", "/api/grid/whatif", {"lat": h["lat"], "lon": h["lon"], "mw": h["mw"]})
+        c = hero(1500, False)
+        assert w["at_risk"] and 0 < w["at_risk_people"] <= c["population"], (len(w["at_risk"]), w["at_risk_people"])
+        first = c["steps"][0]
+        line = next((a for a in w["at_risk"] if a["id"] == first["tripped"][0]), None)
+        assert line, f"the first line to fail ({first['tripped'][0]}) isn't in the what-if's at-risk list"
+        got = first["hits"][-1]["people_hit"] if first["hits"] else 0
+        assert line["people"] == got, f"at-risk says {line['people']:,} behind the first line, its failure hits {got:,}"
+
     ctx.check("core: people in the blackout zone >= cut share, never down; waves spread the step's darkness exactly", test_zone_and_waves)
+    ctx.check("core: 'where the people are' before a run equals what the first failure hits", test_at_risk_matches_counter)
     ctx.check("core: /api/regions lists 48 valid regions with population", test_regions)
     ctx.check("core: hero cascade people > 0 and = lost MW x people_per_mw (estimate)", test_hero_people)
     ctx.check("core: what-if carries people, people_per_mw, population, sub_area", test_whatif_people_fields)

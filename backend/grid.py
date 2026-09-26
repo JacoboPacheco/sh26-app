@@ -314,12 +314,23 @@ def whatif(request: Request, body: CaseIn):
     for bid in trip:
         active[g.br_index[bid]] = False
     state = g.solve(active, extra, g.rates_with(upgrades))
+    over = g.overloaded(state)
+    # "Where the people are": each overloaded line with the people its power flows on to — the same
+    # rule the cascade's people-hit counter uses when that line fails — and everyone in the path, each once
+    at_risk, path = [], set()
+    for o in over[:12]:
+        k = g.br_index[o["id"]]
+        subs = g.downstream_subs(state, [k])
+        path |= subs
+        at_risk.append({"id": o["id"], "mw": round(abs(float(state.flow[k])), 1), "people": g.zone(subs)["people_zone"]})
     return {
         **header,
         "region": region_code(body.region),
         "loading_pct": np.round(state.loading_pct, 1).tolist(),  # aligned with /api/grid branches
         "flow_mw": np.round(state.flow).astype(int).tolist(),  # signed, from -> to positive
-        "overloaded": g.overloaded(state),
+        "overloaded": over,
+        "at_risk": sorted(at_risk, key=lambda a: -a["people"]),
+        "at_risk_people": g.zone(path)["people_zone"],
         "lost_mw": round(state.lost_existing_mw, 1),
         **people_fields(g, state.lost_existing_mw),
         "firm": body.firm,
