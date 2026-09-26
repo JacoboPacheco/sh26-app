@@ -14,6 +14,8 @@
 // A tier with no hits is a CRACK (a line fails, the grid strains) or, once an area is dark, an
 // AFTERSHOCK. Everything is in ms from the start of playback.
 
+import { incidentScale, leapIntensity } from '../features/impact/intensity'
+
 const LEAD_MS = 400 // from the top: the camera settles on the site before the first snap
 const SNAP_MS = 350 // the line snaps before the blast front leaves it
 // the blast front: t(km) = RING_REF_MS * (km / RING_REF_KM) ^ RING_POW — ease-out (fast, then slowing)
@@ -236,12 +238,15 @@ function buildTier(st, j, events, subById, branchById, state) {
 
 /**
  * The replay from step `from` (0 = the top; resuming mid-way schedules only what's ahead).
- * → {from, total, scale, start: {hit, zone}, tiers, leaps}
+ * → {from, total, scale, start: {hit, zone}, tiers, leaps, incident}
  *   tiers[i]: {step (the store's step once it ends), kind, t0, t1, origin {lat, lon}, lines [branch ids],
  *              ring {t0, dur, km, faint}, hits [{t, area, people, total, km, subs [{id, t}]}],
  *              waves [{t0, t1, paths, subs, zone, hit, hitDelta, zoneDelta}], darken [{id, t}]}
+ *   tiers[i] also: {intensity 0..1 (how hard this tier should hit, relative to the incident: features/impact/intensity.js), people}
  *   leaps[i]: {t, hit (people hit after it), zone (people in the dark after it), delta, zoneDelta, label, step, big,
- *              town (the hitEvents entry it lands, when it adds people)}
+ *              town (the hitEvents entry it lands, when it adds people), share (delta / the incident's final people hit),
+ *              intensity (0..1 from the leap's share and the incident's size)}
+ *   incident: {hit, zone (where the whole cascade ends, also when the replay resumes mid-way), scale (0.36..1)}
  * The time scale is set by the whole cascade (compressed past MAX_TOTAL, stretched when short), so a
  * replay resumed mid-way runs at the same speed as one from the top.
  */
@@ -250,6 +255,7 @@ export function buildSchedule(cascade, subById, branchById, from = 0) {
   const events = hitEvents(cascade, subById)
   const state = { hit: 0, zone: 0, darkened: new Set() }
   const raw = steps.map((st, j) => buildTier(st, j, events[j], subById, branchById, state))
+  const incident = { hit: state.hit, zone: state.zone, scale: incidentScale(state.hit) }
   const whole = LEAD_MS + raw.reduce((s, x) => s + x.dur, 0)
   const scale = whole > MAX_TOTAL ? MAX_TOTAL / whole : whole < MIN_TOTAL && whole > 0 ? Math.min(MIN_TOTAL / whole, STRETCH_MAX) : 1
 
@@ -272,11 +278,21 @@ export function buildSchedule(cascade, subById, branchById, from = 0) {
     }
     delete tier.leaps
     delete tier.dur
-    x.leaps.forEach((l) => leaps.push({ ...l, t: at(l.t), big: l.delta >= BIG_LEAP }))
+    let people = 0
+    let hardest = 0
+    x.leaps.forEach((l) => {
+      const intensity = leapIntensity(l.delta, incident.hit)
+      people += Math.max(0, l.delta)
+      if (l.delta > 0) hardest = Math.max(hardest, intensity)
+      leaps.push({ ...l, t: at(l.t), big: l.delta >= BIG_LEAP, share: incident.hit > 0 ? Math.min(1, l.delta / incident.hit) : 1, intensity })
+    })
+    tier.people = people
+    // a tier that hits people plays at its hardest leap; a crack or aftershock at half the incident's size
+    tier.intensity = hardest || Math.max(0.28, incident.scale * 0.5)
     tiers.push(tier)
     t = tier.t1
   })
-  return { from: f, total: t, scale, start, tiers, leaps }
+  return { from: f, total: t, scale, start, tiers, leaps, incident }
 }
 
 /** Index of the last leap at or before `ms` (-1 before the first). */

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useHospitals } from '../features/hospitals/hospitalsApi'
+import { AFTERGLOW_MS, buildFires, drawFires } from '../features/impact/fireFx'
+import { byIntensity, leapIntensity } from '../features/impact/intensity'
 import { useReducedMotion } from '../features/impact/towns'
 import { useMapView } from '../GridMap'
 import { HEIGHT, WIDTH, fmt, muPerKm } from '../geo'
@@ -19,11 +22,18 @@ import { RING_POW, titleCase } from './cascadeSchedule'
 //     "+people" over each town the front lands on. Drawn per frame from the same clock as the
 //     counter; on a canvas they don't make the browser repaint the heavy map under them (an SVG
 //     front forced a re-raster of the ~1,300 lights and ~3,300 lines under it on every frame).
+//   Fire (features/impact/fireFx.js, drawn by the same canvas): an arc, a white flash and sparks at the
+//     instant a line trips, then flames, embers and a smoke plume where it burns, sparks where the front
+//     passes a light, smoldering hot spots where the power goes out and a pulsing red cross at each
+//     hospital that goes dark. Sizes follow the element (kV, people) AND the incident-relative
+//     intensity (features/impact/intensity.js), so a small cascade burns at about half a big one's size.
+//     The fire and smolder linger for AFTERGLOW_MS after the replay ends, fading out.
 // Paused or scrubbed, both are off and the map shows the exact step (the store's view).
 // Sizes: SVG stroke widths are screen px (non-scaling strokes); radii and text are divided by the zoom.
 
 const CROWD_MIN = 5000 // a call-out under this many people is dropped when there's no room for it
-const calloutPx = (p) => Math.min(30, 14 + 5.5 * Math.max(0, Math.log10(Math.max(p, 1)) - 3.7)) // bigger for bigger hits
+// bigger for bigger hits: by the people in it, and by its size against the whole incident (the larger of the two)
+const calloutPx = (p, I) => Math.min(30, Math.max(14 + 5.5 * Math.max(0, Math.log10(Math.max(p, 1)) - 3.7), byIntensity(I, 14, 25)))
 const HIT_LIFE = 1800 // a hit's call-out pops, drifts and fades over this…
 const KEEP = 3 // …except each tier's biggest few, which stay faintly until the tier ends
 const LINE_LIFE = 2400
@@ -31,10 +41,25 @@ const WAVE_LIFE = 1400
 const nameOf = (s) => titleCase(s?.name || '')
 
 export default function CascadeFX() {
-  const { fx, playing, subById, branchById, cascade } = useOverload()
+  const { fx: live, playing, subById, branchById, cascade, step, region } = useOverload()
   const { k, project } = useMapView()
   const [aim, setAim] = useState(null) // a line the impact panel points at before the run (hover)
   const reduced = useReducedMotion()
+  // The replay that just ran to its end stays on screen for its afterglow: the fire dies back and the
+  // hot spots smolder out (the store clears `fx` the moment the last step lands).
+  const [last, setLast] = useState(null)
+  if (live && last?.fx !== live) setLast({ fx: live, cascade })
+  const finished = !live && !!last && !!cascade && last.cascade === cascade && step >= (cascade.steps?.length || 0)
+  const [gone, setGone] = useState(null)
+  useEffect(() => {
+    if (!finished) return undefined
+    const t = setTimeout(() => setGone(last.fx), AFTERGLOW_MS + 400)
+    return () => clearTimeout(t)
+  }, [finished, last])
+  const fx = live || (finished && gone !== last.fx ? last.fx : null)
+  const running = !!(live && playing)
+  // the region's hospitals, only while a replay is on screen (LAZY: nothing is fetched on load or when the state changes)
+  const hospitals = useHospitals(fx ? region : null).data?.hospitals
   // the FX group (its screen matrix is the camera's) and the map box the canvas goes in
   const anchor = useRef(null)
   const [host, setHost] = useState(null)
@@ -53,6 +78,9 @@ export default function CascadeFX() {
   // agree; read once per run (a later re-render must not move a running animation's delay)
   // eslint-disable-next-line react/purity -- read once per run, on purpose
   const lag = useMemo(() => (fx ? performance.now() - fx.startedAt : 0), [fx])
+
+  // everything that burns, with its time (features/impact/fireFx.js) — once per run
+  const fires = useMemo(() => (fx ? buildFires({ schedule: fx.schedule, subById, branchById, project, hospitals }) : null), [fx, subById, branchById, project, hospitals])
 
   // everything the replay will draw, positioned in map units, with its time — once per run
   // (and again if the zoom changes: sizes and the call-outs' spots depend on it)
@@ -147,7 +175,9 @@ export default function CascadeFX() {
       // each town the front lands on: its lights go white-hot, then ember; its call-out pops at its
       // biggest substation — the tier's biggest few stay, faintly, until the tier ends
       const big = new Set([...tier.hits].sort((p, q) => q.people - p.people).slice(0, KEEP).map((h) => h.area))
+      const total = fx.schedule.incident?.hit ?? 0
       tier.hits.forEach((h) => {
+        const I = leapIntensity(h.people, total)
         let top = null
         h.subs.forEach((s) => {
           const p = xy(s.id)
@@ -165,10 +195,10 @@ export default function CascadeFX() {
           keep: big.has(h.area) ? tier.t1 : 0,
           people: h.people,
           kind: 'hit',
-          pop: 1 + Math.min(0.5, 0.1 + Math.max(0, Math.log10(h.people) - 3.5) * 0.18),
+          pop: Math.max(1 + Math.min(0.5, 0.1 + Math.max(0, Math.log10(h.people) - 3.5) * 0.18), 1 + 0.45 * I),
           lines: [
             { text: h.area, px: 12, weight: 700, color: 'ink' },
-            { text: `−${fmt(h.people)} people`, px: calloutPx(h.people), weight: 800, color: 'hot' },
+            { text: `−${fmt(h.people)} people`, px: calloutPx(h.people, I), weight: 800, color: 'hot' },
           ],
         })
         if (c) callouts.push(c)
@@ -197,8 +227,8 @@ export default function CascadeFX() {
           life: WAVE_LIFE,
           people: added,
           kind: 'wave',
-          pop: 1.15,
-          lines: [{ text: `+${fmt(added)} · ${main.area}`, px: 13, weight: 800, color: 'dark' }],
+          pop: 1.15 + 0.25 * leapIntensity(added, total),
+          lines: [{ text: `+${fmt(added)} · ${main.area}`, px: byIntensity(leapIntensity(added, total), 13, 16), weight: 800, color: 'dark' }],
         })
         if (c) callouts.push(c)
       })
@@ -210,11 +240,21 @@ export default function CascadeFX() {
     return { snaps, hits, darks, canvas: { rings, flares, sparks, callouts, lineFlares } }
   }, [fx, lag, subById, branchById, cascade, project, k, host])
 
-  if (!playing || !plan) return aim != null ? <Aim id={aim} k={k} /> : null
+  if (!fx || !plan) return aim != null ? <Aim id={aim} k={k} /> : null
   const u = 1 / k // map units per screen px (roughly)
+  // the same canvas carries on into the afterglow (no remount, so no gap): only the SVG effects stop
   return (
-    <g className="fx bx" pointerEvents="none" aria-hidden="true" ref={attach}>
-      {!reduced && host && <BlastCanvas fx={fx} items={plan.canvas} anchor={anchor} host={host} />}
+    <g className={running ? 'fx bx' : 'fx bxa'} pointerEvents="none" aria-hidden="true" ref={attach}>
+      {host && <BlastCanvas fx={fx} items={plan.canvas} fires={fires} anchor={anchor} host={host} still={reduced} />}
+      {running && <Sfx plan={plan} u={u} k={k} />}
+    </g>
+  )
+}
+
+// The replay's SVG effects: laid down once, each a CSS animation whose delay is its time in the schedule.
+function Sfx({ plan, u, k }) {
+  return (
+    <>
       <defs>
         <radialGradient id="bx-black">
           <stop offset="0" className="bx-black__core" />
@@ -239,7 +279,7 @@ export default function CascadeFX() {
       {plan.snaps.map((l) => (
         <line key={l.key} className="bx-snap" x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} style={{ animationDelay: l.delay }} />
       ))}
-    </g>
+    </>
   )
 }
 
@@ -254,7 +294,7 @@ const FONT = '"Archivo Variable", system-ui, sans-serif'
 
 // A <canvas> over the map (portaled into GridMap's .map box, under the side panels), drawn per
 // frame in map units: the frame's transform is the camera's screen matrix, read from the FX group.
-function BlastCanvas({ fx, items, anchor, host }) {
+function BlastCanvas({ fx, items, fires, anchor, host, still }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -268,7 +308,9 @@ function BlastCanvas({ fx, items, anchor, host }) {
       for (let i = 1; i < s.pts.length; i++) cum.push(cum[i - 1] + Math.hypot(s.pts[i][0] - s.pts[i - 1][0], s.pts[i][1] - s.pts[i - 1][1]))
       return { ...s, cum, len: cum.at(-1) || 1 }
     })
-    const end = fx.schedule.total + LINE_LIFE
+    // with fire the canvas carries on past the replay: the flames die back and the hot spots smolder out
+    const end = fx.schedule.total + (fires?.any ? AFTERGLOW_MS : LINE_LIFE)
+    const o = { total: fx.schedule.total, end, reduced: !!still, cw: 0, ch: 0, cull: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0, w: 0, h: 0 } }
     let raf = 0
     const frame = () => {
       const ms = performance.now() - fx.startedAt
@@ -285,13 +327,19 @@ function BlastCanvas({ fx, items, anchor, host }) {
       if (m) {
         const box = host.getBoundingClientRect()
         ctx.setTransform(dpr * m.a, dpr * m.b, dpr * m.c, dpr * m.d, dpr * (m.e - box.left), dpr * (m.f - box.top))
-        draw(ctx, ms, 1 / (Math.hypot(m.a, m.b) || 1), items, sparks)
+        o.cw = w
+        o.ch = h
+        Object.assign(o.cull, { a: m.a, b: m.b, c: m.c, d: m.d, e: m.e - box.left, f: m.f - box.top, w: host.clientWidth, h: host.clientHeight })
+        // reduced motion: static fire markers only, no moving layers
+        const px = 1 / (Math.hypot(m.a, m.b) || 1)
+        if (still) drawFires(ctx, ms, px, fires, o)
+        else draw(ctx, ms, px, items, sparks, fires, o)
       }
       if (ms < end) raf = requestAnimationFrame(frame)
     }
     raf = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(raf)
-  }, [fx, items, host, anchor])
+  }, [fx, items, fires, host, anchor, still])
 
   return createPortal(<canvas ref={ref} className="bx-canvas" aria-hidden="true" />, host)
 }
@@ -306,7 +354,7 @@ function along(s, f) {
 }
 
 // One frame, in map units (`px` = map units per screen px).
-function draw(ctx, ms, px, { rings, flares, callouts, lineFlares }, sparks) {
+function draw(ctx, ms, px, { rings, flares, callouts, lineFlares }, sparks, fires, o) {
   // the blast fronts: r = R * u^(1 / RING_POW), the schedule's own law, so each town lands as it's reached
   for (const r of rings) {
     const e = ms - r.t0
@@ -395,6 +443,8 @@ function draw(ctx, ms, px, { rings, flares, callouts, lineFlares }, sparks) {
     ctx.strokeStyle = `rgba(255, 220, 226, ${0.9 * a})`
     ctx.stroke()
   }
+  // fire, sparks, smoke and hot spots (features/impact/fireFx.js), under the call-outs
+  drawFires(ctx, ms, px, fires, o)
   // call-outs: what the blast hit, where it hit it — pop in (bigger for bigger hits), drift, fade
   ctx.textAlign = 'center'
   ctx.lineJoin = 'round'

@@ -121,9 +121,9 @@
   pointer-events: none;
 }
 
-/* while the blast plays, overloaded lines stop throbbing: the blast is the motion (and each throb
-   repaints the whole map under its glow) */
-.mc:has(.bx) .ln--over {
+/* while the blast plays, and through the fire's afterglow, overloaded lines stop throbbing: the
+   blast (then the fire) is the motion, and each throb repaints the whole map under its glow */
+.mc:has(.bx, .bxa) .ln--over {
   animation-play-state: paused;
 }
 

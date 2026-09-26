@@ -127,7 +127,10 @@ function MissionControl({ user }) {
     const quake = (e) => {
       const el = rootRef.current
       if (!el) return
-      el.style.setProperty('--quake', `${Math.min(16, 3 + Math.log10(Math.max(e.detail?.delta || 1, 1)) * 1.8).toFixed(1)}px`)
+      // by the people in the leap (100,000+: 12-16 px) or, for a smaller incident, its weight in the incident (up to 12.9 px)
+      const d = e.detail || {}
+      const byPeople = (d.big ?? d.delta >= 100000) ? 3 + Math.log10(Math.max(d.delta || 1, 1)) * 1.8 : 0
+      el.style.setProperty('--quake', `${Math.min(16, Math.max(byPeople, 12.9 * (d.intensity || 0), 3)).toFixed(1)}px`)
       el.classList.remove('mc--quake')
       void el.offsetWidth // restart the animation
       el.classList.add('mc--quake')

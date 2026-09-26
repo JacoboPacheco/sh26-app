@@ -5,6 +5,7 @@ import PresentDamage from '../features/briefing/PresentDamage'
 import CostCard from '../features/cost/CostCard'
 import OutageCost from '../features/cost/OutageCost'
 import TownsFeed from '../features/impact/TownsFeed'
+import { REF_FLASH, REF_POP, REF_SHAKE_PX, byIntensity, leapIntensity, lookX } from '../features/impact/intensity'
 import { hitTowns, roundPeople, useHitEvents, useReducedMotion } from '../features/impact/towns'
 import { fmt } from '../geo'
 import { useOverload } from '../store'
@@ -70,8 +71,7 @@ const STOPS = [
   [5.3, [255, 61, 94]], // ~200,000: red (--overload)
   [6, [255, 26, 60]], // a million: hot red (--hot)
 ]
-function heat(total) {
-  const x = Math.log10(Math.max(total, 1))
+function heat(x) {
   if (x <= STOPS[0][0]) return STOPS[0][1]
   for (let i = 1; i < STOPS.length; i++) {
     const [x1, c1] = STOPS[i]
@@ -84,9 +84,12 @@ function heat(total) {
   return STOPS.at(-1)[1]
 }
 // {--c, --mag (font size 0..1, by log10), --glow, --fit (so the widest number still fits)}
-function look(total, calm = false) {
-  const x = Math.log10(Math.max(total, 1))
-  const [r, g, b] = calm ? STOPS[0][1] : heat(total)
+// `final` = where this incident ends (people hit): the number is sized and colored against its own
+// incident as well as the absolute count (features/impact/intensity.js lookX, never below the absolute
+// look), so a cascade of a few thousand people ends orange-red and big, not pale.
+function look(total, calm = false, final = 0) {
+  const { size: x, heat: hx } = lookX(total, final)
+  const [r, g, b] = calm ? STOPS[0][1] : heat(hx)
   const chars = fmt(total).length
   return {
     '--c': total > 0 ? `rgb(${r}, ${g}, ${b})` : 'var(--ink)',
@@ -102,14 +105,14 @@ const WHY = 'Everyone whose power ran through a failed line or went out, each pe
 
 // Paused, scrubbed, or done: the exact value at the step on screen, no animation.
 function Counter({ view, done, ran, calm }) {
-  const { step, subById } = useOverload()
+  const { step, subById, cascade } = useOverload()
   const events = useHitEvents()
   const hit = Math.max(0, view?.peopleHit || 0)
   const zone = view?.peopleZone || 0
   // the chips' row, once the replay is over: the town hit hardest so far
   const worst = useMemo(() => (ran && step > 0 ? hitTowns(events.slice(0, step).flat(), subById)[0] : null), [ran, step, events, subById])
   return (
-    <div className="bomb" style={look(hit, calm)}>
+    <div className="bomb" style={look(hit, calm, cascade?.people_hit ?? 0)}>
       <span className="bomb__n" aria-live="polite">
         {fmt(hit)}
       </span>
@@ -153,13 +156,14 @@ const LiveCounter = memo(function LiveCounter({ fx, calm }) {
   const chipsRef = useRef(null)
   const flashRef = useRef(null)
   const start = fx.schedule.start
+  const final = fx.schedule.incident?.hit ?? 0 // where this incident ends: the number's size and color are relative to it
 
   useLayoutEffect(() => {
     const box = boxRef.current
     const num = numRef.current
     const leaps = fx.schedule.leaps
     const paint = (hit, zone) => {
-      Object.entries(look(hit, calm)).forEach(([k, v]) => box.style.setProperty(k, v))
+      Object.entries(look(hit, calm, final)).forEach(([k, v]) => box.style.setProperty(k, v))
       num.textContent = fmt(hit)
       zoneNumRef.current.textContent = fmt(zone)
       zoneRef.current.hidden = !(zone > 0)
@@ -169,9 +173,12 @@ const LiveCounter = memo(function LiveCounter({ fx, calm }) {
       if (!animate || reduced) return
       if (l.delta > 0) {
         const lg = Math.log10(l.delta)
-        // the pop: bigger for bigger leaps, capped so the number stays inside the panel
+        // how hard this leap hits against its own incident (0.3..1; the biggest leap of a big incident is 1)
+        const I = l.intensity ?? leapIntensity(l.delta, final)
+        // the pop: bigger for bigger leaps, capped so the number stays inside the panel — by the people in it or
+        // by its weight in the incident, whichever is more (a small incident's leap pops at about half a big one's)
         const room = (box.clientWidth + 14) / Math.max(num.offsetWidth, 1)
-        const s = Math.max(1.04, Math.min(1 + Math.max(0.06, (lg - 3) * 0.13), room))
+        const s = Math.max(1.04, Math.min(Math.max(1 + Math.max(0.06, (lg - 3) * 0.13), 1 + REF_POP * I), room))
         // transform only: the compositor runs it without repainting the glowing number
         num.animate(
           [
@@ -182,28 +189,30 @@ const LiveCounter = memo(function LiveCounter({ fx, calm }) {
           ],
           { duration: 480 + lg * 30, easing: 'cubic-bezier(0.2, 0.9, 0.3, 1)' },
         )
-        const a = calm ? 0 : Math.min(14, Math.max(1.5, (lg - 2.6) * 3.2)) // shake amplitude (px), by log10(delta); none when nobody lost power
+        const a = calm ? 0 : Math.min(14, Math.max(1.5, (lg - 2.6) * 3.2, byIntensity(I, 0, REF_SHAKE_PX))) // shake amplitude (px), by log10(delta) or the leap's weight; none when nobody lost power
         if (a) box.animate(
           [0, 1, -0.85, 0.65, -0.45, 0.25, -0.1, 0].map((f, i) => ({
             transform: `translate(${(f * a).toFixed(2)}px, ${((i % 2 ? -0.35 : 0.3) * f * a).toFixed(2)}px) rotate(${(f * a * 0.12).toFixed(2)}deg)`,
           })),
           { duration: 420 + lg * 20, easing: 'ease-out' },
         )
-        if (!calm && l.delta >= 20000) flashRef.current.animate([{ opacity: Math.min(0.9, (lg - 3.8) * 0.4) }, { opacity: 0 }], { duration: 650, easing: 'ease-out' })
-        chip(l, lg)
-        if (l.big && !calm) window.dispatchEvent(new CustomEvent('overload:leap', { detail: { delta: l.delta, total: l.hit } }))
+        const flash = Math.max(l.delta >= 20000 ? Math.min(0.9, (lg - 3.8) * 0.4) : 0, byIntensity(I, 0, REF_FLASH))
+        if (!calm && flash > 0.12) flashRef.current.animate([{ opacity: flash }, { opacity: 0 }], { duration: 650, easing: 'ease-out' })
+        chip(l, lg, I)
+        // the map shakes for a leap of 100,000+ people, or one that is a fifth or more of its incident
+        if ((l.big || (l.share ?? 0) >= 0.2) && !calm) window.dispatchEvent(new CustomEvent('overload:leap', { detail: { delta: l.delta, total: l.hit, intensity: I, big: !!l.big } }))
       } else if (l.zoneDelta > 0) {
         zoneNumRef.current.animate([{ transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'ease-out' })
       }
     }
-    const chip = (l, lg) => {
+    const chip = (l, lg, I) => {
       const el = document.createElement('span')
       el.className = 'bomb__chip'
       const b = document.createElement('b')
       b.textContent = `+${fmt(l.delta)}`
       el.append(b)
       if (l.label) el.append(` · ${l.label}`)
-      el.style.fontSize = `${Math.min(1.2, 0.8 + Math.max(0, lg - 3.5) * 0.18).toFixed(2)}rem`
+      el.style.fontSize = `${Math.min(1.2, Math.max(0.8 + Math.max(0, lg - 3.5) * 0.18, byIntensity(I, 0.8, 1.2))).toFixed(2)}rem`
       chipsRef.current.append(el)
       const x = (Math.random() * 18).toFixed(1)
       el.animate(
@@ -231,10 +240,10 @@ const LiveCounter = memo(function LiveCounter({ fx, calm }) {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [fx, start, reduced, calm])
+  }, [fx, start, final, reduced, calm])
 
   return (
-    <div className="bomb bomb--live" ref={boxRef} style={look(start.hit, calm)} aria-live="off">
+    <div className="bomb bomb--live" ref={boxRef} style={look(start.hit, calm, final)} aria-live="off">
       <span className="bomb__flash" ref={flashRef} aria-hidden="true" />
       <span className="bomb__n" ref={numRef}>
         {fmt(start.hit)}
