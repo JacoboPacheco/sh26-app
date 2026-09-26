@@ -936,6 +936,9 @@ def _conditions(pa, pb, facts) -> list[dict]:
     if "a.cost" in have and pa.get("cost_usd") is None or "b.cost" in have and pb.get("cost_usd") is None:
         out.append(_it("Georgia's project costs are redacted in the public filing; only unredacted fields are used.", "a.cost" if pa.get("cost_usd") is None else "b.cost"))
     out.append(_it("The cost split is a rule this draft proposes, not a figure from either filing.", "split.rule"))
+    if "neg.terms" in have:
+        neg = next(f for f in facts if f["key"] == "neg.terms")
+        out.append(_it(f"{neg['text']}; neither utility has seen them. The agents read public filings and do not speak for the utilities.", "neg.terms"))
     return out
 
 
@@ -1104,8 +1107,14 @@ def _assemble(pa, pb, rec, est, tl, split, facts, extra, parts: dict, lang: str)
             "gap_days": tl["window_gap_days"],
             "a": {"start": wa[0].isoformat(), "end": wa[1].isoformat(), "basis": wa[2], "assumed": gl._window_assumed(pa)} if wa else None,
             "b": {"start": wb[0].isoformat(), "end": wb[1].isoformat(), "basis": wb[2], "assumed": gl._window_assumed(pb)} if wb else None,
+            "negotiated": _neg_window(extra.get("negotiated")),
             **parts["joint_window_text"],
         },
+        "negotiated": (
+            {"by": extra["negotiated"]["by"], "round": extra["negotiated"]["round"], "rule": extra["negotiated"]["rule"],
+             "scope": extra["negotiated"]["scope"], "text": extra["negotiated"]["text"] + "."}
+            if extra.get("negotiated") else None
+        ),
         "roles": roles,
         "cost_split": {
             "basis": split["basis"],
@@ -1133,6 +1142,15 @@ def _assemble(pa, pb, rec, est, tl, split, facts, extra, parts: dict, lang: str)
         "next_steps": parts["next_steps"],
         "conditions": _conditions(pa, pb, facts),
     }
+
+
+def _neg_window(neg: dict | None) -> dict | None:
+    """The negotiated window as dates for the timeline: the first day of its first month to the last of its last."""
+    if not neg or not neg.get("window"):
+        return None
+    (sy, sm), (ey, em) = neg["window"]
+    last = date(ey + (em == 12), em % 12 + 1, 1) - date.resolution  # the last day of the end month
+    return {"start": date(sy, sm, 1).isoformat(), "end": last.isoformat()}
 
 
 def _roles_from_ai(parts: dict, tpl_roles: list, pa: dict, pb: dict) -> list:
@@ -1171,20 +1189,87 @@ def draft_texts(doc: dict) -> list[tuple[str, str]]:
         out += [(f"roles.{r['side']}[{n}]", it["text"]) for n, it in enumerate(r["does"])]
     out += [(f"next_steps[{n}]", it["text"]) for n, it in enumerate(d["next_steps"])]
     out += [(f"conditions[{n}]", it["text"]) for n, it in enumerate(d["conditions"])]
+    if d.get("negotiated"):
+        out.append(("negotiated", d["negotiated"]["text"]))
     return out
 
 
 # ----------------------------------------------------------------------------- the route
 
 
-def _base(overlap_id: str, months: int, as_of: date | None = None) -> dict:
+NEGOTIATION_SOURCE = {
+    "id": "negotiation",
+    "kind": "proposal",
+    "label": "Negotiated terms",
+    "title": "Terms negotiated on this page, each side's agent reading only its utility's public filing; every turn verified against both filings (backend/negotiate.py). Not a fact from either filing.",
+    "url": None,
+}
+
+
+def _with_terms(pa: dict, pb: dict, est: dict, terms: dict) -> tuple[dict, dict, dict]:
+    """A negotiation's agreed terms (negotiate.terms_for_draft) applied to the case: the estimate keeps only the
+    agreed scope (totals re-summed from gridlock's own items), the split is the agreed rule."""
+    keep = [it for it in est.get("items") or [] if it["id"] in set(terms["scope"])]
+    if keep:
+        usd = [it for it in keep if it["unit"] == "USD"]
+        est = {**est, "items": keep, "total_low": sum(it["low"] for it in usd), "total_high": sum(it["high"] for it in usd)}
+    sp = terms["split"]
+    split = {"basis": sp["basis"], "pct": list(sp["pct"]), "miles": [pa.get("miles"), pb.get("miles")], "rule": sp["rule"], "rationale": sp["rationale"]}
+    neg = {"by": terms["by"], "round": terms.get("round"), "window": terms.get("window"), "rule": sp["id"], "text": terms["text"], "scope": [it["id"] for it in keep]}
+    return est, split, neg
+
+
+def _neg_facts(neg: dict) -> list[dict]:
+    out = [{"key": "neg.terms", "text": neg["text"], "value": None, "unit": None, "source": NEGOTIATION_SOURCE}]
+    if neg.get("window"):
+        s, e = neg["window"]
+        out.append({
+            "key": "neg.window",
+            "text": f"Negotiated joint window: {MONTHS[s[1] - 1]} {s[0]} to {MONTHS[e[1] - 1]} {e[0]}",
+            "value": [f"{s[0]:04d}-{s[1]:02d}", f"{e[0]:04d}-{e[1]:02d}"],
+            "unit": "dates",
+            "source": NEGOTIATION_SOURCE,
+        })
+    return out
+
+
+def _template_terms(tpl: dict, extra: dict, neg: dict) -> None:
+    """The template draft, told the terms were negotiated (and the negotiated window, when there is one)."""
+    tpl["summary"] = _it(tpl["summary"]["text"] + f" {neg['text']}.", *tpl["summary"]["facts"], "neg.terms")
+    if neg.get("window") and extra["joint"]:
+        s, e = neg["window"]
+        js, je = extra["joint"]
+        ws, we = f"{MONTHS[s[1] - 1]} {s[0]}", f"{MONTHS[e[1] - 1]} {e[0]}"
+        inside = (
+            f"inside the shared months of both filed build windows, open since {_month(js)} and running to {_month(je)}"
+            if extra["status"] == "open"
+            else f"inside the months both filed build windows share ({_month(js)} to {_month(je)})"
+        )
+        tpl["joint_window_text"] = _it(
+            f"Negotiated joint window: {ws} to {we}, {inside}. Crews, equipment and any outages on both projects would be scheduled together inside it.",
+            "neg.window", "pair.joint_window", "neg.terms",
+        )
+        if len(tpl["next_steps"]) > 2:
+            tpl["next_steps"][2] = _it(f"Compare detailed construction schedules for the negotiated window, {ws} to {we}.", "neg.window")
+
+
+def _base(overlap_id: str, months: int, as_of: date | None = None, terms: dict | None = None) -> dict:
     """Everything but the words: the overlap, the facts, the template draft (computed, cheap, sync).
-    as_of is the draft's date (today): a filed window that ended before it is said as past."""
+    as_of is the draft's date (today): a filed window that ended before it is said as past. terms: a negotiation's
+    agreed terms (negotiate.terms_for_draft), applied to the scope, the split and the joint window."""
     as_of = as_of or date.today()
     st, pa, pb, rec, est, tl, rank = _resolve(overlap_id, months)
     split = _split(pa, pb)
+    neg = None
+    if terms:
+        est, split, neg = _with_terms(pa, pb, est, terms)
     facts, extra = _facts(st, pa, pb, rec, est, tl, rank, split, as_of)
+    if neg:
+        facts += _neg_facts(neg)
+        extra["negotiated"] = neg
     tpl = _template(pa, pb, rec, est, tl, rank, split, facts, extra)
+    if neg:
+        _template_terms(tpl, extra, neg)
     wa, wb = tl["windows"]
     overlap = {
         "id": rec["id"],
@@ -1264,9 +1349,12 @@ async def agreement(
     window_months: int = Query(gl.WINDOW_DEFAULT),
     lang: str = Query("en"),
     ai: bool = Query(True),
+    negotiated: str = Query(""),
 ):
     """A draft coordination proposal for one overlap: the facts (each with its source), the draft (Gemini's
-    words when configured and every number checks out, else the template), and what the checker rejected."""
+    words when configured and every number checks out, else the template), and what the checker rejected.
+    negotiated=en|es|plain: use the agreed, verified terms of that negotiation (POST /api/negotiate/{id}: the Gemini
+    agents in that language, or the plain rule-based version) for the scope, the split and the joint window."""
     t0 = time.perf_counter()
     if not (0 <= window_months <= gl.WINDOW_MAX):
         raise HTTPException(status_code=422, detail=f"window_months must be between 0 and {gl.WINDOW_MAX}")
@@ -1275,8 +1363,18 @@ async def agreement(
         raise HTTPException(status_code=422, detail="lang must be 'en' or 'es'")
     if len(overlap_id) > 200:
         raise HTTPException(status_code=422, detail="overlap id is too long")
-    b = await run_in_threadpool(_base, overlap_id, window_months)
-    key = (b["st_key"], b["overlap"]["id"], window_months, lang, bool(ai), b["as_of"].isoformat())
+    negotiated = (negotiated or "").strip().lower()
+    terms = neg_meta = None
+    if negotiated:
+        import negotiate  # here, not at the top: negotiate.py imports this module
+
+        if negotiated not in negotiate.WHICH:
+            raise HTTPException(status_code=422, detail="negotiated must be 'en', 'es' or 'plain'")
+        await run_in_threadpool(_resolve, overlap_id, window_months)  # an unknown pair is a 404 before any agent runs
+        terms, neg_meta = await negotiate.terms_for_draft(overlap_id, window_months, negotiated)
+    b = await run_in_threadpool(_base, overlap_id, window_months, None, terms)
+    tsig = (terms["split"]["id"], tuple(terms["scope"]), terms["window"], terms["by"]) if terms else None
+    key = (b["st_key"], b["overlap"]["id"], window_months, lang, bool(ai), b["as_of"].isoformat(), negotiated, tsig)
     with _cache_lock:
         hit = _cache.get(key)
         if hit is not None:
@@ -1321,6 +1419,7 @@ async def agreement(
                     out = _respond(b, _tpl_parts(b), "template", out["rejected"], "Gemini's draft failed the final check", lang, window_months, t0)
             cacheable = True  # Gemini's answer is itself cached by llm.py, so the same verdict would repeat
     out["cached"] = False
+    out["negotiated"] = neg_meta  # None unless ?negotiated= asked: then whether the agreed terms were applied, and by whom
     if cacheable:
         with _cache_lock:
             _cache[key] = copy.deepcopy(out)

@@ -38,6 +38,13 @@ export const LABELS = {
     close: 'Close the draft',
     generated: 'Generated',
     by: { gemini: 'Worded by Gemini from the facts; every number checked against them.', template: 'Written by the plain template from the facts.' },
+    negotiated: {
+      gemini: "Terms negotiated by two AI agents reading each utility's public filing, verified against the filings",
+      plain: 'Terms from the plain rule-based negotiation between the two filings, verified against the filings',
+    },
+    negRound: (r) => `agreed in round ${r}`,
+    negTag: 'Negotiated',
+    dropNeg: "Use the draft's own terms",
   },
   es: {
     module: 'Acuerdo de obra',
@@ -74,6 +81,13 @@ export const LABELS = {
     close: 'Cerrar el borrador',
     generated: 'Generado',
     by: { gemini: 'Redactado por Gemini a partir de los datos; cada número comprobado.', template: 'Escrito por la plantilla simple a partir de los datos.' },
+    negotiated: {
+      gemini: 'Términos negociados por dos agentes de IA que leen el documento público de cada empresa, verificados con los documentos',
+      plain: 'Términos de la negociación simple basada en reglas entre los dos documentos, verificados con los documentos',
+    },
+    negRound: (r) => `acordados en la ronda ${r}`,
+    negTag: 'Negociado',
+    dropNeg: 'Usar los términos propios del borrador',
   },
 }
 
@@ -114,6 +128,7 @@ export function agreementMarkdown(doc, lang = 'en') {
   const projects = doc.overlap?.projects || []
   const L = []
   L.push(`# ${d.title}`, '', `> ${doc.disclaimer}`, '')
+  if (d.negotiated) L.push(`> ${t.negotiated[d.negotiated.by] || d.negotiated.text}${d.negotiated.round ? ` (${t.negRound(d.negotiated.round)})` : ''}.`, '')
   L.push(`${t.generated} ${new Date().toISOString().slice(0, 10)} · ${doc.overlap?.tier_label || ''} · ${doc.overlap_id}`, '')
   L.push(`## ${t.parties}`, '')
   for (const p of projects) {

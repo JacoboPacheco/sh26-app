@@ -5,36 +5,53 @@ import { Button, ErrorBanner, Loading } from '../../ui'
 import { useGridlock } from './context'
 import { LABELS, agreementMarkdown, fmtMonth, sourcesFor } from './agreementText'
 import { fmtDate, fmtRange, toneOf } from './format'
+import Negotiation from './Negotiation'
 import './agreement.css'
 
 // Build agreement: the draft coordination proposal for one overlap, as a document beside the map.
 // The plain (template) draft arrives at once; Gemini's wording replaces it when every number it wrote
 // has passed the backend's check (GET /api/agreement/<id>). Print gives the document alone, black on white.
+// Above it, "Let two AI agents negotiate it" (Negotiation.jsx); "Use these terms in the draft" re-asks for the draft
+// with ?negotiated=<that negotiation> so the agreed, verified terms become the draft's scope, split and window.
 export default function AgreementDoc() {
   const g = useGridlock()
   const { draft, closeDraft, client } = g
   const months = g.params.window_months
   const [lang, setLang] = useState('en')
-  const key = draft ? `${draft.id}@${months}@${lang}` : null
+  // which negotiation's terms the draft uses ('en' | 'es' | 'plain' | null), for this pair and window setting only
+  const caseKey = draft ? `${draft.id}@${months}` : null
+  const [negSel, setNegSel] = useState({ for: null, key: null })
+  const negKey = negSel.for === caseKey ? negSel.key : null
+  const key = draft ? `${draft.id}@${months}@${lang}@${negKey || ''}` : null
   const [plain, setPlain] = useState({ key: null })
   const [ai, setAi] = useState({ key: null })
   const [tries, setTries] = useState(0)
+  const scrollRef = useRef(null)
+  const jumpToTerms = useRef(false)
 
   useEffect(() => {
     if (!client || !draft) return
     let live = true
-    client.agreement(draft.id, { window_months: months, lang, ai: false }).then(
+    const negotiated = negKey || undefined
+    client.agreement(draft.id, { window_months: months, lang, ai: false, negotiated }).then(
       (data) => live && setPlain({ key, status: 'ready', data }),
       (error) => live && setPlain({ key, status: 'error', error }),
     )
-    client.agreement(draft.id, { window_months: months, lang, ai: true }).then(
+    client.agreement(draft.id, { window_months: months, lang, ai: true, negotiated }).then(
       (data) => live && setAi({ key, status: 'ready', data }),
       (error) => live && setAi({ key, status: 'error', error }),
     )
     return () => {
       live = false
     }
-  }, [client, draft, months, lang, key, tries])
+  }, [client, draft, months, lang, key, tries, negKey])
+  const applyTerms = useCallback(
+    (k) => {
+      jumpToTerms.current = !!k
+      setNegSel({ for: caseKey, key: k })
+    },
+    [caseKey],
+  )
 
   useEffect(() => {
     if (!draft) return
@@ -64,6 +81,13 @@ export default function AgreementDoc() {
   const doc = cur.ai.status === 'ready' ? cur.ai.data : cur.plain.status === 'ready' ? cur.plain.data : null
   const aiPending = cur.ai.status === 'loading'
   const t = LABELS[doc?.lang === 'es' ? 'es' : 'en']
+
+  // after "Use these terms in the draft": bring the draft's negotiated line into view once it has them
+  useEffect(() => {
+    if (!jumpToTerms.current || !doc?.draft?.negotiated) return
+    jumpToTerms.current = false
+    requestAnimationFrame(() => scrollRef.current?.querySelector('.gl-paper__neg')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }, [doc])
 
   const print = useCallback(() => {
     document.body.classList.add('gl-printing')
@@ -118,10 +142,22 @@ export default function AgreementDoc() {
         </div>
       </div>
 
-      <div className="gl-doc__scroll">
+      <div className="gl-doc__scroll" ref={scrollRef}>
+        {client && (
+          <Negotiation
+            key={`${caseKey}@${lang}`}
+            client={client}
+            draftId={draft.id}
+            months={months}
+            lang={lang}
+            parties={doc?.draft?.parties}
+            used={negKey}
+            onUse={applyTerms}
+          />
+        )}
         {!doc && !failed && <Loading label="Drafting from the two filings…" />}
         {failed && <ErrorBanner error={cur.plain.error} onRetry={() => setTries((n) => n + 1)} />}
-        {doc && <Paper doc={doc} t={t} />}
+        {doc && <Paper doc={doc} t={t} onDropNeg={() => applyTerms(null)} />}
       </div>
       {doc && createPortal(<div className="gl gl-print">{<Paper doc={doc} t={t} print />}</div>, document.body)}
     </aside>
@@ -172,7 +208,7 @@ function shortWhy(r) {
 }
 
 // The document itself (the screen panel and the print copy render the same thing).
-function Paper({ doc, t, print = false }) {
+function Paper({ doc, t, print = false, onDropNeg }) {
   const d = doc.draft
   const byKey = Object.fromEntries((doc.facts || []).map((f) => [f.key, f]))
   const [factsOpen, setFactsOpen] = useState(false)
@@ -194,6 +230,17 @@ function Paper({ doc, t, print = false }) {
       <p className="gl-paper__banner" role="note">
         {doc.disclaimer}
       </p>
+      {d.negotiated && (
+        <p className="gl-paper__neg" role="note">
+          {t.negotiated[d.negotiated.by] || d.negotiated.text}
+          {d.negotiated.round ? ` (${t.negRound(d.negotiated.round)})` : ''}.
+          {!print && onDropNeg && (
+            <button type="button" className="gl-link" onClick={onDropNeg}>
+              {t.dropNeg}
+            </button>
+          )}
+        </p>
+      )}
       <p className="gl-paper__eyebrow">
         {t.eyebrow} · {doc.overlap?.tier_label} · {t.generated.toLowerCase()} {new Date().toLocaleDateString(doc.lang === 'es' ? 'es' : 'en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
       </p>
@@ -275,7 +322,10 @@ function Paper({ doc, t, print = false }) {
             </span>
           ))}
         </div>
-        <p className="gl-paper__rule">{d.cost_split.rule}</p>
+        <p className="gl-paper__rule">
+          {d.cost_split.rule}
+          {d.negotiated && <span className="gl-split__neg">{t.negTag}</span>}
+        </p>
         <p>
           {d.cost_split.rationale} {refs(d.cost_split)}
         </p>
@@ -496,8 +546,21 @@ function WindowTimeline({ jw, parties, t }) {
             className={`gl-tl__joint${pos(jw.start) > 55 ? ' is-right' : ''}${jw.status === 'past' ? ' is-past' : ''}`}
             style={{ left: at(pos(jw.start)), width: `calc((100% - var(--tl-who)) * ${(pos(jw.end) - pos(jw.start)) / 100})` }}
           >
-            <span className="gl-tl__joint-label" title={`${fmtMonth(jw.start)} – ${fmtMonth(jw.end)}`}>
-              {jointLabel}
+            {!jw.negotiated && (
+              <span className="gl-tl__joint-label" title={`${fmtMonth(jw.start)} – ${fmtMonth(jw.end)}`}>
+                {jointLabel}
+              </span>
+            )}
+          </span>
+        )}
+        {jw.negotiated && (
+          <span
+            className={`gl-tl__neg${pos(jw.negotiated.start) > 55 ? ' is-right' : ''}`}
+            style={{ left: at(pos(jw.negotiated.start)), width: `calc((100% - var(--tl-who)) * ${Math.max(0.8, pos(jw.negotiated.end) - pos(jw.negotiated.start)) / 100})` }}
+            title={`${fmtMonth(jw.negotiated.start)} – ${fmtMonth(jw.negotiated.end)}`}
+          >
+            <span className="gl-tl__neg-label">
+              {t.negTag}: {fmtMonth(jw.negotiated.start)} – {fmtMonth(jw.negotiated.end)}
             </span>
           </span>
         )}

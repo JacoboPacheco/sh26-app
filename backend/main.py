@@ -43,6 +43,7 @@ import gridlock
 import hospitals
 import hurricane
 import llm
+import negotiate
 import planner
 import plants
 import scenarios
@@ -130,6 +131,7 @@ app.include_router(plants.router)
 app.include_router(ask.router)
 app.include_router(gridlock.router)
 app.include_router(agreement.router)
+app.include_router(negotiate.router)
 app.include_router(danger.router)
 app.include_router(vote.router)
 app.include_router(analyst.router)

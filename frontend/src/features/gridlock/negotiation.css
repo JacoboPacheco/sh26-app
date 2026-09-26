@@ -1,0 +1,423 @@
+/* Negotiate (Negotiation.jsx): two AI agents trade proposals above the drafted agreement. Sober incident-room look:
+   hairlines, tabular figures, sentence case; agent A in DESC blue on the left, B in Georgia gold on the right; green
+   (--hr-ok) only for what the pipeline verified and the agreed terms, red (--danger) only for a rejected turn.
+   Motion carries order: each turn slides in, its verdict follows a beat later. Reads gridlock.css's .gl tokens. */
+
+.gl-neg {
+  max-width: 66ch;
+  display: grid;
+  gap: 12px;
+  margin-bottom: 22px;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--glass-hi) 60%, transparent);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+
+.gl-neg--idle {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.gl-neg--idle .btn {
+  white-space: nowrap;
+}
+
+.gl-neg__pitch {
+  margin: 0;
+  color: var(--ink);
+}
+
+.gl-neg__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gl-neg__head h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.gl-neg__toggle {
+  margin-left: auto;
+  font-size: 0.75rem;
+}
+
+.gl-neg__how {
+  margin: 0;
+}
+
+/* the two agents, side by side */
+.gl-neg__agents,
+.gl-neg__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.gl-neg__agent {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  padding: 8px 10px;
+  border: 1px solid var(--gl-hair);
+  border-top: 3px solid var(--tone, var(--gl-ga));
+  border-radius: var(--radius);
+  min-width: 0;
+}
+
+.gl-neg__agent--desc,
+.gl-turn--desc {
+  --tone: var(--gl-desc);
+}
+
+.gl-neg__agent--gpc,
+.gl-turn--gpc {
+  --tone: var(--gl-gpc);
+}
+
+.gl-neg__agent--ga,
+.gl-turn--ga {
+  --tone: var(--gl-ga);
+}
+
+.gl-neg__who {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.gl-neg__rep {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+/* the rounds */
+.gl-neg__rounds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.gl-neg__round {
+  display: grid;
+  gap: 6px;
+}
+
+.gl-neg__rlabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--gl-hair);
+  padding-bottom: 2px;
+}
+
+.gl-neg__col {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+}
+
+/* one turn */
+.gl-turn {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px 9px;
+  border: 1px solid var(--gl-hair);
+  border-left: 3px solid var(--tone, var(--gl-ga));
+  border-radius: var(--radius);
+  background: var(--surface);
+  min-width: 0;
+  animation: gl-turn-in 0.36s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes gl-turn-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.gl-turn.is-bad {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--gl-hair));
+  border-left-color: var(--tone, var(--gl-ga));
+}
+
+.gl-turn__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.75rem;
+}
+
+.gl-turn__kind {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.gl-turn__who {
+  color: var(--tone, var(--ink-2));
+}
+
+.gl-turn__ms {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.gl-turn__terms {
+  margin: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 0.8125rem;
+}
+
+.gl-turn__terms > div {
+  display: grid;
+  grid-template-columns: 4.6em minmax(0, 1fr);
+  gap: 6px;
+}
+
+.gl-turn__terms dt {
+  color: var(--ink-2);
+}
+
+.gl-turn__terms dd {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.gl-turn__terms > div.is-changed dd {
+  font-weight: 600;
+}
+
+.gl-turn__chg {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--tone, var(--ink-2));
+}
+
+.gl-turn__concerns {
+  margin: 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: 2px;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+}
+
+.gl-turn__note {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--ink);
+}
+
+/* the pipeline's verdict, a beat after the proposal */
+.gl-turn__verdict {
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  animation: gl-verdict-in 0.3s ease-out 0.34s both;
+}
+
+@keyframes gl-verdict-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.gl-turn__verdict.is-ok {
+  color: var(--hr-ok);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--hr-ok) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hr-ok) 35%, transparent);
+}
+
+.gl-turn__verdict.is-bad {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+}
+
+.gl-turn__verdict.is-bad ul {
+  margin: 2px 0 0;
+  padding-left: 1.1em;
+}
+
+.gl-turn__verdict .gl-turn__back {
+  display: block;
+  margin-top: 2px;
+}
+
+.gl-turn__notes {
+  margin: 0;
+}
+
+/* while Gemini works */
+.gl-neg__working {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+/* the agreed terms */
+.gl-neg__outcome {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--gl-hair);
+  border-left: 3px solid var(--ink-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  animation: gl-turn-in 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.gl-neg__outcome.is-agreed {
+  border-color: color-mix(in srgb, var(--hr-ok) 45%, var(--gl-hair));
+  border-left-color: var(--hr-ok);
+}
+
+.gl-neg__outcome h4 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.gl-neg__outcome p {
+  margin: 0;
+}
+
+.gl-neg__ok {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--hr-ok);
+}
+
+.gl-neg__save strong {
+  color: var(--hr-ok);
+}
+
+.gl-neg__next {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.gl-neg__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.gl-neg__indraft {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--hr-ok);
+}
+
+/* the draft, once the negotiated terms are in it */
+.gl-paper__neg {
+  margin: 0;
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--hr-ok) 40%, var(--glass-edge));
+  border-left: 3px solid var(--hr-ok);
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.gl-paper__neg .gl-link {
+  margin-left: 6px;
+  font-size: 0.75rem;
+}
+
+.gl-tl__neg {
+  position: absolute;
+  top: 16px;
+  bottom: -2px;
+  border: 1.5px solid var(--hr-ok);
+  background: color-mix(in srgb, var(--hr-ok) 12%, transparent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+/* in the joint window label's place, above the bars */
+.gl-tl__neg-label {
+  position: absolute;
+  bottom: 100%;
+  left: -1px;
+  padding-bottom: 2px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--hr-ok);
+  white-space: nowrap;
+}
+
+.gl-tl__neg.is-right .gl-tl__neg-label {
+  left: auto;
+  right: -1px;
+}
+
+.gl-split__neg {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--hr-ok);
+  margin-left: 8px;
+}
+
+@media (max-width: 760px) {
+  .gl-neg--idle {
+    grid-template-columns: 1fr;
+  }
+
+  .gl-neg__agents,
+  .gl-neg__cols {
+    grid-template-columns: 1fr;
+  }
+
+  .gl-neg__col:empty {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-turn,
+  .gl-turn__verdict,
+  .gl-neg__outcome {
+    animation: none;
+  }
+}
+
+@media print {
+  .gl-print .gl-paper__neg {
+    border: 1px solid #000 !important;
+  }
+
+  .gl-print .gl-tl__neg {
+    border-color: #000 !important;
+    background: rgba(0, 0, 0, 0.12) !important;
+  }
+}

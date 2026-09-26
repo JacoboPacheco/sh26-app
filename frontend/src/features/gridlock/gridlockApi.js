@@ -18,8 +18,15 @@ const live = {
   sperryCheck: () => api('/api/gridlock/sperry-check'),
   // Build agreement (backend/agreement.py): a draft coordination proposal for one overlap. ai=false is the
   // plain template (instant); ai=true asks Gemini to word it and checks every number (a few seconds).
-  agreement: (id, { window_months, lang = 'en', ai = true } = {}) =>
-    api(`/api/agreement/${encodeURIComponent(id)}?${q({ window_months, lang, ai: ai ? 'true' : 'false' })}`),
+  // negotiated: 'en' | 'es' | 'plain' uses that negotiation's agreed, verified terms in the draft
+  agreement: (id, { window_months, lang = 'en', ai = true, negotiated } = {}) =>
+    api(`/api/agreement/${encodeURIComponent(id)}?${q({ window_months, lang, ai: ai ? 'true' : 'false', negotiated })}`),
+  // Negotiate (backend/negotiate.py): two Gemini agents, each reading one utility's filing, trade proposals and the
+  // pipeline verifies every turn (up to 8 calls, ~20-40 s live; instant when cached). ai=false: the plain version.
+  negotiate: (id, { window_months, lang = 'en', ai = true } = {}) =>
+    api(`/api/negotiate/${encodeURIComponent(id)}?${q({ window_months, lang, ai: ai ? 'true' : 'false' })}`, { method: 'POST' }),
+  // the turns of a negotiation still running, polled while its POST waits ({running: false} when none is)
+  negotiateLive: (id, { window_months, lang = 'en' } = {}) => api(`/api/negotiate/${encodeURIComponent(id)}/live?${q({ window_months, lang })}`),
 }
 
 // Resolves to {client, summary} once the engine answers /summary; rejects with the engine's error.
