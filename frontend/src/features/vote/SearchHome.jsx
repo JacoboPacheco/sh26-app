@@ -73,7 +73,7 @@ export default function SearchHome({ initialQ, initialState }) {
   return (
     <div className="vote-home">
       <h1 tabIndex={-1} className="vote-h1">
-        Before the vote
+        Proposed data centers
       </h1>
       <p className="vote-lead">
         A data center is on the agenda. Look up the proposal, see what a campus of that size could do to a power grid and what it could cost, get the questions to ask before anyone approves it, and find where to speak.

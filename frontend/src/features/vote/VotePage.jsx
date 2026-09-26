@@ -35,7 +35,7 @@ export default function VotePage() {
         <a className="vote-top__map" href="#/">
           <span aria-hidden="true">←</span> Overload map
         </a>
-        <span className="vote-top__name">Before the vote</span>
+        <span className="vote-top__name">Proposed data centers</span>
         <span className="vote-top__syn">Synthetic grid model</span>
       </header>
       <main className="vote-main">

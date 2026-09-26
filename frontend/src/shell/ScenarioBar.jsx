@@ -1,4 +1,4 @@
-import { presetFor } from '../features/heat/presets'
+import HeatClock from '../features/heat/HeatClock'
 import { fmt } from '../geo'
 import { useOverload } from '../store'
 
@@ -7,7 +7,7 @@ import { useOverload } from '../store'
 // "Start over" clears everything. This is how the features combine: they all add to one case.
 export default function ScenarioBar() {
   const o = useOverload()
-  const { site, mw, result, extraSites, loadFactor, trip, upgrades, setExtraSites, setLoadFactor, setTrip, setUpgrades, clearSite, resetAll, cascade, mapTool } = o
+  const { site, mw, result, extraSites, loadFactor, trip, upgrades, setExtraSites, setTrip, setUpgrades, clearSite, resetAll, cascade, mapTool } = o
   const pieces = []
   if (site) {
     pieces.push({ key: 'site', label: `${fmt(mw)} MW data center at ${result?.sub_name ? titleCase(result.sub_name) : 'your site'}`, remove: clearSite })
@@ -20,11 +20,6 @@ export default function ScenarioBar() {
       remove: () => setExtraSites([]),
     })
   }
-  if (loadFactor !== 1) {
-    const preset = presetFor(loadFactor)
-    const name = preset ? (preset.factor > 1 ? preset.label : `${preset.label} load`) : `${Math.round(loadFactor * 100)} % of peak load`
-    pieces.push({ key: 'load', label: name, remove: () => setLoadFactor(1) })
-  }
   if (trip.length) {
     pieces.push({ key: 'storm', label: `Storm: ${fmt(trip.length)} lines knocked out`, remove: () => setTrip([]) })
   }
@@ -32,12 +27,12 @@ export default function ScenarioBar() {
   if (nUp) {
     pieces.push({ key: 'fix', label: `${nUp} line ${nUp === 1 ? 'upgrade' : 'upgrades'}`, remove: () => setUpgrades({}) })
   }
-  const busy = pieces.length > 0 || !!cascade || !!mapTool
+  const busy = pieces.length > 0 || loadFactor !== 1 || !!cascade || !!mapTool
   return (
     <div className="scenario-bar" role="region" aria-label="Your scenario">
       <span className="scenario-bar__label">Your scenario</span>
       {pieces.length === 0 ? (
-        <span className="scenario-bar__empty">Nothing added yet: drop a data center, bring a storm, or change the time of day.</span>
+        <span className="scenario-bar__empty">Nothing added yet.</span>
       ) : (
         <ul className="scenario-bar__pieces">
           {pieces.map((pc) => (
@@ -50,6 +45,8 @@ export default function ScenarioBar() {
           ))}
         </ul>
       )}
+      <span className="scenario-bar__sep" aria-hidden="true" />
+      <HeatClock compact />
       <button type="button" className="scenario-bar__reset" onClick={resetAll} disabled={!busy}>
         Start over
       </button>

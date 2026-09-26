@@ -16,7 +16,9 @@ const WARM_ORDER = PRESETS.map((p) => p.factor)
 // can black out a region in a heat wave. Rendered in the top bar (App.jsx). Picks a load level
 // with useOverload().setLoadFactor — the store re-solves the case and refetches the heatmap at it —
 // and sets html[data-heat] so heat.css can light the map for the hour (CSS only, no map re-render).
-export default function HeatClock() {
+// `compact`: just the hours as a small segmented control, for the scenario strip (the time of day is part of
+// the scenario; the big clock left the top bar, user Sat 08:16).
+export default function HeatClock({ compact = false }) {
   const { grid, result, loadFactor, setLoadFactor } = useOverload()
   const id = useId()
   const active = presetFor(loadFactor)
@@ -63,6 +65,37 @@ export default function HeatClock() {
   const peakAt = (1 / METER_MAX) * 100
   const fillTo = (Math.min(loadFactor, 1) / METER_MAX) * 100
   const overTo = (Math.min(Math.max(loadFactor, 1), METER_MAX) / METER_MAX) * 100
+
+  const hours = (
+    <div className="heat__seg" role="radiogroup" aria-labelledby={`${id}-label`} aria-describedby={`${id}-hint`}>
+      {PRESETS.map((p) => (
+        <label key={p.id} className={`heat__opt heat__opt--${p.id}`} title={p.hint}>
+          <input type="radio" name={`${id}-hour`} value={p.id} checked={active?.id === p.id} onChange={() => setLoadFactor(p.factor)} />
+          <span>{p.label}</span>
+        </label>
+      ))}
+    </div>
+  )
+  const sr = (
+    <>
+      <span className="heat__sr" aria-live="polite">
+        {Number.isFinite(totalMw) ? `${regionName}'s load: ${(totalMw / 1000).toFixed(1)} GW, ${peakPhrase(loadFactor)}` : ''}
+      </span>
+      <span className="heat__sr" id={`${id}-hint`}>
+        {HEAT_HINT}
+      </span>
+    </>
+  )
+  if (compact)
+    return (
+      <div className={`heat heat--compact heat--${mood}`} title={`${HEAT_HINT}${Number.isFinite(gw) && !national ? ` ${regionName}'s load: ${gw.toFixed(1)} GW, ${peakPhrase(loadFactor)}.` : ''}`}>
+        <span className="heat__label" id={`${id}-label`}>
+          Time of day
+        </span>
+        {hours}
+        {sr}
+      </div>
+    )
 
   return (
     <div className={`heat heat--${mood}`} title={HEAT_HINT}>

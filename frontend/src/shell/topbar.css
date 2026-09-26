@@ -1,0 +1,187 @@
+/* The bar across the top of every page (shell/TopBar.jsx). Opaque and quiet: the name, the state, the
+   pages as plain text tabs with one accent rule under the page you are on, and "How AI is used" at the end.
+   Everything below it starts under the bar (--appbar-h). */
+:root {
+  --appbar-h: 52px;
+  --appbar-bg: #070e1a;
+}
+
+.appbar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 30;
+  height: var(--appbar-h);
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-4);
+  padding: 0 var(--gutter);
+  background: var(--appbar-bg);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.appbar__brand {
+  display: flex;
+  align-items: center;
+  font-size: 1.05rem;
+  font-weight: 750;
+  font-stretch: 112%;
+  letter-spacing: 0.03em;
+  color: var(--sodium);
+  text-decoration: none;
+}
+
+.appbar__state {
+  display: flex;
+  align-items: center;
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--glass-edge);
+  margin-block: 12px;
+}
+.appbar__state select {
+  height: 30px;
+  min-width: 9.5rem;
+  padding: 0 1.9rem 0 0.6rem;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  background-color: transparent;
+  border: 1px solid var(--glass-edge);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.appbar__state select:hover {
+  border-color: var(--border);
+}
+
+.appbar__tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.appbar__tabs::-webkit-scrollbar {
+  display: none;
+}
+.appbar__tab {
+  display: flex;
+  align-items: center;
+  padding: 0 0.85rem;
+  white-space: nowrap;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.12s;
+}
+.appbar__tab:hover {
+  color: var(--ink);
+}
+.appbar__tab.is-on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.appbar__tab:focus-visible,
+.appbar__brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -6px;
+  border-radius: 6px;
+}
+
+.appbar__end {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex: none;
+}
+.appbar .appbar__ai {
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+.appbar .appbar__ai:hover {
+  color: var(--ink);
+}
+
+.appbar__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* the presentation takes the whole screen */
+html.review-open .appbar {
+  display: none;
+}
+
+/* ---- pages under the bar ---- */
+.mc {
+  top: var(--appbar-h);
+}
+html.review-open .mc {
+  top: 0;
+}
+.mc-top {
+  right: calc(var(--right-w) + 2 * var(--gutter));
+}
+.mc-left.glass {
+  top: 118px;
+  max-height: calc(100vh - var(--appbar-h) - 118px - 128px);
+}
+.mc-right.glass {
+  top: var(--gutter);
+  max-height: calc(100vh - var(--appbar-h) - var(--gutter) - 128px);
+}
+.below-bar {
+  padding-top: var(--appbar-h);
+}
+.plans-page.below-bar {
+  height: 100dvh;
+}
+
+@media (max-width: 860px) {
+  .appbar {
+    gap: var(--space-2);
+  }
+  .appbar__state {
+    padding-left: var(--space-2);
+  }
+  .appbar__state select {
+    min-width: 0;
+    max-width: 8rem;
+  }
+  .appbar__end {
+    display: none;
+  }
+  .mc {
+    top: 0;
+    padding-top: calc(var(--appbar-h) + var(--gutter));
+  }
+  .mc-top {
+    right: auto;
+  }
+}
+
+/* the scenario strip: the pieces, a hairline, then the time of day */
+.scenario-bar__sep {
+  align-self: stretch;
+  width: 1px;
+  margin-inline: var(--space-1);
+  background: var(--glass-edge);
+}
+h1.hook {
+  margin: 0;
+}
+
+/* the pages' own "← Overload map" links: the bar does that now */
+.below-bar .vw-top__map,
+.below-bar .vw-top__name,
+.below-bar .vote-top__map {
+  display: none;
+}

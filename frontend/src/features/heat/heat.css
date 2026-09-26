@@ -292,3 +292,25 @@ html[data-heat] .map:has(.map-svg--headroom)::before {
     transition: none;
   }
 }
+
+/* The compact clock inside the scenario strip: the label and the hours in one quiet row. */
+.heat.heat--compact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+.heat--compact .heat__label {
+  white-space: nowrap;
+}
+.heat--compact .heat__seg {
+  padding: 1px;
+}
+.heat--compact .heat__opt span {
+  padding-block: 0.2rem;
+  font-size: 0.78rem;
+}

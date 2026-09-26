@@ -67,7 +67,7 @@ function Head({ d }) {
   return (
     <header className="vote-head">
       <p className="vote-crumb">
-        <a href="#/vote">Before the vote</a> <span aria-hidden="true">/</span> {e.state_name}
+        <a href="#/vote">Proposed data centers</a> <span aria-hidden="true">/</span> {e.state_name}
       </p>
       <h1 tabIndex={-1} className="vote-h1">
         {e.name}
@@ -147,7 +147,7 @@ export default function ProposalPage({ id }) {
     return (
       <div className="vote-doc">
         <p className="vote-crumb">
-          <a href="#/vote">Before the vote</a>
+          <a href="#/vote">Proposed data centers</a>
         </p>
         <ErrorBanner error={error} onRetry={retry} />
       </div>

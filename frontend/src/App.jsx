@@ -1,4 +1,3 @@
-import HowAiIsUsed from './features/ai/HowAiIsUsed'
 import BoomLayer from './features/boom/BoomLayer'
 import BoomPanel from './features/boom/BoomPanel'
 import DangerLayer from './features/danger/DangerLayer'
@@ -6,7 +5,6 @@ import BestSitesLayer from './features/fix/BestSitesLayer'
 import FixPanel from './features/fix/FixPanel'
 import FlowCanvas from './features/flow/FlowCanvas'
 import Intro from './features/flow/Intro'
-import HeatClock from './features/heat/HeatClock'
 import HurricaneLayer from './features/hurricane/HurricaneLayer'
 import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
@@ -16,7 +14,7 @@ import UnlockPanel from './features/unlock/UnlockPanel'
 import PlantsPanel from './features/plants/PlantsPanel'
 import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
-import RegionPicker from './shell/RegionPicker'
+import TopBar from './shell/TopBar'
 import CascadeFX from './shell/CascadeFX'
 import ImpactPanel from './shell/ImpactPanel'
 import ScenarioBar from './shell/ScenarioBar'
@@ -81,26 +79,35 @@ function App() {
   const views = useHashPrefix('#/views')
   if (plans)
     return (
-      <Suspense fallback={<Loading />}>
-        <div className="plans-page">
-          <PLANS extra={<a href="#/">Back to Overload</a>} />
-        </div>
-      </Suspense>
+      <>
+        <TopBar active="agreement" />
+        <Suspense fallback={<Loading />}>
+          <div className="plans-page below-bar">
+            <PLANS />
+          </div>
+        </Suspense>
+      </>
     )
   if (views)
     return (
       <OverloadProvider user={user}>
-        <Suspense fallback={<Loading />}>
-          <VIEWS />
-        </Suspense>
+        <TopBar active="views" />
+        <div className="below-bar">
+          <Suspense fallback={<Loading />}>
+            <VIEWS />
+          </Suspense>
+        </div>
       </OverloadProvider>
     )
   if (vote)
     return (
       <OverloadProvider user={user}>
-        <Suspense fallback={<Loading />}>
-          <VOTE />
-        </Suspense>
+        <TopBar active="proposals" />
+        <div className="below-bar">
+          <Suspense fallback={<Loading />}>
+            <VOTE />
+          </Suspense>
+        </div>
       </OverloadProvider>
     )
   return (
@@ -110,14 +117,14 @@ function App() {
           <NEXT user={user} />
         </Suspense>
       ) : (
-        <MissionControl user={user} />
+        <MissionControl />
       )}
     </OverloadProvider>
   )
 }
 
 // The whole screen is the map; everything else floats over it.
-function MissionControl({ user }) {
+function MissionControl() {
   const o = useOverload()
   const { grid, gridError, loadGrid, view, site, result, extraSites, mode, setMode, mapTool, mapRef, place, headroomOn, headroom, loadFactor } = o
   // the grid's mood follows the time of day: dim and calm at night, hot in a heat wave
@@ -132,6 +139,19 @@ function MissionControl({ user }) {
     site && result?.forSite === site && result.sub_lat != null
       ? { from: [site.lon, site.lat], to: [result.sub_lon, result.sub_lat], key: `${site.lat},${site.lon}` }
       : null
+  // the top bar's two map tabs switch the mode here; #/strengthen (from another page) opens Strengthen
+  const pickTab = (id, e) => {
+    if (id !== 'demo' && id !== 'strengthen') return
+    e?.preventDefault()
+    setMode(id === 'strengthen' ? 'unlock' : mode === 'unlock' ? 'campus' : mode)
+    if (window.location.hash !== '#/' && window.location.hash !== '') window.history.replaceState(null, '', '#/')
+  }
+  useEffect(() => {
+    if (window.location.hash.startsWith('#/strengthen')) {
+      setMode('unlock')
+      window.history.replaceState(null, '', '#/')
+    }
+  }, [setMode])
   // a big leap of the people-hit counter shakes the map (shell/ImpactPanel dispatches it; bomb.css)
   const rootRef = useRef(null)
   useEffect(() => {
@@ -178,32 +198,13 @@ function MissionControl({ user }) {
         <div className="mc-loading">{gridError ? <ErrorBanner error={gridError} onRetry={loadGrid} /> : <Loading label={`Loading ${o.regions?.find((r) => r.code === o.region)?.name || 'the'} grid…`} />}</div>
       )}
 
+      <TopBar active={mode === 'unlock' ? 'strengthen' : 'demo'} onPick={pickTab} withState />
       <header className="mc-top">
         <div className="mc-title">
-          <div className="mc-title__row">
-            <h1 className="wordmark">Overload</h1>
-            <RegionPicker />
-          </div>
-          <p className="hook">When the next AI data center plugs in, whose lights go out?</p>
+          <h1 className="hook">When the next AI data center plugs in, whose lights go out?</h1>
           <p className="pitch">AI finds where data centers strain the grid, tests the fixes that take the strain away, and shows how many more it can safely carry.</p>
         </div>
         <ScenarioBar />
-        <div className="mc-top__right">
-          <HeatClock />
-          <nav className="mc-nav" aria-label="More of Overload">
-            <a href="#/vote" title="Look up a proposed data center: what it could do to a grid, what it could cost, what to ask before the vote">
-              Before the vote
-            </a>
-            <a href="#/views" title="Where data centers are, population and energy graphs, a company filter">
-              Views
-            </a>
-            <a href="#/plans" title="Are neighboring utilities building together?">
-              Build plans
-            </a>
-            <HowAiIsUsed />
-          </nav>
-          {user && <span className="signed-in">Signed in as {user.email}</span>}
-        </div>
       </header>
 
       <aside className="mc-left glass" aria-label="Scenario">
