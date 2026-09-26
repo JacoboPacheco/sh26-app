@@ -80,7 +80,7 @@ function StartHere() {
   return (
     <section className="start-here" aria-label="What happens">
       <h2 className="panel-h">What happens</h2>
-      <p className="start-here__lead">Drop a data center anywhere on {state} and this column shows what it does to the grid.</p>
+      <p className="start-here__lead">Drop a data center anywhere in {state} and this column shows what it does to the grid.</p>
       <ol className="start-here__steps">
         <li>Where it connects, which lines it pushes past their limit, and the people in their path.</li>
         <li>Run the cascade: the lines trip one by one and the people hit and the cost of the outage add up.</li>
