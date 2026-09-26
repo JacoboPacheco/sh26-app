@@ -1125,10 +1125,13 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
 
                 cur_town = area_of(c.header.get("sub_name") or "")
                 found, tried, first_try = [], 0, None
+                # lines already over with no campus anywhere: no town can hold it, so the scan is
+                # skipped and only the roomiest town is verified (by a cascade, below)
+                grid_ok, _ = _fits(c, g, np.zeros(g.n))
                 for h, i, town in list(fixit._towns_by_headroom(g1))[:MOVE_POOL]:
                     if town == cur_town:
                         continue
-                    if tried >= MOVE_MIN and B.left() < 20:
+                    if (tried >= MOVE_MIN and B.left() < 20) or (not grid_ok and first_try is not None):
                         break  # the first MOVE_MIN towns are always checked; the rest while the budget lasts
                     bus = g.connect_bus(i)
                     buses = [bus] + list(c.buses[1:])
@@ -1245,7 +1248,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 detail = {"lines": len(lst), "mva": mva, "km": km, "list": lst[:20], "capped": len(maxed), "limited": bool(limited), "checked_by": how}
                 trade = f"New equipment on {what}" + (f" ({km:,.1f} km of line)" if km else "") + ("; the campus keeps its full size." if c.sites else ".")
                 fixes.append(_fix(fam, f"Upgrade {what} (+{mva:,.0f} MVA)", v, oc, trade, detail, {"upgrades": {str(k): float(v_) for k, v_ in new_upg.items()}}, _ms(t0)))
-                notes["upgrade"] = {"mva": mva, "km": km, "lines": len(lst)}
+                notes["upgrade"] = {"mva": mva, "km": km, "lines": len(lst), "rate": rate, "chosen": list(chosen)}
             elif fam == "onsite":
                 if not shrink_res.get("ok"):
                     fixes.append(_fix(fam, "Generate on site", "fails", inc_oc(inc), "No grid draw fits at this hour, so on-site generation would have to carry the whole campus.", {}, None, _ms(t0)))
@@ -1648,11 +1651,12 @@ def _recovery(c: _Case, B: _Budget, inc: dict, event: dict) -> dict | None:
 
 
 # ----------------------------------------------------------------------------- cost + hospitals adapters
-def _cost(c: _Case, rep: dict) -> dict | None:
-    """costs.py's sourced estimate (LBNL value of lost load, Black & Veatch line costs, EIA prices):
-    briefing_costs(report) when it exists, else its cached_estimate on this case (<= 400 trips), else
-    just the blackout from its VoLL for a catastrophe. Midpoints of costs.py's low-high ranges, with
-    the ranges alongside. Never zeros: a figure that can't be sourced is None; nothing -> None."""
+def _cost(c: _Case, rep: dict, notes: dict) -> dict | None:
+    """What it costs, priced from this report's own runs with costs.py's published figures and
+    helpers (LBNL value of lost load, Black & Veatch line and transformer costs, EIA prices, Census
+    households) — the same formulas as the cost panel, without re-running the cascade. costs.py's own
+    briefing_costs(report) wins when it exists. Midpoints of the low-high ranges, ranges alongside.
+    Never zeros: a figure with nothing to price is None; nothing at all -> None."""
     try:
         import costs
     except Exception:  # noqa: BLE001
@@ -1664,28 +1668,52 @@ def _cost(c: _Case, rep: dict) -> dict | None:
             if isinstance(out, dict) and any(out.get(k) for k in ("blackout_usd", "upgrade_usd", "campus_bill_usd_per_year")):
                 return {**out, "source": "costs.py"}
             return None
-        hours = float(getattr(costs, "DEFAULT_HOURS", 6.0))
+        g = c.g
+        hours = float(costs.DEFAULT_HOURS)
+        S = costs.SOURCES
         lines: dict[str, dict] = {}
-        if not c.preset and len(c.trip) <= grid.MAX_TRIPS and hasattr(costs, "cached_estimate"):
-            body = {k: v for k, v in c.body.items() if k != "preset"}
-            est = costs.cached_estimate(costs.CostIn(**body, hours_out=hours))
-            lines = {ln["key"]: ln for ln in est.get("lines", [])}
-        elif hasattr(costs, "voll_per_mwh"):
+        lost_mw = max(float(rep["event"]["lost_mw"]), 0.0)
+        if lost_mw > 0.5:
             v_lo, v_hi = costs.voll_per_mwh(hours)
-            mwh = float(rep["event"]["lost_mw"]) * hours
-            lines = {
-                "blackout": {
-                    "low": round(mwh * v_lo),
-                    "high": round(mwh * v_hi),
-                    "assumption": f"{rep['event']['lost_mw']:,.0f} MW dark for {hours:g} hours at costs.py's value of lost load.",
-                    "sources": getattr(costs, "SOURCES", {}).get("lbnl_voll") and [costs.SOURCES["lbnl_voll"]] or [],
-                }
+            mwh = lost_mw * hours
+            lines["blackout"] = {
+                "low": round(mwh * v_lo),
+                "high": round(mwh * v_hi),
+                "assumption": f"{lost_mw:,.0f} MW of customers dark for {hours:g} hours (an assumption) at LBNL's value of lost load by customer class, weighted by U.S. sales (2024 dollars).",
+                "sources": [S["lbnl_voll"], S["eia_sales"], S["cpi"]],
             }
-        else:
-            return None
-    except HTTPException:
-        return None
-    except Exception as e:  # noqa: BLE001
+        up = notes.get("upgrade") or {}
+        if up.get("chosen"):
+            applied = {g.br_index[int(b)] for b in c.upgrades}
+            items = costs._upgrade_items(g, g.rate, up["rate"], sorted(applied | set(up["chosen"])), applied)
+            if items:
+                lines["upgrades"] = {
+                    "low": sum(it["low"] for it in items),
+                    "high": sum(it["high"] for it in items),
+                    "assumption": "The upgrades that stop the cascade, priced by voltage class and length: reconductoring to a new line (Black & Veatch, 2014 dollars raised to 2024); transformers at $7,250 to $13,450 per MVA.",
+                    "sources": [S["bv_wecc"], S["gridlab_2035"], S["cpi"]],
+                }
+        mw = float(sum(s.mw for s in c.sites))
+        if mw > 0:
+            price = costs.INDUSTRIAL_PRICE_2024.get(c.code, costs.US_INDUSTRIAL_PRICE_2024)
+            per_mwh = price * 10.0
+            lines["power_bill"] = {
+                "low": round(mw * costs.HOURS_PER_YEAR * costs.LOAD_FACTOR_LOW * per_mwh),
+                "high": round(mw * costs.HOURS_PER_YEAR * costs.LOAD_FACTOR_HIGH * per_mwh),
+                "assumption": f"The campus draws {costs.LOAD_FACTOR_LOW:.0%} to {costs.LOAD_FACTOR_HIGH:.0%} of its size on average (LBNL) at {REGIONS[c.code]['name']}'s 2024 average industrial price, {price:.2f} cents per kWh (EIA).",
+                "sources": [S["lbnl_dc"], S["eia_price"]],
+            }
+        pop = _population(c.code) or 0
+        households = pop / float(getattr(grid, "PEOPLE_PER_HOUSEHOLD", 2.5)) if pop else 0.0
+        if "upgrades" in lines and households:
+            per_hh = costs.CRF / 12.0 / households
+            lines["who_pays"] = {
+                "low": round(lines["upgrades"]["low"] * costs.RES_SHARE * per_hh, 4),
+                "high": round(lines["upgrades"]["high"] * per_hh, 4),
+                "assumption": f"Illustrative: the upgrades paid back over {costs.RECOVERY_YEARS} years at {costs.RECOVERY_RATE:.0%} a year, spread over the state's households; low, households pay their share of sales; high, all of it. Who really pays is up to regulators.",
+                "sources": [S["census"], S["eia_sales"]],
+            }
+    except Exception as e:  # noqa: BLE001 — a cost that can't be computed is left out, never guessed
         log.warning("briefing: costs adapter failed: %s", e)
         return None
 
@@ -1873,7 +1901,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
 
     t0 = time.perf_counter()
     nothing = event["steps"] == 0 and event["people"] == 0
-    fixes, unchecked, _notes = ([], [], {}) if nothing else _fixes(c, B, J, inc, floor)
+    fixes, unchecked, notes = ([], [], {}) if nothing else _fixes(c, B, J, inc, floor)
     firm_note = None
     if not nothing:
         try:
@@ -1964,7 +1992,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     rep["hospitals"] = _hospitals(c, inc)
     timing["hospitals"] = _ms(t0)
     t0 = time.perf_counter()
-    rep["cost"] = _cost(c, rep)
+    rep["cost"] = _cost(c, rep, notes)
     timing["cost"] = _ms(t0)
     rep["facts"] = _facts(c, rep)
     timing["total"] = _ms(t_all)
