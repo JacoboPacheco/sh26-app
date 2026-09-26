@@ -15,15 +15,17 @@ import ImpactPanel from './shell/ImpactPanel'
 import ScenarioBar from './shell/ScenarioBar'
 import Timeline from './shell/Timeline'
 import { OverloadProvider, useOverload } from './store'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { ErrorBanner, Loading } from './ui'
 import useAuth from './useAuth'
 
 // Feature previews: each feature folder may have a Preview.jsx; #/preview/<folder> shows it over the
 // live map inside the real app state. How a feature is built and checked before it is mounted.
-const PREVIEWS = import.meta.glob('./features/*/Preview.jsx', { eager: true })
+// Loaded lazily, so a half-written feature only breaks its own preview, never the main app.
+const PREVIEWS = Object.fromEntries(Object.entries(import.meta.glob('./features/*/Preview.jsx')).map(([path, load]) => [path, lazy(load)]))
 // The next application shell, built in features/app/ alongside this one: #/next… renders it instead.
-const NEXT = import.meta.glob('./features/app/NextApp.jsx', { eager: true })['./features/app/NextApp.jsx']?.default
+const loadNext = import.meta.glob('./features/app/NextApp.jsx')['./features/app/NextApp.jsx']
+const NEXT = loadNext ? lazy(loadNext) : null
 
 function useIsNext() {
   const read = () => window.location.hash.startsWith('#/next')
@@ -59,7 +61,17 @@ function App() {
   // in as the seeded demo account on load, so per-user features need no login screen.
   const { user } = useAuth()
   const next = useIsNext()
-  return <OverloadProvider user={user}>{next && NEXT ? <NEXT user={user} /> : <MissionControl user={user} />}</OverloadProvider>
+  return (
+    <OverloadProvider user={user}>
+      {next && NEXT ? (
+        <Suspense fallback={<Loading />}>
+          <NEXT user={user} />
+        </Suspense>
+      ) : (
+        <MissionControl user={user} />
+      )}
+    </OverloadProvider>
+  )
 }
 
 // The whole screen is the map; everything else floats over it.
@@ -151,14 +163,20 @@ function MissionControl({ user }) {
 function PreviewHost() {
   const name = usePreviewName()
   if (!name) return null
-  const Preview = PREVIEWS[`./features/${name}/Preview.jsx`]?.default
+  const Preview = PREVIEWS[`./features/${name}/Preview.jsx`]
   return (
     <section className="preview-host glass" aria-label={`Preview of ${name}`}>
       <div className="preview-host__bar">
         <strong>Preview: {name}</strong>
         <a href="#/">Close</a>
       </div>
-      {Preview ? <Preview /> : <p className="muted">No features/{name}/Preview.jsx yet.</p>}
+      {Preview ? (
+        <Suspense fallback={<Loading />}>
+          <Preview />
+        </Suspense>
+      ) : (
+        <p className="muted">No features/{name}/Preview.jsx yet.</p>
+      )}
     </section>
   )
 }
