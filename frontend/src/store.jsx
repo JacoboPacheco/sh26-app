@@ -59,6 +59,7 @@ export function OverloadProvider({ user, children }) {
   // UI
   const [mode, setMode] = useState('campus') // campus | hurricane | boom | fix
   const [mapTool, setMapTool] = useState(null) // a feature's pointer handlers for the map, or null (see GridMap)
+  const [resetCount, setResetCount] = useState(0) // bumps on "Start over": features clear their own local state on it
 
   // saved scenarios (the demo account's)
   const [scenarios, setScenarios] = useState(undefined)
@@ -128,7 +129,12 @@ export function OverloadProvider({ user, children }) {
 
   // Re-solve whenever the case changes (debounced for sliders); only the newest answer lands.
   useEffect(() => {
-    if (!hasCase) return undefined
+    if (!hasCase) {
+      // the last ingredient was removed: nothing to solve, clear the old answer
+      latest.current++
+      const t = setTimeout(() => setResult(null), 0)
+      return () => clearTimeout(t)
+    }
     const id = ++latest.current
     const t = setTimeout(() => {
       setSolving(true)
@@ -195,6 +201,26 @@ export function OverloadProvider({ user, children }) {
     if (!extraSites.length && !trip.length && loadFactor === 1.0) setResult(null)
     clearCascade()
   }, [clearCascade, extraSites.length, trip.length, loadFactor])
+  // "Start over": every ingredient of the case, the results, any map tool, the camera
+  const resetAll = useCallback(() => {
+    latest.current++ // a what-if still in flight is dropped when it lands
+    setSite(null)
+    focusedSite.current = null
+    setExtraSitesState([])
+    setLoadFactorState(1.0)
+    setTripState([])
+    setUpgradesState({})
+    setResult(null)
+    setWhatifError(null)
+    setSolving(false)
+    clearCascade()
+    setHeadroomOn(false)
+    setMapTool(null)
+    setMode('campus')
+    setResetCount((n) => n + 1)
+    mapRef.current?.reset()
+  }, [clearCascade])
+
   const setStep = useCallback((s) => {
     setPlaying(false)
     setStepState(s)
@@ -395,6 +421,8 @@ export function OverloadProvider({ user, children }) {
     setMode,
     mapTool,
     setMapTool,
+    resetAll,
+    resetCount,
     mapRef,
     focus,
     // lookups

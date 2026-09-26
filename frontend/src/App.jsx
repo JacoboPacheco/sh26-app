@@ -11,6 +11,7 @@ import ImpactLayer from './features/impact/ImpactLayer'
 import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
 import ImpactPanel from './shell/ImpactPanel'
+import ScenarioBar from './shell/ScenarioBar'
 import Timeline from './shell/Timeline'
 import { OverloadProvider, useOverload } from './store'
 import { ErrorBanner, Loading } from './ui'
@@ -78,6 +79,7 @@ function MissionControl({ user }) {
           <h1 className="wordmark">Overload</h1>
           <p className="hook">When the next AI data center plugs in, whose lights go out?</p>
         </div>
+        <ScenarioBar />
         <div className="mc-top__right">
           <HeatClock />
           {user && <span className="signed-in">Signed in as {user.email}</span>}

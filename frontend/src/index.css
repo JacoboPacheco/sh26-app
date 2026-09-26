@@ -415,6 +415,92 @@ a {
   border-bottom-color: var(--sodium);
 }
 
+/* the scenario bar: every ingredient in the case, each removable, and Start over */
+.scenario-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0.35rem 0.4rem 0.35rem 0.8rem;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+}
+
+.scenario-bar__label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.scenario-bar__empty {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.scenario-bar__pieces {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.piece {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.12rem 0.2rem 0.12rem 0.6rem;
+  border: 1px solid var(--glass-edge);
+  background: var(--glass-hi);
+  border-radius: 999px;
+  font-size: 0.8125rem;
+}
+
+.piece__x {
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.1rem 0.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.piece__x:hover {
+  color: var(--ink);
+  background: var(--glass-edge);
+}
+
+.scenario-bar__reset {
+  margin-left: auto;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.scenario-bar__reset:hover:not(:disabled) {
+  border-color: var(--overload);
+}
+
+.scenario-bar__reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ------------------------------------------------------------------ campus panel */
 .dc-chip {
   display: grid;
@@ -869,7 +955,7 @@ a {
   }
 }
 
-/* the data centers: square, white, pulsing — nothing else on the map looks like them */
+/* the data centers: white, larger than any light, pulsing — nothing else on the map looks like them */
 .site-dot {
   fill: #ffffff;
 }

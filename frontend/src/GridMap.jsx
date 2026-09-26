@@ -243,7 +243,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
             return (
               <g key={`${s.lat},${s.lon},${i}`} className={s.primary ? 'site site--primary' : 'site'} transform={`translate(${x} ${y})`}>
                 <circle className="site-ring" r={16 / k} />
-                <rect className="site-dot" x={-5 / k} y={-5 / k} width={10 / k} height={10 / k} />
+                <circle className="site-dot" r={6 / k} />
               </g>
             )
           })}
