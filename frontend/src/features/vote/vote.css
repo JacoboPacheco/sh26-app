@@ -1,0 +1,794 @@
+/* Before the vote (features/vote): a document, not a dashboard. Sober incident room: plain tabular figures,
+   sentence case, no boxes or badges around numbers, red only for what is lost (people without power, the
+   blackout's cost), GREEN only for a plan the engine verified. Tokens from index.css only. */
+
+.vote-shell {
+  min-height: 100vh;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+/* ------------------------------------------------------------------ top bar */
+.vote-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0.7rem var(--gutter);
+  border-bottom: 1px solid var(--glass-edge);
+  background: var(--surface);
+  font-size: 0.875rem;
+}
+
+.vote-top__map {
+  color: var(--ink-2);
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.vote-top__map:hover {
+  color: var(--ink);
+}
+
+.vote-top__name {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.vote-top__syn {
+  margin-left: auto;
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.vote-main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 2rem var(--gutter) 4rem;
+}
+
+/* ------------------------------------------------------------------ type */
+.vote-h1 {
+  font-size: clamp(1.75rem, 4.4vw, 2.6rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  outline: none;
+}
+
+.vote-h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+}
+
+.vote-h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 var(--space-2);
+}
+
+.vote-h4 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--ink-2);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.vote-lead {
+  margin-top: var(--space-3);
+  max-width: 62ch;
+  font-size: 1.1rem;
+  color: var(--ink-2);
+  line-height: 1.55;
+}
+
+.vote-body {
+  max-width: 68ch;
+  line-height: 1.6;
+}
+
+.vote-note {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  max-width: 72ch;
+}
+
+.vote-foot {
+  margin-top: var(--space-5);
+}
+
+.vote-num {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ search home */
+.vote-home {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.vote-search {
+  max-width: 560px;
+}
+
+.vote-search input {
+  font-size: 1.05rem;
+  padding: 0.65rem 0.8rem;
+}
+
+.vote-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.vote-states__label {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  margin-right: var(--space-1);
+}
+
+.vote-chip {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--glass-edge);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.vote-chip:hover {
+  border-color: var(--border);
+  background: var(--glass-hi);
+}
+
+.vote-chip--on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.vote-chip__n {
+  color: var(--ink-2);
+  font-weight: 500;
+  margin-left: 0.15rem;
+}
+
+.vote-count {
+  min-height: 1.2em;
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.vote-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--glass-edge);
+}
+
+.vote-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  padding: 0.9rem 0.25rem;
+  border-bottom: 1px solid var(--glass-edge);
+  color: inherit;
+  text-decoration: none;
+}
+
+.vote-row:hover,
+.vote-row:focus-visible {
+  background: var(--glass-hi);
+}
+
+.vote-row__main {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.vote-row__name {
+  font-weight: 700;
+  font-size: 1.02rem;
+}
+
+.vote-row__sub {
+  color: var(--ink-2);
+  font-size: 0.8125rem;
+}
+
+.vote-row__facts {
+  display: grid;
+  gap: 0.15rem;
+  text-align: right;
+  align-content: center;
+}
+
+.vote-row__mw {
+  font-weight: 700;
+}
+
+.vote-row__status {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.vote-row__status--quiet {
+  opacity: 0.85;
+}
+
+/* ------------------------------------------------------------------ a proposal */
+.vote-doc {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.vote-head {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.vote-crumb {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.vote-sub {
+  color: var(--ink-2);
+  font-size: 1.02rem;
+}
+
+.vote-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin: var(--space-2) 0 0;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--glass-edge);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.vote-facts dt {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.vote-facts dd {
+  margin: 0.1rem 0 0;
+  font-weight: 600;
+}
+
+.vote-facts__big {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.vote-reported {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  line-height: 1.55;
+  max-width: 72ch;
+}
+
+.vote-frame {
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-3);
+  font-size: 0.875rem;
+  color: var(--ink-2);
+  max-width: 72ch;
+  line-height: 1.5;
+}
+
+.vote-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.vote-section {
+  border-top: 1px solid var(--glass-edge);
+  padding-top: var(--space-4);
+  scroll-margin-top: 12px;
+}
+
+.vote-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-top: var(--space-4);
+}
+
+.vote-actions .btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.vote-final {
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* ------------------------------------------------------------------ big figures */
+.vote-big {
+  font-size: clamp(2rem, 5.2vw, 2.9rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.vote-big--lost {
+  color: var(--hr-low);
+}
+
+.vote-big--none {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+
+.vote-approx {
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+
+.vote-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: var(--space-5) var(--space-5);
+}
+
+.vote-tile {
+  display: grid;
+  align-content: start;
+  gap: 0.3rem;
+  border-top: 2px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.vote-tile__label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  min-height: 2.4em;
+}
+
+.vote-tile__range {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.vote-tile__meaning {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.vote-spread {
+  max-width: 72ch;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.vote-hows {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--glass-edge);
+}
+
+.vote-how {
+  border-bottom: 1px solid var(--glass-edge);
+  padding: 0.6rem 0;
+  font-size: 0.875rem;
+}
+
+.vote-how summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.vote-how p {
+  margin-top: var(--space-2);
+  color: var(--ink-2);
+  line-height: 1.55;
+  max-width: 76ch;
+}
+
+.vote-how__src a {
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------------ the simulation */
+.vote-simhead {
+  font-size: 1.05rem;
+  line-height: 1.5;
+  max-width: 68ch;
+}
+
+.vote-facts--sim {
+  margin-top: 0;
+}
+
+.vote-outcomes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-5);
+}
+
+.vote-outcome {
+  display: grid;
+  align-content: start;
+  gap: 0.35rem;
+  border-top: 2px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.vote-outcome__meaning {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.vote-outcome__text {
+  margin-top: var(--space-2);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.vote-outcome__areas {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.vote-why {
+  max-width: 72ch;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.vote-plain {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.1rem;
+  list-style: disc;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.vote-note__frame {
+  border-left: 2px solid var(--border);
+  padding-left: var(--space-3);
+}
+
+/* ------------------------------------------------------------------ plans (green = verified) */
+.vote-ok {
+  color: var(--hr-ok);
+  font-weight: 600;
+}
+
+.vote-plans {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--glass-edge);
+}
+
+.vote-plan {
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.vote-plan summary {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: 0.8rem 0;
+  cursor: pointer;
+}
+
+.vote-plan__rank {
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.vote-plan__title {
+  font-weight: 700;
+}
+
+.vote-plan__cost {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.vote-plan__body {
+  margin: 0 0 var(--space-3) 1.6rem;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--hr-ok);
+}
+
+.vote-plan__meta {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.vote-plan__why {
+  margin-top: var(--space-2);
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------------ questions and where to speak */
+.vote-questions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--glass-edge);
+  counter-reset: q;
+}
+
+.vote-questions > li {
+  border-bottom: 1px solid var(--glass-edge);
+  counter-increment: q;
+}
+
+.vote-questions summary {
+  cursor: pointer;
+  padding: 0.85rem 0;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.vote-questions summary::marker {
+  color: var(--ink-2);
+}
+
+.vote-q__body {
+  padding: 0 0 var(--space-3) var(--space-4);
+  max-width: 72ch;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.vote-q__src {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.vote-policy {
+  padding-top: var(--space-2);
+}
+
+.vote-speak {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-5);
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.vote-speak p {
+  margin-top: var(--space-1);
+}
+
+/* ------------------------------------------------------------------ the brief (paper) */
+.brief-wrap {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.brief-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brief-paper {
+  background: #fff;
+  color: #14181f;
+  padding: clamp(1rem, 4vw, 2.2rem);
+  border-radius: 4px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  max-width: 8.5in;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.brief-paper a {
+  color: #0b4a99;
+  word-break: break-word;
+}
+
+.brief-title {
+  font-size: 1.5rem;
+  line-height: 1.15;
+  color: #0a0d12;
+  outline: none;
+}
+
+.brief-sub {
+  margin-top: 0.25rem;
+  font-size: 0.95rem;
+  color: #2d3542;
+}
+
+.brief-meta {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: #56606f;
+}
+
+.brief-section {
+  margin-top: 1rem;
+  break-inside: avoid;
+}
+
+.brief-section h2 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0a0d12;
+  border-bottom: 1px solid #c9d0da;
+  padding-bottom: 0.15rem;
+  margin-bottom: 0.4rem;
+}
+
+.brief-section p {
+  margin: 0 0 0.3rem;
+}
+
+.brief-section ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.brief-section li {
+  margin-bottom: 0.2rem;
+}
+
+.brief-detail {
+  color: #56606f;
+  font-size: 0.8125rem;
+}
+
+.brief-note {
+  color: #56606f;
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.brief-sources li {
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.brief-disclaimer {
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #c9d0da;
+  font-size: 0.72rem;
+  color: #56606f;
+}
+
+/* ------------------------------------------------------------------ narrow */
+@media (max-width: 520px) {
+  .vote-top {
+    gap: var(--space-3);
+  }
+
+  .vote-top__syn {
+    display: none;
+  }
+
+  .vote-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.3rem;
+  }
+
+  .vote-row__facts {
+    grid-auto-flow: column;
+    justify-content: start;
+    gap: var(--space-3);
+    text-align: left;
+  }
+
+  .vote-plan summary {
+    grid-template-columns: 1.4rem minmax(0, 1fr);
+  }
+
+  .vote-plan__cost {
+    grid-column: 2;
+    text-align: left;
+  }
+
+  .vote-tile__label {
+    min-height: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ print: the brief, black on white, Letter */
+@page {
+  size: Letter;
+  margin: 0.45in;
+}
+
+@media print {
+  html,
+  body.vote-open {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  body.vote-open .vote-top,
+  body.vote-open .brief-bar,
+  body.vote-open .vote-jumps {
+    display: none !important;
+  }
+
+  body.vote-open .vote-shell,
+  body.vote-open .vote-main {
+    background: #fff;
+    padding: 0;
+    margin: 0;
+    max-width: none;
+  }
+
+  body.vote-open .brief-paper {
+    padding: 0;
+    max-width: none;
+    border-radius: 0;
+    font-size: 8.4pt;
+    line-height: 1.26;
+  }
+
+  body.vote-open .brief-title {
+    font-size: 15pt;
+  }
+
+  body.vote-open .brief-section {
+    margin-top: 0.45rem;
+  }
+
+  body.vote-open .brief-section li {
+    margin-bottom: 0.1rem;
+  }
+
+  body.vote-open .brief-section h2 {
+    font-size: 10pt;
+  }
+
+  body.vote-open .brief-sources li,
+  body.vote-open .brief-disclaimer {
+    font-size: 7pt;
+  }
+
+  body.vote-open .brief-sources ul,
+  body.vote-open .brief-section--facts ul {
+    columns: 2;
+    column-gap: 1.2rem;
+  }
+
+  body.vote-open .brief-section--facts li {
+    break-inside: avoid;
+  }
+
+  body.vote-open .brief-paper a {
+    color: #000;
+    text-decoration: none;
+  }
+}

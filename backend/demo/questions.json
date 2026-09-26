@@ -1,0 +1,128 @@
+{
+  "generated": "2026-09-26",
+  "method": "Eight questions a community can ask before a local body votes on a large data center, written as neutral questions. Each carries why it matters, what to listen for in the answer, and one or two published sources. Every source link was opened on 2026-09-26; the 'supports' line says only what that source is used for. The questions are generic on purpose: they apply to any proposal, and none of them says or implies anything about a particular project or company.",
+  "questions": [
+    {
+      "id": "firm-or-flexible",
+      "topic": "Service",
+      "question": "Can the utility ask the campus to cut back during a heat wave or an emergency, or does it get firm service that is kept on first?",
+      "why": "A campus that agrees to reduce its draw when the grid is stressed (flexible service) can use grid room that would otherwise sit idle at the peak hour. A campus on firm service is served first, so when the grid runs short it is other customers who are cut instead. Overload's model shows both outcomes side by side.",
+      "listen_for": "A clear yes or no on curtailment, how many hours a year it could happen, who decides and how fast, and whether it is written into the service agreement rather than described in general terms.",
+      "sources": [
+        {
+          "title": "Rethinking Load Growth (Nicholas Institute, Duke University, February 2025)",
+          "url": "https://nicholasinstitute.duke.edu/publications/rethinking-load-growth",
+          "supports": "A first-order estimate of how much new load the U.S. grid could take if that load can be curtailed for a small share of hours; it does not model transmission limits."
+        }
+      ]
+    },
+    {
+      "id": "who-pays",
+      "topic": "Costs",
+      "question": "Who pays for the new substations, power lines and generation this campus needs: the campus, or every customer on the utility's system?",
+      "why": "Grid upgrades cost money and regulators decide how it is split. A large-load tariff can require the campus to commit to what it uses and pay for what was built for it; without one, some of those costs can end up in all customers' rates. Overload gives an estimate of the upgrade cost and of a per-household share, but the filed tariff and the regulator decide who really pays.",
+      "listen_for": "The name of a filed tariff or contract, a minimum monthly charge, a contract length, and any payment the campus makes up front. Ask to see the filed document.",
+      "sources": [
+        {
+          "title": "Electricity Rate Designs for Large Loads: Evolving Practices and Opportunities (Lawrence Berkeley National Laboratory, January 2025)",
+          "url": "https://eta-publications.lbl.gov/publications/electricity-rate-designs-large-loads",
+          "supports": "How utilities structure rates for data centers, including fair allocation of system costs across customers."
+        }
+      ]
+    },
+    {
+      "id": "if-it-leaves",
+      "topic": "Costs",
+      "question": "What happens to the cost of the equipment if the campus is delayed, shrinks or leaves early?",
+      "why": "Grid equipment built for one large customer is paid back over decades. If that customer changes its plans, someone still owes the balance. Protections such as exit fees, minimum-take contracts and collateral decide whether that risk sits with the campus or with other customers.",
+      "listen_for": "Exit fees, a minimum contract term, collateral or a guarantee, and whether the protection is filed with the state regulator.",
+      "sources": [
+        {
+          "title": "Electricity Rate Designs for Large Loads: Evolving Practices and Opportunities (Lawrence Berkeley National Laboratory, January 2025)",
+          "url": "https://eta-publications.lbl.gov/publications/electricity-rate-designs-large-loads",
+          "supports": "Names the risk of stranded assets, and cost shifting to other ratepayers, as a central concern in designing large-load rates."
+        }
+      ]
+    },
+    {
+      "id": "backup-power",
+      "topic": "Environment",
+      "question": "Will the campus run backup generators or an on-site power plant, on what fuel, and under which air permits?",
+      "why": "Turbines and engines are common sources of primary and backup power for data centers. They can help in a grid emergency, and they also add emissions and noise near homes. An air permit sets how many hours a year they may run and what they may emit.",
+      "listen_for": "The number and size of generators, the fuel, annual run-hour limits, a permit number you can look up with the state air agency, and whether they may run during grid emergencies.",
+      "sources": [
+        {
+          "title": "Clean Air Act Resources for Data Centers (U.S. Environmental Protection Agency)",
+          "url": "https://www.epa.gov/stationary-sources-air-pollution/clean-air-act-resources-data-centers",
+          "supports": "EPA's collection of Clean Air Act rules, guidance and tools that apply to data-center power sources."
+        }
+      ]
+    },
+    {
+      "id": "water",
+      "topic": "Environment",
+      "question": "How much water will it use, where will the water come from, and what happens in a drought?",
+      "why": "Cooling can use a lot of water, or use less water and more electricity. The source (a public system, a well, reclaimed water) and the drought rules matter to neighbors and to other users of the same supply.",
+      "listen_for": "Gallons per day at full size and on the hottest days, the named source, whether a water-use permit or agreement is filed, and what the campus does when supply is restricted.",
+      "sources": [
+        {
+          "title": "2024 United States Data Center Energy Usage Report (Lawrence Berkeley National Laboratory, December 2024)",
+          "url": "https://eta-publications.lbl.gov/sites/default/files/2024-12/lbnl-2024-united-states-data-center-energy-usage-report_1.pdf",
+          "supports": "National estimates of data-center water use (about 66 billion liters used directly in 2023) and how it may grow."
+        },
+        {
+          "title": "Data Centers and Water Fact Sheet (Environmental Law Institute, January 2026)",
+          "url": "https://www.eli.org/sites/default/files/files-pdf/Data%20Centers%20and%20Water%20Fact%20Sheet%20ELI%20January%202026%20(1).pdf",
+          "supports": "A plain-language fact sheet on data centers and water."
+        }
+      ]
+    },
+    {
+      "id": "incentives",
+      "topic": "Costs",
+      "question": "What tax breaks or other incentives does the project receive, and what jobs and local revenue are promised in writing?",
+      "why": "Many states and counties offer tax exemptions to data centers. Construction and property taxes can bring local revenue, and the exemption itself reduces what the state or county collects. Seeing both numbers in the filed agreement lets you compare them.",
+      "listen_for": "The dollar value of each incentive over its life, the permanent jobs and investment committed, and what happens if a commitment is missed.",
+      "sources": [
+        {
+          "title": "Even Cloudier with a Greater Loss of Spending Control: How Data Center Tax Abatements Undermine Public Budgets (Good Jobs First)",
+          "url": "https://goodjobsfirst.org/even-cloudier-with-a-greater-loss-of-spending-control-how-data-center-tax-abatements-undermine-public-budgets/",
+          "supports": "Tracks state data-center tax exemptions and reports that many states do not publish what they cost. Good Jobs First is an advocacy research group."
+        }
+      ]
+    },
+    {
+      "id": "public-study",
+      "topic": "Reliability",
+      "question": "Has the utility or grid operator published a study of how this load connects to the grid and what it needs, and where can the public read it?",
+      "why": "Before a very large customer connects, the utility or grid operator runs engineering studies. Overload's model is a simple stand-in and is not one of them. Reliability regulators have asked utilities to study large loads carefully, including how a campus behaves when the grid has a fault.",
+      "listen_for": "The study's name or docket number, its date, who performed it, what upgrades it lists and who pays for them, and whether a public version exists.",
+      "sources": [
+        {
+          "title": "NERC Level 2 Alert: Large Load Interconnection, Study, Commissioning, and Operations (2025)",
+          "url": "https://www.nerc.com/globalassets/programs/bpsa/alerts/2025/nerc-alert-level-2--large-loads.pdf",
+          "supports": "The North American Electric Reliability Corporation's alert on how large loads are studied, commissioned and operated."
+        },
+        {
+          "title": "NERC Incident Review: Considering Simultaneous Voltage-Sensitive Load Reductions",
+          "url": "https://www.nerc.com/globalassets/our-work/reports/event-reports/incident_review_large_load_loss.pdf",
+          "supports": "A review of a 2024 event in which about 1,500 MW of data-center load dropped off the grid at once after a line fault."
+        }
+      ]
+    },
+    {
+      "id": "heat-and-storms",
+      "topic": "Reliability",
+      "question": "What is the plan for a heat wave or a hurricane: does the campus reduce its load or switch to its own power, and who is called first?",
+      "why": "Heat waves and storms are when a grid has the least room to spare. A written plan (who cuts back, in what order, how fast, and what the campus does on its own power) shows whether the campus adds to the strain or helps carry it.",
+      "listen_for": "A written operating plan, the order in which customers are asked to reduce, the time it takes to respond, and whether the plan has been tested.",
+      "sources": [
+        {
+          "title": "2025 Long-Term Reliability Assessment (North American Electric Reliability Corporation, January 2026)",
+          "url": "https://www.nerc.com/globalassets/our-work/assessments/nerc_ltra_2025.pdf",
+          "supports": "Reports data-center growth as the largest contributor to rising demand forecasts and discusses the resulting reliability risk."
+        }
+      ]
+    }
+  ]
+}
