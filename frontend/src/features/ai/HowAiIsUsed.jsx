@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ErrorBanner, Loading } from '../../ui'
 import { getAiStatus } from './aiApi'
+import TrustCard from './TrustCard'
 import './ai.css'
 
 export default function HowAiIsUsed({ label = 'How AI is used', surface, className }) {
@@ -68,13 +69,16 @@ export default function HowAiIsUsed({ label = 'How AI is used', surface, classNa
               Close
             </button>
           </div>
-          <p className="aihow__rule">
-            Gemini proposes or writes. The power-flow engine or the computed fact sheet checks it. Without a key, quota or network, a labeled plain version runs instead.
-          </p>
           {err && <ErrorBanner error={err} onRetry={() => setRetry((r) => r + 1)} />}
           {!st && !err && <Loading label="Loading…" />}
           {st && (
             <>
+              <TrustCard st={st} />
+              <h3 className="aihow__h3">Where Gemini is used</h3>
+              <p className="aihow__rule">
+                Gemini proposes or writes. The power-flow engine or the computed fact sheet checks it. Without a key, quota or network, a labeled plain version runs
+                instead.
+              </p>
               <ul className="aihow__list">
                 {st.surfaces.map((s) => (
                   <li key={s.id} className={s.id === surface ? 'aihow__item--here' : undefined} aria-current={s.id === surface ? 'true' : undefined}>

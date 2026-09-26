@@ -2071,6 +2071,7 @@ async def ask(request: Request, body: AskIn):
                 ok, reason, n = check_text(text, report, ctx.lang, ctx.extra + got["tool_facts"])
                 if ok:
                     ok, reason = states_tool_result(text, got["tool_facts"])
+                llm.note_check("ask", ok, f"an answer: {reason}")
                 if ok:
                     facts_all = ctx.facts + got["tool_facts"]
                     known = {f["key"] for f in facts_all}

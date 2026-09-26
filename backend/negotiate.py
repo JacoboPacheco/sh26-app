@@ -672,6 +672,10 @@ async def _run_gemini(case: dict, lang: str, live: dict | None = None) -> tuple[
                     why = "Gemini not configured" if not llm.configured() else ("Gemini too slow" if ms >= CALL_DEADLINE_S * 1000 - 50 else "Gemini unavailable")
                     return g, calls, why, None
                 turn = g.take(side, rnd, raw, ms, revision=attempt == 1, cached=cached)
+                found = turn["verdict"]["findings"]
+                if found and lang == "es":  # the ledger reads in English: the same check, worded in English (verify is pure and fast)
+                    found = verify(raw, case, "en", g.turns[:-1])[0]["findings"] or found
+                llm.note_check("negotiation", turn["verdict"]["ok"], "a negotiation turn: " + ((found or ["rejected by the verifier"])[0]))
                 turn["model"] = model
                 turn["retried"] = model != llm.AGENT_MODEL
                 if turn["verdict"]["ok"]:

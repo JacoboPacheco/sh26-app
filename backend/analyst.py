@@ -64,7 +64,7 @@ from starlette.concurrency import run_in_threadpool
 import catalog as catalog_mod
 from grid import MW_MAX, MW_MIN, REGIONS, check_site, grid_at, region_code, site_headroom
 from limiter import limiter
-from llm import AGENT_MODEL, AGENT_THINKING, cache_forget, complete_tools, configured, function_response
+from llm import AGENT_MODEL, AGENT_THINKING, cache_forget, complete_tools, configured, function_response, note_check
 from powerflow import OVER_PCT, area_of
 
 router = APIRouter(tags=["analyst"])
@@ -880,6 +880,7 @@ async def _answer(run: Run, call: dict, must_write: bool) -> dict:
     reason = raw.pop("why", None)  # Gemini's note for the reader (not an engine argument)
     shown = f"{name}({', '.join(f'{k}={json.dumps(v)}' for k, v in raw.items())[:80]})"
     if name not in RUNNERS:
+        note_check("analyst", False, "a function call to a tool that doesn't exist", name)
         run.add(actor="engine", kind="refused", tool=name[:40], tone="muted", via="function_call", call_id=cid, call=shown[:100], title=f"Refused {name[:40]}: not one of the tools")
         return {"error": "not one of the tools"}
     if must_write or run.tools >= MAX_TOOL_CALLS:
@@ -887,6 +888,7 @@ async def _answer(run: Run, call: dict, must_write: bool) -> dict:
         run.add(actor="engine", kind="refused", tool=name, tone="muted", via="function_call", call_id=cid, call=shown, title=f"Not run {name}: {why}")
         return {"error": f"not run: {why}"}
     args, why = _clean_args(run.c, name, raw)
+    note_check("analyst", args is not None, f"a function call's arguments: {why}", name)
     if args is None:
         run.add(actor="engine", kind="refused", tool=name, tone="muted", via="function_call", call_id=cid, call=shown, title=f"Refused {name}: {why}")
         return {"error": f"refused: {why}"}
@@ -969,6 +971,7 @@ async def _agent(run: Run) -> tuple[dict | None, str]:
                 note = "Your reply had neither a function call nor a complete memo. Call a tool, or write the memo as JSON only: " + MEMO_REPLY
             continue
         if not run.results:
+            note_check("analyst", False, "a memo written before any tool was called")
             run.add(actor="engine", kind="check", tone="over", title="Rejected: no tool was called, so no number can be checked")
             note = "You wrote a memo without calling any tool: every number must come from a tool result. Call the tools first."
             continue
@@ -977,6 +980,7 @@ async def _agent(run: Run) -> tuple[dict | None, str]:
         run.add(actor="gemini", kind="memo" if memo_tries == 1 else "revise", tone="info", via="structured_output",
                 title="Wrote the memo" if memo_tries == 1 else "Rewrote the memo", detail=thought)
         ok, bad, n, reason = check_memo(memo, c, run.results)
+        note_check("analyst", ok, reason or "a memo number that no tool returned", bad[0] if bad else None)
         if ok:
             run.add(actor="engine", kind="check", tone="holds", numbers_checked=n, title=f"Checked {n} {'number' if n == 1 else 'numbers'} in the memo against the tool results: every one matches")
             memo["numbers_checked"] = n

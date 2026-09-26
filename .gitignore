@@ -32,3 +32,6 @@ backend/demo/gridlock/raw/
 # Gemini answers cached on disk (llm.py): runtime state, never committed
 backend/.ai_cache.json
 backend/.ai_cache.json.tmp
+# the verification ledger (llm.py note_check): runtime state, never committed
+backend/.ai_ledger.json
+backend/.ai_ledger.json.*.tmp

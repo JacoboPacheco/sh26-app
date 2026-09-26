@@ -27,6 +27,9 @@ import http.client
 import json
 import logging
 import os
+import re
+import sys
+import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
@@ -141,6 +144,260 @@ def _load_disk() -> None:
 _load_disk()
 
 
+# ------------------------------------------------------------------ the verification ledger
+# Every verifier that decides on something Gemini proposed (a memo's numbers, a function call's arguments, an
+# upgrade plan the engine re-ran, a negotiation turn, a draft sentence) calls note_check(surface, ok, reason,
+# excerpt): per surface, how many proposals were checked, accepted and rejected, plus the last CATCHES_MAX
+# rejections (the surface, when, the offending token only, never the AI's text, and the checker's reason).
+# A cached answer served again is checked again, so the counts are checks run, not distinct answers.
+# Persisted next to the answer cache (AI_CACHE_FILE's folder, gitignored; off when AI_CACHE_FILE is empty), so a
+# restart doesn't show 0/0; "since" is when the first check was recorded. Only the serving process writes it: the
+# file is armed when the app starts (this router's startup handler), so a smoke check or a script that imports a
+# verifier in-process (stubbed runs) never overwrites the server's counts.
+LEDGER_FILE = os.path.join(os.path.dirname(CACHE_FILE) or ".", ".ai_ledger.json") if CACHE_FILE else ""
+CATCHES_MAX = 20
+TOKEN_MAX = 40  # a catch keeps at most this much of the offending token
+REASON_MAX = 160
+_ledger_lock = threading.Lock()
+_ledger: dict = {"since": None, "updated": None, "by_surface": {}, "catches": []}
+_ledger_warned = False
+_ledger_armed = False  # set at app startup (arm_ledger); until then note_check counts in memory only
+_ledger_saved: bool | None = None  # the last save: True written, False failed (a missing folder, a read-only disk), None not tried yet
+
+# The name filter on catches: the same rule analyst.py uses to keep names out of a memo — its list of real
+# utilities and grid operators (analyst._REAL_NAMES; this copy is used only when analyst.py isn't loaded) and the
+# distinctive words of the catalog's project and company names minus generic words (analyst._GENERIC) — plus the
+# utilities named in the GridLock filings, since a negotiation finding can quote them.
+_REAL_NAMES_COPY = re.compile(
+    r"\b(FPL|Florida Power|Duke Energy|TECO|Tampa Electric|JEA|ERCOT|Oncor|CenterPoint|Dominion|Georgia Power|Southern Company|PG&E|Con ?Ed(?:ison)?|Xcel|Entergy|AEP|PJM|MISO|CAISO|NYISO|TVA|NextEra)\b",
+    re.I,
+)
+_GRIDLOCK_NAMES = re.compile(r"\b(DESC|Dominion Energy South Carolina|Georgia Transmission(?: Corporation)?|GTC|MEAG(?: Power)?|Dalton Utilities|Oglethorpe(?: Power)?|Santee Cooper)\b", re.I)
+_GENERIC_COPY = set(
+    "data center centers campus park project technology tech holdings compute computing solutions energy developer applicant partner infrastructure "
+    "tenant undisclosed disclosed user places international airport county near town outside unincorporated the and with end not llc inc corp "
+    "company group ventures capital partners properties development realty".split()
+)
+# everyday words that sit in some catalog names and in the checkers' own reasons: never treated as a name
+_EVERYDAY = set(
+    "power grid line lines plan plans cost costs number numbers fact facts site sites phase first north south east west new global national "
+    "american america united digital cloud electric electricity utility utilities solar nuclear wind natural storage battery system systems "
+    "university state states city river valley lake creek mountain point hill hills ridge field fields farm gate gateway south-east "
+    "memo draft window share shares split scope rule people month months year years build "
+    "january february march april june july august september october november december "
+    "alabama arizona arkansas california colorado connecticut delaware florida georgia idaho illinois indiana iowa kansas kentucky "
+    "louisiana maine maryland massachusetts michigan minnesota mississippi missouri montana nebraska nevada hampshire jersey mexico "
+    "york carolina dakota ohio oklahoma oregon pennsylvania rhode island tennessee texas utah vermont virginia washington wisconsin wyoming".split()
+)
+# catalog name words that are also ordinary English: a name only when capitalized, even in strict mode (a token's
+# lowercase "connect", "core" or "stream" is a word, not a company)
+_COMMON_NAME_WORDS = set(
+    "aligned americas applied assets blue chapel citadel clean companies compass connect constructors core cumulus datacenters diode "
+    "estate expansion fleet forge frontier galaxy golden greenfield horizon hyperscale intersect investment iron jade justified keystone "
+    "lambda leap lighthouse loophole machine management mariner matador mega mining nest parks penguin plains platform platforms polaris "
+    "prime real redevelopment related sail scientific services stack stream supernova switch tract vantage".split()
+)
+# three-letter words in catalog names that aren't company names (a chip, a legal form, a roman numeral)
+_SHORT_GENERIC = {"gpu", "tpu", "cpu", "hpc", "llc", "inc", "ltd", "loi", "usa", "vii", "iii", "ceo"}
+_name_words: set[str] | None = None
+_short_names: set[str] | None = None  # three-letter company names as the catalog writes them (QTS, AWS, PBA, xAI)
+_WORD = re.compile(r"[A-Za-z][A-Za-z0-9&'-]{3,}")
+_SHORT = re.compile(r"(?<![A-Za-z0-9&'-])[A-Za-z]{3}(?![A-Za-z0-9&'-])")
+
+
+def _names_rule() -> tuple[re.Pattern, set[str]]:
+    a = sys.modules.get("analyst")
+    return getattr(a, "_REAL_NAMES", _REAL_NAMES_COPY), getattr(a, "_GENERIC", _GENERIC_COPY)
+
+
+def _catalog_name_words() -> set[str]:
+    """Distinctive words of every catalog project and company name (lowercase), loaded once; also fills
+    _short_names (three-letter names with at least two capitals, as written)."""
+    global _name_words, _short_names
+    if _name_words is None:
+        words: set[str] = set()
+        places: set[str] = set()
+        short: set[str] = set()
+        for fname in ("datacenters_us.json", "datacenters_epoch.json"):
+            try:
+                with open(Path(__file__).parent / "demo" / fname, encoding="utf-8") as f:
+                    entries = json.load(f).get("entries") or []
+            except (OSError, ValueError, AttributeError):
+                continue
+            for e in entries:
+                if not isinstance(e, dict):
+                    continue
+                for k in ("name", "company", "operator"):  # proper nouns only (a note like "(developer; tenant unannounced)" isn't a name)
+                    words |= {w.lower() for w in _WORD.findall(str(e.get(k) or "")) if w[:1].isupper()}
+                    short |= {w for w in _SHORT.findall(str(e.get(k) or "")) if sum(c.isupper() for c in w) >= 2 and w.lower() not in _SHORT_GENERIC}
+                for k in ("city", "county", "state_name"):
+                    places |= {w.lower() for w in _WORD.findall(str(e.get(k) or ""))}
+        generic = _names_rule()[1]
+        _short_names = short
+        _name_words = {w for w in words if w not in generic and w not in places and w not in _EVERYDAY}
+    return _name_words
+
+
+def scrub_names(text: str, strict: bool = True) -> str:
+    """`text` with real company, utility and project names replaced by "[name]". strict (for a token): a distinctive
+    catalog name word whatever its case, an ordinary-English one (_COMMON_NAME_WORDS) only capitalized; not strict
+    (for a checker's own sentence): only capitalized catalog name words. A word joined to an identifier by "_"
+    (a tool or argument name like connect_site) is code, never a name. Three-letter names (QTS, AWS, xAI) as the
+    catalog writes them; in strict mode whatever their case."""
+    real, _ = _names_rule()
+    out = _GRIDLOCK_NAMES.sub("[name]", real.sub("[name]", text or ""))
+    words = _catalog_name_words()
+    short = _short_names or set()
+    short_lower = {s.lower() for s in short}
+
+    def in_identifier(m: re.Match) -> bool:
+        s = m.string
+        return s[m.start() - 1 : m.start()] == "_" or s[m.end() : m.end() + 1] == "_"
+
+    def swap(m: re.Match) -> str:
+        w = m.group(0)
+        lw = w.lower()
+        if lw not in words or in_identifier(m):
+            return w
+        if not w[:1].isupper() and (not strict or lw in _COMMON_NAME_WORDS):
+            return w
+        return "[name]"
+
+    def swap_short(m: re.Match) -> str:
+        w = m.group(0)
+        hit = (w.lower() in short_lower if strict else w in short) and not in_identifier(m)
+        return "[name]" if hit else w
+
+    return _SHORT.sub(swap_short, _WORD.sub(swap, out))
+
+
+def _clip(text, n: int) -> str:
+    t = " ".join(str(text).split())
+    return t if len(t) <= n else t[: n - 1].rstrip() + "…"
+
+
+def _ledger_save() -> None:
+    """Write the ledger (atomically: a temp file, then a rename). Called with _ledger_lock held."""
+    global _ledger_warned, _ledger_saved
+    if not LEDGER_FILE or not _ledger_armed:
+        return
+    try:
+        tmp = f"{LEDGER_FILE}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_ledger, f)
+        os.replace(tmp, LEDGER_FILE)
+        _ledger_saved = True
+    except OSError as e:  # a read-only or busy disk just means no persistence
+        _ledger_saved = False  # the card stops saying "kept across restarts"
+        if not _ledger_warned:
+            _ledger_warned = True
+            logging.getLogger("uvicorn.error").warning("AI ledger not saved: %s", e)
+
+
+def _ledger_load() -> None:
+    if not LEDGER_FILE:
+        return
+    try:
+        with open(LEDGER_FILE, encoding="utf-8") as f:
+            raw = json.load(f)
+    except (OSError, ValueError):
+        return
+    if not isinstance(raw, dict):
+        return
+
+    def count(v) -> int:
+        try:
+            return max(0, int(v or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    by = raw.get("by_surface")
+    rows = {}
+    for s, r in (by.items() if isinstance(by, dict) else ()):
+        if isinstance(s, str) and isinstance(r, dict):
+            rows[s[:40]] = {k: count(r.get(k)) for k in ("proposed", "verified", "rejected")}
+    listed = raw.get("catches")
+    catches = []
+    for c in (listed if isinstance(listed, list) else [])[-CATCHES_MAX:]:
+        if isinstance(c, dict) and isinstance(c.get("surface"), str):
+            catches.append({"surface": c["surface"][:40], "at": c.get("at") if isinstance(c.get("at"), str) else None,
+                            "token": c.get("token") if isinstance(c.get("token"), str) else None,
+                            "reason": c.get("reason") if isinstance(c.get("reason"), str) else "rejected by the checker", "times": max(1, count(c.get("times")))})
+    _ledger.update(since=raw.get("since") if isinstance(raw.get("since"), str) else None,
+                   updated=raw.get("updated") if isinstance(raw.get("updated"), str) else None, by_surface=rows, catches=catches)
+
+
+_ledger_load()
+
+
+def note_check(surface: str, ok: bool, reason: str, excerpt=None) -> None:
+    """Record one verifier decision on something Gemini proposed: `surface` (a SURFACES id), `ok` (accepted or
+    rejected), `reason` (the checker's own words, short: "a memo number no tool returned"), `excerpt` (the offending
+    token only — a number, a word — never the AI's whole text; clipped to TOKEN_MAX, names filtered). Never raises:
+    a ledger problem must not change what the verifier decided."""
+    try:
+        now = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
+        surface = _clip(surface or "unknown", 40)
+        with _ledger_lock:
+            row = _ledger["by_surface"].setdefault(surface, {"proposed": 0, "verified": 0, "rejected": 0})
+            row["proposed"] += 1
+            row["verified" if ok else "rejected"] += 1
+            _ledger["since"] = _ledger["since"] or now
+            _ledger["updated"] = now
+            if not ok:
+                token = scrub_names(_clip(excerpt, TOKEN_MAX)) if excerpt not in (None, "") else None
+                why = scrub_names(_clip(reason or "rejected by the checker", REASON_MAX), strict=False)
+                # the same catch again (a cached answer re-checked): one entry, moved to the end, with how many times
+                same = [c for c in _ledger["catches"] if c.get("surface") == surface and c.get("reason") == why and c.get("token") == token]
+                times = sum(int(c.get("times") or 1) for c in same) + 1
+                _ledger["catches"] = [c for c in _ledger["catches"] if c not in same]
+                _ledger["catches"].append({"surface": surface, "at": now, "token": token, "reason": why, "times": times})
+                del _ledger["catches"][:-CATCHES_MAX]
+            _ledger_save()
+    except Exception as e:  # noqa: BLE001 — the verifier's decision stands whatever happens here
+        logging.getLogger("uvicorn.error").warning("AI ledger: note_check failed: %s", e)
+
+
+def ledger() -> dict:
+    """The ledger as GET /api/ai/status shows it: per-surface counts, totals, and the catches newest first."""
+    with _ledger_lock:
+        rows = {s: dict(r) for s, r in _ledger["by_surface"].items()}
+        catches = [dict(c) for c in reversed(_ledger["catches"])]
+        since, updated = _ledger["since"], _ledger["updated"]
+    totals = {k: sum(r[k] for r in rows.values()) for k in ("proposed", "verified", "rejected")}
+    persisted = bool(LEDGER_FILE and _ledger_armed and _ledger_saved is not False)
+    return {"since": since, "updated": updated, "persisted": persisted, "by_surface": rows, "totals": totals, "catches": catches}
+
+
+def arm_ledger() -> None:
+    """The serving process from here on writes the ledger to disk (and writes now what was counted before startup,
+    e.g. by a warm-up). Called by this router's startup handler; tests arm it by hand."""
+    global _ledger_armed
+    with _ledger_lock:
+        _ledger_armed = True
+        if _ledger["since"]:
+            _ledger_save()
+
+
+# Milestone 0, every state: our DC power flow against the dataset's own solved flows (backend/demo/validate.py
+# --all writes the committed file; nothing is computed at runtime).
+VALIDATION_FILE = Path(__file__).parent / "demo" / "validation.json"
+try:
+    _validation = json.loads(VALIDATION_FILE.read_text(encoding="utf-8"))
+except (OSError, ValueError):
+    _validation = None
+
+
+def validation_summary() -> dict | None:
+    """What the card needs: Florida's row, the all-states summary, the method and the limits."""
+    v = _validation
+    if not isinstance(v, dict):
+        return None
+    fl = (v.get("states") or {}).get("FL")
+    return {"generated": v.get("generated"), "method": v.get("method"), "reference": v.get("reference"), "limits": v.get("limits"),
+            "threshold": v.get("threshold"), "summary": v.get("summary"), "florida": fl}
+
+
 def usage() -> dict:
     """Today's whole-app AI budget (the number the AI panel shows)."""
     today = datetime.now(QUOTA_TZ).date().isoformat()
@@ -181,6 +438,7 @@ def _mark_out(m: str, detail: str = "") -> None:
         _out_until[m] = time.time() + BURST_OUT_S
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
+router.add_event_handler("startup", arm_ledger)  # app.include_router(llm.router) carries it to the app
 
 
 def configured() -> bool:
@@ -647,6 +905,10 @@ SURFACES = [
      "gemini": "Reads each page of the two public filings as a PDF (offline, when the data is built) and fills the same fields the two parsers extract, as structured output; for each record the checks set aside, it proposes place names from that record's page.",
      "check": "Every field is compared with the parsers' readings after the pipeline's own normalizing, and every disagreement is listed with its PDF page; a proposed place name must be printed on the page and then pass the pipeline's own locate step and blocking checks. The published records come from the parsers.",
      "fallback": "The two parsers alone (the reader is advisory)"},
+    {"id": "comment", "name": "Write my public comment",
+     "gemini": "Writes a resident's public comment on a proposed data center, in the first person, from the proposal page's facts: their concerns, their stance, the length they will speak for (1-3 minutes), in English or Spanish, addressed to the decision body the page names.",
+     "check": "Every number must be one of the page's facts (each is shown with its source); nothing may say what the real project or utility will do, name a company the sources don't, or accuse anyone; every grid result must be framed as the open, synthetic model. A failing draft goes back once with the findings.",
+     "fallback": "A template comment built from the same facts, passing the same checks"},
     {"id": "strengthen_narration", "name": "Strengthen the grid: the narrated build-up",
      "gemini": "Writes what the presenter voice says as each campus goes in on the map: where it connects, what stopped it, the upgrade that lets it in and what it costs, in English and Spanish.",
      "check": "Every number in a line must be one of that step's facts from the engine's study, said the way the plan prints it (and every place and the cost must be said); the lines that fail go back to Gemini once with the reasons and are checked again, and a line that still fails is replaced by its template line.",
@@ -658,7 +920,17 @@ SURFACES = [
 def status():
     return {"configured": configured(), "model": MODEL, "agent_model": AGENT_MODEL, "agent_thinking": AGENT_THINKING, "fallback_models": FALLBACK_MODELS, "models_out_today": sorted(m for m in _out_today if _model_out(m)),
             "model_last_used": _stats.get("model_used"), **usage(), "served": {k: _stats[k] for k in ("ok", "fallback", "cached")},
-            "by_surface": _stats["by_surface"], "cached_answers": len(_cache), "surfaces": SURFACES}
+            "by_surface": _stats["by_surface"], "cached_answers": len(_cache), "surfaces": SURFACES,
+            "ledger": ledger(), "validation": validation_summary()}
+
+
+@router.get("/validation")
+def validation():
+    """Milestone 0 for every state model (backend/demo/validation.json): our DC power flow against the dataset's own
+    solved flows. 404 when the file isn't built."""
+    if not isinstance(_validation, dict):
+        raise HTTPException(status_code=404, detail="validation.json is not built: run backend/demo/validate.py --all")
+    return _validation
 
 
 # Example route — copy this shape for real features: auth required and a per-visitor

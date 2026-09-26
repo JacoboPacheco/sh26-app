@@ -1359,6 +1359,7 @@ async def run_agent(p: Planner) -> tuple[str, dict | None]:
         feedback = None
         n = len(history) + 1
         if not isinstance(reply, dict) or reply.get("action") not in ACTIONS:
+            llm.note_check("planner", False, "a reply with no valid action")
             history.append(f"{n}. (invalid reply: it must be one JSON object with an action from {', '.join(ACTIONS)})")
             continue
         action = reply["action"]
@@ -1370,12 +1371,14 @@ async def run_agent(p: Planner) -> tuple[str, dict | None]:
             told, done = await run_in_threadpool(p.agent_tool, action, args, thought)
         except (ValueError, HTTPException) as e:
             why = e.detail if isinstance(e, HTTPException) else str(e)
+            llm.note_check("planner", False, f"a step the planner refused: {why}", action)
             await run_in_threadpool(
                 lambda: p.emit("gemini", action, f"The planner refused that request: {why}.", False, thought, call={"tool": action, "args": _safe_args(args)}, result=f"refused: {why}")
             )
             history.append(f"{n}. {action} {json.dumps(args)[:400]} -> error: {why}")
             continue
         history.append(f"{n}. {action} {json.dumps(args)[:400]} -> {json.dumps(told)[:HISTORY_MAX]}")
+        llm.note_check("planner", action != "finish" or bool(done), "a finished siting plan the engine re-checked: a line over its limit or people without power")
         if p.gemini_short:
             return "supply", None  # a finish must place the full total, which can't pass: don't spend more calls
         if action == "finish":

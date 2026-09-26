@@ -60,7 +60,7 @@ from grid import (
     region_code,
 )
 from limiter import limiter
-from llm import complete_json
+from llm import complete_json, note_check
 
 router = APIRouter(tags=["costs"])
 log = logging.getLogger("uvicorn.error")
@@ -666,11 +666,15 @@ def _clean_ai(raw, det: dict) -> tuple[dict, bool]:
             out[k] = {"low": 0, "high": 0, "reasoning": "Nothing to price in this case.", "fallback": False}
             continue
         ok = lo is not None and hi is not None and why is not None
+        bad = "no usable low and high" if lo is None or hi is None else "no assumption given" if why is None else None
         if ok and lo > hi:
             lo, hi = hi, lo
         # a unit slip (a factor of 10 or 1,000) lands far outside the formula's range: don't show it (the hero's upgrades once came back exactly 10x)
         if ok and (hi > d_high * 8 or hi < max(d_low, 1e-9) / 8):
             ok = False
+            bad = "far outside the formula's range"
+        far = bad == "far outside the formula's range"
+        note_check("cost", ok, f"a cost estimate ({k}): {bad or 'within range'}",(f"{hi:,.0f}" if abs(hi) >= 10 else f"{hi:.3g}") if far else None)
         if not ok:
             out[k] = {"low": d_low, "high": d_high, "reasoning": "Gemini's answer for this line was unusable, so this repeats the formula.", "fallback": True}
             continue

@@ -33,7 +33,7 @@ from fastapi.concurrency import run_in_threadpool
 
 import gridlock as gl
 from limiter import limiter
-from llm import complete_json
+from llm import complete_json, note_check
 from llm import configured as ai_configured
 
 router = APIRouter(tags=["agreement"])
@@ -1010,11 +1010,13 @@ def _prompt(facts: list[dict], pa: dict, pb: dict, rec: dict, lang: str, tpl: di
 
 def _clean_item(raw, keys: set[str], facts: list[dict], allowed: set[str], where: str, rejected: list, max_chars: int = MAX_ITEM_CHARS) -> dict | None:
     if not isinstance(raw, dict):
+        note_check("agreement", False, "a draft item that is not an item")
         rejected.append({"where": where, "text": str(raw)[:200], "reason": "not an item"})
         return None
     text = raw.get("text")
     text = text.strip() if isinstance(text, str) else ""
     ok, reason, _ = check_text(text, facts, allowed, max_chars)
+    note_check("agreement", ok, f"a draft sentence: {reason}")
     if not ok:
         rejected.append({"where": where, "text": text[:300], "reason": reason})
         return None
@@ -1416,6 +1418,7 @@ async def agreement(
                 parts["by"] = "gemini"
                 out = _respond(b, parts, "gemini", rejected, None, lang, window_months, t0)
                 if not out["verified"]:  # the final gate caught something: never show it, show the template
+                    note_check("agreement", False, "the assembled draft, at the final check")
                     out = _respond(b, _tpl_parts(b), "template", out["rejected"], "Gemini's draft failed the final check", lang, window_months, t0)
             cacheable = True  # Gemini's answer is itself cached by llm.py, so the same verdict would repeat
     out["cached"] = False
