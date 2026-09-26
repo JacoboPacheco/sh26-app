@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import DataCentersTab from './DataCentersTab'
 import EnergyTab from './EnergyTab'
 import PopulationTab from './PopulationTab'
+import SourcesTab from './SourcesTab'
 import './views.css'
 
 // Views (#/views): the data-center locator (filter by state, company, status and size), population graphs and
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'datacenters', label: 'Data centers' },
   { id: 'population', label: 'Population' },
   { id: 'energy', label: 'Energy' },
+  { id: 'sources', label: 'Sources and licenses' },
 ]
 
 const readHash = () => {
@@ -79,6 +81,7 @@ export default function ViewsPage() {
         </div>
         <div hidden={tab !== 'population'}>{seen.has('population') && <PopulationTab />}</div>
         <div hidden={tab !== 'energy'}>{seen.has('energy') && <EnergyTab />}</div>
+        <div hidden={tab !== 'sources'}>{seen.has('sources') && <SourcesTab />}</div>
       </main>
 
       <footer className="vw-foot">
@@ -89,6 +92,9 @@ export default function ViewsPage() {
         <p>
           <strong>Grid models.</strong> Synthetic: the Breakthrough Energy / Texas A&amp;M test system (CC-BY 4.0), never a real utility&apos;s network. Residents: U.S. Census Bureau, Vintage 2024 estimates. A campus tested on a model is
           a campus of the reported size at that location on a synthetic model, not a prediction about the real project or utility.
+        </p>
+        <p>
+          <a href="#/views/sources">Every dataset, license and reference</a>
         </p>
       </footer>
     </div>

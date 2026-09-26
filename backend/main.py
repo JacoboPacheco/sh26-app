@@ -45,6 +45,7 @@ import planner
 import plants
 import scenarios
 import sitereport
+import sources
 import towns
 import unlock
 import uploads
@@ -131,6 +132,7 @@ app.include_router(vote.router)
 app.include_router(unlock.router)
 app.include_router(views.router)
 app.include_router(sitereport.router)
+app.include_router(sources.router)
 
 
 @app.get("/api/health")
