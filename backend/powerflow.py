@@ -108,6 +108,7 @@ class Grid:
 
         self.base = self.solve(np.ones(self.m, dtype=bool))
         self._headroom_bus: np.ndarray | None = None
+        self._marginal: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None
 
     # ------------------------------------------------------------------ loading
     @classmethod
@@ -205,8 +206,16 @@ class Grid:
                     tie[idx] *= L / T
             elif need > Gmax:
                 gen[idx] = gmax
-                served[idx] *= (Gmax + T) / L
-                lost += need - Gmax
+                if Gmax + T >= 0:
+                    served[idx] *= (Gmax + T) / L
+                    lost += need - Gmax
+                else:
+                    # an export tie bigger than the island's generation (storms can cut an island
+                    # like this): serve nothing and export only what the generators make
+                    served[idx] = 0.0
+                    tie[idx] *= Gmax / -T
+                    dark[idx] = load[idx] > _EPS
+                    lost += L
             else:
                 pg = self.pg[idx]
                 base = float(pg.sum())
@@ -229,7 +238,7 @@ class Grid:
         # Split the shed load into existing load (homes) and the added load (the data center itself).
         with np.errstate(divide="ignore", invalid="ignore"):
             frac = np.where(load > _EPS, served / load, 1.0)
-        lost_bus = self.pd - pd * frac  # shed load counts as lost
+        lost_bus = np.maximum(self.pd - pd * frac, 0.0)  # shed load counts as lost; rounding never makes it negative
         lost_existing = float(lost_bus.sum())
         if shed is not None:
             lost += float(shed.sum())
@@ -302,34 +311,70 @@ class Grid:
         }
 
     # ------------------------------------------------------------------ headroom
-    def _sensitivity(self, buses: np.ndarray) -> np.ndarray:
-        """Change in branch flow (MW) per MW of load added at each bus in `buses`, balanced by
-        the base-case slack weights of that bus's island. Shape (m, len(buses))."""
+    def _marginal_weights(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """How _balance dispatches the next MW of load, per bus (each island's value): (weights now,
+        MW until that changes, weights after). While an island needs less than its generators' sum(pg),
+        _balance scales pg down proportionally, so the next MW comes pro rata to pg; once need reaches
+        sum(pg) it fills the headroom (pmax - pg). The base state's `weights` describe only the second
+        regime; Florida's base case is in the first (need 50,228 MW < sum pg 51,279 MW)."""
+        if self._marginal is None:
+            st = self.base
+            w1, w2, room = st.weights.copy(), st.weights.copy(), np.full(self.n, np.inf)
+            for c in np.unique(st.comp):
+                idx = np.flatnonzero(st.comp == c)
+                need = float(self.pd[idx].sum() - self.tie[idx].sum())
+                pg, gmax = self.pg[idx], self.pmax[idx]
+                base = float(pg.sum())
+                if gmax.sum() <= _EPS or base <= _EPS or not (0 <= need < base):
+                    continue
+                w1[idx] = pg / base
+                room[idx] = base - need
+                head = gmax - pg
+                w2[idx] = head / head.sum() if head.sum() > _EPS else 1.0 / len(idx)
+            self._marginal = (w1, w2, room)
+        return self._marginal
+
+    def _sensitivity(self, buses: np.ndarray, weights: np.ndarray | None = None) -> np.ndarray:
+        """Change in branch flow (MW) per MW of load added at each bus in `buses`, picked up by that
+        bus's island with `weights` (default: the base-case slack weights). Shape (m, len(buses))."""
         st = self.base
+        w = st.weights if weights is None else weights
         d = np.zeros((self.n, len(buses)))
         for j, k in enumerate(buses):
             comp_mask = st.comp == st.comp[k]
-            d[comp_mask, j] = st.weights[comp_mask]  # generators pick the MW up ...
+            d[comp_mask, j] = w[comp_mask]  # generators pick the MW up ...
             d[k, j] -= 1.0  # ... the load takes it
         theta = np.zeros((self.n, len(buses)))
         if st.lu is not None and len(st.keep):
             theta[st.keep] = st.lu.solve(d[st.keep] / BASE_MVA)
         return (theta[self.f] - theta[self.t]) / self.x[:, None] * BASE_MVA
 
-    def headroom_for_buses(self, buses: np.ndarray) -> np.ndarray:
-        """MW that can be added at each bus before the first branch reaches its rating."""
-        dF = self._sensitivity(buses)
-        f0 = self.base.flow[:, None]
+    def _first_limit(self, f: np.ndarray, dF: np.ndarray) -> np.ndarray:
+        """MW (per column) until the first branch reaches its rating, from flows `f` moving by `dF` per MW.
+        Branches already over in the base case don't count (not a *new* overload)."""
         rate = self.rate[:, None]
         with np.errstate(divide="ignore", invalid="ignore"):
-            t_pos = (rate - f0) / dF  # flow rising toward +rate
-            t_neg = (-rate - f0) / dF  # flow falling toward -rate
+            t_pos = (rate - f) / dF  # flow rising toward +rate
+            t_neg = (-rate - f) / dF  # flow falling toward -rate
         t = np.where(dF > _EPS, t_pos, np.where(dF < -_EPS, t_neg, np.inf))
-        t = np.where(np.abs(f0) >= rate, np.inf, t)  # already over in the base case: not a *new* overload
-        t = np.where(t < 0, np.inf, t)
-        active = self.base.active[:, None]
-        t = np.where(active, t, np.inf)
+        t = np.where(np.abs(self.base.flow[:, None]) >= rate, np.inf, t)
+        t = np.where(t < 0, 0.0, t)  # only reachable in the second segment, from rounding at its start
+        t = np.where(self.base.active[:, None], t, np.inf)
         return np.min(t, axis=0)
+
+    def headroom_for_buses(self, buses: np.ndarray) -> np.ndarray:
+        """MW that can be added at each bus before the first branch reaches its rating — piecewise, with
+        the same dispatch the what-if uses (see _marginal_weights), so it matches a bisection on whatif."""
+        buses = np.asarray(buses)
+        w1, w2, room = self._marginal_weights()
+        dF1 = self._sensitivity(buses, w1)
+        h = self._first_limit(self.base.flow[:, None], dF1)
+        r = room[buses]
+        more = np.flatnonzero((h > r) & np.isfinite(r))  # still room when the dispatch regime switches
+        if len(more):
+            f1 = self.base.flow[:, None] + r[more][None, :] * dF1[:, more]
+            h[more] = r[more] + self._first_limit(f1, self._sensitivity(buses[more], w2))
+        return h
 
     def headroom_all(self, chunk: int = 256) -> np.ndarray:
         if self._headroom_bus is None:
