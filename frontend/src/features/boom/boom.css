@@ -1,0 +1,176 @@
+/* AI-boom mode (owned by the boom track). Tokens only: see the top of index.css. */
+
+/* ------------------------------------------------------------------ panel */
+.boom__lede {
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+
+.boom__actions {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.boom__actions > .btn {
+  width: 100%;
+}
+
+.boom__armed {
+  font-size: 0.8125rem;
+  color: var(--current);
+}
+
+.boom__notice {
+  font-size: 0.8125rem;
+  color: var(--warn-text);
+}
+
+.boom__total {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.boom__total-n {
+  font-size: 1.75rem;
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 68%;
+  color: var(--sodium);
+}
+
+.boom__total-label {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.boom__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.boom__item {
+  position: relative;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--glass-hi);
+}
+
+/* the campus name + size reads as the item's title; the square matches its marker on the map */
+.boom__item .field > label {
+  padding-right: 2.25rem; /* room for the remove button */
+  overflow-wrap: anywhere;
+}
+
+.boom__item .field > label::before {
+  content: '';
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.45rem;
+  background: var(--ink);
+  vertical-align: 0.05rem;
+}
+
+.boom__item .field .hint {
+  font-size: 0.75rem;
+}
+
+.boom__remove {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.3rem;
+}
+
+.boom__remove .btn {
+  min-width: 2rem;
+  min-height: 2rem;
+  line-height: 1;
+  padding: 0.3rem 0.55rem;
+}
+
+.boom__result {
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--glass-edge);
+}
+
+.boom__pct {
+  color: var(--overload);
+}
+
+.boom__main {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  font-size: 0.8125rem;
+}
+
+.boom__next {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}
+
+.boom__next strong {
+  color: var(--sodium);
+}
+
+/* ------------------------------------------------------------------ map layer */
+.boom-layer {
+  pointer-events: none;
+}
+
+/* text with a night-colored halo so it reads over the city lights */
+.boom-tag,
+.boom-first__label {
+  font-family: var(--font);
+  font-weight: 800;
+  font-stretch: 72%;
+  paint-order: stroke;
+  stroke: var(--night);
+  stroke-linejoin: round;
+}
+
+.boom-tag {
+  fill: var(--ink);
+  text-anchor: middle;
+}
+
+.boom-first__label {
+  fill: var(--overload);
+  text-anchor: end;
+}
+
+.boom-first__ring {
+  fill: none;
+  stroke: var(--overload);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.boom-first__ring--pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: boom-first-pulse 1.4s ease-out infinite;
+}
+
+@keyframes boom-first-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boom-first__ring--pulse {
+    animation: none;
+    opacity: 0;
+  }
+}
