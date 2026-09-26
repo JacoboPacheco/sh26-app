@@ -15,7 +15,7 @@ import { useSyncExternalStore } from 'react'
 //   seq        bumped by every landfall and clear; an older landfall still in flight stops
 //   presets    GET /api/hurricane/presets, once
 export const DEFAULT_RADIUS_KM = 20
-export const STORM_MS = 2600 // the eye crossing the whole path
+export const STORM_MS = 6000 // the eye crossing the whole path: slow enough to watch the lines go down one by one
 
 let state = {
   points: [],

@@ -125,7 +125,7 @@ export default function HurricanePanel() {
     if (stale()) return
     const quick = reducedMotion()
     setHurricane({ phase: 'storm', hits: res, stormAt: performance.now() })
-    await sleep(quick ? 400 : STORM_MS + 500)
+    await sleep(quick ? 400 : STORM_MS + 800) // a beat after landfall before the cascade
     if (stale()) return
     // the storm has passed: its lines join the case, then the regular cascade plays out
     live.current.setTrip(res.trip)
