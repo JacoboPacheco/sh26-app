@@ -28,10 +28,13 @@ for _name in ("uvicorn", "uvicorn.access"):
 import auth
 import bulletin
 import fixit
+import forecast
 import grid
 import hurricane
 import llm
+import planner
 import scenarios
+import towns
 import uploads
 from database import Base, add_missing_columns, engine
 from limiter import limiter
@@ -86,6 +89,9 @@ app.include_router(scenarios.router)
 app.include_router(hurricane.router)
 app.include_router(fixit.router)
 app.include_router(bulletin.router)
+app.include_router(towns.router)
+app.include_router(forecast.router)
+app.include_router(planner.router)
 
 
 @app.get("/api/health")
