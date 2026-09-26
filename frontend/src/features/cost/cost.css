@@ -1,0 +1,240 @@
+/* What it costs (features/cost). Tokens only (index.css); quiet type, no color unless something is wrong. */
+.cost {
+  container-type: inline-size;
+  gap: var(--space-3);
+}
+
+.cost h2 {
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+.cost__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+}
+
+.cost__title {
+  gap: var(--space-1);
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+
+.cost__sub {
+  font-size: 0.8125rem;
+}
+
+.cost__hours {
+  flex: 0 0 auto;
+  min-width: 8.5rem;
+}
+
+.cost__hours .field > label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.cost__hours select {
+  padding: 0.3rem var(--space-2);
+}
+
+.cost__body {
+  gap: var(--space-3);
+  transition: opacity 0.2s ease;
+}
+
+.cost__body--stale {
+  opacity: 0.6;
+}
+
+/* the verdict: plain sentences, the first one carries the weight */
+.cost__insights {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  font-size: 0.9375rem;
+  line-height: 1.35;
+}
+
+.cost__insights li:first-child {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.cost__ai-state {
+  min-height: 1.5rem;
+  font-size: 0.8125rem;
+}
+
+.cost__ai-state .badge {
+  white-space: normal;
+}
+
+.cost__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.cost__line {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--glass-edge);
+}
+
+.cost__line-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.cost__label {
+  font-weight: 700;
+}
+
+.cost__per {
+  font-size: 0.8125rem;
+}
+
+.cost__figures {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2) var(--space-3);
+}
+
+@container (max-width: 300px) {
+  .cost__figures {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cost__fig {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.cost__fig-name {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.cost__fig-value {
+  font-size: 1.1875rem;
+  font-weight: 750;
+  font-stretch: 82%;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.cost__fig--ai {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--glass-edge);
+}
+
+@container (max-width: 300px) {
+  .cost__fig--ai {
+    padding-left: 0;
+    border-left: 0;
+  }
+}
+
+.cost__fig-pending {
+  font-size: 0.9375rem;
+}
+
+.cost__formula {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.cost__ai-miss {
+  font-size: 0.8125rem;
+  color: var(--warn-text);
+}
+
+.cost__how summary {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent);
+  width: fit-content;
+}
+
+.cost__how-body {
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+.cost__how-tag {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.cost__sources,
+.cost__up-list,
+.cost__notes {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.cost__sources a {
+  overflow-wrap: anywhere;
+}
+
+.cost__up-list li {
+  display: grid;
+}
+
+.cost__up-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.cost__total {
+  display: grid;
+  gap: 0.15rem;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.cost__total-label {
+  font-weight: 700;
+}
+
+.cost__total-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  font-stretch: 78%;
+  line-height: 1.1;
+}
+
+.cost__total-note {
+  font-size: 0.8125rem;
+}
+
+.cost__notes {
+  font-size: 0.8125rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cost__body {
+    transition: none;
+  }
+}
