@@ -1,0 +1,827 @@
+{
+ "built_at": "2026-09-26T20:48:22Z",
+ "_about": "A preview, computed in memory: the cross-state pairs the 2026-2030 DESC list would make with the Georgia filings, with the app's own overlap code (backend/gridlock.py, imported unchanged). The app still ranks the 2024-2028 list; nothing here is live. Pairs are places the utilities could coordinate, as filed, never a statement that they are or aren't coordinating.",
+ "today": "2026-09-26",
+ "today_note": "the date the shared build windows are measured against (still ahead / open now / ended); a run on another day recomputes those counts, and --today YYYY-MM-DD reproduces this file",
+ "engine": {
+  "module": "backend/gridlock.py",
+  "sha256": "ca28055f6cafd3290a198b08478b4de99f0b671828d5c83c4c46148ea9123208",
+  "max_km": 40.0,
+  "window_months": 24,
+  "method": "closest",
+  "a": [
+   "DESC"
+  ],
+  "b": [
+   "GPC",
+   "GTC",
+   "MEAG",
+   "DU"
+  ],
+  "app_default_view": {
+   "a": [
+    "DESC"
+   ],
+   "b": [
+    "GPC"
+   ]
+  }
+ },
+ "georgia": "the Georgia projects in data/projects.json (the build's, unchanged)",
+ "with_2024_2028": {
+  "desc_projects_on_the_map": 43,
+  "georgia_projects_on_the_map": 151,
+  "flagged": 71,
+  "same_station": 2,
+  "by_tier": {
+   "touching": 2,
+   "row": 0,
+   "site": 2,
+   "crews": 67
+  },
+  "shared_build_window": 28,
+  "shared_window_still_ahead": 1,
+  "shared_window_open_now": 0,
+  "shared_window_ended": 27,
+  "same_station_with_window_ahead_or_open": 0,
+  "app_default_view_desc_vs_gpc": {
+   "desc_projects_on_the_map": 43,
+   "georgia_projects_on_the_map": 151,
+   "flagged": 71,
+   "same_station": 2,
+   "by_tier": {
+    "touching": 2,
+    "row": 0,
+    "site": 2,
+    "crews": 67
+   },
+   "shared_build_window": 28,
+   "shared_window_still_ahead": 1,
+   "shared_window_open_now": 0,
+   "shared_window_ended": 27,
+   "same_station_with_window_ahead_or_open": 0
+  }
+ },
+ "with_2026_2030": {
+  "desc_projects_on_the_map": 40,
+  "georgia_projects_on_the_map": 151,
+  "flagged": 56,
+  "same_station": 2,
+  "by_tier": {
+   "touching": 2,
+   "row": 0,
+   "site": 2,
+   "crews": 52
+  },
+  "shared_build_window": 31,
+  "shared_window_still_ahead": 8,
+  "shared_window_open_now": 13,
+  "shared_window_ended": 10,
+  "same_station_with_window_ahead_or_open": 1,
+  "app_default_view_desc_vs_gpc": {
+   "desc_projects_on_the_map": 40,
+   "georgia_projects_on_the_map": 151,
+   "flagged": 56,
+   "same_station": 2,
+   "by_tier": {
+    "touching": 2,
+    "row": 0,
+    "site": 2,
+    "crews": 52
+   },
+   "shared_build_window": 31,
+   "shared_window_still_ahead": 8,
+   "shared_window_open_now": 13,
+   "shared_window_ended": 10,
+   "same_station_with_window_ahead_or_open": 1
+  }
+ },
+ "pairs_also_flagged_with_2024_2028": 37,
+ "pairs_only_with_2026_2030": 19,
+ "pairs_only_with_2024_2028": 34,
+ "top_pairs": [
+  {
+   "rank": 1,
+   "class": "Same station",
+   "tier": "Must coordinate",
+   "score": 50.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20065",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - MCINTOSH 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 0.0,
+   "shared_station": "McIntosh",
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2027 — 1 year 7 months apart",
+    "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
+    "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
+    "Centers 5.94 mi apart (Sperry's center method)",
+    "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20065 is medium (placed from name matches, check before relying on it)",
+    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+   ]
+  },
+  {
+   "rank": 2,
+   "class": "Same station",
+   "tier": "Must coordinate",
+   "score": 40.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20277",
+    "utility": "Georgia Power",
+    "name": "SAV: MCINTOSH - PURRYSBURG 230KV REACTORS",
+    "in_service": "2026-06-01",
+    "page": 180
+   },
+   "distance_km": 0.0,
+   "shared_station": "McIntosh",
+   "same_window": false,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2026 — 2 years 7 months apart",
+    "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
+    "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
+    "Centers 4.21 mi apart (Sperry's center method)",
+    "Build windows don't overlap: 7 months apart; in service 944 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20277 is medium (placed from name matches, check before relying on it)",
+    "Score 40 = distance 1.00 (closest points) x timeline 0.8 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+   ]
+  },
+  {
+   "rank": 3,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 37.5,
+   "desc": {
+    "id": "DESC-6809T",
+    "name": "Stevens Creek - Graniteville 115 kV: Rebuild",
+    "in_service": "2029-12-31",
+    "page_2026_2030": 49,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20793",
+    "utility": "Georgia Power",
+    "name": "EVANS PRIMARY - THURMOND DAM (USA) #5 115KV REBUILD",
+    "in_service": "2033-06-01",
+    "page": 189
+   },
+   "distance_km": 11.059,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 11.06 km (6.87 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 14.78 mi apart (Sperry's center method)",
+    "Build windows overlap by 7 months (Jun 2029 to Dec 2029); still ahead; in service 1,248 days apart",
+    "Both are 115 kV line work (x1.1)",
+    "Location confidence medium: DESC-6809T is medium, GA-20793 is high (placed from name matches, check before relying on it)",
+    "Score 37.5 = distance 0.43 (closest points) x timeline 1 x location 0.8 x same kV 1.1"
+   ]
+  },
+  {
+   "rank": 4,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 31.7,
+   "desc": {
+    "id": "DESC-6810O",
+    "name": "Urquhart – Aiken PSA 46 kV: Rebuild",
+    "in_service": "2027-12-31",
+    "page_2026_2030": 26,
+    "change_since_2024_2028": "carried over: unchanged"
+   },
+   "georgia": {
+    "id": "GA-21116",
+    "utility": "Georgia Power",
+    "name": "GOSHEN AREA STRATEGIC SOLUTION",
+    "in_service": "2030-06-01",
+    "page": 187
+   },
+   "distance_km": 14.811,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": 3,
+   "reasons": [
+    "Closest points 14.81 km (9.20 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 9.20 mi apart (Sperry's center method)",
+    "Build windows overlap by 12 months (Jan 2027 to Dec 2027); still ahead; in service 883 days apart",
+    "Location confidence medium: DESC-6810O is medium, GA-21116 is medium (placed from name matches, check before relying on it)",
+    "Score 31.7 = distance 0.40 (closest points) x timeline 1 x location 0.8"
+   ]
+  },
+  {
+   "rank": 5,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 30.0,
+   "desc": {
+    "id": "DESC-6809T",
+    "name": "Stevens Creek - Graniteville 115 kV: Rebuild",
+    "in_service": "2029-12-31",
+    "page_2026_2030": 49,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20794",
+    "utility": "Georgia Power",
+    "name": "EVANS PRIMARY - THURMOND DAM (USA) #6 115KV REBUILD",
+    "in_service": "2033-06-01",
+    "page": 189
+   },
+   "distance_km": 11.059,
+   "shared_station": null,
+   "same_window": false,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 11.06 km (6.87 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 14.78 mi apart (Sperry's center method)",
+    "Build windows don't overlap: 5 months apart; in service 1,248 days apart",
+    "Both are 115 kV line work (x1.1)",
+    "Location confidence medium: DESC-6809T is medium, GA-20794 is high (placed from name matches, check before relying on it)",
+    "Score 30 = distance 0.43 (closest points) x timeline 0.8 x location 0.8 x same kV 1.1"
+   ]
+  },
+  {
+   "rank": 6,
+   "class": "Share site logistics",
+   "tier": "Share site logistics",
+   "score": 28.6,
+   "desc": {
+    "id": "DESC-06367DG",
+    "name": "Jasper – Okatie 230 kV #2: Construct",
+    "in_service": "2026-12-01",
+    "page_2026_2030": 12,
+    "change_since_2024_2028": "carried over: in_service, cost changed"
+   },
+   "georgia": {
+    "id": "GA-20065",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - MCINTOSH 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 4.883,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "open",
+   "rank_with_2024_2028": 10,
+   "reasons": [
+    "Closest points 4.88 km (3.03 mi) apart: share site logistics, close enough to share laydown yards and deliveries",
+    "Centers 7.40 mi apart (Sperry's center method)",
+    "Build windows overlap by 18 months (Jun 2025 to Dec 2026); open now, about 2 months left; in service 182 days apart",
+    "Location confidence low: DESC-06367DG is low, GA-20065 is medium (placed from name matches, check before relying on it)",
+    "Score 28.6 = distance 0.57 (closest points) x timeline 1 x location 0.5"
+   ]
+  },
+  {
+   "rank": 7,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 23.9,
+   "desc": {
+    "id": "DESC-6809T",
+    "name": "Stevens Creek - Graniteville 115 kV: Rebuild",
+    "in_service": "2029-12-31",
+    "page_2026_2030": 49,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-21116",
+    "utility": "Georgia Power",
+    "name": "GOSHEN AREA STRATEGIC SOLUTION",
+    "in_service": "2030-06-01",
+    "page": 187
+   },
+   "distance_km": 27.389,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "open",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 27.39 km (17.02 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 17.92 mi apart (Sperry's center method)",
+    "Build windows overlap by 4.0 years (Jan 2026 to Dec 2029); open now, about 39 months left; in service 152 days apart",
+    "Location confidence medium: DESC-6809T is medium, GA-21116 is medium (placed from name matches, check before relying on it)",
+    "Score 23.9 = distance 0.30 (closest points) x timeline 1 x location 0.8"
+   ]
+  },
+  {
+   "rank": 8,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 22.4,
+   "desc": {
+    "id": "DESC-0139MN",
+    "name": "Okatie 230-115kV Substation, Jasper – Yemassee 230kV #1 Fold-in",
+    "in_service": "2026-12-31",
+    "page_2026_2030": 11,
+    "change_since_2024_2028": "carried over: in_service, cost changed"
+   },
+   "georgia": {
+    "id": "GA-20065",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - MCINTOSH 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 13.546,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "open",
+   "rank_with_2024_2028": 6,
+   "reasons": [
+    "Closest points 13.55 km (8.42 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 9.60 mi apart (Sperry's center method)",
+    "Build windows overlap by 19 months (Jun 2025 to Dec 2026); open now, about 3 months left; in service 152 days apart",
+    "Both are 115 kV line work (x1.1)",
+    "Location confidence low: DESC-0139MN is low, GA-20065 is medium (placed from name matches, check before relying on it)",
+    "Score 22.4 = distance 0.41 (closest points) x timeline 1 x location 0.5 x same kV 1.1"
+   ]
+  },
+  {
+   "rank": 9,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 21.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20785",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - KRAFT 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 11.944,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 11.94 km (7.42 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 10.88 mi apart (Sperry's center method)",
+    "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20785 is medium (placed from name matches, check before relying on it)",
+    "Score 21 = distance 0.42 (closest points) x timeline 1 x location 0.5"
+   ]
+  },
+  {
+   "rank": 10,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 20.0,
+   "desc": {
+    "id": "DESC-0139MN",
+    "name": "Okatie 230-115kV Substation, Jasper – Yemassee 230kV #1 Fold-in",
+    "in_service": "2026-12-31",
+    "page_2026_2030": 11,
+    "change_since_2024_2028": "carried over: in_service, cost changed"
+   },
+   "georgia": {
+    "id": "GA-20785",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - KRAFT 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 19.131,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "open",
+   "rank_with_2024_2028": 23,
+   "reasons": [
+    "Closest points 19.13 km (11.89 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 12.62 mi apart (Sperry's center method)",
+    "Build windows overlap by 2.0 years (Dec 2024 to Dec 2026); open now, about 3 months left; in service 152 days apart",
+    "Both are 115 kV line work (x1.1)",
+    "Location confidence low: DESC-0139MN is low, GA-20785 is medium (placed from name matches, check before relying on it)",
+    "Score 20 = distance 0.36 (closest points) x timeline 1 x location 0.5 x same kV 1.1"
+   ]
+  },
+  {
+   "rank": 11,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 19.8,
+   "desc": {
+    "id": "DESC-06367DG",
+    "name": "Jasper – Okatie 230 kV #2: Construct",
+    "in_service": "2026-12-01",
+    "page_2026_2030": 12,
+    "change_since_2024_2028": "carried over: in_service, cost changed"
+   },
+   "georgia": {
+    "id": "GA-20785",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - KRAFT 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 14.813,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "open",
+   "rank_with_2024_2028": 25,
+   "reasons": [
+    "Closest points 14.81 km (9.20 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 11.81 mi apart (Sperry's center method)",
+    "Build windows overlap by 2.0 years (Dec 2024 to Dec 2026); open now, about 2 months left; in service 182 days apart",
+    "Location confidence low: DESC-06367DG is low, GA-20785 is medium (placed from name matches, check before relying on it)",
+    "Score 19.8 = distance 0.40 (closest points) x timeline 1 x location 0.5"
+   ]
+  },
+  {
+   "rank": 12,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 19.0,
+   "desc": {
+    "id": "DESC-6852",
+    "name": "Urquhart – Toolebeck 115kV line: Rebuild",
+    "in_service": "2026-08-12",
+    "page_2026_2030": 7,
+    "change_since_2024_2028": "carried over: cost changed"
+   },
+   "georgia": {
+    "id": "GA-21116",
+    "utility": "Georgia Power",
+    "name": "GOSHEN AREA STRATEGIC SOLUTION",
+    "in_service": "2030-06-01",
+    "page": 187
+   },
+   "distance_km": 14.81,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "past",
+   "rank_with_2024_2028": 5,
+   "reasons": [
+    "Closest points 14.81 km (9.20 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 16.38 mi apart (Sperry's center method)",
+    "Build windows overlap by 14 months (Jun 2025 to Aug 2026); as filed, that shared window ended before today (x0.6); in service 1,389 days apart",
+    "Location confidence medium: DESC-6852 is medium, GA-21116 is medium (placed from name matches, check before relying on it)",
+    "Score 19 = distance 0.40 (closest points) x timeline 0.6 x location 0.8"
+   ]
+  }
+ ],
+ "same_station_pairs": [
+  {
+   "rank": 1,
+   "class": "Same station",
+   "tier": "Must coordinate",
+   "score": 50.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20065",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - MCINTOSH 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 0.0,
+   "shared_station": "McIntosh",
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2027 — 1 year 7 months apart",
+    "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
+    "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
+    "Centers 5.94 mi apart (Sperry's center method)",
+    "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20065 is medium (placed from name matches, check before relying on it)",
+    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+   ]
+  },
+  {
+   "rank": 2,
+   "class": "Same station",
+   "tier": "Must coordinate",
+   "score": 40.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20277",
+    "utility": "Georgia Power",
+    "name": "SAV: MCINTOSH - PURRYSBURG 230KV REACTORS",
+    "in_service": "2026-06-01",
+    "page": 180
+   },
+   "distance_km": 0.0,
+   "shared_station": "McIntosh",
+   "same_window": false,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2026 — 2 years 7 months apart",
+    "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
+    "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
+    "Centers 4.21 mi apart (Sperry's center method)",
+    "Build windows don't overlap: 7 months apart; in service 944 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20277 is medium (placed from name matches, check before relying on it)",
+    "Score 40 = distance 1.00 (closest points) x timeline 0.8 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+   ]
+  }
+ ],
+ "still_ahead_pairs": [
+  {
+   "rank": 1,
+   "class": "Same station",
+   "tier": "Must coordinate",
+   "score": 50.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20065",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - MCINTOSH 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 0.0,
+   "shared_station": "McIntosh",
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2027 — 1 year 7 months apart",
+    "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
+    "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
+    "Centers 5.94 mi apart (Sperry's center method)",
+    "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20065 is medium (placed from name matches, check before relying on it)",
+    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+   ]
+  },
+  {
+   "rank": 3,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 37.5,
+   "desc": {
+    "id": "DESC-6809T",
+    "name": "Stevens Creek - Graniteville 115 kV: Rebuild",
+    "in_service": "2029-12-31",
+    "page_2026_2030": 49,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20793",
+    "utility": "Georgia Power",
+    "name": "EVANS PRIMARY - THURMOND DAM (USA) #5 115KV REBUILD",
+    "in_service": "2033-06-01",
+    "page": 189
+   },
+   "distance_km": 11.059,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 11.06 km (6.87 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 14.78 mi apart (Sperry's center method)",
+    "Build windows overlap by 7 months (Jun 2029 to Dec 2029); still ahead; in service 1,248 days apart",
+    "Both are 115 kV line work (x1.1)",
+    "Location confidence medium: DESC-6809T is medium, GA-20793 is high (placed from name matches, check before relying on it)",
+    "Score 37.5 = distance 0.43 (closest points) x timeline 1 x location 0.8 x same kV 1.1"
+   ]
+  },
+  {
+   "rank": 4,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 31.7,
+   "desc": {
+    "id": "DESC-6810O",
+    "name": "Urquhart – Aiken PSA 46 kV: Rebuild",
+    "in_service": "2027-12-31",
+    "page_2026_2030": 26,
+    "change_since_2024_2028": "carried over: unchanged"
+   },
+   "georgia": {
+    "id": "GA-21116",
+    "utility": "Georgia Power",
+    "name": "GOSHEN AREA STRATEGIC SOLUTION",
+    "in_service": "2030-06-01",
+    "page": 187
+   },
+   "distance_km": 14.811,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": 3,
+   "reasons": [
+    "Closest points 14.81 km (9.20 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 9.20 mi apart (Sperry's center method)",
+    "Build windows overlap by 12 months (Jan 2027 to Dec 2027); still ahead; in service 883 days apart",
+    "Location confidence medium: DESC-6810O is medium, GA-21116 is medium (placed from name matches, check before relying on it)",
+    "Score 31.7 = distance 0.40 (closest points) x timeline 1 x location 0.8"
+   ]
+  },
+  {
+   "rank": 9,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 21.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20785",
+    "utility": "Georgia Power",
+    "name": "SAV: GOSHEN (SAV) - KRAFT 115KV LINE REBUILD",
+    "in_service": "2027-06-01",
+    "page": 183
+   },
+   "distance_km": 11.944,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 11.94 km (7.42 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 10.88 mi apart (Sperry's center method)",
+    "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20785 is medium (placed from name matches, check before relying on it)",
+    "Score 21 = distance 0.42 (closest points) x timeline 1 x location 0.5"
+   ]
+  },
+  {
+   "rank": 17,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 14.8,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20783",
+    "utility": "Georgia Power",
+    "name": "SAV: COLEMAN - DEAN FOREST 115KV LINE REBUILD",
+    "in_service": "2028-06-01",
+    "page": 184
+   },
+   "distance_km": 27.609,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 27.61 km (17.16 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 18.14 mi apart (Sperry's center method)",
+    "Build windows overlap by 17 months (Jan 2027 to Jun 2028); still ahead; in service 213 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20783 is medium (placed from name matches, check before relying on it)",
+    "Score 14.8 = distance 0.30 (closest points) x timeline 1 x location 0.5"
+   ]
+  },
+  {
+   "rank": 23,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 14.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-21023",
+    "utility": "Georgia Power",
+    "name": "SAV: DEAN FOREST - LITTLE OGEECHEE 230 KV REBUILD",
+    "in_service": "2029-06-01",
+    "page": 186
+   },
+   "distance_km": 29.72,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 29.72 km (18.47 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 21.68 mi apart (Sperry's center method)",
+    "Build windows overlap by 2.0 years (Jan 2027 to Dec 2028); still ahead; in service 152 days apart",
+    "Location confidence low: DESC-6888 is low, GA-21023 is high (placed from name matches, check before relying on it)",
+    "Score 14 = distance 0.28 (closest points) x timeline 1 x location 0.5"
+   ]
+  },
+  {
+   "rank": 27,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 12.4,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-21006",
+    "utility": "Georgia Power",
+    "name": "SAV: BOULEVARD - MAGNOLIA 115 KV LINE REBUILD",
+    "in_service": "2029-06-01",
+    "page": 186
+   },
+   "distance_km": 33.741,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 33.74 km (20.97 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 21.50 mi apart (Sperry's center method)",
+    "Build windows overlap by 2.0 years (Jan 2027 to Dec 2028); still ahead; in service 152 days apart",
+    "Location confidence low: DESC-6888 is low, GA-21006 is high (placed from name matches, check before relying on it)",
+    "Score 12.4 = distance 0.25 (closest points) x timeline 1 x location 0.5"
+   ]
+  },
+  {
+   "rank": 35,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 12.0,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20407",
+    "utility": "Georgia Power",
+    "name": "SAV: MAGNOLIA - TRUMAN PARKWAY 115KV REBUILD",
+    "in_service": "2028-06-01",
+    "page": 184
+   },
+   "distance_km": 34.956,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 34.96 km (21.72 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 22.15 mi apart (Sperry's center method)",
+    "Build windows overlap by 17 months (Jan 2027 to Jun 2028); still ahead; in service 213 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20407 is medium (placed from name matches, check before relying on it)",
+    "Score 12 = distance 0.24 (closest points) x timeline 1 x location 0.5"
+   ]
+  }
+ ]
+}

@@ -48,6 +48,94 @@ def parse_date(raw) -> tuple[str | None, str | None]:
         return None, f"'{s}' is not a valid calendar date"
 
 
+MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+               "November", "December"]
+
+
+def impossible_dates(raw) -> list[str]:
+    """Every m/d/y printed in the field that isn't on the calendar, each with the reason in words:
+    impossible_dates("04/31/26") -> ["'04/31/26' is not a real date: April has 30 days"]. parse_date reads only the
+    last date of a phased field, so an impossible earlier phase would otherwise pass unseen."""
+    import calendar
+
+    out = []
+    for m in MDY.finditer(str(raw or "")):
+        mo, d, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        yy = y + 2000 if len(m.group(3)) == 2 else y
+        if not 1 <= mo <= 12:
+            out.append(f"'{m.group(0)}' is not a real date: there is no month {mo}")
+            continue
+        last = calendar.monthrange(yy, mo)[1]
+        if not 1 <= d <= last:
+            out.append(f"'{m.group(0)}' is not a real date: {MONTH_NAMES[mo - 1]} {yy} has {last} days")
+    return out
+
+
+def month_of(raw) -> tuple[int, int] | None:
+    """(year, month) of the last m/d/y in the field, read even when its day is impossible ('04/31/26' -> (2026, 4))."""
+    found = MDY.findall(str(raw or ""))
+    if not found:
+        return None
+    mo, _d, y = found[-1]
+    return (int(y) + 2000 if len(y) == 2 else int(y)), int(mo)
+
+
+# --------------------------------------------------------------------------- project ids and titles
+
+def project_id_key(raw) -> str:
+    """One spelling per filed project id: '6853 B-F' = '6853BF', '06810 H' = '6810 H', '0167C-D' = '0167 C-D'."""
+    s = re.sub(r"[^0-9A-Za-z]", "", str(raw or "")).upper()
+    return re.sub(r"^0+(?=\d)", "", s)
+
+
+def project_id_parts(raw) -> set[str]:
+    """The work orders an id covers: '6847 A-B, D-H' -> 6847A, 6847B, 6847D .. 6847H; '1060A, I, L' -> 1060A, 1060I,
+    1060L; '6852' -> 6852. An id in any other shape is one part (its key)."""
+    m = re.match(r"^\s*0*(\d+)\s*(.*?)\s*$", str(raw or ""))
+    if not m:
+        return {project_id_key(raw)} if project_id_key(raw) else set()
+    base, rest = m.group(1), m.group(2).upper()
+    if not rest:
+        return {base}
+    parts: set[str] = set()
+    for piece in (x.strip() for x in rest.split(",")):
+        r = re.fullmatch(r"([A-Z])\s*-\s*([A-Z])", piece)
+        if r and r.group(1) <= r.group(2):
+            parts |= {base + chr(c) for c in range(ord(r.group(1)), ord(r.group(2)) + 1)}
+        elif re.fullmatch(r"[A-Z]\d*", piece):
+            parts.add(base + piece)
+        else:
+            return {project_id_key(raw)}
+    return parts
+
+
+def work_order_label(part: str, raw) -> str:
+    """A work order from project_id_parts written the way the filing writes its id ('147C' of '0147 C, K' -> '0147 C')."""
+    m = re.match(r"^\s*(\d+)", str(raw or ""))
+    if not m or not part.startswith(m.group(1).lstrip("0") or "0"):
+        return part
+    rest = part[len(m.group(1).lstrip("0") or "0"):]
+    return f"{m.group(1)} {rest}".strip()
+
+
+def title_canon(s: str) -> str:
+    """A title for comparison: upper case, one kind of dash, spacing around dashes/slashes and before 'kV' dropped."""
+    s = str(s or "").upper().replace("–", "-").replace("—", "-")
+    s = re.sub(r"\s*-\s*", "-", s)
+    s = re.sub(r"\s*/\s*", "/", s)
+    s = re.sub(r"(\d)\s*KV", r"\1KV", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def title_similarity(a: str, b: str) -> float:
+    import difflib
+
+    return difflib.SequenceMatcher(None, title_canon(a), title_canon(b)).ratio()
+
+
+SAME_TITLE = 0.8  # the similarity at which two titles name the same project (the Sperry match uses the same cut)
+
+
 def days_between(a: str, b: str) -> int:
     return abs((date.fromisoformat(a) - date.fromisoformat(b)).days)
 
@@ -114,6 +202,8 @@ QUALIFIER = re.compile(r"\s*\((?:[^)]*)\)|\s*\([^)]*$|\s*#\s*\d+\w*")
 # names in the filings that are customers or programs, not places (kept in the record, never geocoded)
 CUSTOMER = re.compile(r"^(PROJECT\b|SK\b|HYUNDAI\b|QCELLS\b|SMART VALVES?\b|MICROSOFT\b|QTS\b|TA REALTY\b|FLEXENTIAL\b|EMBLEM\b|NORTH GEORGIA DATA\b)", re.I)
 ABBREV = {"V RICA": "VILLA RICA", "N DUBLIN": "NORTH DUBLIN"}
+# after the title's ':' a tap can name the station it is built from: '...: 115kV Tap from Cainhoy' (the place ends the title)
+TAP_FROM = re.compile(r"\bTap\s+from\s+([A-Z][A-Za-z.'&]*(?:\s+[A-Z][A-Za-z.'&]*)*)\s*$")
 
 
 def _cut_at_work(clause: str) -> str:
@@ -202,6 +292,11 @@ def endpoints_of(name: str) -> dict:
     if customers:
         notes.append("names a customer or program, not a place: " + ", ".join(f"'{c}'" for c in customers))
     places = [(c, r) for c, r in places if endpoint_key(c)]
+    if len(places) == 1 and ":" in s:  # 'Clements Ferry Rd Sub: 115kV Tap from Cainhoy': the tap's other end (2026-2030 p53)
+        m = TAP_FROM.search(s.split(":", 1)[1])
+        if m and endpoint_key(m.group(1)) and endpoint_key(m.group(1)) != endpoint_key(places[0][0]):
+            places.append((m.group(1), m.group(1)))
+            notes.append(f"the other end is the place the tap is built from ('{m.group(0).strip()}')")
     eps = [{"name": display_name(c), "raw": r, "key": endpoint_key(c)} for c, r in places]
     via = []
     if len(eps) > 2:

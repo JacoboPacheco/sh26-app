@@ -1,0 +1,2184 @@
+{
+ "built_at": "2026-09-26T20:48:55Z",
+ "_about": "DESC's 2026-2030 list of transmission projects of $2M and above compared with its 2024-2028 list, both as published on SCRTP. Each row cites both PDF pages. The lists don't say why a date or an estimate changed; the rows state what each list gives.",
+ "command": "backend/venv/Scripts/python backend/demo/gridlock/diff_filings.py",
+ "sources": [
+  {
+   "id": "desc",
+   "years": "2024-2028",
+   "title": "Dominion Energy South Carolina: Planned Transmission Projects $2M and above, 2024-2028 (project descriptions)",
+   "url": "https://www.scrtp.com/assets/pdfs/home/2024-2028-2million-and-above-project-descriptions.pdf",
+   "file": "desc_2024_2028_projects.pdf"
+  },
+  {
+   "id": "desc_2026",
+   "years": "2026-2030",
+   "title": "Dominion Energy South Carolina: Planned Transmission Projects $2M and above, 2026-2030 (project descriptions)",
+   "url": "https://www.scrtp.com/assets/pdfs/home/2026-2030-2million-and-above-project-descriptions.pdf",
+   "file": "desc_2026_2030_projects.pdf"
+  }
+ ],
+ "method": {
+  "id_key": "an id with its spaces, dashes and commas removed and leading zeros dropped ('6853 B-F' = '6853BF', '06810 H' = '6810 H')",
+  "link": "1) the same id key and the same project (title similarity >= 0.8, or description similarity >= 0.9 when the title changed); 2) a different id: title similarity >= 0.85 and the ids share a work order or base number (or the titles name a place in common), each the other's best match; 3) a different id: description similarity >= 0.9 and the ids share a work order or base number, each the other's best match. A project no step links is dropped (2024-2028 only) or new (2026-2030 only)",
+  "dates": "compared as calendar dates; an impossible date is compared by its month",
+  "costs": "the filed Total of each list"
+ },
+ "counts": {
+  "old_projects": 44,
+  "new_projects": 54,
+  "carried_over": 32,
+  "carried_over_same_date_and_cost": 1,
+  "new_in_service_date": 24,
+  "new_in_service_date_later": 24,
+  "new_in_service_date_earlier": 0,
+  "new_cost": 30,
+  "new_cost_higher": 21,
+  "new_cost_lower": 9,
+  "retitled": 5,
+  "new_id": 3,
+  "dropped": 12,
+  "dropped_due_before_the_new_list": 11,
+  "new": 22,
+  "total_cost_old_list": 699613389,
+  "total_cost_new_list": 892741934
+ },
+ "rows": [
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 28,
+    "project_id": "06810 H",
+    "name": "Summerville 115kV Loop: Rebuild",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 1,
+    "project_id": "06810 H",
+    "name": "Summerville 115kV Loop: Rebuild",
+    "status": "In Progress",
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "In-service date readable and 2020-2040: in-service date '04/31/26' could not be read ('04/31/26' is not a valid calendar date)",
+      "Every printed date is on the calendar: '04/31/26' is not a real date: April 2026 has 30 days (as printed in the filing; which date was meant can't be told from it)"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/24",
+    "new_raw": "04/31/26",
+    "old": "2024-12-31",
+    "new": null,
+    "changed": true,
+    "months": 16,
+    "direction": "later",
+    "note": "the 2026-2030 date isn't on the calendar ('04/31/26' is not a real date: April 2026 has 30 days); compared by month"
+   },
+   "cost": {
+    "old": 12475000,
+    "new": 15775885,
+    "changed": true,
+    "delta": 3300885,
+    "pct": 26.5,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/24 (p28); the 2026-2030 list gives 04/31/26 (p1), 1 year 4 months later (the 2026-2030 date isn't on the calendar ('04/31/26' is not a real date: April 2026 has 30 days); compared by month). Estimated cost: $12,475,000 (p28) in the 2024-2028 list, $15,775,885 (p1) in the 2026-2030 list, $3,300,885 (26.5 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 33,
+    "project_id": "6853 B-F",
+    "name": "Scout 230 kV Sub and Fold-in: Construct",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 3,
+    "project_id": "6853 B-F",
+    "name": "Scout 230 kV Sub and Fold-in: Construct",
+    "status": "In Progress",
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Scout"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "3/31/2026",
+    "new_raw": "5/31/2026",
+    "old": "2026-03-31",
+    "new": "2026-05-31",
+    "changed": true,
+    "months": 2,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 23685000,
+    "new": 19418000,
+    "changed": true,
+    "delta": -4267000,
+    "pct": -18.0,
+    "direction": "lower"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 3/31/2026 (p33); the 2026-2030 list gives 5/31/2026 (p3), 2 months later. Estimated cost: $23,685,000 (p33) in the 2024-2028 list, $19,418,000 (p3) in the 2026-2030 list, $4,267,000 (18 %) lower."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "cost",
+    "status"
+   ],
+   "old": {
+    "page": 40,
+    "project_id": "6846 A",
+    "name": "Eastover – Sumter 115kV DEP Tie: Rebuild with 1272 ACSR",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 4,
+    "project_id": "6846 A",
+    "name": "Eastover – Sumter 115kV DEP Tie: Rebuild with 1272 ACSR",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "costs_consistent",
+      "length_consistent"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "05/31/2026",
+    "new_raw": "5/31/2026",
+    "old": "2026-05-31",
+    "new": "2026-05-31",
+    "changed": false
+   },
+   "cost": {
+    "old": 1100000,
+    "new": 1238443,
+    "changed": true,
+    "delta": 138443,
+    "pct": 12.6,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date 5/31/2026 in both. Estimated cost: $1,100,000 (p40) in the 2024-2028 list, $1,238,443 (p4) in the 2026-2030 list, $138,443 (12.6 %) higher. Status: Planned -> In Progress."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 32,
+    "project_id": "6809 N",
+    "name": "Batesburg - Saluda County 115kV: Rebuild",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 5,
+    "project_id": "6809 N",
+    "name": "Batesburg - Saluda County 115kV: Rebuild",
+    "status": "In Progress",
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "In-service date readable and 2020-2040: in-service date '06/31/2026' could not be read ('06/31/2026' is not a valid calendar date)",
+      "Every printed date is on the calendar: '06/31/2026' is not a real date: June 2026 has 30 days (as printed in the filing; which date was meant can't be told from it)"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2025",
+    "new_raw": "06/31/2026",
+    "old": "2025-12-31",
+    "new": null,
+    "changed": true,
+    "months": 6,
+    "direction": "later",
+    "note": "the 2026-2030 date isn't on the calendar ('06/31/2026' is not a real date: June 2026 has 30 days); compared by month"
+   },
+   "cost": {
+    "old": 8750000,
+    "new": 13040765,
+    "changed": true,
+    "delta": 4290765,
+    "pct": 49.0,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/2025 (p32); the 2026-2030 list gives 06/31/2026 (p5), 6 months later (the 2026-2030 date isn't on the calendar ('06/31/2026' is not a real date: June 2026 has 30 days); compared by month). Estimated cost: $8,750,000 (p32) in the 2024-2028 list, $13,040,765 (p5) in the 2026-2030 list, $4,290,765 (49 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "cost"
+   ],
+   "old": {
+    "page": 35,
+    "project_id": "6852",
+    "name": "Urquhart – Toolebeck 115kV line: Rebuild",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 7,
+    "project_id": "6852",
+    "name": "Urquhart – Toolebeck 115kV line: Rebuild",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "8/12/2026",
+    "new_raw": "8/12/2026",
+    "old": "2026-08-12",
+    "new": "2026-08-12",
+    "changed": false
+   },
+   "cost": {
+    "old": 17520000,
+    "new": 15948620,
+    "changed": true,
+    "delta": -1571380,
+    "pct": -9.0,
+    "direction": "lower"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date 8/12/2026 in both. Estimated cost: $17,520,000 (p35) in the 2024-2028 list, $15,948,620 (p7) in the 2026-2030 list, $1,571,380 (9 %) lower."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "cost"
+   ],
+   "old": {
+    "page": 34,
+    "project_id": "6859",
+    "name": "Dawson 230kV Sub and Fold-in: Construct and Rebuild",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 8,
+    "project_id": "6859",
+    "name": "Dawson 230kV Sub and Fold-in: Construct and Rebuild",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "date_normalized",
+      "fully_located"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "10/1/2025 (phase 1) and 10/1/2026 (phase 2)",
+    "new_raw": "10/1/2025 (phase 1) and 10/1/2026 (phase 2)",
+    "old": "2026-10-01",
+    "new": "2026-10-01",
+    "changed": false
+   },
+   "cost": {
+    "old": 93538207,
+    "new": 93603207,
+    "changed": true,
+    "delta": 65000,
+    "pct": 0.1,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date 10/1/2025 (phase 1) and 10/1/2026 (phase 2) in both. Estimated cost: $93,538,207 (p34) in the 2024-2028 list, $93,603,207 (p8) in the 2026-2030 list, $65,000 (0.1 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 4,
+    "project_id": "6341 A-F",
+    "name": "Cainhoy - Hamlin 115kV: Rebuild Line and Cainhoy – Hamlin 115 kV #2: Construct New 115 kV Line",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 9,
+    "project_id": "6341 A-F",
+    "name": "Cainhoy - Hamlin 115kV: Rebuild Line and Cainhoy – Hamlin 115 kV #2: Construct New 115 kV Line",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "high",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "12/01/25",
+    "new_raw": "12/02/26",
+    "old": "2025-12-01",
+    "new": "2026-12-02",
+    "changed": true,
+    "months": 12,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 19890850,
+    "new": 40858628,
+    "changed": true,
+    "delta": 20967778,
+    "pct": 105.4,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/01/25 (p4); the 2026-2030 list gives 12/02/26 (p9), 1 year later. Estimated cost: $19,890,850 (p4) in the 2024-2028 list, $40,858,628 (p9) in the 2026-2030 list, $20,967,778 (105.4 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 30,
+    "project_id": "5392 A-C",
+    "name": "Coit – Gills Creek 115kV: Construct",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 10,
+    "project_id": "5392 A-C",
+    "name": "Coit – Gills Creek 115kV: Construct",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "length_consistent"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2024",
+    "new_raw": "12/31/2026",
+    "old": "2024-12-31",
+    "new": "2026-12-31",
+    "changed": true,
+    "months": 24,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 2509602,
+    "new": 5773202,
+    "changed": true,
+    "delta": 3263600,
+    "pct": 130.0,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/2024 (p30); the 2026-2030 list gives 12/31/2026 (p10), 2 years later. Estimated cost: $2,509,602 (p30) in the 2024-2028 list, $5,773,202 (p10) in the 2026-2030 list, $3,263,600 (130 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 3,
+    "project_id": "0139 M,N",
+    "name": "Okatie 230-115kV Substation, Jasper – Yemassee 230kV #1 Fold-in",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 11,
+    "project_id": "0139 M,N",
+    "name": "Okatie 230-115kV Substation, Jasper – Yemassee 230kV #1 Fold-in",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2024",
+    "new_raw": "12/31/2026",
+    "old": "2024-12-31",
+    "new": "2026-12-31",
+    "changed": true,
+    "months": 24,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 11116933,
+    "new": 11630257,
+    "changed": true,
+    "delta": 513324,
+    "pct": 4.6,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/2024 (p3); the 2026-2030 list gives 12/31/2026 (p11), 2 years later. Estimated cost: $11,116,933 (p3) in the 2024-2028 list, $11,630,257 (p11) in the 2026-2030 list, $513,324 (4.6 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 23,
+    "project_id": "06367 D - G",
+    "name": "Jasper – Okatie 230 kV #2: Construct",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 12,
+    "project_id": "06367 D - G",
+    "name": "Jasper – Okatie 230 kV #2: Construct",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "id_one_project",
+      "costs_consistent"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/25",
+    "new_raw": "12/01/2026",
+    "old": "2025-12-31",
+    "new": "2026-12-01",
+    "changed": true,
+    "months": 11,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 23787423,
+    "new": 19280474,
+    "changed": true,
+    "delta": -4506949,
+    "pct": -18.9,
+    "direction": "lower"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/25 (p23); the 2026-2030 list gives 12/01/2026 (p12), 11 months later. Estimated cost: $23,787,423 (p23) in the 2024-2028 list, $19,280,474 (p12) in the 2026-2030 list, $4,506,949 (18.9 %) lower."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same title, new id (the same base number 6367)",
+   "changes": [
+    "in_service",
+    "cost",
+    "title",
+    "id",
+    "description"
+   ],
+   "old": {
+    "page": 22,
+    "project_id": "06367 A - C, H",
+    "name": "Riverport Tap: Construct Tap",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 13,
+    "project_id": "6367 D",
+    "name": "Riverport 115kV Tap: Construct Tap",
+    "status": "In Progress",
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Riverport"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/25",
+    "new_raw": "12/01/26",
+    "old": "2025-12-31",
+    "new": "2026-12-01",
+    "changed": true,
+    "months": 11,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 34877427,
+    "new": 41389047,
+    "changed": true,
+    "delta": 6511620,
+    "pct": 18.7,
+    "direction": "higher"
+   },
+   "description": {
+    "old": "Construct Okatie – Riverport 230 kV to feed new Distribution substation.",
+    "new": "Constructing a 230 kV Tap from Okatie to Riverport"
+   },
+   "summary": "Listed in both, linked by: same title, new id (the same base number 6367). In-service date: the 2024-2028 list gives 12/31/25 (p22); the 2026-2030 list gives 12/01/26 (p13), 11 months later. Estimated cost: $34,877,427 (p22) in the 2024-2028 list, $41,389,047 (p13) in the 2026-2030 list, $6,511,620 (18.7 %) higher. Title: 'Riverport Tap: Construct Tap' became 'Riverport 115kV Tap: Construct Tap'. Project id: '06367 A - C, H' became '6367 D'."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same title, new id (the same base number 6847)",
+   "changes": [
+    "cost",
+    "id"
+   ],
+   "old": {
+    "page": 39,
+    "project_id": "6847 A-B, D-H",
+    "name": "Church Creek – Faber Place – Charleston Transmission: Add 230kV Line",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 16,
+    "project_id": "6847",
+    "name": "Church Creek – Faber Place – Charleston Transmission: Add 230kV Line",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "costs_consistent"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "05/01/2027",
+    "new_raw": "5/1/2027",
+    "old": "2027-05-01",
+    "new": "2027-05-01",
+    "changed": false
+   },
+   "cost": {
+    "old": 34174682,
+    "new": 22788174,
+    "changed": true,
+    "delta": -11386508,
+    "pct": -33.3,
+    "direction": "lower"
+   },
+   "summary": "Listed in both, linked by: same title, new id (the same base number 6847). In-service date 5/1/2027 in both. Estimated cost: $34,174,682 (p39) in the 2024-2028 list, $22,788,174 (p16) in the 2026-2030 list, $11,386,508 (33.3 %) lower. Project id: '6847 A-B, D-H' became '6847'."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost",
+    "status"
+   ],
+   "old": {
+    "page": 21,
+    "project_id": "6359",
+    "name": "Yemassee– Ritter 230kV #1 & #2: Construct SPDC with B-1272",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 17,
+    "project_id": "6359",
+    "name": "Yemassee– Ritter 230kV #1 & #2: Construct SPDC with B-1272",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "6/1/2026",
+    "new_raw": "6/1/2027",
+    "old": "2026-06-01",
+    "new": "2027-06-01",
+    "changed": true,
+    "months": 12,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 40611419,
+    "new": 39066742,
+    "changed": true,
+    "delta": -1544677,
+    "pct": -3.8,
+    "direction": "lower"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 6/1/2026 (p21); the 2026-2030 list gives 6/1/2027 (p17), 1 year later. Estimated cost: $40,611,419 (p21) in the 2024-2028 list, $39,066,742 (p17) in the 2026-2030 list, $1,544,677 (3.8 %) lower. Status: Planned -> In Progress."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 29,
+    "project_id": "6809 M",
+    "name": "St George - Sumter 230kV Tie: Rebuild Line from Santee Substation - Duke/Progress Energy Tie",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 19,
+    "project_id": "6809 M",
+    "name": "St George - Sumter 230kV Tie: Rebuild Line from Santee Substation - Duke/Progress Energy Tie",
+    "status": "Planned",
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "Project id is unique: 2 records share the id DESC-6809M",
+      "One project id, one project: the id 6809 M is also printed on p48 for 'Modoc – McCormick 115/46 kV Rebuild': one id for different projects, so the id can't say which project a row belongs to"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2025",
+    "new_raw": "12/31/2027",
+    "old": "2025-12-31",
+    "new": "2027-12-31",
+    "changed": true,
+    "months": 24,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 4000000,
+    "new": 4569331,
+    "changed": true,
+    "delta": 569331,
+    "pct": 14.2,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/2025 (p29); the 2026-2030 list gives 12/31/2027 (p19), 2 years later. Estimated cost: $4,000,000 (p29) in the 2024-2028 list, $4,569,331 (p19) in the 2026-2030 list, $569,331 (14.2 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id, same description, new title",
+   "changes": [
+    "in_service",
+    "cost",
+    "title"
+   ],
+   "old": {
+    "page": 15,
+    "project_id": "6809 G",
+    "name": "Stevens Creek - Hooks 115kV/LR Plumb Branch 46kV",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 20,
+    "project_id": "6809 G",
+    "name": "Hooks - Modoc 115/46 kV Rebuild",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "fully_located"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/25",
+    "new_raw": "12/31/27",
+    "old": "2025-12-31",
+    "new": "2027-12-31",
+    "changed": true,
+    "months": 24,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 7800000,
+    "new": 10534285,
+    "changed": true,
+    "delta": 2734285,
+    "pct": 35.1,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id, same description, new title. In-service date: the 2024-2028 list gives 12/31/25 (p15); the 2026-2030 list gives 12/31/27 (p20), 2 years later. Estimated cost: $7,800,000 (p15) in the 2024-2028 list, $10,534,285 (p20) in the 2026-2030 list, $2,734,285 (35.1 %) higher. Title: 'Stevens Creek - Hooks 115kV/LR Plumb Branch 46kV' became 'Hooks - Modoc 115/46 kV Rebuild'."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost",
+    "title",
+    "description"
+   ],
+   "old": {
+    "page": 7,
+    "project_id": "6808 L",
+    "name": "Burton-St Helena 115kV: Frogmore Distribution - St Helena",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 21,
+    "project_id": "6808 L",
+    "name": "Burton-St Helena 115kV: Rebuild Frogmore Distribution – St. Helena Section",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/25",
+    "new_raw": "12/31/2027",
+    "old": "2025-12-31",
+    "new": "2027-12-31",
+    "changed": true,
+    "months": 24,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 6925000,
+    "new": 18129932,
+    "changed": true,
+    "delta": 11204932,
+    "pct": 161.8,
+    "direction": "higher"
+   },
+   "description": {
+    "old": "Replace wooden structures with Self Supporting Steel Structures and upgrade to 795 ACSR for the Frogmore Distribution Tap – St. Helena section.",
+    "new": "Replace wooden structures with Self Supporting Steel Structures and restring with 1272 ACSR conductor for the Frogmore Transmission – St. Helena section."
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/25 (p7); the 2026-2030 list gives 12/31/2027 (p21), 2 years later. Estimated cost: $6,925,000 (p7) in the 2024-2028 list, $18,129,932 (p21) in the 2026-2030 list, $11,204,932 (161.8 %) higher. Title: 'Burton-St Helena 115kV: Frogmore Distribution - St Helena' became 'Burton-St Helena 115kV: Rebuild Frogmore Distribution – St. Helena Section'."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 24,
+    "project_id": "06371 D",
+    "name": "Wagener 115kV Tap: Construct Tap",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 22,
+    "project_id": "06371 D",
+    "name": "Wagener 115kV Tap: Construct Tap",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "high",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/25",
+    "new_raw": "12/31/27",
+    "old": "2025-12-31",
+    "new": "2027-12-31",
+    "changed": true,
+    "months": 24,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 6005000,
+    "new": 7540000,
+    "changed": true,
+    "delta": 1535000,
+    "pct": 25.6,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/25 (p24); the 2026-2030 list gives 12/31/27 (p22), 2 years later. Estimated cost: $6,005,000 (p24) in the 2024-2028 list, $7,540,000 (p22) in the 2026-2030 list, $1,535,000 (25.6 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 41,
+    "project_id": "6810 U",
+    "name": "Cameron Jct – Elloree 46 kV Rebuild",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 23,
+    "project_id": "6810 U",
+    "name": "Cameron Jct – Elloree 46 kV Rebuild",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "fully_located"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2026",
+    "new_raw": "12/31/2027",
+    "old": "2026-12-31",
+    "new": "2027-12-31",
+    "changed": true,
+    "months": 12,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 4500000,
+    "new": 8075000,
+    "changed": true,
+    "delta": 3575000,
+    "pct": 79.4,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/2026 (p41); the 2026-2030 list gives 12/31/2027 (p23), 1 year later. Estimated cost: $4,500,000 (p41) in the 2024-2028 list, $8,075,000 (p23) in the 2026-2030 list, $3,575,000 (79.4 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "cost",
+    "status",
+    "description"
+   ],
+   "old": {
+    "page": 42,
+    "project_id": "6810 J",
+    "name": "Elloree – Santee City 46 kV: Rebuild",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 25,
+    "project_id": "6810 J",
+    "name": "Elloree – Santee City 46 kV: Rebuild",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "costs_consistent",
+      "fully_located"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2027",
+    "new_raw": "12/31/2027",
+    "old": "2027-12-31",
+    "new": "2027-12-31",
+    "changed": false
+   },
+   "cost": {
+    "old": 4500000,
+    "new": 10294609,
+    "changed": true,
+    "delta": 5794609,
+    "pct": 128.8,
+    "direction": "higher"
+   },
+   "description": {
+    "old": "Rebuilding the 46 kV line between Elloree and Santee City. 7 miles.",
+    "new": "Rebuilding the 46 kV line between Elloree and Santee City. 8.35 miles."
+   },
+   "summary": "Listed in both, linked by: same id. In-service date 12/31/2027 in both. Estimated cost: $4,500,000 (p42) in the 2024-2028 list, $10,294,609 (p25) in the 2026-2030 list, $5,794,609 (128.8 %) higher. Status: Planned -> In Progress."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [],
+   "old": {
+    "page": 43,
+    "project_id": "6810 O",
+    "name": "Urquhart – Aiken PSA 46 kV: Rebuild",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 26,
+    "project_id": "6810 O",
+    "name": "Urquhart – Aiken PSA 46 kV: Rebuild",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": [
+      "fully_located"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2027",
+    "new_raw": "12/31/2027",
+    "old": "2027-12-31",
+    "new": "2027-12-31",
+    "changed": false
+   },
+   "cost": {
+    "old": 3000000,
+    "new": 3000000,
+    "changed": false
+   },
+   "summary": "Listed in both, linked by: same id. In-service date 12/31/2027 in both. Estimated cost $3,000,000 in both."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 36,
+    "project_id": "6388 A",
+    "name": "Williams-Summerville 230kV: Upgrade to SPDC B1272 ACSR",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 31,
+    "project_id": "6388 A",
+    "name": "Williams-Summerville 230kV: Upgrade to SPDC B1272 ACSR",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "costs_consistent"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "5/1/2027",
+    "new_raw": "05/01/2028",
+    "old": "2027-05-01",
+    "new": "2028-05-01",
+    "changed": true,
+    "months": 12,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 19300000,
+    "new": 31100000,
+    "changed": true,
+    "delta": 11800000,
+    "pct": 61.1,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 5/1/2027 (p36); the 2026-2030 list gives 05/01/2028 (p31), 1 year later. Estimated cost: $19,300,000 (p36) in the 2024-2028 list, $31,100,000 (p31) in the 2026-2030 list, $11,800,000 (61.1 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost",
+    "description"
+   ],
+   "old": {
+    "page": 25,
+    "project_id": "06372 A",
+    "name": "Church Creek - Ritter 230kV - Replace 38 Large Angles and Dead Ends",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 32,
+    "project_id": "06372 A",
+    "name": "Church Creek - Ritter 230kV - Replace 38 Large Angles and Dead Ends",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "6/1/2024",
+    "new_raw": "12/31/2028",
+    "old": "2024-06-01",
+    "new": "2028-12-31",
+    "changed": true,
+    "months": 55,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 10850000,
+    "new": 11424330,
+    "changed": true,
+    "delta": 574330,
+    "pct": 5.3,
+    "direction": "higher"
+   },
+   "description": {
+    "old": "Replace 6.5 miles of aging conductor.",
+    "new": "Replacing approximately 38 guyed wooden structures due to recent failures in the fiberglass strain insulators along this line. Structures to be changed out are dead ends/large angles. We will also be adding a few in-line dead ends where there are tangents runs of greater than 15,000'. Replacement structures will be designed for B-1272 ACSR and be offset such that a future circuit could be added along this alignment. Estimated STRs to Replace: 38 structures total. 28 concrete foundations and 10 vibratory caisson foundations."
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 6/1/2024 (p25); the 2026-2030 list gives 12/31/2028 (p32), 4 years 7 months later. Estimated cost: $10,850,000 (p25) in the 2024-2028 list, $11,424,330 (p32) in the 2026-2030 list, $574,330 (5.3 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service"
+   ],
+   "old": {
+    "page": 18,
+    "project_id": "06005 B",
+    "name": "Harleyville 115KV Transmission Tap – Construct (1.4 miles)",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 34,
+    "project_id": "06005 B",
+    "name": "Harleyville 115KV Transmission Tap – Construct (1.4 miles)",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "3/31/2027",
+    "new_raw": "12/31/2028",
+    "old": "2027-03-31",
+    "new": "2028-12-31",
+    "changed": true,
+    "months": 21,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 2750000,
+    "new": 2750000,
+    "changed": false
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 3/31/2027 (p18); the 2026-2030 list gives 12/31/2028 (p34), 1 year 9 months later. Estimated cost $2,750,000 in both."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 8,
+    "project_id": "6808 N,O",
+    "name": "VCS1-Denny Terrace 230kV & VCS1-Pineland 230kV: Rebuild Single Circuit Sections",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 36,
+    "project_id": "6808 N,O",
+    "name": "VCS1-Denny Terrace 230kV & VCS1-Pineland 230kV: Rebuild Single Circuit Sections",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/26",
+    "new_raw": "12/31/28",
+    "old": "2026-12-31",
+    "new": "2028-12-31",
+    "changed": true,
+    "months": 24,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 4912096,
+    "new": 13285118,
+    "changed": true,
+    "delta": 8373022,
+    "pct": 170.5,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/26 (p8); the 2026-2030 list gives 12/31/28 (p36), 2 years later. Estimated cost: $4,912,096 (p8) in the 2024-2028 list, $13,285,118 (p36) in the 2026-2030 list, $8,373,022 (170.5 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "cost"
+   ],
+   "old": {
+    "page": 17,
+    "project_id": "1060A, I, L",
+    "name": "Williams St Sub: Replace Sw House & Relays, AM Williams Sub: Replace Sw House, and McMeekin Sub: Add Sw House",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 39,
+    "project_id": "1060A, I, L",
+    "name": "Williams St Sub: Replace Sw House & Relays, AM Williams Sub: Replace Sw House, and McMeekin Sub: Add Sw House",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "voltage_found"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/28",
+    "new_raw": "12/31/28",
+    "old": "2028-12-31",
+    "new": "2028-12-31",
+    "changed": false
+   },
+   "cost": {
+    "old": 9898924,
+    "new": 11182924,
+    "changed": true,
+    "delta": 1284000,
+    "pct": 13.0,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date 12/31/28 in both. Estimated cost: $9,898,924 (p17) in the 2024-2028 list, $11,182,924 (p39) in the 2026-2030 list, $1,284,000 (13 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "cost"
+   ],
+   "old": {
+    "page": 44,
+    "project_id": "6810 T",
+    "name": "Cameron Jct – Cameron – St Matthews 46 kV Rebuild",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 40,
+    "project_id": "6810 T",
+    "name": "Cameron Jct – Cameron – St Matthews 46 kV Rebuild",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "fully_located"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2028",
+    "new_raw": "12/31/2028",
+    "old": "2028-12-31",
+    "new": "2028-12-31",
+    "changed": false
+   },
+   "cost": {
+    "old": 5900000,
+    "new": 11700000,
+    "changed": true,
+    "delta": 5800000,
+    "pct": 98.3,
+    "direction": "higher"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date 12/31/2028 in both. Estimated cost: $5,900,000 (p44) in the 2024-2028 list, $11,700,000 (p40) in the 2026-2030 list, $5,800,000 (98.3 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost",
+    "title",
+    "description"
+   ],
+   "old": {
+    "page": 20,
+    "project_id": "06076A",
+    "name": "Canadys-Ritter 115KV-Rebld SPDC 230/115KV 1272 (Approx 18 Miles)",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 44,
+    "project_id": "06076 A",
+    "name": "Canadys-Ritter 115KV: Rebuild SPDC 230/115KV 1272 (Approx 18 Miles)",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "costs_consistent",
+      "kv_title_matches_description"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "6/1/2026",
+    "new_raw": "6/1/2029",
+    "old": "2026-06-01",
+    "new": "2029-06-01",
+    "changed": true,
+    "months": 36,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 40000000,
+    "new": 38121795,
+    "changed": true,
+    "delta": -1878205,
+    "pct": -4.7,
+    "direction": "lower"
+   },
+   "description": {
+    "old": "Rebuild Canadys-Ritter 115 kV line as SPDC with 230 kV on one side and 115 kV on the other side.",
+    "new": "Rebuild Canadys-Ritter 115 kV line as SPDC with 1272 ACSR. Project includes the rebuild of the Canadys - Ritter 115kV only. No 230kV work associated with this project. 17.5 miles"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 6/1/2026 (p20); the 2026-2030 list gives 6/1/2029 (p44), 3 years later. Estimated cost: $40,000,000 (p20) in the 2024-2028 list, $38,121,795 (p44) in the 2026-2030 list, $1,878,205 (4.7 %) lower. Title: 'Canadys-Ritter 115KV-Rebld SPDC 230/115KV 1272 (Approx 18 Miles)' became 'Canadys-Ritter 115KV: Rebuild SPDC 230/115KV 1272 (Approx 18 Miles)'."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost",
+    "status",
+    "description"
+   ],
+   "old": {
+    "page": 9,
+    "project_id": "6808 R",
+    "name": "Wateree-Killian 230kV: Rebuild",
+    "status": "In Progress"
+   },
+   "new": {
+    "page": 45,
+    "project_id": "6808 R",
+    "name": "Wateree-Killian 230kV: Rebuild",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": [
+      "fully_located"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/28",
+    "new_raw": "12/31/29",
+    "old": "2028-12-31",
+    "new": "2029-12-31",
+    "changed": true,
+    "months": 12,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 48224719,
+    "new": 44517719,
+    "changed": true,
+    "delta": -3707000,
+    "pct": -7.7,
+    "direction": "lower"
+   },
+   "description": {
+    "old": "Replace wooden H-Frame structures with Self Supporting Steel Structures.",
+    "new": "Rebuilding the Wateree - Killian 230 kV Line. Line will be rebuilt SPSC with 1272 ACSR Length - 35 miles"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/28 (p9); the 2026-2030 list gives 12/31/29 (p45), 1 year later. Estimated cost: $48,224,719 (p9) in the 2024-2028 list, $44,517,719 (p45) in the 2026-2030 list, $3,707,000 (7.7 %) lower. Status: In Progress -> Planned."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost",
+    "description"
+   ],
+   "old": {
+    "page": 2,
+    "project_id": "0167C-D",
+    "name": "Union Pier 115-13.8 kV Sub: Tap",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 51,
+    "project_id": "0167 C-D",
+    "name": "Union Pier 115-13.8 kV Sub: Tap",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/27",
+    "new_raw": "12/31/30",
+    "old": "2027-12-31",
+    "new": "2030-12-31",
+    "changed": true,
+    "months": 36,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 5300000,
+    "new": 22400000,
+    "changed": true,
+    "delta": 17100000,
+    "pct": 322.6,
+    "direction": "higher"
+   },
+   "description": {
+    "old": "Installing a 115 kV Tap to feed the future Union Pier 115 kV Sub.",
+    "new": "Installing a 115 kV Tap (or possibly dedicated feed from Charlotte St) to feed the Union Pier 115 kV Sub."
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/27 (p2); the 2026-2030 list gives 12/31/30 (p51), 3 years later. Estimated cost: $5,300,000 (p2) in the 2024-2028 list, $22,400,000 (p51) in the 2026-2030 list, $17,100,000 (322.6 %) higher."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost",
+    "status",
+    "description"
+   ],
+   "old": {
+    "page": 12,
+    "project_id": "6808 V",
+    "name": "Faber Place-Bayfront 115kV: Rebuild North Bridge Terrace to Bayfront Section",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 52,
+    "project_id": "6808 V",
+    "name": "Faber Place-Bayfront 115kV: Rebuild North Bridge Terrace to Bayfront Section",
+    "status": "In Progress",
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": []
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/28",
+    "new_raw": "12/31/30",
+    "old": "2028-12-31",
+    "new": "2030-12-31",
+    "changed": true,
+    "months": 24,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 10200000,
+    "new": 18964478,
+    "changed": true,
+    "delta": 8764478,
+    "pct": 85.9,
+    "direction": "higher"
+   },
+   "description": {
+    "old": "Replace wooden structures with Self Supporting Steel Structures and upgrade conductor to standard 1272 ACSR.",
+    "new": "Rebuild Faber Place - Bayfront 115kV from N. Bridge Terrace Sub - Bayfront Sub. Line will be rebuilt SPSC with 1272 ACSR. String 1272 ACSR from Across the Ashley River - N. Bridge Terrace. String 1272 ACSR from Bayfront - Camp Rd. Scope modified to include Camp Rd. - James Island section as well."
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/28 (p12); the 2026-2030 list gives 12/31/30 (p52), 2 years later. Estimated cost: $10,200,000 (p12) in the 2024-2028 list, $18,964,478 (p52) in the 2026-2030 list, $8,764,478 (85.9 %) higher. Status: Planned -> In Progress."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same description, new id and title (work order 0147 C in both ids)",
+   "changes": [
+    "in_service",
+    "cost",
+    "title",
+    "id"
+   ],
+   "old": {
+    "page": 37,
+    "project_id": "0147 C, K",
+    "name": "Cainhoy 115 kV Tap: Construct",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 53,
+    "project_id": "0147 A-I",
+    "name": "Clements Ferry Rd Sub: 115kV Tap from Cainhoy",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": [
+      "costs_consistent",
+      "fully_located"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/2027",
+    "new_raw": "12/31/2031",
+    "old": "2027-12-31",
+    "new": "2031-12-31",
+    "changed": true,
+    "months": 48,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 21850000,
+    "new": 9750000,
+    "changed": true,
+    "delta": -12100000,
+    "pct": -55.4,
+    "direction": "lower"
+   },
+   "summary": "Listed in both, linked by: same description, new id and title (work order 0147 C in both ids). In-service date: the 2024-2028 list gives 12/31/2027 (p37); the 2026-2030 list gives 12/31/2031 (p53), 4 years later. Estimated cost: $21,850,000 (p37) in the 2024-2028 list, $9,750,000 (p53) in the 2026-2030 list, $12,100,000 (55.4 %) lower. Title: 'Cainhoy 115 kV Tap: Construct' became 'Clements Ferry Rd Sub: 115kV Tap from Cainhoy'. Project id: '0147 C, K' became '0147 A-I'."
+  },
+  {
+   "change": "carried_over",
+   "linked_by": "same id",
+   "changes": [
+    "in_service",
+    "cost"
+   ],
+   "old": {
+    "page": 26,
+    "project_id": "06810 F",
+    "name": "VCS2-Ward 230kV: Rebuild Line",
+    "status": "Planned"
+   },
+   "new": {
+    "page": 54,
+    "project_id": "06810 F",
+    "name": "VCS2-Ward 230kV: Rebuild Line",
+    "status": "Planned",
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": [
+      "costs_consistent"
+     ]
+    }
+   },
+   "in_service": {
+    "old_raw": "12/31/29",
+    "new_raw": "12/31/32",
+    "old": "2029-12-31",
+    "new": "2032-12-31",
+    "changed": true,
+    "months": 36,
+    "direction": "later"
+   },
+   "cost": {
+    "old": 30000000,
+    "new": 18875000,
+    "changed": true,
+    "delta": -11125000,
+    "pct": -37.1,
+    "direction": "lower"
+   },
+   "summary": "Listed in both, linked by: same id. In-service date: the 2024-2028 list gives 12/31/29 (p26); the 2026-2030 list gives 12/31/32 (p54), 3 years later. Estimated cost: $30,000,000 (p26) in the 2024-2028 list, $18,875,000 (p54) in the 2026-2030 list, $11,125,000 (37.1 %) lower."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 1,
+    "project_id": "6807 B",
+    "name": "Queensboro - Ft Johnson 115 kV & Queensboro-Bayfront 115kV (Queensboro-James Island Sect)",
+    "status": "In Progress",
+    "in_service_raw": "12/31/23",
+    "in_service": "2023-12-31",
+    "cost_total": 5404301
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p1, in service 12/31/23, $5,404,301). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 5,
+    "project_id": "6808 J",
+    "name": "Eastover - Square D 115kV: Rebuild",
+    "status": "In Progress",
+    "in_service_raw": "06/01/24",
+    "in_service": "2024-06-01",
+    "cost_total": 11700000
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p5, in service 06/01/24, $11,700,000). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 6,
+    "project_id": "6808 K",
+    "name": "Burton-St Helena 115kV: Rebuild Burton-Frogmore Transmission Section",
+    "status": "In Progress",
+    "in_service_raw": "12/31/24",
+    "in_service": "2024-12-31",
+    "cost_total": 8580000
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p6, in service 12/31/24, $8,580,000). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 10,
+    "project_id": "6808 S",
+    "name": "Okatie-Bluffton 115kV: Rebuild",
+    "status": "In Progress",
+    "in_service_raw": "06/01/2025",
+    "in_service": "2025-06-01",
+    "cost_total": 40660000
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p10, in service 06/01/2025, $40,660,000). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 11,
+    "project_id": "6808 U",
+    "name": "Hopkins-CIP 230kV: Rebuild",
+    "status": "Planned",
+    "in_service_raw": "12/31/25",
+    "in_service": "2025-12-31",
+    "cost_total": 2600000
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p11, in service 12/31/25, $2,600,000). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 13,
+    "project_id": "6808 W",
+    "name": "Square D - Hopkins 115kV: Rebuild",
+    "status": "In Progress",
+    "in_service_raw": "9/30/2024",
+    "in_service": "2024-09-30",
+    "cost_total": 4300000
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p13, in service 9/30/2024, $4,300,000). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 14,
+    "project_id": "6809 E",
+    "name": "Stevens Creek - Hooks 115kV/LR Plumb Branch 46kV Rebuilds",
+    "status": "In Progress",
+    "in_service_raw": "12/31/24",
+    "in_service": "2024-12-31",
+    "cost_total": 11745543
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p14, in service 12/31/24, $11,745,543). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 16,
+    "project_id": "6805 G",
+    "name": "Edenwood Sub: #1 & #2 230-115kV Autobanks, Replace with 336MVA",
+    "status": "In Progress",
+    "in_service_raw": "12/25/24",
+    "in_service": "2024-12-25",
+    "cost_total": 10833462
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p16, in service 12/25/24, $10,833,462). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 19,
+    "project_id": "05004 P",
+    "name": "Summerville: Replace and Spare 230-115kV 336MVA Auto Bank",
+    "status": "In Progress",
+    "in_service_raw": "12/31/2024",
+    "in_service": "2024-12-31",
+    "cost_total": 3982052
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p19, in service 12/31/2024, $3,982,052). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 27,
+    "project_id": "06810 G",
+    "name": "Goose Creek Reservoir: Rebuild Transmission Line Crossings",
+    "status": "In Progress",
+    "in_service_raw": "12/31/24",
+    "in_service": "2024-12-31",
+    "cost_total": 9655669
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p27, in service 12/31/24, $9,655,669). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 31,
+    "project_id": "6810 A",
+    "name": "Hooks - Thurmond 115kV Tie: Rebuild",
+    "status": "In Progress",
+    "in_service_raw": "12/31/2024",
+    "in_service": "2024-12-31",
+    "cost_total": 2200080
+   },
+   "new": null,
+   "in_service_before_the_new_list": true,
+   "shared_work_orders": [],
+   "summary": "In the 2024-2028 list (p31, in service 12/31/2024, $2,200,080). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. Its 2024-2028 in-service date is before 2026, the first year the new list covers."
+  },
+  {
+   "change": "dropped",
+   "old": {
+    "page": 38,
+    "project_id": "0147 B, J",
+    "name": "Jack Primus 115 kV Tap: Construct",
+    "status": "Planned",
+    "in_service_raw": "12/31/2027",
+    "in_service": "2027-12-31",
+    "cost_total": 18000000
+   },
+   "new": null,
+   "in_service_before_the_new_list": false,
+   "shared_work_orders": [
+    {
+     "page": 53,
+     "project_id": "0147 A-I",
+     "name": "Clements Ferry Rd Sub: 115kV Tap from Cainhoy",
+     "work_orders": [
+      "0147 B"
+     ]
+    }
+   ],
+   "summary": "In the 2024-2028 list (p38, in service 12/31/2027, $18,000,000). No project in the 2026-2030 list matches it by id (with a similar title or description), by title, or by description. The 2026-2030 list doesn't say why it isn't listed. Work order 0147 B of its id also appears in the 2026-2030 list under '0147 A-I' (p53, 'Clements Ferry Rd Sub: 115kV Tap from Cainhoy')."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 2,
+    "project_id": "02726 K",
+    "name": "Columbia Canal 115 kV: Rebuild",
+    "status": "In Progress",
+    "in_service_raw": "05/31/26",
+    "in_service": "2026-05-31",
+    "cost_total": 1150364,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "high",
+     "warnings": []
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 05/31/26 (p2), $1,150,364. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 6,
+    "project_id": "06874 B",
+    "name": "Summerville-Boone Hill 115kV: Move Line for US78 SCDOT Road Widening",
+    "status": "In Progress",
+    "in_service_raw": "07/31/26",
+    "in_service": "2026-07-31",
+    "cost_total": 12475000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "fully_located"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 07/31/26 (p6), $12,475,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 14,
+    "project_id": "6381",
+    "name": "Flat Rock 115kV Sub and Tap: Construct",
+    "status": "In Progress",
+    "in_service_raw": "12/31/26",
+    "in_service": "2026-12-31",
+    "cost_total": 3950000,
+    "cost_note": null,
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Flat Rock"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/26 (p14), $3,950,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 15,
+    "project_id": "6870 A",
+    "name": "Saluda Hydro – Bush River 115kV #1 and #2 Tie Lines Rebuild",
+    "status": "In Progress",
+    "in_service_raw": "12/31/2026",
+    "in_service": "2026-12-31",
+    "cost_total": 20400000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "costs_consistent",
+      "fully_located"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2026 (p15), $20,400,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 18,
+    "project_id": "6238 H",
+    "name": "Fairfax-Yemassee 115kV: Upgrade for DESCSQ #1151 Interconnection",
+    "status": "Planned",
+    "in_service_raw": "9/7/2027",
+    "in_service": "2027-09-07",
+    "cost_total": 20350000,
+    "cost_note": "Estimated cost of $20,350,000 is to be financed by the interconnection customer. DESC will reimburse the full cost of the assigned upgrade to the interconnection customer after commercial operation of DESCSQ #1151.",
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": []
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 9/7/2027 (p18), $20,350,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 24,
+    "project_id": "7956B",
+    "name": "Atomic Road 115/12kV Sub: Construct",
+    "status": "Planned",
+    "in_service_raw": "12/31/2028",
+    "in_service": "2028-12-31",
+    "cost_total": 3646027,
+    "cost_note": null,
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Atomic Road"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2028 (p24), $3,646,027. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 27,
+    "project_id": "6808 P",
+    "name": "Wateree-Hopkins 230kV Line #1: Rebuild",
+    "status": "Planned",
+    "in_service_raw": "12/31/2027",
+    "in_service": "2027-12-31",
+    "cost_total": 22400000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": []
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2027 (p27), $22,400,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 28,
+    "project_id": "6809 I2",
+    "name": "Adams Run – Red House Road 46 kV: Replace Dawhoo River Crossing and other Structures",
+    "status": "Planned",
+    "in_service_raw": "12/31/2027",
+    "in_service": "2027-12-31",
+    "cost_total": 11000000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "fully_located"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2027 (p28), $11,000,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 29,
+    "project_id": "6809 S",
+    "name": "Lyles – Kilbourne Park 115kV: Replace Structure 67 – Kilbourne Park",
+    "status": "Planned",
+    "in_service_raw": "12/01/2027",
+    "in_service": "2027-12-01",
+    "cost_total": 4770000,
+    "cost_note": null,
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Lyles, Kilbourne Park"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/01/2027 (p29), $4,770,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 30,
+    "project_id": "6873",
+    "name": "Winnsboro West 230-115 kV Sub and Fold-in: Construct",
+    "status": "In Progress",
+    "in_service_raw": "1/31/2028",
+    "in_service": "2028-01-31",
+    "cost_total": 23272000,
+    "cost_note": "Estimated cost of $23,272,000 is to be financed by the interconnection customer. DESC will reimburse the full cost of the assigned upgrade to the interconnection customer after commercial operation of the uprated Parr Gas Turbines GT1 and GT2.",
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Winnsboro West"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 1/31/2028 (p30), $23,272,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 33,
+    "project_id": "6854 C",
+    "name": "Jackson 115kV: Construct 115 – 12kV Distribution Substation",
+    "status": "Planned",
+    "in_service_raw": "12/31/2028",
+    "in_service": "2028-12-31",
+    "cost_total": 3003760,
+    "cost_note": null,
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Jackson"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2028 (p33), $3,003,760. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 35,
+    "project_id": "6809 F",
+    "name": "Orangeburg #1 - Cameron Jct 46kV Line Rebuild",
+    "status": "Planned",
+    "in_service_raw": "12/31/2028",
+    "in_service": "2028-12-31",
+    "cost_total": 7912400,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": [
+      "costs_consistent",
+      "fully_located"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2028 (p35), $7,912,400. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 37,
+    "project_id": "6842 C,D",
+    "name": "Coast Guard 115kV Substation and Tap: Construct",
+    "status": "Planned",
+    "in_service_raw": "12/31/27",
+    "in_service": "2027-12-31",
+    "cost_total": 5560000,
+    "cost_note": null,
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Coast Guard"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/27 (p37), $5,560,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 38,
+    "project_id": "6864 D, E",
+    "name": "Millrace 115 kV Tap: Construct",
+    "status": "Planned",
+    "in_service_raw": "12/31/2028",
+    "in_service": "2028-12-31",
+    "cost_total": 3200000,
+    "cost_note": null,
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Millrace"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2028 (p38), $3,200,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 41,
+    "project_id": "6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "status": "Planned",
+    "in_service_raw": "12/31/2028",
+    "in_service": "2028-12-31",
+    "cost_total": 5376418,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": []
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2028 (p41), $5,376,418. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 42,
+    "project_id": "6809 R",
+    "name": "CAE Industrial Park - Springdale Sub 115kV: Replace Laminated Wood Polls.",
+    "status": "Planned",
+    "in_service_raw": "12/31/2028",
+    "in_service": "2028-12-31",
+    "cost_total": 4450000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "costs_consistent"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2028 (p42), $4,450,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 43,
+    "project_id": "6809 O",
+    "name": "St. George- Holly Hill 115kV: Rebuild Structures 83-108",
+    "status": "Planned",
+    "in_service_raw": "12/31/2028",
+    "in_service": "2028-12-31",
+    "cost_total": 8125000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": [
+      "length_consistent"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2028 (p43), $8,125,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 46,
+    "project_id": "6877 A",
+    "name": "Church Creek – Dawson 230 kV: Rebuild from Long Savannah to Dawson",
+    "status": "Planned",
+    "in_service_raw": "12/31/2029",
+    "in_service": "2029-12-31",
+    "cost_total": 42375000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "costs_consistent",
+      "fully_located"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2029 (p46), $42,375,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 47,
+    "project_id": "6869 D",
+    "name": "Long Savannah 115 kV Tap: Construct",
+    "status": "Planned",
+    "in_service_raw": "12/31/2029",
+    "in_service": "2029-12-31",
+    "cost_total": 5100000,
+    "cost_note": null,
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "At least one endpoint located: no endpoint matched an OpenStreetMap feature or place: Long Savannah"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2029 (p47), $5,100,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 48,
+    "project_id": "6809 M",
+    "name": "Modoc – McCormick 115/46 kV Rebuild",
+    "status": "Planned",
+    "in_service_raw": "12/31/29",
+    "in_service": "2029-12-31",
+    "cost_total": 19800000,
+    "cost_note": null,
+    "checks": {
+     "kept": false,
+     "reasons": [
+      "Project id is unique: 2 records share the id DESC-6809M",
+      "One project id, one project: the id 6809 M is also printed on p19 for 'St George - Sumter 230kV Tie: Rebuild Line from Santee Substation - Duke/Progress Energy Tie': one id for different projects, so the id can't say which project a row belongs to"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/29 (p48), $19,800,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description. Its id 6809 M is the id of 'St George - Sumter 230kV Tie: Rebuild Line from Santee Substation - Duke/Progress Energy Tie' in the 2024-2028 list (p29). The 2026-2030 list also prints the id 6809 M on p19, for 'St George - Sumter 230kV Tie: Rebuild Line from Santee Substation - Duke/Progress Energy Tie'."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 49,
+    "project_id": "6809 T",
+    "name": "Stevens Creek - Graniteville 115 kV: Rebuild",
+    "status": "Planned",
+    "in_service_raw": "12/31/29",
+    "in_service": "2029-12-31",
+    "cost_total": 18200000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "medium",
+     "warnings": []
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/29 (p49), $18,200,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  },
+  {
+   "change": "new",
+   "old": null,
+   "new": {
+    "page": 50,
+    "project_id": "6810 N",
+    "name": "Calhoun County - North 46 kV Rebuild",
+    "status": "Planned",
+    "in_service_raw": "12/31/2029",
+    "in_service": "2029-12-31",
+    "cost_total": 10200000,
+    "cost_note": null,
+    "checks": {
+     "kept": true,
+     "confidence": "low",
+     "warnings": [
+      "fully_located"
+     ]
+    }
+   },
+   "shared_work_orders": [],
+   "summary": "The 2026-2030 list gives in service 12/31/2029 (p50), $10,200,000. No project in the 2024-2028 list matches it by id (with a similar title or description), by title, or by description."
+  }
+ ]
+}

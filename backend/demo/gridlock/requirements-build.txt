@@ -3,3 +3,4 @@
 #   backend/venv/Scripts/pip install -r backend/demo/gridlock/requirements-build.txt
 pdfplumber==0.11.10
 pdfminer.six==20260107
+pypdfium2==5.13.0   # the second PDF reader in extract_desc.second_reader (diff_filings.py); pdfplumber also pulls it in

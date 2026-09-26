@@ -23,6 +23,46 @@ def _keys(name: str) -> list[str]:
     return [e["key"] for e in N.endpoints_of(name)["endpoints"]]
 
 
+def _ids(a: tuple, b: tuple) -> list[str]:
+    """id_one_project over two records (id, title, filing): each record's status."""
+    recs = [{"id": f"r{i}", "project_id_raw": pid, "name": title, "provenance": {"source": src, "page": 19 + 29 * i}}
+            for i, (pid, title, src) in enumerate((a, b))]
+    ctx = checks.context(recs, {})
+    return [checks.id_one_project(r, ctx)[0] for r in recs]
+
+
+def _phases_date_valid(raw: str) -> str:
+    iso, note = N.parse_date(raw)
+    return checks.date_valid({"in_service": iso, "in_service_raw": raw, "_date_note": note}, {})[0]
+
+
+def _link(old: list[tuple], new: list[tuple]) -> list[tuple[str, str, str]]:
+    """diff_filings.link_filings over (id, title, description) records: (old id, new id, how) per link."""
+    import diff_filings  # lazy: it imports build, which imports this module
+
+    def recs(rows):
+        return [{"page": k + 1, "project_id": pid, "name": title, "description": desc} for k, (pid, title, desc) in enumerate(rows)]
+
+    return [(o["project_id"], n["project_id"], how.split(" (")[0]) for o, n, how in diff_filings.link_filings(recs(old), recs(new))]
+
+
+def _kv(name: str, description: str) -> str:
+    return checks.kv_title_matches_description({"name": name, "description": description}, {})[0]
+
+
+CAINHOY_DESC = "Construct a 115 kV tap from Cainhoy to Clements Ferry. Approximately 2.8 miles. Construct terminal at Cainhoy."
+JACK_PRIMUS_DESC = "Construct a 115 kV tap from Jack Primus to Clements Ferry. Approximately 2.2 miles. Construct terminals at Jack Primus."
+
+
+COST_SENTENCE_PAGE = "\n".join([
+    "Project 18 of 54", "Fairfax-Yemassee 115kV: Upgrade for DESCSQ #1151 Interconnection", "Project ID", "6238 H",
+    "Project Description", "Upgrade 336 ACSR portion of DESCSQ #1151 - Yemassee 115 kV line to 1272 ACSR.", "Project Need",
+    "This project is needed to interconnect DESCSQ #1151.", "Project Status", "Planned", "Planned In-Service Date", "9/7/2027",
+    "Estimated Project Cost", "Estimated cost of $20,350,000 is to be financed by the interconnection customer. DESC will reimburse",
+    "the full cost of the assigned upgrade to the interconnection customer after commercial operation of", "DESCSQ #1151.",
+])
+
+
 CASES = [
     # dates: 2-digit years, 4-digit years (a regex once read '6/1/2033' as 2020), Excel serials, phased dates
     ("date 12/31/23", lambda: N.parse_date("12/31/23")[0], "2023-12-31"),
@@ -72,6 +112,58 @@ CASES = [
     # build windows: a start the filing doesn't pin is flagged, so the engine's build-window setting applies
     ("DESC 'Previous' spend window is assumed", lambda: N.build_window_desc("2024-06-01", {"Previous": 5, "2024": 1})["assumed"], True),
     ("DESC spend-year window is filed", lambda: N.build_window_desc("2026-06-01", {"Previous": 0, "2025": 1})["assumed"], False),
+    # DESC's 2026-2030 filing (diff_filings.py): impossible calendar dates and one id printed for two projects
+    ("impossible date 04/31/26 set aside (2026-2030 p1)", lambda: checks.date_real({"in_service_raw": "04/31/26"}, {}),
+     ("fail", "'04/31/26' is not a real date: April 2026 has 30 days (as printed in the filing; which date was meant can't be told from it)")),
+    ("impossible date 06/31/2026 set aside (2026-2030 p5)", lambda: checks.date_real({"in_service_raw": "06/31/2026"}, {})[0], "fail"),
+    ("a real date passes date_real", lambda: checks.date_real({"in_service_raw": "12/31/2028"}, {})[0], "pass"),
+    ("an impossible earlier phase: date_valid reads only the last date",
+     lambda: _phases_date_valid("04/31/25 (phase 1) and 10/1/2026 (phase 2)"), "pass"),
+    ("an impossible earlier phase: date_real catches it",
+     lambda: checks.date_real({"in_service_raw": "04/31/25 (phase 1) and 10/1/2026 (phase 2)"}, {})[0], "fail"),
+    ("one id for two projects (6809 M, 2026-2030 p19 / p48): both set aside",
+     lambda: _ids(("6809 M", "St George - Sumter 230kV Tie: Rebuild Line from Santee Substation - Duke/Progress Energy Tie", "f"),
+                  ("6809 M", "Modoc – McCormick 115/46 kV Rebuild", "f")), ["fail", "fail"]),
+    ("one project listed twice is id_unique's case, not this one",
+     lambda: _ids(("6809 M", "Modoc – McCormick 115/46 kV Rebuild", "f"), ("6809 M", "Modoc - McCormick 115/46kV Rebuild", "f")), ["pass", "pass"]),
+    ("the same id in two filings is not a reuse",
+     lambda: _ids(("6809 M", "St George - Sumter 230kV Tie", "desc"), ("6809 M", "Modoc – McCormick 115/46 kV Rebuild", "desc_2026")), ["pass", "pass"]),
+    ("work order inside another id's range flagged (6367 D / 06367 D - G)",
+     lambda: _ids(("6367 D", "Riverport 115kV Tap: Construct Tap", "f"), ("06367 D - G", "Jasper – Okatie 230 kV #2: Construct", "f")), ["warn", "warn"]),
+    ("id key 6853 B-F = 6853BF, 06810 H = 6810 H", lambda: (N.project_id_key("6853 B-F"), N.project_id_key("06810 H") == N.project_id_key("6810 H")),
+     ("6853BF", True)),
+    ("id work orders 6847 A-B, D-H", lambda: sorted(N.project_id_parts("6847 A-B, D-H")), ["6847A", "6847B", "6847D", "6847E", "6847F", "6847G", "6847H"]),
+    ("amount printed '0' without a $ (2026-2030 p19)", lambda: (lambda r: (r[0]["2028"], r[1], [a["id"] for a in r[4]]))(extract_desc._costs(
+        ["Previous 2026 2027 2028 2029 2030 Total", "$219,331 $50,000 $4,300,000 0 $0 $0 $4,569,331"])), (0, 4569331, ["cost_amount_no_dollar_sign"])),
+    ("amount printed '25,000' without a $ (2026-2030 p54)", lambda: extract_desc._costs(
+        ["Previous 2026 2027 2028 2029 2030 Total", "25,000 $0 $0 $0 $850,000 $18,000,000 $18,875,000"])[0]["Previous"], 25000),
+    ("cost stated as a sentence (2026-2030 p18)", lambda: (lambda r: (r["cost_total"], r["cost_by_year"], r["parse_errors"]))(
+        extract_desc.parse_page(COST_SENTENCE_PAGE, 18)), (20350000, None, [])),
+    ("amount '$00' read as 0 and recorded (2026-2030 p53)", lambda: (lambda r: (r[0]["2028"], r[1], [a["id"] for a in r[4]]))(extract_desc._costs(
+        ["Previous 2026 2027 2028 2029 2030 Total", "$0 $0 $0 $00 $250,000 $9,500,000 $9,750,000"])), (0, 9750000, ["cost_amount_malformed"])),
+    # linking the two DESC editions (diff_filings.link_filings)
+    ("same description, new id and title: Cainhoy '0147 C, K' -> '0147 A-I' (2024-2028 p37 / 2026-2030 p53)",
+     lambda: _link([("0147 C, K", "Cainhoy 115 kV Tap: Construct", CAINHOY_DESC), ("0147 B, J", "Jack Primus 115 kV Tap: Construct", JACK_PRIMUS_DESC)],
+                   [("0147 A-I", "Clements Ferry Rd Sub: 115kV Tap from Cainhoy", CAINHOY_DESC)]),
+     [("0147 C, K", "0147 A-I", "same description, new id and title")]),
+    ("the same description under an unrelated id is not linked",
+     lambda: _link([("0147 C, K", "Cainhoy 115 kV Tap: Construct", CAINHOY_DESC)], [("9999 A", "Clements Ferry Rd Sub: 115kV Tap from Cainhoy", CAINHOY_DESC)]), []),
+    ("same title, new id: Riverport '06367 A - C, H' -> '6367 D' (same base number)",
+     lambda: _link([("06367 A - C, H", "Riverport Tap: Construct Tap", "Construct Okatie – Riverport 230 kV to feed new Distribution substation.")],
+                   [("6367 D", "Riverport 115kV Tap: Construct Tap", "Constructing a 230 kV Tap from Okatie to Riverport")]),
+     [("06367 A - C, H", "6367 D", "same title, new id")]),
+    ("look-alike titles, unrelated ids, no place in common: not linked ('Scout' / 'Stout')",
+     lambda: _link([("6853 B-F", "Scout 230 kV Sub and Fold-in: Construct", "a")], [("7001", "Stout 230 kV Sub and Fold-in: Construct", "b")]), []),
+    # the title's voltage against the description's (2026-2030 p13, p44)
+    ("title 115kV, description a 230 kV tap: warned (2026-2030 p13)",
+     lambda: _kv("Riverport 115kV Tap: Construct Tap", "Constructing a 230 kV Tap from Okatie to Riverport"), "warn"),
+    ("title 230/115KV, description 'No 230kV work': warned (2026-2030 p44)",
+     lambda: _kv("Canadys-Ritter 115KV: Rebuild SPDC 230/115KV 1272 (Approx 18 Miles)",
+                 "Rebuild Canadys-Ritter 115 kV line as SPDC with 1272 ACSR. Project includes the rebuild of the Canadys - Ritter 115kV only. "
+                 "No 230kV work associated with this project."), "warn"),
+    ("title and description agree on voltage: pass", lambda: _kv("VCS2-Ward 230kV: Rebuild Line", "Rebuild the VCS2-Ward 230 kV line."), "pass"),
+    ("a tap's other end from the title ('Tap from Cainhoy', 2026-2030 p53)",
+     lambda: _keys("Clements Ferry Rd Sub: 115kV Tap from Cainhoy"), ["CLEMENTS FERRY ROAD", "CAINHOY"]),
 ]
 
 

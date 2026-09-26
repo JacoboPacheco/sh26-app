@@ -4,6 +4,8 @@ Two utilities' public construction plans, turned into located, validated records
 Unlike the rest of Overload (a synthetic grid model), this module uses real public filings:
 
 - **Dominion Energy South Carolina (DESC)**: *Planned Transmission Projects $2M and above, 2024–2028*, published on SCRTP.
+  Its next edition, *2026–2030* (54 pages), is read, checked, located and compared with it by `diff_filings.py`
+  ([What changed since the last filing](#what-changed-since-the-last-filing-desc-20262030)); the app still ranks the 2024–2028 list.
 - **Georgia Power and the other Georgia ITS sponsors (GTC, MEAG Power, Dalton Utilities)**: Table 2 and the project detail pages
   of the *2025 IRP Technical Appendix Volume 3 (Transmission Plan)*, the redacted **public-disclosure** version filed with the
   Georgia PSC (Docket 56002). Every page carries a CEII banner because it is the public copy of a CEII document. The pipeline reads
@@ -11,7 +13,8 @@ Unlike the rest of Overload (a synthetic grid model), this module uses real publ
   and are never inferred.
 
 Output (committed): `data/projects.json` (projects, quarantine, report) and `data/basemap.json` (SC + GA outlines, OSM lines ≥ 115 kV).
-The API in `backend/gridlock.py` serves these files. Nothing is fetched at runtime.
+The API in `backend/gridlock.py` serves these files. Nothing is fetched at runtime. The 2026–2030 stage adds
+`data/desc_2026_2030.json`, `data/desc_changes.json` and `data/desc_2026_preview.json` (not served yet).
 
 ## Run it
 
@@ -19,6 +22,7 @@ The API in `backend/gridlock.py` serves these files. Nothing is fetched at runti
 backend/venv/Scripts/pip install -r backend/demo/gridlock/requirements-build.txt   # once (offline build only)
 backend/venv/Scripts/python backend/demo/gridlock/build.py --import-dir "<folder with the two PDFs>"   # first run
 backend/venv/Scripts/python backend/demo/gridlock/build.py            # every rerun (~10–15 s with warm caches)
+backend/venv/Scripts/python backend/demo/gridlock/diff_filings.py     # the DESC 2026-2030 filing: extract, check, diff, preview (~4 s, offline; --today YYYY-MM-DD pins the preview's date)
 ```
 
 | flag | effect |
@@ -32,13 +36,16 @@ Each run prints a stage-by-stage report and writes the same report into `project
 `changed_since_last_run`: which sources changed (by SHA-256), which projects were added, removed or changed (and in which fields),
 and which moved into or out of quarantine. A rerun on the same inputs reports zero changes.
 
-Parts can also be run alone: `extract_desc.py`, `extract_ga.py` (prints both parsers' agreement), `selftest.py`.
+Parts can also be run alone: `extract_desc.py` (`desc_2026` for the 2026–2030 edition), `extract_ga.py` (prints both parsers'
+agreement), `selftest.py`.
 
 ## Stages
 
-0. **selftest** (`selftest.py`): 32 pinned cases from the filings and from Sperry's example (dates, kV, endpoint names, the
-   `$19,00,181` repair, matching keys, the street-name rule, build-window flags). If any case fails, the build stops before
-   writing anything.
+0. **selftest** (`selftest.py`): 55 pinned cases from the filings and from Sperry's example (dates, kV, endpoint names, the
+   `$19,00,181` repair, matching keys, the street-name rule, build-window flags, and the 2026–2030 edition's impossible dates,
+   reused id, id keys and work orders, amounts printed without `$` or as `$00`, cost stated as a sentence, a title whose
+   voltage the description contradicts, a tap's other end, and how the two editions are linked, including two look-alikes
+   that must not be). If any case fails, the build stops before writing anything.
 1. **extract** (`extract_desc.py`, `extract_ga.py`, `pdf_text.py`). DESC: one project per page, parsed by its labelled sections,
    yearly cost columns read from the header row. Georgia: Table 2 (PDF pp177–190) is parsed **twice, independently**. Parser A reads
    text lines (a row starts with `zone year TEAMS … date sponsor REDACTED`; the following lines continue the wrapped name). Parser B
@@ -49,7 +56,9 @@ Parts can also be run alone: `extract_desc.py`, `extract_ga.py` (prints both par
    - kV from the title, or from the description when the title has none. The `23O KV` typo is read as 230 kV.
    - Kind (new line, line rebuild, reconductor, substation, tap, other), with the word that decided it.
    - Endpoint names: prefixes such as `SAV:`, `GTC:`, `CC -`, `GRID -` are stripped; qualifiers `(USA)`, `#5` and customer names
-     are separated out.
+     are separated out. A title naming one place and then the station a tap is built from ("Clements Ferry Rd Sub: 115kV Tap
+     from Cainhoy", 2026–2030 p53) gets that station as its other end; no 2024–2028 or Georgia title has the form, so their
+     endpoints are unchanged.
    - Miles from the description.
    - Build windows. DESC: from the yearly spend profile. Georgia: from the filed Start Date on the detail page. Otherwise 24 months
      before in-service, with the basis stated. Every window carries `assumed`: true when the filing doesn't pin the start (no
@@ -71,8 +80,9 @@ Parts can also be run alone: `extract_desc.py`, `extract_ga.py` (prints both par
      the filings give that name stands in for the place. Every project naming that place gets the same answer.
    - Last resort: a project's description, e.g. "Construct Okatie – Riverport 230 kV".
    - Every endpoint records the OSM feature (with a link), a confidence (high / medium / low) and the reason in plain words.
-4. **checks** (`checks.py`): 16 named rules. A record failing a blocking rule moves to `quarantine` **with its reasons and every
-   parsed field**; nothing is silently dropped. Warnings keep the record, and the location warnings lower its confidence.
+4. **checks** (`checks.py`): 16 named rules (`RULES`), plus 3 added for the 2026–2030 edition (`FILING_RULES`; `ALL_RULES` is all
+   19). A record failing a blocking rule moves to `quarantine` **with its reasons and every parsed field**; nothing is silently
+   dropped. Warnings keep the record, and the location warnings lower its confidence.
 5. **write** (`build.py`): `projects.json`, `basemap.json`, the report. Before writing, the build also checks that Sperry's
    worked example is reproduced (a hard gate).
 
@@ -82,7 +92,9 @@ Parts can also be run alone: `extract_desc.py`, `extract_ga.py` (prints both par
 |---|---|---|
 | `extract_complete` | yes | a page or row whose sections didn't parse |
 | `id_unique` | yes | two records with one project id / TEAMS number |
+| `id_one_project` (2026–2030) | yes | one id printed for two DIFFERENT projects in one filing (`6809 M` on p19 and p48); a work order inside another id's range (`6367 D` / `06367 D - G`) is a warning |
 | `date_valid` | yes | in-service date unreadable or outside 2020–2040 |
+| `date_real` (2026–2030) | yes | a printed date that isn't on the calendar, with the reason (`04/31/26`: April has 30 days), including an earlier phase of a phased field, which `date_valid` doesn't read |
 | `place_named` | yes | titles that name only a customer or program (e.g. "CC - PROJECT CHRONOS- SK/HYUNDAI") |
 | `located` | yes | no endpoint found (adds a hint when the filing says the substation is new) |
 | `in_region` | yes | a located point outside SC and GA (Census outlines) |
@@ -90,9 +102,10 @@ Parts can also be run alone: `extract_desc.py`, `extract_ga.py` (prints both par
 | `span_plausible` | yes | a line whose endpoints are more than 150 km apart (a wrong same-name match) |
 | `two_parsers_agree` | no | the two Table 2 parsers read a row differently |
 | `table_matches_detail` | no | table title / need date differ from the detail page (the filing has 4 title differences, e.g. `TALLBOT` vs `TALBOT`, and 3 need-date differences; the table's date is kept) |
-| `costs_consistent` | no | DESC cost columns that don't add up, or a malformed amount (`$19,00,181`, repaired from the Total and recorded) |
+| `costs_consistent` | no | DESC cost columns that don't add up, or a malformed amount (`$19,00,181`, repaired from the Total and recorded; `$00` with a leading zero, 2026–2030 p53) |
 | `date_normalized` | no | Excel serials and multi-date fields (2-digit years pass with a note) |
 | `voltage_found` | no | no kV, a repaired typo, or a letter O inside a voltage pair the repair can't read (`23O-115kV`, found by the fault test) |
+| `kv_title_matches_description` (2026–2030) | no | the description names only other voltages than the title (p13: title 115kV, description "a 230 kV Tap"), or says there is no work at a voltage the title names (p44: "No 230kV work associated with this project"); the title's voltage is kept and the conflict is stated |
 | `fully_located` | no, lowers confidence | one of two endpoints missing (the project sits at the other one, as in Sperry's guide) |
 | `length_consistent` | no | straight-line span longer than the filed miles (usually a section of a longer line) |
 | `zone_consistent` | no, lowers confidence | more than 100 km from its Georgia planning zone's other projects |
@@ -137,6 +150,107 @@ pair (`23O-115kV`, `50O/230KV`) wasn't repaired and slipped through silently; `v
 The voltage itself still reads wrong until the repair in `normalize.fix_voltage_typos` learns the pair form.
 
 Output: `data/fault_report.json` (committed), served at `GET /api/gridlock/fault-test`. Rerun it after any change to a check or a parser.
+
+## What changed since the last filing (DESC 2026–2030)
+
+```bash
+backend/venv/Scripts/python backend/demo/gridlock/diff_filings.py                     # ~4 s, no network
+backend/venv/Scripts/python backend/demo/gridlock/diff_filings.py --today 2026-09-26  # the preview measured on a given date
+```
+
+It rewrites a file only when its content changes. On the same inputs a rerun writes nothing. The preview also records its
+date and the SHA-256 of `backend/gridlock.py`, so a run on a later day (without `--today`) or after an engine change rewrites
+`desc_2026_preview.json` only. `desc_2026_2030.json` and `desc_changes.json` don't depend on either.
+
+DESC's next edition, *Planned Transmission Projects $2M and above, 2026–2030* (SCRTP, 54 pages, SHA-256 `e98bfeb8…`), goes
+through the same stages as the build and is then compared with the 2024–2028 edition. It never writes `data/projects.json`:
+the app, Sperry's worked example and the Sperry comparison stay pinned to 2024–2028 until the integration step below.
+
+1. **extract** (`extract_desc.filing_doc`). The same page parser. The yearly columns come from each page's header row, so
+   2026–2030 needs no new layout. Three printed forms are new:
+   - amounts printed without a `$` (`0` on p19 and p46, `25,000` on p54), read as dollars and recorded as anomalies;
+   - an amount with a leading zero (`$00`, 2028 on p53), read as $0 (the columns then add to the Total) and recorded;
+   - costs stated as a sentence ("Estimated cost of $20,350,000 is to be financed by the interconnection customer…", p18 and
+     p30), kept in `cost_note`.
+
+   None of these forms occurs in the 2024–2028 edition, whose extraction is byte-identical. 54 of 54 pages parse cleanly, with
+   14 anomalies recorded (9 totals that don't equal their columns, one broken grouping `$14,303648`, three bare amounts, `$00`).
+   - **Two independent readers.** A second PDF engine (pdfium, via pypdfium2, pinned in `requirements-build.txt`) must find
+     each record's id, title, in-service date and total on the same page; it finds 54 of 54.
+   - **Read by eye.** 14 pages were read from the rendered page image (`MANUAL_SPOT_CHECK`), and every run re-checks the
+     extraction against them. 14 of 14 match.
+2. **check.** `build.normalize_desc`, then `build.locate_all` against the cached OSM extracts and the cached Nominatim answers
+   only (zero network calls, asserted), then `checks.ALL_RULES`. **40 kept, 14 set aside**, each with its reasons:
+   - two impossible dates: `04/31/26` (p1, April has 30 days) and `06/31/2026` (p5, June has 30 days)
+   - one id printed for two projects: `6809 M` (p19 'St George - Sumter 230kV Tie', p48 'Modoc – McCormick 115/46 kV Rebuild')
+   - 10 with no place found in OSM or the cached answers. Several are new stations (Scout, Winnsboro West, Atomic Road).
+     Riverport (p13) was placed in the 2024–2028 build only through its description, 'Construct Okatie – Riverport 230 kV'. The
+     new description reads 'Constructing a 230 kV Tap from Okatie to Riverport', a form the build's last-resort pattern
+     (`build.DESC_PAIR`) doesn't read, so the record is set aside. Teaching it that form is part of the integration step.
+
+   Kept with warnings:
+   - `6367 D` (p13) and `06367 D - G` (p12) share work order 6367 D.
+   - Two titles disagree with their descriptions on voltage (`kv_title_matches_description`). p13's title says 115kV and its
+     description "a 230 kV Tap". p44's title says 230/115KV and its description "No 230kV work associated with this project".
+   - Clements Ferry Rd (p53) is placed at Cainhoy, the station its title says the tap is built from (the other end isn't
+     mapped), and carries its `$00` amount.
+
+   Of the 72 endpoint names, 27 are new to the DESC list. All 36 names that the 2024–2028 build placed land on exactly the
+   same point. The three new rules also run over the 2024–2028 and Georgia records (the build's own extract and normalize),
+   and they fail or warn on none of the 252.
+3. **diff** (`data/desc_changes.json`). The two lists are linked in three steps, strictest first:
+   - **By id.** The same id key (`6853 B-F` = `6853BF`, leading zeros dropped) and the same project (title similarity ≥ 0.8,
+     or description similarity ≥ 0.9 when it was retitled: `6809 G`).
+   - **By title, under a new id.** Title similarity ≥ 0.85, and the ids share a work order or base number (or both titles
+     name a place), each the other's best match. Riverport `06367 A - C, H` → `6367 D` and Church Creek – Faber Place
+     `6847 A-B, D-H` → `6847` link this way. The id condition keeps look-alike titles apart ("X 115 kV Tap: Construct").
+   - **By description, under a new id and title.** Description similarity ≥ 0.9, the ids share a work order or base
+     number, and each is the other's best match. Cainhoy 115 kV Tap `0147 C, K` (2024–2028 p37) → Clements Ferry Rd Sub:
+     115kV Tap from Cainhoy `0147 A-I` (2026–2030 p53) links this way: the two pages print the same description word for
+     word, and both ids include work order 0147 C. Jack Primus `0147 B, J` shares work order 0147 B but has a different
+     description (similarity 0.86), so it stays dropped, and its row names the shared work order.
+
+   Results:
+   - **32 carried over.** 24 have a new in-service date (all later), 30 a new cost estimate (21 higher, 9 lower), and 1 is
+     the same in both. For example, Church Creek - Ritter's in-service date goes from 6/1/2024 to 12/31/2028, and Union Pier's
+     estimate from $5.3M to $22.4M.
+   - **12 dropped.** 11 of them have a 2024–2028 in-service date before 2026, the first year the new list covers.
+   - **22 new.**
+
+   Every row cites both PDF pages and states each list's value. A dropped or new row says that no project in the other
+   list matches it by id, title or description, and names any work order it shares with a different id. The lists don't
+   say why a date or an estimate changed, and neither does the file.
+4. **preview** (`data/desc_2026_preview.json`, in memory). The cross-state pairs the 2026–2030 list would make with the four
+   Georgia sponsors, computed by `backend/gridlock.py`'s own code (imported unchanged; 40 km, 24-month windows, closest points;
+   today = the real date, or `--today`). The same numbers for the committed 2024–2028 data come from the same code.
+
+   | measured 2026-09-26 | with 2024–2028 | with 2026–2030 |
+   |---|---|---|
+   | DESC projects on the map | 43 | 40 |
+   | pairs flagged | 71 | 56 |
+   | same station | 2 | 2 |
+   | shared build window | 28 | 31 |
+   | shared window still ahead | 1 | 8 |
+   | shared window open now | 0 | 13 |
+   | shared window ended | 27 | 10 |
+
+   37 pairs are flagged with both lists, 19 only with the new one and 34 only with the old one. Both same-station pairs come
+   from a new DESC project, 'Okatie – McIntosh 115kV Tie: Add Series Reactor' (p41), at McIntosh. Two Georgia Power projects
+   from Sperry's worked example also work there: the Goshen – McIntosh 115 kV line rebuild and the McIntosh – Purrysburg
+   230 kV reactors.
+
+**Ids.** A 2026–2030 record gets the build's id (`DESC-` + its printed id). A carried-over project therefore keeps its
+2024–2028 id, and both records printed as `6809 M` are `DESC-6809M` (both are set aside for it). Give one edition a prefix
+before the two are ever served side by side.
+
+**Integration step (not done here).** Move `FILING_RULES` into `RULES`, teach `build.DESC_PAIR` the "Tap from X to Y" form
+(Riverport), and rerun `build.py` and `faults.py`. The rules part was measured in a scratch copy with all 19 rules:
+- The build keeps the same 194 records and sets aside the same 58. The 16 existing checks give the same counts, the three
+  new ones pass all 252 records, confidences are unchanged, and Sperry's example is still reproduced (6 of 6).
+- The fault test still catches 1,421 of 1,452, with a clean control. `date_real` and `id_one_project` are then listed as
+  second catchers of the impossible-date and duplicate-id faults. `kv_title_matches_description` catches nothing new.
+
+Until then `build.py` and `faults.py` reproduce their committed outputs exactly.
 
 ## Reader C: Gemini reads the pages
 
@@ -239,6 +353,8 @@ endpoint the OSM feature, its URL and the match reason. Two examples:
 ## Sources and licenses
 
 - DESC project descriptions: <https://www.scrtp.com/assets/pdfs/home/2024-2028-2million-and-above-project-descriptions.pdf>
+- DESC project descriptions, next edition: <https://www.scrtp.com/assets/pdfs/home/2026-2030-2million-and-above-project-descriptions.pdf>
+  (555,527 bytes; the SHA-256 is in `data/desc_2026_2030.json → source`)
 - Georgia Power 2025 IRP, Docket 56002: <https://psc.ga.gov/search/facts-docket/?docketId=56002>. This is the public-disclosure
   Volume 3, as supplied in Sperry's ShellHacks 2026 starter package.
 - Context: Georgia Power's filing announcement cites roughly 8,200 MW of load growth expected over six years and says many new
