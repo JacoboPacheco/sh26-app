@@ -7,18 +7,20 @@ _Written by `/spec` Fri 2026-09-25 23:58 ET (K+0:58). Judges grade what they see
 Every new AI data center asks the grid for hundreds of megawatts, and nobody outside a utility can see which lines that load would push past their limits or how one overloaded line becomes a regional blackout. Overload lets anyone drop a data center on a model of Florida's grid and watch, live, what fails and whose lights go out.
 
 **Hook (the first sentence the judge hears):** "When the next AI data center plugs in, whose lights go out?"
-**First 10 seconds the judge sees:** a dark Florida with the grid glowing on it, substations breathing with load, one data-center card in the sidebar saying "500 MW — drag me anywhere", and a pill reading "Synthetic grid model (Breakthrough Energy / Texas A&M), not any utility's network."
+**First 10 seconds the judge sees:** a dark Florida with the grid glowing on it, one data-center card in the sidebar saying "500 MW — drag me anywhere", and a pill reading "Synthetic grid model (Breakthrough Energy / Texas A&M), not any utility's network."
 
 ## Demo script (the exact clicks, 3 minutes, laptop on localhost)
 
-1. **Open** — the page loads signed in as the demo account, no login screen. Florida outline, the grid drawn as lines colored by loading (calm), substations as dots sized by load, the synthetic-model pill, the hook line, the data-center card with a size slider at 500 MW, and two saved scenarios in the sidebar ("Orlando · 500 MW", "Miami · 1,500 MW").
-2. **Drop** — the judge drags the card onto the map near Orlando. Lines around the site go amber then red. The panel reads "Connected at <substation name>. 3 lines over limit" with each line's loading percentage, and "This site can take 310 MW before the first line overloads."
-3. **Cascade** — the judge presses "Run the cascade". The worst line trips, flow redistributes, new lines go red and trip, one step every ~0.6 s with a step scrubber. Substations that lose their supply go dark. A counter climbs: "Homes without power: 184,000 (estimate)". It ends with "Settled after 7 steps" or "Florida South islanded — 1.2 GW of load lost."
-4. **Headroom** — the judge toggles "Where can 500 MW go?". Every substation recolors by the MW it can take before the first line overloads (green plenty, red none). They drag the card to a green spot: no line over limit, "Headroom 1,200 MW".
-5. **Scale** — slider to 1,500 MW at the good site. Lines go red again, the cascade runs again. Point: place and size both matter.
+_Revised Sat 00:58 (user): one hero site, Fort Myers — it cascades at 1,500 MW and is calm at 500 MW. Orlando stays seeded as the smoke-test anchor._
+
+1. **Open** — the page loads signed in as the demo account, no login screen. Florida (Census outline) with the grid drawn as lines colored by loading (calm), substations as dots sized by load, the synthetic-model pill, the hook line, the data-center card with a size slider, and saved scenarios as chips ("Fort Myers · 1,500 MW" first).
+2. **Drop** — the judge clicks "Fort Myers · 1,500 MW" (or drags the card there at 1,500 MW). The camera flies in; the overloaded line glows red. The panel reads "Connected at FORT MYERS 3 (345 kV). 1 line and 1 transformer over limit" with each loading percentage, and "This site can take 560 MW before the first line overloads."
+3. **Cascade** — "Run the cascade". The camera pulls out to everything the cascade will touch; the worst line flashes and trips, flow redistributes, one step every 0.6 s with a scrubber. Substations lose supply and the land around them goes black. The counter counts up to "Homes without power: 1,051,974 (estimate)". It ends "The grid split after 9 steps: 1,503 MW of existing load lost. The data center's own 1,500 MW lost power too."
+4. **Scale** — slide to 500 MW at the same spot: "No line over limit." Point: size matters — this site takes 560 MW.
+5. **Headroom** — "Where can 500 MW go?": every substation recolors by the MW it can take before the first overload; the legend counts them (115 can take 500 MW, 797 can take under 250). At 1,500 MW the answer is none — the opening for nice-to-have 4.
 6. **Stretch (only if nice-to-have 4 is built)** — "Fix it" lists the cheapest line upgrades that clear the overload; applying them turns the map calm.
 
-A saved-scenario click reproduces step 2 exactly (same site, same MW); that is what `demo_path.py` replays.
+A saved-scenario click reproduces step 2 exactly (same site, same MW); that is what `demo_path.py` replays, through step 5.
 
 ## Must-have features (each with its acceptance check)
 
@@ -76,7 +78,7 @@ Endpoints (all JSON; what-if and cascade rate-limited `120/minute` — one spars
 Tables (`backend/models.py`):
 - `Scenario`: `id`, `name String(80)`, `lat Float`, `lon Float`, `mw Integer`, `note String(280) | None`, `summary JSON | None` (last what-if: overload count, headroom, homes), `user_id FK users`.
 
-Backend modules: `backend/powerflow.py` (pure math: load the JSON, build B′, factor it once with a sparse LU, base flows, what-if, headroom, cascade — no FastAPI imports, so `validate.py` can import it), `backend/grid.py` (router), `backend/scenarios.py` (router, shaped like `items.py`), `backend/demo/build_grid.py`, `backend/demo/validate.py`. New Python deps: `numpy`, `scipy` (wheels on Windows and Linux; add both to `requirements.txt`). Frontend: no new dependency — the map is an SVG with a simple equirectangular projection over a committed Florida outline (`frontend/src/data/florida_outline.json`, Census cartographic boundary, public domain) plus ten city labels; pan/zoom via wheel and drag on the SVG group. Everything renders offline.
+Backend modules: `backend/powerflow.py` (pure math: load the JSON, build B′, factor it once with a sparse LU, base flows, what-if, headroom, cascade — no FastAPI imports, so `validate.py` can import it), `backend/grid.py` (router), `backend/scenarios.py` (router, shaped like `items.py`), `backend/demo/build_grid.py`, `backend/demo/validate.py`. New Python deps: `numpy`, `scipy` (wheels on Windows and Linux; add both to `requirements.txt`). Frontend: no new dependency — the map is an SVG with a simple equirectangular projection over a committed Florida outline (`frontend/src/data/florida_outline.json`, Census cartographic boundary, public domain) plus ten city labels; pan/zoom via wheel and drag on the SVG group. Outline built once by `backend/demo/build_outline.py` from `cb_2024_us_state_20m` (downloaded with the user's OK, Sat 01:01). Everything renders offline.
 
 Memory rule (Render free tier is 512 MB): never build a dense PTDF or B′⁻¹ (≈ 4k × 4k floats and up); factor once with `scipy.sparse.linalg.splu`, one solve per what-if, and precompute only the per-bus headroom vector at startup.
 
@@ -100,7 +102,8 @@ Memory rule (Render free tier is 512 MB): never build a dense PTDF or B′⁻¹ 
 - scenarios: unauthenticated → 401; create + list + delete roundtrip; another user's scenario → 404 on delete; blank or 81-character name → 422.
 - (nice-to-have 3) explain returns text and a boolean `fallback` whether or not the key is present.
 
-`frontend/e2e/demo_path.py` (from `demo_path.example.py`; URL as argv[1]; creates nothing): open → "Signed in as" visible, synthetic pill visible → click "Orlando · 500 MW" → panel contains "over limit" → click "Run the cascade" → "Homes without power" visible → toggle "Where can 500 MW go?" → legend visible.
+`frontend/e2e/demo_path.py` (URL as argv[1]; creates nothing): open → "Signed in as" and the synthetic pill visible → click "Fort Myers · 1,500 MW" → "over limit" and a red line → "Run the cascade" → "Homes without power", an outcome line, a dark substation → slider to 500 MW by keyboard → "No line over limit." → "Where can 500 MW go?" → legend and a green substation.
+- smoke: the hero site (`expected_whatif.json` → `hero`, written by `validate.py`) cascades with the recorded steps and dark-substation count at 1,500 MW and has nothing over limit at 500 MW.
 
 Committed sample files: `backend/demo/florida_grid.json`, `backend/demo/expected_whatif.json`; nice-to-have 1 adds `backend/demo/hospitals_fl.json`.
 

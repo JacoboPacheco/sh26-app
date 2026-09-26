@@ -326,6 +326,30 @@ a {
   right: var(--space-2);
 }
 
+.map-tools .btn--secondary {
+  background: var(--surface);
+}
+
+.blackout-core {
+  stop-color: #000000;
+  stop-opacity: 0.85;
+}
+
+.blackout-edge {
+  stop-color: #000000;
+  stop-opacity: 0;
+}
+
+.blackout circle {
+  animation: fade-in 0.9s ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .map-sea {
   fill: var(--map-sea);
 }
@@ -344,11 +368,9 @@ a {
   vector-effect: non-scaling-stroke;
 }
 
-.map-keys {
-  fill: none;
-  stroke: var(--map-coast);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
+/* the camera: eased only while a focus move plays, so hand panning stays direct */
+.map-cam--ease {
+  transition: transform 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
 .map-city {
@@ -388,12 +410,37 @@ a {
 .ln--over {
   stroke: var(--ln-over);
   stroke-width: 3;
+  filter: drop-shadow(0 0 3px var(--ln-over));
+  animation: over-throb 1.1s ease-in-out infinite alternate;
 }
 
+/* a line trips: a white flash, then it goes dead and dashed */
 .ln--tripped {
   stroke: var(--ln-tripped);
   stroke-width: 2;
   stroke-dasharray: 3 3;
+  animation: trip-flash 0.7s ease-out;
+}
+
+@keyframes over-throb {
+  from {
+    stroke-opacity: 1;
+  }
+  to {
+    stroke-opacity: 0.55;
+  }
+}
+
+@keyframes trip-flash {
+  from {
+    stroke: #ffffff;
+    stroke-width: 5;
+    stroke-dasharray: none;
+  }
+  to {
+    stroke: var(--ln-tripped);
+    stroke-width: 2;
+  }
 }
 
 .map-svg--headroom .ln {
@@ -403,6 +450,7 @@ a {
 .sub {
   fill: var(--sub-dot);
   fill-opacity: 0.55;
+  transition: fill 0.8s ease, fill-opacity 0.8s ease;
 }
 
 .sub--dark {
@@ -454,8 +502,16 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .site-ring {
+  .site-ring,
+  .ln--over,
+  .ln--tripped,
+  .blackout circle {
     animation: none;
+  }
+
+  .map-cam--ease,
+  .sub {
+    transition: none;
   }
 }
 

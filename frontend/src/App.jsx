@@ -32,8 +32,18 @@ function App() {
   const [scenarios, setScenarios] = useState(undefined)
   const [scenarioError, setScenarioError] = useState(null)
   const [saving, setSaving] = useState(false)
+
+  const subById = useMemo(() => new Map((grid?.subs || []).map((s) => [s.id, s])), [grid])
+  const branchById = useMemo(() => new Map((grid?.branches || []).map((b) => [b.id, b])), [grid])
+  const subName = useCallback((id) => subById.get(id)?.name || `#${id}`, [subById])
+  const subPos = useCallback((id) => {
+    const s = subById.get(id)
+    return s ? [s.lon, s.lat] : null
+  }, [subById])
   const latest = useRef(0) // newest what-if request
   const cascadeReq = useRef(0) // newest cascade request
+  const mapRef = useRef(null)
+  const focusedSite = useRef(null) // the site the camera last flew to (the slider doesn't move it)
 
   const loadGrid = useCallback(
     () =>
@@ -74,6 +84,12 @@ function App() {
           if (id !== latest.current) return
           setResult(r)
           setWhatifError(null)
+          if (focusedSite.current !== site) {
+            focusedSite.current = site
+            // fly to the site and the lines it pushes over their limit
+            const pts = [[r.sub_lon, r.sub_lat], ...r.overloaded.flatMap((o) => [subPos(o.from), subPos(o.to)])]
+            mapRef.current?.focus(pts.filter(Boolean))
+          }
         })
         .catch((err) => {
           if (id !== latest.current) return
@@ -83,7 +99,7 @@ function App() {
         .finally(() => id === latest.current && setSolving(false))
     }, 120)
     return () => clearTimeout(t)
-  }, [site, mw])
+  }, [site, mw, subPos])
 
   // Play the cascade one step at a time.
   useEffect(() => {
@@ -125,6 +141,16 @@ function App() {
       setCascade(c)
       setStep(0)
       setPlaying(c.steps.length > 0)
+      // pull the camera out to everything the cascade will touch
+      const pts = [[c.sub_lon, c.sub_lat]]
+      c.steps.forEach((st) => {
+        st.tripped.forEach((bid) => {
+          const b = branchById.get(bid)
+          if (b) pts.push(subPos(b.from_sub), subPos(b.to_sub))
+        })
+        st.dark_subs.forEach((sid) => pts.push(subPos(sid)))
+      })
+      mapRef.current?.focus(pts.filter(Boolean))
     } catch (err) {
       if (id === cascadeReq.current) setCascadeError(err)
     } finally {
@@ -178,8 +204,6 @@ function App() {
     place(sc.lat, sc.lon)
   }
 
-  const subNames = useMemo(() => new Map((grid?.subs || []).map((s) => [s.id, s.name])), [grid])
-  const subName = useCallback((id) => subNames.get(id) || `#${id}`, [subNames])
 
   // What the map shows: every branch's loading class, and per-substation classes (dark / headroom).
   const mapView = useMemo(() => {
@@ -216,6 +240,14 @@ function App() {
 
   const shownSite = result ? { lat: result.sub_lat, lon: result.sub_lon } : site
 
+  // how many substations fall in each headroom bucket at the current size (for the legend)
+  const headroomCounts = useMemo(() => {
+    if (!headroom) return null
+    const counts = { 'sub--hr-ok': 0, 'sub--hr-mid': 0, 'sub--hr-low': 0 }
+    Object.values(headroom).forEach((v) => counts[headroomClass(v, mw)]++)
+    return { ok: counts['sub--hr-ok'], mid: counts['sub--hr-mid'], low: counts['sub--hr-low'] }
+  }, [headroom, mw])
+
   return (
     <Layout
       title="Overload"
@@ -236,6 +268,7 @@ function App() {
           </div>
           {grid ? (
             <GridMap
+              ref={mapRef}
               grid={grid}
               lineClasses={mapView.lineClasses}
               subClasses={mapView.subClasses}
@@ -282,6 +315,7 @@ function App() {
             on={headroomOn}
             onToggle={toggleHeadroom}
             mw={mw}
+            counts={headroomCounts}
             loading={headroomOn && !headroom && !headroomError}
             error={headroomError}
             onRetry={fetchHeadroom}

@@ -23,8 +23,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from powerflow import Grid  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# The demo's hero site (CLAUDE.md → Decisions, Sat 00:58): cascades at HERO_MW, calm at CALM_MW.
+HERO = ("Fort Myers", 26.64, -81.87)
+HERO_MW, CALM_MW = 1500, 500
 SITES = {
     "Orlando": (28.5384, -81.3789, 500),
+    "Fort Myers": (HERO[1], HERO[2], HERO_MW),
     "Miami": (25.7617, -80.1918, 1500),
     "Tampa": (27.9506, -82.4572, 500),
     "Jacksonville": (30.3322, -81.6557, 500),
@@ -110,6 +114,29 @@ def main() -> None:
             hits += 1
     print(f"500 MW at 20 random substations: {hits} produce at least one overload")
     results.append(line(any_over or hits > 0, "a 500 MW drop somewhere produces at least one overload"))
+
+    # the hero: a real cascade at HERO_MW, nothing over limit at CALM_MW on the same spot
+    hbus = g.site_bus(HERO[1], HERO[2])
+    hc = g.cascade(hbus, HERO_MW)
+    hdark = sum(len(s["dark_subs"]) for s in hc["steps"])
+    calm_over = len(g.overloaded(g.whatif(hbus, CALM_MW)))
+    print(f"hero {HERO[0]}: {HERO_MW} MW -> {hc['total_steps']} steps, {hdark} substations dark, ~{hc['homes']:,} homes; "
+          f"{CALM_MW} MW -> {calm_over} over limit")
+    results.append(line(hc["total_steps"] >= 3 and hdark >= 5 and calm_over == 0,
+                        "hero site cascades at the big size and is calm at the small one"))
+    if expected is not None:
+        expected["hero"] = {
+            "site": HERO[0],
+            "lat": HERO[1],
+            "lon": HERO[2],
+            "mw": HERO_MW,
+            "calm_mw": CALM_MW,
+            "sub": int(g.sub_ids[g.bus_sub_idx[hbus]]),
+            "cascade_steps": hc["total_steps"],
+            "cascade_outcome": hc["outcome"],
+            "dark_subs": hdark,
+            "homes": hc["homes"],
+        }
 
     if expected is not None:
         out = os.path.join(HERE, "expected_whatif.json")

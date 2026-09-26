@@ -282,7 +282,21 @@ def test_headroom():
     assert abs(orl - grid["orlando_headroom"]) <= 1, f"heatmap says {orl} MW, what-if says {grid['orlando_headroom']} MW"
 
 
+def test_hero_site():
+    # the demo's story (CLAUDE.md → Decisions): the hero site cascades at its big size, is calm at the small one
+    h = EXPECTED["hero"]
+    site = {"lat": h["lat"], "lon": h["lon"]}
+    c = request("POST", "/api/grid/cascade", {**site, "mw": h["mw"]})
+    dark = sum(len(s["dark_subs"]) for s in c["steps"])
+    assert (c["total_steps"], dark) == (h["cascade_steps"], h["dark_subs"]), (
+        f"{c['total_steps']} steps / {dark} dark, expected {h['cascade_steps']} / {h['dark_subs']}"
+    )
+    calm = request("POST", "/api/grid/whatif", {**site, "mw": h["calm_mw"]})
+    assert not calm["overloaded"], f"{len(calm['overloaded'])} over limit at {h['calm_mw']} MW, expected none"
+
+
 check("grid loads: synthetic, >=1000 buses and branches, inside Florida, rated", test_grid_loads)
+check("hero site: cascades at its big size, calm at the small one (expected_whatif.json)", test_hero_site)
 check("what-if on the Orlando site matches expected_whatif.json", test_whatif_matches_expected)
 check("what-if rejects a point outside Florida and a size of 0 or 9999 MW", test_whatif_validation)
 check("cascade on the Orlando site terminates, homes monotone, matches expected", test_cascade_orlando)

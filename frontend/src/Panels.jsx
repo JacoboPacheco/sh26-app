@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { fmt } from './geo'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Field, Loading } from './ui'
 
@@ -94,7 +95,8 @@ export function SiteCard({ site, result, solving, error, subName, cascade, casca
                 {result.overloaded.slice(0, 6).map((o) => (
                   <li key={o.id}>
                     <span>
-                      {subName(o.from)} → {subName(o.to)} <span className="muted">· {fmt(o.kv)} kV</span>
+                      {o.from === o.to ? `${subName(o.from)} transformer` : `${subName(o.from)} → ${subName(o.to)}`}{' '}
+                      <span className="muted">· {fmt(o.kv)} kV</span>
                     </span>
                     <Badge tone="warn">{o.pct.toFixed(0)} %</Badge>
                   </li>
@@ -133,11 +135,32 @@ function overLimitText(overloaded) {
   return `${parts.join(' and ')} over limit`
 }
 
+// A number that counts up (or down) to its new value instead of jumping.
+function useCountUp(target, ms = 500) {
+  const [shown, setShown] = useState(target)
+  const from = useRef(target)
+  useEffect(() => {
+    const start = performance.now()
+    const a = from.current
+    let raf = 0
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / ms)
+      const v = a + (target - a) * (1 - (1 - t) ** 3)
+      from.current = v
+      setShown(v)
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, ms])
+  return shown
+}
+
 function CascadeView({ cascade, step, onStep }) {
   const n = cascade.steps.length
+  const cur = step > 0 && n > 0 ? cascade.steps[step - 1] : null
+  const homes = useCountUp(cur ? cur.homes : 0)
   if (n === 0) return <p className="muted">Nothing to cascade — no line is over its limit.</p>
-  const cur = step > 0 ? cascade.steps[step - 1] : null
-  const homes = cur ? cur.homes : 0
   const done = step >= n
   return (
     <div className="stack cascade">
@@ -166,7 +189,8 @@ function CascadeView({ cascade, step, onStep }) {
   )
 }
 
-export function HeadroomCard({ on, onToggle, mw, loading, error, onRetry }) {
+export function HeadroomCard({ on, onToggle, mw, counts, loading, error, onRetry }) {
+  const n = (k) => (counts ? ` · ${fmt(counts[k])} ${counts[k] === 1 ? 'substation' : 'substations'}` : '')
   return (
     <Card title="Headroom">
       <div className="row">
@@ -181,13 +205,13 @@ export function HeadroomCard({ on, onToggle, mw, loading, error, onRetry }) {
           <strong>Headroom before the first overload</strong>
           <ul>
             <li>
-              <span className="swatch swatch--ok" aria-hidden="true" /> Takes {fmt(mw)} MW or more
+              <span className="swatch swatch--ok" aria-hidden="true" /> Takes {fmt(mw)} MW or more{n('ok')}
             </li>
             <li>
-              <span className="swatch swatch--mid" aria-hidden="true" /> {fmt(mw / 2)}–{fmt(mw)} MW
+              <span className="swatch swatch--mid" aria-hidden="true" /> {fmt(mw / 2)}–{fmt(mw)} MW{n('mid')}
             </li>
             <li>
-              <span className="swatch swatch--low" aria-hidden="true" /> Under {fmt(mw / 2)} MW
+              <span className="swatch swatch--low" aria-hidden="true" /> Under {fmt(mw / 2)} MW{n('low')}
             </li>
           </ul>
         </div>

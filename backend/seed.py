@@ -62,8 +62,9 @@ def get_token() -> str:
 
 
 SEED_MARK = "(demo scenario)"
-# The Orlando site must match backend/demo/expected_whatif.json — demo_path.py replays it.
+# Sites must match backend/demo/expected_whatif.json; demo_path.py replays Fort Myers (the hero).
 SCENARIOS = (
+    {"name": "Fort Myers · 1,500 MW", "lat": 26.64, "lon": -81.87, "mw": 1500, "note": f"Southwest Florida {SEED_MARK}"},
     {"name": "Orlando · 500 MW", "lat": 28.5384, "lon": -81.3789, "mw": 500, "note": f"Central Florida {SEED_MARK}"},
     {"name": "Miami · 1,500 MW", "lat": 25.7617, "lon": -80.1918, "mw": 1500, "note": f"South Florida {SEED_MARK}"},
 )

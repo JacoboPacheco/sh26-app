@@ -16,5 +16,17 @@
   ],
   "headroom_mw": 216.62,
   "cascade_steps": 3,
-  "cascade_outcome": "islanded"
+  "cascade_outcome": "islanded",
+  "hero": {
+    "site": "Fort Myers",
+    "lat": 26.64,
+    "lon": -81.87,
+    "mw": 1500,
+    "calm_mw": 500,
+    "sub": 14184,
+    "cascade_steps": 9,
+    "cascade_outcome": "islanded",
+    "dark_subs": 49,
+    "homes": 1051974
+  }
 }
