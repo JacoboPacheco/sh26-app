@@ -6,7 +6,7 @@ quota (llm.py keeps them in memory and on disk for 48 hours). Safe to run again:
 
 It walks: the Fort Myers hero (briefing + the AI proposer, the full and short presentation, the cost AI column
 at 1,500 and 500 MW, the Ask box's suggested questions), the Florida five (briefing + proposer, the proposal
-page, the AI analyst when that route exists), Build together's top overlaps (the drafted agreement, English
+page, the AI analyst when that route exists, the default public comment), Build together's top overlaps (the drafted agreement, English
 and Spanish for the first), the two negotiating agents on the top three pairs (and the drafts their terms feed), the
 siting agent's default goals (Florida and Texas, 3 GW), and a Strengthen study for Florida at 1,000 MW. Each line
 says whether Gemini or the plain version answered, so a run on a day the quota is out shows it at once.
@@ -95,6 +95,11 @@ def main():
         a, dt, code = call("POST", f"/api/analyst/{pid}")
         if code != 404:
             note(f"{pid[:28]}: AI analyst", ((a or {}).get("by") or "?") if code == 200 else f"HTTP {code}", dt)
+        # "Write your public comment" with the page's default choices (CommentWriter.jsx DEFAULTS)
+        c, dt, code = call("POST", f"/api/vote/proposal/{pid}/comment", {"concerns": ["bill", "blackouts"], "stance": "questions", "minutes": 2, "lang": "en"})
+        if code != 404:
+            note(f"{pid[:28]}: public comment", (f"{(c or {}).get('by')} {(c or {}).get('checked')}/{(c or {}).get('total')} checked"
+                                                 + (f" ({(c or {}).get('why')})" if (c or {}).get("fallback") else "")) if code == 200 else f"HTTP {code}", dt)
 
     # Build together
     opp, _, code = call("GET", "/api/gridlock/opportunities")

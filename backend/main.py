@@ -35,6 +35,7 @@ import baked
 import briefing
 import bulletin
 import catalog
+import comment
 import costs
 import danger
 import fixit
@@ -139,6 +140,7 @@ app.include_router(agreement.router)
 app.include_router(negotiate.router)
 app.include_router(danger.router)
 app.include_router(vote.router)
+app.include_router(comment.router)
 app.include_router(analyst.router)
 app.include_router(unlock.router)
 app.include_router(narrate.router)

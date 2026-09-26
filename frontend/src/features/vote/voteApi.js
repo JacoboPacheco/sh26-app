@@ -18,6 +18,12 @@ export const getProposal = (id) => api(`/api/vote/proposal/${encodeURIComponent(
 export const startAnalyst = (id) => api('/api/analyst', { method: 'POST', body: { id, live: true } })
 export const getAnalystJob = (job) => api(`/api/analyst/jobs/${encodeURIComponent(job)}`)
 
+// "Write my public comment" (backend/comment.py): Gemini writes the resident's comment from this page's facts, a checker
+// verifies every number, name and claim; {text, numbers[{text, at, source, fact_text, section}], checked, total, checks,
+// by, fallback, why, draft_checks[{id, label, caught}] (never a rejected draft's words), situation{kind, note}, words, seconds,
+// addressee, send}. body: {concerns[], stance, minutes, lang}.
+export const writeComment = (id, body) => api(`/api/vote/proposal/${encodeURIComponent(id)}/comment`, { method: 'POST', body })
+
 // ---------------------------------------------------------------- the address
 // #/vote?q=&state=  (search)   #/vote/<id>  (a proposal)   #/vote/<id>/brief  (the printable brief)
 const ID = /^[a-z0-9-]{1,120}$/

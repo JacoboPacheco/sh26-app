@@ -4,6 +4,7 @@ import { useOverload } from '../../store'
 import { Button, ErrorBanner, Loading } from '../../ui'
 import Analyst from './Analyst'
 import { Questions, Speak } from './Ask'
+import CommentWriter from './CommentWriter'
 import Money from './Money'
 import Safe from './Safe'
 import Simulation from './Simulation'
@@ -21,6 +22,7 @@ const SECTIONS = [
   ['built', 'What would have to be built'],
   ['take', 'What it would take (AI)'],
   ['ask', 'Ask before you vote'],
+  ['comment', 'Write your comment'],
   ['speak', 'Where to speak'],
 ]
 
@@ -214,6 +216,10 @@ export default function ProposalPage({ id }) {
 
       <Section id="ask" title="Ask before you vote">
         <Questions questions={questions} state={state} />
+      </Section>
+
+      <Section id="comment" title="Write your public comment">
+        <CommentWriter key={e.id} entry={e} />
       </Section>
 
       <Section id="speak" title="Where to speak">
