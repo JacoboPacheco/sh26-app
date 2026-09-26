@@ -14,8 +14,12 @@ data/projects.json and data/basemap.json from the public filings; this module lo
   GET /api/gridlock/estimate/{overlap_id} a rough, sourced low-high estimate of what a pair could share
   GET /api/gridlock/sperry-check          Sperry's worked example reproduced live (center method), their ten projects matched to ours
   GET /api/gridlock/trace/{overlap_id}    one pair taken apart: rank, the score's terms, distance, each endpoint's match, provenance
-  GET /api/gridlock/export.xlsx           every project + flagged overlap in Sperry's own table format (their columns first)
-  GET /api/gridlock/export.csv            one of those tables as CSV (?table=projects|overlaps|set_aside)
+  GET /api/gridlock/calendar              the coordination calendar: each project's build window (as filed / start derived)
+                                          and each flagged pair's shared window, from the same windows /overlaps scores
+  GET /api/gridlock/calendar.ics          that calendar as iCalendar (RFC 5545) for a planner's calendar (?pair=<id>: one pair)
+  GET /api/gridlock/export.xlsx           every project + flagged overlap in Sperry's own table format (their columns first),
+                                          plus a calendar sheet
+  GET /api/gridlock/export.csv            one of those tables as CSV (?table=projects|overlaps|set_aside|calendar)
   GET /api/gridlock/export.geojson        every validated project as a GeoJSON feature
   GET /api/gridlock/fault-test            the fault-injection report (demo/gridlock/faults.py): bad records caught, by check
 
@@ -2097,6 +2101,495 @@ def trace(
     }))
 
 
+# ----------------------------------------------------------------------------- the coordination calendar
+#
+# The build windows the ranking scores, laid out in time: each compared project's window from _window (as filed, else the
+# Comparison setting before in-service, "start derived"), and each flagged pair's SHARED window, the months both windows
+# cover, taken from _timeline itself (the function that gives /overlaps its windows_overlap_months). No new rule: the
+# calendar is the ranking's own timeline, drawn. Served as JSON (the page's Gantt), as iCalendar (RFC 5545) for a planner's
+# calendar, and as the `calendar` sheet of the Excel export.
+
+CAL_SCOPES = ("pairs", "all")
+CAL_NOTE = (
+    "Dates as filed; planned dates can change. A start marked 'derived' isn't in the filing: the build-window setting "
+    "(the months before in-service) stands in for it, exactly as in the ranking. A shared window is the months both "
+    "build windows cover. It says the two plans could coordinate, never whether the utilities do."
+)
+ICS_PRODID = "-//Overload//GridLock coordination calendar//EN"
+ICS_UID_HOST = "overload-gridlock"
+_ICS_BAD = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _span_months(s: date, e: date) -> float:
+    """Months between two dates, the way _timeline counts shared months (days / 30.44, one decimal)."""
+    return round(max(0, (e - s).days) / 30.44, 1)
+
+
+def _now_of(s: date, e: date, today: date) -> str:
+    """Where today falls in a window, with _timeline's words: 'future', 'open' or 'past'."""
+    return "past" if e < today else ("open" if s <= today else "future")
+
+
+def _source_ref(st: dict, p: dict) -> dict:
+    """The project's filing and page, for a calendar entry's 'where this came from'."""
+    prov = p.get("provenance") or {}
+    src = {s.get("id"): s for s in st["doc"].get("sources") or [] if isinstance(s, dict)}.get(prov.get("source")) or {}
+    url = src.get("url")
+    page = prov.get("page")
+    if url and page and re.search(r"\.pdf($|[?#])", url, re.I):
+        url = f"{url}#page={page}"
+    return {"id": prov.get("source"), "title": src.get("title"), "url": url, "page": page, "detail_page": prov.get("detail_page")}
+
+
+def _calendar(st: dict, prm: dict) -> dict:
+    """Every compared project's build window and every flagged pair's shared window (cached per data version, settings, day)."""
+    today = _today()
+    key = ("calendar", prm["max_km"], prm["window_months"], prm["method"], tuple(prm["a"]), tuple(prm["b"]), today)
+    hit = st["cache"].get(key)
+    if hit is not None:
+        return hit
+    months = prm["window_months"]
+    res = _compute(st, prm)
+    overlaps = res["overlaps"]
+    chosen = set(prm["a"]) | set(prm["b"])
+    pairs_of: dict[str, list[dict]] = {}
+    for o in overlaps:  # rank order
+        pairs_of.setdefault(o["a"], []).append(o)
+        pairs_of.setdefault(o["b"], []).append(o)
+    order = {c: k for k, c in enumerate(UTILITY_ORDER)}
+
+    projects = []
+    for p in st["placed"]:
+        if p["utility"] not in chosen:
+            continue
+        win = _window(p, months)
+        mine = pairs_of.get(p["id"], [])
+        row = {
+            "id": p["id"],
+            "utility": p["utility"],
+            "utility_name": p.get("utility_name") or UTILITIES.get(p["utility"], (p["utility"],))[0],
+            "side": "a" if p["utility"] in prm["a"] else "b",
+            "name": p.get("name"),
+            "kind": p.get("kind"),
+            "kv": p.get("kv") or [],
+            "status": p.get("status"),
+            "confidence": p.get("confidence"),
+            "in_service": p.get("in_service"),
+            "start": None,
+            "end": None,
+            "months": None,
+            "start_as": None,
+            "basis": None,
+            "now": None,
+            "pairs": [o["id"] for o in mine],
+            "best_rank": mine[0]["rank"] if mine else None,
+            "shared": sum(1 for o in mine if o["same_window"]),
+            "source": _source_ref(st, p),
+        }
+        if win:
+            s, e, basis = win
+            row.update({
+                "start": s.isoformat(),
+                "end": e.isoformat(),
+                "months": _span_months(s, e),
+                # the start as filed (a filed start date, or DESC's first year of budgeted spend) or derived from the setting
+                "start_as": "filed" if _window_filed(p) else "derived",
+                "basis": basis,
+                "now": _now_of(s, e, today),
+            })
+        projects.append(row)
+    projects.sort(key=lambda r: (order.get(r["utility"], 99), r["start"] or "9999", r["id"]))
+    by_id = {r["id"]: r for r in projects}
+
+    shared = []
+    for o in overlaps:
+        if not o["same_window"]:
+            continue
+        pa, pb = st["by_id"][o["a"]], st["by_id"][o["b"]]
+        tl = _timeline(pa, pb, months)  # the ranking's own timeline: the same windows, the same overlap
+        (sa, ea, _), (sb, eb, _) = tl["windows"]
+        s, e = max(sa, sb), min(ea, eb)
+        st_rec = o.get("shared_station") or None
+        shared.append({
+            "id": o["id"],
+            "rank": o["rank"],
+            "a": o["a"],
+            "b": o["b"],
+            "a_utility": o["a_utility"],
+            "b_utility": o["b_utility"],
+            "start": s.isoformat(),
+            "end": e.isoformat(),
+            "months": tl["windows_overlap_months"],  # = the overlap's windows_overlap_months
+            "ahead": tl["ahead"],
+            "starts_as": {"a": by_id[o["a"]]["start_as"], "b": by_id[o["b"]]["start_as"]},
+            "class": o["class"],
+            "class_label": o["class_label"],
+            "tier": o["tier"],
+            "tier_label": o["tier_label"],
+            "station": st_rec["name"] if st_rec else None,
+            "distance_km": o["distance_km"],
+            "distance_mi": o["distance_mi"],
+            "score": o["score"],
+            "sperry": o.get("sperry"),
+            "share": o.get("share"),
+        })
+
+    # Same-station pairs whose build windows DON'T overlap (Thurmond Dam, Sperry's OVL_1, ranks first): no shared window
+    # to draw, but the calendar still names them, with the gap between the two windows (the earlier one's end to the
+    # later one's start), from the same _timeline.
+    stations = []
+    for o in overlaps:
+        rec = o.get("shared_station")
+        if not rec or o["same_window"]:
+            continue
+        pa, pb = st["by_id"][o["a"]], st["by_id"][o["b"]]
+        tl = _timeline(pa, pb, months)
+        wa, wb = tl["windows"]
+        first = gap_from = gap_to = None
+        if wa and wb:
+            (first, (_, e1, _)), (_, (s2, _, _)) = sorted(((o["a"], wa), (o["b"], wb)), key=lambda x: (x[1][1], x[1][0]))
+            gap_from, gap_to = e1.isoformat(), s2.isoformat()
+        stations.append({
+            "id": o["id"],
+            "rank": o["rank"],
+            "a": o["a"],
+            "b": o["b"],
+            "a_utility": o["a_utility"],
+            "b_utility": o["b_utility"],
+            "station": rec["name"],
+            "first": first,  # the project whose build window ends first
+            "gap_from": gap_from,  # that window's last day
+            "gap_to": gap_to,  # the other window's first day
+            "gap_days": tl["window_gap_days"],  # = the overlap's window_gap_days
+            "in_service_months_apart": rec.get("months_apart"),
+            "ahead": tl["ahead"],
+            "starts_as": {"a": by_id[o["a"]]["start_as"], "b": by_id[o["b"]]["start_as"]},
+            "sperry": o.get("sperry"),
+        })
+
+    dated = [r for r in projects if r["start"]]
+    in_pairs = [r for r in projects if r["pairs"]]
+    years = [int(r["start"][:4]) for r in dated] + [int(r["end"][:4]) for r in dated]
+    n_assumed = sum(1 for r in dated if r["start_as"] == "derived")
+    result = {
+        "params": prm,
+        "fallback": st["fallback"],
+        "today": today.isoformat(),
+        "range": {"from": min(years), "to": max(years)} if years else None,
+        "counts": {
+            "projects": len(projects),
+            "dated": len(dated),
+            "in_pairs": len(in_pairs),
+            "flagged": len(overlaps),
+            "shared": len(shared),
+            "shared_open": sum(1 for w in shared if w["ahead"] == "open"),
+            "shared_future": sum(1 for w in shared if w["ahead"] == "future"),
+            "shared_start_derived": sum(1 for w in shared if "derived" in w["starts_as"].values()),
+            "stations": len(stations),
+            "start_derived": n_assumed,
+        },
+        "window_rule": (
+            f"A project's build window is the one its filing supports (a filed start date, or DESC's yearly spending); for the "
+            f"{n_assumed} of {len(dated)} projects here without one, the {months} months before in-service ('start derived')"
+        ),
+        "note": CAL_NOTE,
+        "sources": [{"id": s.get("id"), "title": s.get("title"), "url": s.get("url")} for s in st["doc"].get("sources") or []],
+        "projects": projects,
+        "shared": shared,
+        "stations": stations,
+    }
+    if len(st["cache"]) > 64:
+        st["cache"].clear()
+    st["cache"][key] = result
+    return result
+
+
+@router.get("/api/gridlock/calendar")
+def calendar(
+    max_km: float = Query(MAX_KM_DEFAULT),
+    window_months: int = Query(WINDOW_DEFAULT),
+    method: str = Query("closest"),
+    a: str = Query("DESC"),
+    b: str = Query("GPC"),
+):
+    """The coordination calendar: every compared project's build window (as filed, or 'start derived') with the flagged
+    pairs it belongs to, each flagged pair's shared window (the months both build windows cover), and the same-station
+    pairs whose windows don't overlap (`stations`, with the gap between them)."""
+    prm = _params(max_km, window_months, method, a, b)
+    return _fast_json(_finite(_calendar(_load(), prm)))
+
+
+# --- iCalendar (RFC 5545) -------------------------------------------------------------------------------------------
+
+
+def _ics_text(v) -> str:
+    """A TEXT value (RFC 5545 3.3.11): backslash, semicolon and comma escaped, line breaks as \\n, control characters out."""
+    s = _ICS_BAD.sub("", str(v or "")).replace("\r\n", "\n").replace("\r", "\n")
+    return s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+
+
+def _ics_fold(line: str) -> str:
+    """RFC 5545 3.1: a content line over 75 octets is folded (CRLF + one space), never inside a UTF-8 character."""
+    parts, cur, n = [], [], 0
+    for ch in line:
+        size = len(ch.encode("utf-8"))
+        if n + size > (75 if not parts else 74):  # a continuation line's leading space counts
+            parts.append("".join(cur))
+            cur, n = [], 0
+        cur.append(ch)
+        n += size
+    parts.append("".join(cur))
+    return "\r\n ".join(parts)
+
+
+def _ics_date(iso: str, plus_days: int = 0) -> str:
+    return (date.fromisoformat(iso) + timedelta(days=plus_days)).strftime("%Y%m%d")
+
+
+def _ics_uid(kind: str, ident: str) -> str:
+    return f"{kind}.{re.sub(r'[^A-Za-z0-9]+', '-', ident).strip('-')}@{ICS_UID_HOST}"
+
+
+def _plain_name(name) -> str:
+    """A filed name for a calendar title: capitals (Georgia's table) title-cased; tokens with a digit, short codes and
+    'kV' kept ('MITCHELL - NORTH TIFTON 230KV RECONDUCTOR' -> 'Mitchell - North Tifton 230kV Reconductor')."""
+    s = re.sub(r"\s+", " ", str(name or "")).strip()
+    if not s or s.upper() != s:
+        return s
+    out = []
+    for i, w in enumerate(s.split(" ")):
+        core = re.sub(r"[^A-Za-z&]", "", w)
+        if any(c.isdigit() for c in w):
+            out.append(re.sub(r"KV(?=[^A-Za-z]|$)", "kV", w))
+        elif w == "KV":
+            out.append("kV")
+        elif not core or "&" in w or re.fullmatch(r"[A-Z]{2,4}:", w) or re.fullmatch(r"\([A-Z]{2,4}\)[,.;:]?", w) \
+                or core in {"II", "III", "IV", "VI", "CC", "XFMR", "DESC", "USA"}:
+            out.append(w)
+        elif i and w.lower() in {"and", "of", "to", "on", "at", "the", "for"}:
+            out.append(w.lower())
+        else:
+            t = re.sub(r"(^|[(\-/])mc([a-z])", lambda m: f"{m.group(1)}Mc{m.group(2).upper()}", w.lower())
+            out.append(re.sub(r"(^|[(\-/])([a-z])", lambda m: m.group(1) + m.group(2).upper(), t))
+    return " ".join(out)
+
+
+def _fmt_month(iso: str | None) -> str:
+    return date.fromisoformat(iso).strftime("%b %Y") if iso else "no date"
+
+
+def _fmt_day(iso: str | None) -> str:
+    if not iso:
+        return "no date"
+    d = date.fromisoformat(iso)
+    return f"{d:%b} {d.day}, {d.year}"
+
+
+def _derived_sides(w: dict) -> list[str]:
+    """The utilities (short names) whose side of a pair has a DERIVED build-window start (no start in the filing)."""
+    return [UTILITY_SHORT.get(w[f"{k}_utility"], w[f"{k}_utility"]) for k in ("a", "b") if w["starts_as"].get(k) == "derived"]
+
+
+def _dates_tag(w: dict) -> str:
+    """How a pair's shared window is dated, for its title: 'as filed' only when both starts come from the filings."""
+    d = _derived_sides(w)
+    if not d:
+        return "as filed"
+    return f"{d[0]} start derived" if len(d) == 1 else f"{d[0]} and {d[1]} starts derived"
+
+
+def _derived_line(w: dict, by_id: dict, months: int) -> str:
+    """For a shared window resting on a derived start: which start, why, and whether the shared window begins on it."""
+    d = _derived_sides(w)
+    if not d:
+        return ""
+    ids = [w[k] for k in ("a", "b") if w["starts_as"].get(k) == "derived"]
+    who = f"{d[0]}'s start is" if len(d) == 1 else "Both starts are"
+    line = (f"{who} derived, not filed: the filing gives no start date, so the Comparison setting ({months} months "
+            f"before in-service) stands in for it, as in the ranking.")
+    if any(by_id[i]["start"] == w["start"] for i in ids):
+        line += " The shared window begins on that derived start."
+    return line
+
+
+def _ics_project_lines(r: dict) -> list[str]:
+    """One project in a calendar entry's description: who, what, the build window and where it came from."""
+    who = UTILITY_SHORT.get(r["utility"], r["utility"])
+    if r["start"]:
+        how = "as filed" if r["start_as"] == "filed" else "start derived"
+        win = f"Build window: {_fmt_month(r['start'])} to {_fmt_month(r['end'])} ({how}: {r['basis']})"
+    else:
+        win = "Build window: the filing gives no in-service date"
+    src = r["source"] or {}
+    page = f", page {src['page']}" if src.get("page") else ""
+    page += f" (detail page {src['detail_page']})" if src.get("detail_page") else ""
+    lines = [
+        f"{who}: {_plain_name(r['name'])} ({r['id']})",
+        f"  {win}",
+        f"  In service: {_fmt_day(r['in_service'])} (as filed)",
+        f"  Source: {src.get('title') or 'the public filing'}{page}" + (f" {src['url']}" if src.get("url") else ""),
+    ]
+    return lines
+
+
+def _ics_shared_event(cal: dict, w: dict, by_id: dict, stamp: str) -> list[str]:
+    pa, pb = by_id[w["a"]], by_id[w["b"]]
+    ua, ub = UTILITY_SHORT.get(w["a_utility"], w["a_utility"]), UTILITY_SHORT.get(w["b_utility"], w["b_utility"])
+    where = (f"both at {w['station']}" if w["station"] else
+             f"closest points {w['distance_km']:.2f} km ({w['distance_mi']:.2f} mi) apart: {w['tier_label'].lower()}")
+    tag = _dates_tag(w)
+    summary = (f"Shared build window at {w['station']}: {ua} × {ub} ({tag})" if w["station"] else
+               f"Shared build window: {ua} {_plain_name(pa['name'])} × {ub} {_plain_name(pb['name'])} ({tag})")
+    when = f"{_fmt_month(w['start'])} to {_fmt_month(w['end'])}, about {w['months']:g} months"
+    share = w.get("share") or ""
+    derived = _derived_line(w, by_id, cal["params"]["window_months"])
+    first = (f"Both build windows cover these months ({when}); {where}. {derived}" if derived else
+             f"As filed, both projects' build windows cover these months ({when}); {where}.")
+    desc = [
+        first,
+        f"Pair #{w['rank']} of the {cal['counts']['flagged']} pairs flagged by Overload's Build together comparison."
+        + (f" The two plans could share: {share[0].lower()}{share[1:]}." if share else ""),
+        "",
+        *_ics_project_lines(pa),
+        "",
+        *_ics_project_lines(pb),
+        "",
+        f"Comparison: {_settings_line(cal['params'])}.",
+        CAL_NOTE,
+        EXPORT_DISCLAIMER,
+    ]
+    return [
+        "BEGIN:VEVENT",
+        f"UID:{_ics_uid('shared', w['id'])}",
+        f"DTSTAMP:{stamp}",
+        f"DTSTART;VALUE=DATE:{_ics_date(w['start'])}",
+        f"DTEND;VALUE=DATE:{_ics_date(w['end'], 1)}",  # all-day events end the day after (DTEND is exclusive)
+        f"SUMMARY:{_ics_text(summary)}",
+        f"DESCRIPTION:{_ics_text(chr(10).join(desc))}",
+        f"CATEGORIES:{_ics_text('Shared build window')},{_ics_text(ua)},{_ics_text(ub)}",
+        "STATUS:TENTATIVE",  # planned dates, as filed
+        "TRANSP:TRANSPARENT",
+        "END:VEVENT",
+    ]
+
+
+def _station_line(s: dict, me: str) -> str:
+    """A same-station pair without a shared window, from one of its projects' side."""
+    other = s["b"] if s["a"] == me else s["a"]
+    gap = ("the two build windows meet end to start" if s["gap_days"] == 0 else
+           f"the two build windows are {_span(s['gap_days'])} apart, no shared window" if s["gap_days"] is not None else
+           "timing unknown")
+    return f"Same station as {other}, at {s['station']} (pair #{s['rank']}): {gap}."
+
+
+def _ics_project_event(cal: dict, r: dict, stamp: str, ranks: dict) -> list[str]:
+    who = UTILITY_SHORT.get(r["utility"], r["utility"])
+    tag = "as filed" if r["start_as"] == "filed" else "start derived"
+    summary = f"{who} build window ({tag}): {_plain_name(r['name'])}"
+    pairs = [f"#{ranks[pid]}" for pid in r["pairs"] if pid in ranks]
+    stations = [s for s in cal.get("stations") or [] if r["id"] in (s["a"], s["b"])]
+    desc = [
+        *_ics_project_lines(r),
+        "",
+        (f"In {len(pairs)} flagged pair{'s' if len(pairs) != 1 else ''} ({', '.join(pairs[:12])}{', ...' if len(pairs) > 12 else ''}); "
+         f"{r['shared']} of them share{'s' if r['shared'] == 1 else ''} build months with it." if pairs
+         else "In no flagged pair at these settings."),
+        *[_station_line(s, r["id"]) for s in stations],
+        f"Comparison: {_settings_line(cal['params'])}.",
+        CAL_NOTE,
+        EXPORT_DISCLAIMER,
+    ]
+    return [
+        "BEGIN:VEVENT",
+        f"UID:{_ics_uid('build', r['id'])}",
+        f"DTSTAMP:{stamp}",
+        f"DTSTART;VALUE=DATE:{_ics_date(r['start'])}",
+        f"DTEND;VALUE=DATE:{_ics_date(r['end'], 1)}",
+        f"SUMMARY:{_ics_text(summary)}",
+        f"DESCRIPTION:{_ics_text(chr(10).join(desc))}",
+        f"CATEGORIES:{_ics_text('Build window')},{_ics_text(who)}",
+        "STATUS:TENTATIVE",
+        "TRANSP:TRANSPARENT",
+        "END:VEVENT",
+    ]
+
+
+def build_ics(st: dict, prm: dict, pair: str | None = None, scope: str = "pairs", upcoming: bool = False) -> tuple[bytes, str]:
+    """(the .ics bytes, a calendar name). Whole calendar: one event per shared window (rank order), then one per build
+    window of the projects in flagged pairs (scope 'pairs') or of every compared project (scope 'all'); `upcoming` keeps
+    only the windows that haven't ended before today (as filed). One pair: its shared window, naming both projects in
+    full, or, when their windows don't overlap, the two build windows."""
+    cal = _calendar(st, prm)
+    by_id = {r["id"]: r for r in cal["projects"]}
+    ranks = {w["id"]: w["rank"] for w in cal["shared"]} | {o["id"]: o["rank"] for o in _compute(st, prm)["overlaps"]}
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    events: list[list[str]] = []
+    if pair is not None:
+        w = next((x for x in cal["shared"] if x["id"] == pair), None)
+        if w is None:
+            parts = pair.split("~")
+            if len(parts) != 2 or not all(x in by_id for x in parts) or by_id[parts[0]]["utility"] == by_id[parts[1]]["utility"]:
+                raise HTTPException(status_code=404, detail="No pair with that id among the projects compared at these settings")
+            events = [_ics_project_event(cal, by_id[x], stamp, ranks) for x in parts if by_id[x]["start"]]
+            if not events:
+                raise HTTPException(status_code=404, detail="Neither filing gives an in-service date, so there is nothing to add")
+            s = next((x for x in cal["stations"] if x["id"] == pair), None)
+            name = (f"Overload: pair #{s['rank']} at {s['station']}, the two build windows" if s else
+                    f"Overload: {parts[0]} and {parts[1]} build windows")
+        else:
+            events = [_ics_shared_event(cal, w, by_id, stamp)]
+            name = f"Overload: shared build window, pair #{w['rank']} ({_dates_tag(w)})"
+    else:
+        events = [_ics_shared_event(cal, w, by_id, stamp) for w in cal["shared"] if not upcoming or w["ahead"] != "past"]
+        rows = [r for r in cal["projects"] if r["start"] and (scope == "all" or r["pairs"]) and (not upcoming or r["now"] != "past")]
+        rows.sort(key=lambda r: (r["start"], r["id"]))
+        events += [_ics_project_event(cal, r, stamp, ranks) for r in rows]
+        if not events:  # RFC 5545: a calendar holds at least one component
+            raise HTTPException(status_code=404, detail="Nothing here is still ahead: every window ended before today, as filed")
+        name = "Overload: coordination calendar, still ahead" if upcoming else "Overload: coordination calendar"
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        f"PRODID:{ICS_PRODID}",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{_ics_text(name)}",
+        f"X-WR-CALDESC:{_ics_text(CAL_NOTE + ' ' + EXPORT_DISCLAIMER)}",
+    ]
+    for ev in events:
+        lines += ev
+    lines.append("END:VCALENDAR")
+    body = "\r\n".join(_ics_fold(x) for x in lines) + "\r\n"
+    return body.encode("utf-8"), name
+
+
+@router.get("/api/gridlock/calendar.ics")
+@limiter.limit("30/minute")
+def calendar_ics(
+    request: Request,
+    pair: str | None = Query(None, max_length=80),
+    scope: str = Query("pairs"),
+    upcoming: bool = Query(False),
+    max_km: float = Query(MAX_KM_DEFAULT),
+    window_months: int = Query(WINDOW_DEFAULT),
+    method: str = Query("closest"),
+    a: str = Query("DESC"),
+    b: str = Query("GPC"),
+):
+    """The coordination calendar as iCalendar: every shared window and build window (?scope=pairs|all; ?upcoming=true
+    leaves out what ended before today), or one pair's shared window (?pair=<id>), all-day, tentative (planned dates as
+    filed; a derived start is said so)."""
+    scope = (scope or "").strip().lower()
+    if scope not in CAL_SCOPES:
+        raise HTTPException(status_code=422, detail=f"scope must be one of: {', '.join(CAL_SCOPES)}")
+    prm = _params(max_km, window_months, method, a, b)
+    st = _load()
+    body, _name = build_ics(st, prm, pair=pair, scope=scope, upcoming=upcoming and pair is None)
+    tail = (re.sub(r"[^A-Za-z0-9]+", "_", pair).strip("_") if pair else
+            f"{'-'.join(prm['a'])}_{'-'.join(prm['b'])}_{scope}{'_upcoming' if upcoming else ''}")
+    return _download(body, "text/calendar; charset=utf-8", f"Overload_calendar_{tail}.ics")
+
+
 # ----------------------------------------------------------------------------- exports in Sperry's table format
 #
 # Sperry Tech's worked example (Projects_Overlaps.xlsx in their ShellHacks 2026 starter package) has two sheets,
@@ -2124,7 +2617,7 @@ PDF_NAMES = {
     "sperry_example": "Projects_Overlaps.xlsx",
 }
 FAULT_FILE = DATA_DIR / "fault_report.json"
-EXPORT_TABLES = ("projects", "overlaps", "set_aside")
+EXPORT_TABLES = ("projects", "overlaps", "set_aside", "calendar")
 AHEAD_WORDS = {"future": "still ahead", "open": "open now", "past": "ended (as filed)"}
 NO_SHARED_WINDOW = "no shared window"
 
@@ -2269,6 +2762,75 @@ def _set_aside_table(st: dict) -> tuple[list[tuple], list[list]]:
     return cols, rows
 
 
+CAL_NOW_WORDS = {"future": "still ahead", "open": "open now", "past": "ended (as filed)"}
+
+
+def _calendar_table(st: dict, prm: dict) -> tuple[list[tuple], list[list], str]:
+    """The coordination calendar as a sheet (after Sperry's two, which stay exactly theirs): a 'shared window' row per
+    flagged pair whose build windows overlap (rank order), then a 'build window' row per compared project. Returns
+    (columns, rows, a one-line count for the about sheet)."""
+    cal = _calendar(st, prm)
+    by_id = {r["id"]: r for r in cal["projects"]}
+    ranks = {o["id"]: o["rank"] for o in _compute(st, prm)["overlaps"]}
+    cols = [(c, None) for c in (
+        "row_type", "rank", "id", "utility", "project_id_a", "project_name_a", "project_id_b", "project_name_b",
+        "start", "end", "months", "status", "start_as", "same_station", "in_service_a", "in_service_b", "pairs", "basis",
+        "source_a", "source_b",
+    )]
+
+    def src(r):
+        s = r["source"] or {}
+        page = f", page {s['page']}" if s.get("page") else ""
+        return f"{s.get('title') or s.get('id') or ''}{page}".strip(", ") or None
+
+    def starts(pa, pb):
+        derived = [x["id"] for x in (pa, pb) if x["start_as"] == "derived"]
+        return "filed" if not derived else f"derived for {', '.join(derived)}"
+
+    pair_rows = []  # (rank, row): shared windows and same-station pairs without one, merged in rank order
+    for w in cal["shared"]:
+        pa, pb = by_id[w["a"]], by_id[w["b"]]
+        pair_rows.append((w["rank"], [
+            "shared window", w["rank"], w["id"],
+            f"{UTILITY_SHORT.get(w['a_utility'], w['a_utility'])} x {UTILITY_SHORT.get(w['b_utility'], w['b_utility'])}",
+            w["a"], pa["name"], w["b"], pb["name"], _date(w["start"]), _date(w["end"]), w["months"],
+            CAL_NOW_WORDS.get(w["ahead"]), starts(pa, pb), w["station"],
+            _date(pa["in_service"]), _date(pb["in_service"]), None,
+            "the months both build windows cover (the overlaps sheet's windows_overlap_months)", src(pa), src(pb),
+        ]))
+    for s in cal["stations"]:
+        pa, pb = by_id[s["a"]], by_id[s["b"]]
+        if s["gap_from"]:
+            second = s["b"] if s["first"] == s["a"] else s["a"]
+            gap = "build windows meet end to start" if s["gap_days"] == 0 else f"build windows {_span(s['gap_days'])} apart"
+            basis = (f"both filings work at {s['station']}, but the build windows don't overlap: {s['first']}'s ends "
+                     f"{_fmt_month(s['gap_from'])}, {second}'s starts {_fmt_month(s['gap_to'])}")
+        else:
+            gap, basis = "timing unknown", f"both filings work at {s['station']}; a filing gives no in-service date"
+        pair_rows.append((s["rank"], [
+            "same station, no shared window", s["rank"], s["id"],
+            f"{UTILITY_SHORT.get(s['a_utility'], s['a_utility'])} x {UTILITY_SHORT.get(s['b_utility'], s['b_utility'])}",
+            s["a"], pa["name"], s["b"], pb["name"], None, None, 0.0, gap, starts(pa, pb), s["station"],
+            _date(pa["in_service"]), _date(pb["in_service"]), None, basis, src(pa), src(pb),
+        ]))
+    rows = [r for _, r in sorted(pair_rows, key=lambda x: x[0])]
+    for r in cal["projects"]:
+        if not r["start"]:
+            continue
+        pairs = [f"OVL_{ranks[pid]}" for pid in r["pairs"] if pid in ranks]
+        rows.append([
+            "build window", r["best_rank"], r["id"], r["utility_name"], r["id"], r["name"], None, None,
+            _date(r["start"]), _date(r["end"]), r["months"], CAL_NOW_WORDS.get(r["now"]), r["start_as"], None,
+            _date(r["in_service"]), None, ", ".join(pairs) or None, r["basis"], src(r), None,
+        ])
+    n_build = sum(1 for r in cal["projects"] if r["start"])
+    n_st = len(cal["stations"])
+    note = (f"{len(cal['shared'])} shared windows among {cal['counts']['flagged']} flagged pairs"
+            + (f", {n_st} same-station pair{'s' if n_st != 1 else ''} without one" if n_st else "")
+            + f", and {n_build} build windows ({cal['counts']['start_derived']} with the start derived)")
+    return cols, rows, note
+
+
 def _export_tables(st: dict, prm: dict) -> dict:
     res = _compute(st, prm)
     overlaps = res["overlaps"]
@@ -2277,6 +2839,7 @@ def _export_tables(st: dict, prm: dict) -> dict:
         "projects": _project_table(st, overlaps, chosen, prm["window_months"]),
         "overlaps": _overlap_table(st, overlaps, prm["method"]),
         "set_aside": _set_aside_table(st),
+        "calendar": _calendar_table(st, prm),
         "total_pairs": res["total_pairs"],
     }
 
@@ -2326,6 +2889,13 @@ def _about_rows(st: dict, prm: dict, t: dict) -> list[tuple[str, str]]:
                          "feature (same_station_osm links it); these pairs are ranked before every distance tier, then by score"),
         ("in_sperry_example", "for the six pairs in Sperry's worked example, their own id for the pair (e.g. 'Sperry OVL_1'); "
                               "their numbering, not this sheet's overlap_id, which follows our rank"),
+        ("calendar", f"the coordination calendar ({t['calendar'][2]}): a 'shared window' row for each flagged pair whose build "
+                     "windows overlap (the months both cover, exactly the windows_overlap_months the overlaps sheet gives; same-station "
+                     "pairs name the station; start_as says when a shared window rests on a derived start) and a 'same station, "
+                     "no shared window' row for a same-station pair whose windows don't overlap (status gives the gap), in rank "
+                     "order, then a 'build window' row for every compared project with an in-service date: "
+                     "start to in-service as filed, start_as 'derived' where the filing gives no start (the Comparison setting "
+                     "before in-service). Dates as filed; planned dates can change. The same calendar downloads as .ics from the page"),
     ]
     for s in st["doc"].get("sources") or []:
         rows.append(("Source", f"{s.get('title')} {s.get('url') or ''}".strip()))
@@ -2524,8 +3094,9 @@ def _xlsx(sheets: list[tuple[str, str, str | None]], active: int, title: str) ->
 def build_workbook(st: dict, prm: dict) -> bytes:
     t = _export_tables(st, prm)
     sheets = []
-    for name in ("projects", "overlaps", "set_aside"):
-        cols, rows = t[name]
+    # Sperry's two sheets first and unchanged; the calendar after the records set aside, so `overlaps` stays tab 1
+    for name in ("projects", "overlaps", "set_aside", "calendar"):
+        cols, rows = t[name][:2]
         rng = f"A1:{_col_letter(len(cols) - 1)}{max(2, len(rows) + 1)}"
         sheets.append((name, _sheet_xml(cols, rows, selected=(name == "overlaps")), rng))
     sheets.append(("about", _about_xml(_about_rows(st, prm, t)), None))
@@ -2552,7 +3123,7 @@ def _csv_safe(v):
 
 
 def build_csv(st: dict, prm: dict, table: str) -> bytes:
-    cols, rows = _export_tables(st, prm)[table]
+    cols, rows = _export_tables(st, prm)[table][:2]
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\r\n")
     w.writerow([c for c, _ in cols])

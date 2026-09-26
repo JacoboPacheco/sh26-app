@@ -149,6 +149,20 @@ export function GridlockProvider({ children }) {
     return () => clearTimeout(t)
   }, [client, loadOverlaps])
 
+  // the engine's settings for what is on screen (DESC x every Georgia sponsor switched on); null: nothing to compare.
+  // The calendar asks with them and the downloads carry them, so a file always matches the screen.
+  const engineParams = useMemo(
+    () =>
+      pairs.length ? { max_km: params.max_km, window_months: params.window_months, method: params.method, a: 'DESC', b: others.join(',') } : null,
+    [pairs.length, params.max_km, params.window_months, params.method, others],
+  )
+  // the pairs as a ranked list (the default) or as the coordination calendar (the rail widens for its timeline)
+  const [listView, setListViewState] = useState('list')
+  const setListView = useCallback((v) => {
+    setHover(null)
+    setListViewState(v)
+  }, [])
+
   const byId = useMemo(() => Object.fromEntries((projects.list || []).map((p) => [p.id, p])), [projects.list])
   // projects whose names nearly match another's: the list adds their project number
   const nearDup = useMemo(() => nearDuplicates(projects.list), [projects.list])
@@ -272,6 +286,11 @@ export function GridlockProvider({ children }) {
     toggleUtility,
     resetParams: () => setParamsState(DEFAULT_PARAMS),
     pairs,
+    engineParams,
+    listView,
+    setListView,
+    // the calendar is showing (the pairs view, not one of the rail's sub views): the page widens the rail
+    calendarOn: listView === 'calendar' && !['pipeline', 'projects', 'setaside', 'sperry'].includes(tab),
     ov,
     overlaps,
     loadOverlaps,

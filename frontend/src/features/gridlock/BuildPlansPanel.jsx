@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useMemo, useState } from 'react'
 import { Badge, Button, EmptyState, ErrorBanner, Field, Loading } from '../../ui'
+import CalendarView from './CalendarView'
 import { useGridlock } from './context'
 import PipelineFunnel, { SetAsideView, SperryMarks, SperryView } from './PipelineFunnel'
 import PipelinePanel from './PipelinePanel'
@@ -206,6 +207,10 @@ const ORDERS = [
   ['score', 'Best match'],
   ['distance', 'Closest'],
 ]
+const VIEWS = [
+  ['list', 'List'],
+  ['calendar', 'Calendar'],
+]
 
 function RankedList() {
   const g = useGridlock()
@@ -242,14 +247,23 @@ function RankedList() {
   const total = ov.total_pairs || 0
   const flagged = ov.flagged ?? overlaps.length
   const mi = params.max_km / KM_PER_MI
+  const cal = g.listView === 'calendar'
+  const shared = useMemo(() => overlaps.filter((o) => o.same_window).length, [overlaps])
 
   return (
-    <section className="gl-ranked" aria-labelledby="gl-ranked-h">
+    <section className={`gl-ranked${cal ? ' gl-ranked--cal' : ''}`} aria-labelledby="gl-ranked-h">
       <div className="gl-listhead">
         <div className="gl-listhead__txt">
           <h2 id="gl-ranked-h" className="gl-listhead__h" tabIndex={-1}>
             {ov.status === 'loading' ? (
               'Comparing the plans…'
+            ) : cal ? (
+              <>
+                <strong>
+                  {fmtInt(shared)} shared build window{shared === 1 ? '' : 's'}
+                </strong>{' '}
+                among {fmtInt(flagged)} pair{flagged === 1 ? '' : 's'} within {mi.toFixed(mi < 10 ? 1 : 0)} mi
+              </>
             ) : (
               <>
                 <strong>
@@ -259,21 +273,41 @@ function RankedList() {
               </>
             )}
           </h2>
-          {total > 0 && ov.status !== 'loading' && <p className="gl-listhead__of">of {fmtInt(total)} cross-state pairs compared</p>}
+          {total > 0 && ov.status !== 'loading' && (
+            <p className="gl-listhead__of">
+              {cal ? 'the months both plans are building: as filed, or from a derived start where a filing gives none' : `of ${fmtInt(total)} cross-state pairs compared`}
+            </p>
+          )}
         </div>
-        {flagged > 1 && (
-          <div className="gl-sort" role="group" aria-label="Sort the pairs">
-            {ORDERS.map(([id, label]) => (
-              <button key={id} type="button" className={order === id ? 'is-on' : ''} aria-pressed={order === id} onClick={() => setOrder(id)}>
+        <div className="gl-listhead__tools">
+          <div className="gl-sort gl-viewswitch" role="group" aria-label="Show the pairs as">
+            {VIEWS.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={g.listView === id ? 'is-on' : ''}
+                aria-pressed={g.listView === id}
+                onClick={() => g.setListView(id)}
+              >
                 {label}
               </button>
             ))}
           </div>
-        )}
+          {!cal && flagged > 1 && (
+            <div className="gl-sort" role="group" aria-label="Sort the pairs">
+              {ORDERS.map(([id, label]) => (
+                <button key={id} type="button" className={order === id ? 'is-on' : ''} aria-pressed={order === id} onClick={() => setOrder(id)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-      {ov.status === 'loading' && <Loading label="Ranking the pairs…" />}
-      {ov.status === 'error' && <ErrorBanner error={ov.error} onRetry={g.loadOverlaps} />}
-      {(ov.status === 'ready' || ov.status === 'refreshing') && (
+      {cal && <CalendarView />}
+      {!cal && ov.status === 'loading' && <Loading label="Ranking the pairs…" />}
+      {!cal && ov.status === 'error' && <ErrorBanner error={ov.error} onRetry={g.loadOverlaps} />}
+      {!cal && (ov.status === 'ready' || ov.status === 'refreshing') && (
         <>
           {!g.pairs.length && <EmptyState title="Nothing to compare">Switch on DESC and at least one Georgia utility under Filters.</EmptyState>}
           {g.pairs.length > 0 && !flagged && (

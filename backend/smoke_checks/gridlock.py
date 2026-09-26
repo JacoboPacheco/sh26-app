@@ -83,6 +83,68 @@ def _xlsx_sheets(data: bytes) -> dict:
             rows.append([cells.get(i) for i in range(max(cells) + 1)] if cells else [])
         out[sh.get("name")] = rows
     return out
+
+
+def _ics_events(body: bytes) -> tuple[dict, list[dict]]:
+    """A strict reading of an iCalendar file (RFC 5545): UTF-8, CRLF line ends, no content line over 75 octets, folded lines
+    unfolded, every BEGIN closed by its END in order. Returns (the VCALENDAR's properties, its VEVENTs), each as
+    {NAME: [(params, value)]} with TEXT values unescaped."""
+    text = body.decode("utf-8")
+    assert text.endswith("\r\n") and "\n" not in text.replace("\r\n", ""), "not CRLF line ends throughout"
+    raw = text.split("\r\n")[:-1]
+    for ln in raw:
+        assert len(ln.encode("utf-8")) <= 75, f"content line over 75 octets: {ln[:40]!r}"
+    lines = []
+    for ln in raw:
+        if ln.startswith((" ", "\t")):
+            assert lines, "a folded line with nothing before it"
+            lines[-1] += ln[1:]
+        else:
+            lines.append(ln)
+
+    def unescape(v):
+        return re.sub(r"\\([\\;,nN])", lambda m: "\n" if m.group(1) in "nN" else m.group(1), v)
+
+    stack, cal, events, cur = [], None, [], None
+    for ln in lines:
+        name_params, sep, value = ln.partition(":")
+        assert sep, f"no ':' in {ln[:40]!r}"
+        name, *params = name_params.split(";")
+        name = name.upper()
+        if name == "BEGIN":
+            stack.append(value)
+            cur = {}
+            if value == "VCALENDAR":
+                assert cal is None and len(stack) == 1, "VCALENDAR not the outermost component"
+                cal = cur
+            elif value == "VEVENT":
+                assert stack == ["VCALENDAR", "VEVENT"], f"VEVENT inside {stack}"
+                events.append(cur)
+            continue
+        if name == "END":
+            assert stack and stack[-1] == value, f"END:{value} closes {stack[-1] if stack else 'nothing'}"
+            stack.pop()
+            cur = cal if stack == ["VCALENDAR"] else None
+            continue
+        assert cur is not None, f"{name} outside any component"
+        cur.setdefault(name, []).append((params, unescape(value)))
+    assert not stack and cal is not None, f"unclosed {stack}"
+    return cal, events
+
+
+def _ics_date(prop) -> str:
+    """The date of a DTSTART / DTEND;VALUE=DATE property as ISO text."""
+    (params, v), = prop
+    assert "VALUE=DATE" in params and re.fullmatch(r"\d{8}", v), (params, v)
+    return f"{v[:4]}-{v[4:6]}-{v[6:]}"
+
+
+def _day_after(iso: str) -> str:
+    from datetime import date, timedelta
+
+    return (date.fromisoformat(iso) + timedelta(days=1)).isoformat()
+
+
 TIER_EDGES = {"touching": 0.1, "row": 1.6, "site": 8.0}
 TIER_LABELS = {
     "touching": "Must coordinate",
@@ -515,6 +577,152 @@ def register(ctx):
             assert o["id"] == r["ours"]["id"] and {o["a"], o["b"]} <= ids and o["closest_points"], r["overlap_id"]
             assert o["sperry"] == r["overlap_id"] and o["rank"] == r["ours"]["rank"], (o["sperry"], r["overlap_id"])
 
+    def calendar_matches_overlaps():
+        # the coordination calendar draws the ranking's own timeline: one shared window per flagged pair whose build windows
+        # overlap, with exactly the overlap's shared months, inside both projects' windows (checked at two settings)
+        for q in ("", "?a=DESC&b=GA&window_months=60&max_km=50"):
+            cal = ctx.request("GET", f"/api/gridlock/calendar{q}")
+            ov = ctx.request("GET", f"/api/gridlock/overlaps{q}{'&' if q else '?'}limit=2000")
+            assert cal["params"] == ov["params"], (cal["params"], ov["params"])
+            rows = {o["id"]: o for o in ov["overlaps"]}
+            want = {o["id"] for o in ov["overlaps"] if o["same_window"]}
+            got = {w["id"]: w for w in cal["shared"]}
+            assert set(got) == want, f"{q or 'defaults'}: shared windows for {sorted(set(got) ^ want)[:5]} differ from the overlaps"
+            assert len(got) == len(cal["shared"]) == cal["counts"]["shared"], "duplicate shared windows"
+            assert [w["rank"] for w in cal["shared"]] == sorted(w["rank"] for w in cal["shared"]), "shared windows not in rank order"
+            projects = {r["id"]: r for r in cal["projects"]}
+            chosen = set(ov["params"]["a"]) | set(ov["params"]["b"])
+            placed = [x for x in state["projects"].values() if x.get("geometry") and x["utility"] in chosen]
+            assert set(projects) == {x["id"] for x in placed}, "the calendar's projects aren't the compared ones"
+            for pid, r in projects.items():
+                mine = [o["id"] for o in ov["overlaps"] if pid in (o["a"], o["b"])]
+                assert r["pairs"] == mine, f"{pid}: pairs {r['pairs'][:3]} != the overlaps it is in {mine[:3]}"
+                assert r["best_rank"] == (rows[mine[0]]["rank"] if mine else None), (pid, r["best_rank"])
+                if r["start"]:
+                    assert r["start"] <= r["end"] and r["start_as"] in ("filed", "derived") and r["basis"], (pid, r)
+                    assert r["end"] == r["in_service"], f"{pid}: the bar ends {r['end']}, in service {r['in_service']} as filed"
+            assert cal["counts"]["start_derived"] == ov["window_assumed"]["projects"], (cal["counts"], ov["window_assumed"])
+            for w in cal["shared"]:
+                o = rows[w["id"]]
+                assert w["months"] == o["windows_overlap_months"] > 0, f"{w['id']}: {w['months']} months, the overlap says {o['windows_overlap_months']}"
+                assert (w["rank"], w["a"], w["b"], w["ahead"]) == (o["rank"], o["a"], o["b"], o["ahead"]), w["id"]
+                assert w["station"] == ((o.get("shared_station") or {}).get("name")), (w["id"], w["station"])
+                pa, pb = projects[w["a"]], projects[w["b"]]
+                assert w["start"] == max(pa["start"], pb["start"]) and w["end"] == min(pa["end"], pb["end"]) and w["start"] < w["end"], w
+                assert w["starts_as"] == {"a": pa["start_as"], "b": pb["start_as"]}, w["id"]
+            c = cal["counts"]
+            assert c["shared_open"] + c["shared_future"] == sum(1 for w in cal["shared"] if w["ahead"] != "past"), c
+            assert c["shared_start_derived"] == sum(1 for w in cal["shared"] if "derived" in w["starts_as"].values()), c
+            # same-station pairs whose windows don't overlap are still named, with the gap between the two windows
+            want_st = [o["id"] for o in ov["overlaps"] if o.get("shared_station") and not o["same_window"]]
+            assert [s["id"] for s in cal["stations"]] == want_st and c["stations"] == len(want_st), (cal["stations"], want_st)
+            for s in cal["stations"]:
+                o = rows[s["id"]]
+                assert (s["rank"], s["station"], s["gap_days"]) == (o["rank"], o["shared_station"]["name"], o["window_gap_days"]), s
+                if s["gap_from"]:
+                    first, second = projects[s["first"]], projects[s["b"] if s["first"] == s["a"] else s["a"]]
+                    assert (s["gap_from"], s["gap_to"]) == (first["end"], second["start"]) and s["gap_from"] <= s["gap_to"], s
+            if not q:  # Sperry's OVL_1 (Thurmond Dam, rank 1) has no shared window at the defaults: the calendar still names it
+                assert any(s["sperry"] == "OVL_1" and s["station"] == "Thurmond Dam" and s["rank"] == 1 for s in cal["stations"]), cal["stations"]
+        # a pair's windows are the ones its trace reports (the ranking's own timeline)
+        cal = ctx.request("GET", "/api/gridlock/calendar")
+        w = cal["shared"][0]
+        t = ctx.request("GET", f"/api/gridlock/trace/{w['id']}")["timeline"]
+        pr = {r["id"]: r for r in cal["projects"]}
+        for side in ("a", "b"):
+            win, r = t[f"{side}_window"], pr[w[side]]
+            assert (win["start"], win["end"]) == (r["start"], r["end"]), (side, win, r["start"], r["end"])
+        state["calendar"] = cal
+        ctx.request("GET", "/api/gridlock/calendar?max_km=0", expect=422)
+        ctx.request("GET", "/api/gridlock/calendar?a=DESC&b=DESC", expect=422)
+
+    def calendar_ics():
+        cal = state["calendar"]
+        by = {r["id"]: r for r in cal["projects"]}
+        # the whole calendar: a shared window per flagged pair that has one, then the build window of every project in a pair
+        body, hdr = _raw("/api/gridlock/calendar.ics")
+        assert hdr.get("content-type", "").startswith("text/calendar") and "attachment;" in hdr.get("content-disposition", ""), hdr
+        vcal, events = _ics_events(body)
+        assert vcal["VERSION"][0][1] == "2.0" and vcal["PRODID"][0][1], vcal.get("VERSION")
+        in_pairs = [r for r in cal["projects"] if r["pairs"] and r["start"]]
+        assert len(events) == len(cal["shared"]) + len(in_pairs), f"{len(events)} events, {len(cal['shared'])} + {len(in_pairs)} expected"
+        uids = [e["UID"][0][1] for e in events]
+        assert len(set(uids)) == len(uids), "duplicate UIDs"
+        for e in events:
+            for k in ("UID", "DTSTAMP", "DTSTART", "DTEND", "SUMMARY", "DESCRIPTION"):
+                assert len(e.get(k, [])) == 1, f"{uids[0]}: {k} x {len(e.get(k, []))}"
+            assert re.fullmatch(r"\d{8}T\d{6}Z", e["DTSTAMP"][0][1]), e["DTSTAMP"]
+            assert _ics_date(e["DTSTART"]) < _ics_date(e["DTEND"]), (e["UID"], e["DTSTART"], e["DTEND"])
+            assert "as filed" in e["DESCRIPTION"][0][1].lower() and "not an official utility record" in e["DESCRIPTION"][0][1]
+        for w, e in zip(cal["shared"], events):  # shared windows first, in rank order, on their dates (DTEND exclusive)
+            assert (_ics_date(e["DTSTART"]), _ics_date(e["DTEND"])) == (w["start"], _day_after(w["end"])), (w["id"], e["DTSTART"], e["DTEND"])
+            # "as filed" only when both starts are filed; a shared window resting on a derived start says whose
+            summary, first_line = e["SUMMARY"][0][1], e["DESCRIPTION"][0][1].split("\n")[0]
+            derived = [k for k in ("a", "b") if w["starts_as"][k] == "derived"]
+            if derived:
+                assert "(as filed)" not in summary and "derived)" in summary, (w["id"], summary)
+                assert not first_line.startswith("As filed") and "derived, not filed" in first_line, (w["id"], first_line)
+            else:
+                assert summary.endswith("(as filed)") and first_line.startswith("As filed"), (w["id"], summary)
+
+        def plain(s):  # the .ics tidies the filings' capitals (Georgia's table): compare names case- and space-blind
+            return re.sub(r"\s+", " ", s or "").strip().lower()
+
+        # one pair's file: its shared window, naming both projects in full with their sources
+        w = cal["shared"][0]
+        body, hdr = _raw(f"/api/gridlock/calendar.ics?pair={urllib.parse.quote(w['id'])}")
+        _, events = _ics_events(body)
+        assert len(events) == 1, f"{len(events)} events for one pair"
+        e = events[0]
+        assert (_ics_date(e["DTSTART"]), _ics_date(e["DTEND"])) == (w["start"], _day_after(w["end"])), e
+        text = e["SUMMARY"][0][1] + "\n" + e["DESCRIPTION"][0][1]
+        for pid in (w["a"], w["b"]):
+            assert pid in text and plain(by[pid]["name"]) in plain(text), f"the pair's event doesn't name {pid} ({by[pid]['name']})"
+            src = by[pid]["source"]
+            assert src["title"] and src["title"] in text, f"{pid}: source missing"
+        assert f"#{w['rank']}" in text and "could" in text and " will " not in text, text[:300]
+        # a same-station pair without a shared window: its file holds the two build windows, each naming the station
+        for s in cal["stations"][:1]:
+            _, events = _ics_events(_raw(f"/api/gridlock/calendar.ics?pair={urllib.parse.quote(s['id'])}")[0])
+            assert len(events) == 2 and all(s["station"] in x["DESCRIPTION"][0][1] for x in events), [x["SUMMARY"] for x in events]
+        # still ahead only: nothing that ended before today, as filed
+        from datetime import date as _d
+
+        today = _d.today().isoformat()
+        _, events = _ics_events(_raw("/api/gridlock/calendar.ics?upcoming=true")[0])
+        n_up = sum(1 for w in cal["shared"] if w["ahead"] != "past") + sum(1 for r in in_pairs if r["now"] != "past")
+        assert len(events) == n_up and all(_ics_date(x["DTEND"]) > today for x in events), (len(events), n_up)
+        # every compared project, and the refusals
+        _, events = _ics_events(_raw("/api/gridlock/calendar.ics?scope=all")[0])
+        assert len(events) == len(cal["shared"]) + sum(1 for r in cal["projects"] if r["start"]), len(events)
+        ctx.request("GET", "/api/gridlock/calendar.ics?scope=everything", expect=422)
+        ctx.request("GET", "/api/gridlock/calendar.ics?pair=NOPE~NADA", expect=404)
+        ctx.request("GET", "/api/gridlock/calendar.ics?max_km=0", expect=422)
+
+    def calendar_sheet():
+        # the Excel export gains a calendar sheet after Sperry's two (which stay first and unchanged); CSV serves it too
+        cal = state["calendar"]
+        sheets = _xlsx_sheets(_raw("/api/gridlock/export.xlsx")[0])
+        assert list(sheets)[:2] == ["projects", "overlaps"] and "calendar" in sheets, list(sheets)
+        c = sheets["calendar"]
+        h = c[0]
+        shared = [r for r in c[1:] if r[h.index("row_type")] == "shared window"]
+        build = [r for r in c[1:] if r[h.index("row_type")] == "build window"]
+        station = [r for r in c[1:] if r[h.index("row_type")] == "same station, no shared window"]
+        assert [r[h.index("id")] for r in shared] == [w["id"] for w in cal["shared"]], "calendar sheet's shared windows"
+        assert [r[h.index("id")] for r in station] == [s["id"] for s in cal["stations"]], "calendar sheet's same-station rows"
+        assert all(r[h.index("same_station")] for r in station), "a same-station row without its station"
+        pair_ranks = [r[h.index("rank")] for r in c[1:] if r[h.index("row_type")] != "build window"]
+        assert pair_ranks == sorted(pair_ranks), "the sheet's pair rows aren't in rank order"
+        for r, w in zip(shared, cal["shared"]):  # 'filed' only when both starts are
+            assert (r[h.index("start_as")] == "filed") == ("derived" not in w["starts_as"].values()), (w["id"], r[h.index("start_as")])
+        assert [r[h.index("months")] for r in shared] == [float(w["months"]) for w in cal["shared"]], "shared months differ"
+        assert len(build) == sum(1 for r in cal["projects"] if r["start"]), len(build)
+        assert all(isinstance(r[h.index("start")], float) and isinstance(r[h.index("end")], float) for r in shared + build), "not date cells"
+        body, _ = _raw("/api/gridlock/export.csv?table=calendar")
+        rows = list(csv.reader(io.StringIO(body.decode("utf-8-sig"))))
+        assert rows[0] == h and len(rows) == len(c), (rows[0][:4], len(rows), len(c))
+
     ctx.check("gridlock: summary has sources, DESC + Georgia counts, and the pipeline report", summary_shape)
     ctx.check("gridlock: projects cover DESC and a Georgia utility, placed inside SC/GA, quarantine has reasons", projects_both_sides)
     ctx.check("gridlock: default overlaps are ranked cross-utility pairs with tiers matching their distances", overlaps_default)
@@ -541,3 +749,12 @@ def register(ctx):
               "shared_window only for pairs that share a window", export_xlsx)
     ctx.check("gridlock: export.csv keeps Sperry's columns; export.geojson has every project inside SC/GA; bad params are 422s",
               export_csv_geojson)
+    ctx.check("gridlock: the coordination calendar's shared windows are exactly the overlaps' shared months, inside both build "
+              "windows, for every flagged pair (two settings); each project's pairs match; same-station pairs without one (Sperry's "
+              "OVL_1, Thurmond Dam) are named with the gap between their windows; bad settings 422", calendar_matches_overlaps)
+    ctx.check("gridlock: calendar.ics parses strictly (CRLF, 75-octet folds, BEGIN/END pairs, one UID/DTSTAMP/DTSTART/DTEND each); "
+              "'as filed' only when both starts are filed, else whose start is derived; a pair's file names both projects and "
+              "their sources; a same-station pair's file its two windows; upcoming=true drops what ended; scope=all adds every "
+              "project; bad scope 422, unknown pair 404", calendar_ics)
+    ctx.check("gridlock: the Excel export has a calendar sheet after Sperry's two (same shared windows and months, derived starts "
+              "marked, same-station rows, pair rows in rank order); CSV serves it", calendar_sheet)

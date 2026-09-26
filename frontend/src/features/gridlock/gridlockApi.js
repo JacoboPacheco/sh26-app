@@ -1,4 +1,4 @@
-import { api } from '../../api'
+import { api, assetUrl } from '../../api'
 
 // Every Build plans call goes to the engine (/api/gridlock/*, backend/gridlock.py). When the engine is
 // down the module shows an error with Retry; it never substitutes sample data. (When the pipeline hasn't
@@ -29,6 +29,15 @@ const live = {
     api(`/api/negotiate/${encodeURIComponent(id)}?${q({ window_months, lang, ai: ai ? 'true' : 'false' })}`, { method: 'POST' }),
   // the turns of a negotiation still running, polled while its POST waits ({running: false} when none is)
   negotiateLive: (id, { window_months, lang = 'en' } = {}) => api(`/api/negotiate/${encodeURIComponent(id)}/live?${q({ window_months, lang })}`),
+  // the coordination calendar: every compared project's build window + each flagged pair's shared window
+  calendar: (params) => api(`/api/gridlock/calendar?${q(params)}`),
+}
+
+// A download the browser saves itself (a plain link): /api/gridlock/<path> at the settings on screen, e.g.
+// downloadUrl('calendar.ics', params, { pair: id }) or downloadUrl('export.xlsx', params).
+export function downloadUrl(path, params, extra) {
+  const s = q({ ...(params || {}), ...(extra || {}) })
+  return assetUrl(`/api/gridlock/${path}${s ? `?${s}` : ''}`)
 }
 
 // Resolves to {client, summary} once the engine answers /summary; rejects with the engine's error.

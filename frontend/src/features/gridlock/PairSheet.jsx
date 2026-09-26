@@ -4,6 +4,7 @@ import { useGridlock } from './context'
 import { LABELS, agreementMarkdown, fmtMonth } from './agreementText'
 import { DraftStatus, Paper, PrintCopy, WindowTimeline } from './AgreementDoc'
 import { useAgreement } from './useAgreement'
+import { downloadUrl } from './gridlockApi'
 import { ProjectCard } from './DetailCard'
 import Negotiation from './Negotiation'
 import TraceDrawer from './TraceDrawer'
@@ -59,6 +60,9 @@ const S = {
     printTitle: 'Print or save as PDF: the drafted agreement alone',
     download: 'Download',
     downloadTitle: 'Download the drafted agreement as text (.md)',
+    ics: 'Add to calendar',
+    icsTitle: 'The shared build window as a calendar file (.ics): both projects, their sources, dates as filed (a derived start is said so)',
+    icsBoth: 'The two build windows as a calendar file (.ics): no shared window, the station, both projects and their sources',
     work: 'Work',
     window: 'Build window',
     derived: 'start derived',
@@ -118,6 +122,9 @@ const S = {
     printTitle: 'Imprimir o guardar como PDF: solo el acuerdo redactado',
     download: 'Descargar',
     downloadTitle: 'Descargar el acuerdo redactado como texto (.md)',
+    ics: 'Añadir al calendario',
+    icsTitle: 'La ventana de obra compartida como archivo de calendario (.ics, en inglés): ambos proyectos, sus fuentes, fechas según lo publicado (se indica si un inicio es derivado)',
+    icsBoth: 'Las dos ventanas de obra como archivo de calendario (.ics, en inglés): sin ventana compartida; la subestación, ambos proyectos y sus fuentes',
     work: 'Obra',
     window: 'Ventana de obra',
     derived: 'inicio derivado',
@@ -446,6 +453,14 @@ export default function PairSheet() {
             </svg>
             {s.download}
           </button>
+          {(o.same_window || (o.shared_station && o.window_gap_days != null)) && g.engineParams && (
+            <a className="gl-tool" href={downloadUrl('calendar.ics', g.engineParams, { pair: o.id })} download title={o.same_window ? s.icsTitle : s.icsBoth}>
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M2.5 4.5h11v9h-11zM2.5 7.5h11M5.5 2.5v3M10.5 2.5v3" />
+              </svg>
+              {s.ics}
+            </a>
+          )}
         </div>
         {!covered && (
           <nav className="gl-steps" aria-label={lang === 'es' ? 'Pasos' : 'Steps'}>

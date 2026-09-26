@@ -27,6 +27,7 @@ const CSV_TABLES = [
   { id: 'overlaps', label: 'Overlaps' },
   { id: 'projects', label: 'Projects' },
   { id: 'set_aside', label: 'Set aside (with reasons)' },
+  { id: 'calendar', label: 'Calendar (build and shared windows)' },
 ]
 const n = (v) => (v == null ? '–' : Number(v).toLocaleString('en-US'))
 

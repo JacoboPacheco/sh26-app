@@ -1,0 +1,1407 @@
+/* The coordination calendar (CalendarView.jsx): the filed build windows as a planner's Gantt. Same sober look as the
+   rest of Build together: hairlines, plain tabular figures, the utilities' two calm tones; a shared window is drawn in
+   the map's pale overlap ink (brighter = still ahead, dimmer = passed as filed). Motion only where it carries meaning:
+   bars grow in once, rows glide when re-ordered, the scale slides when the years change. Tokens: index.css + .gl. */
+
+/* ------------------------------------------------------------------ the rail widens for the timeline */
+.gl-page {
+  transition: grid-template-columns 0.4s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.gl-page.gl-page--cal {
+  grid-template-columns: clamp(420px, 56vw, 880px) minmax(0, 1fr);
+}
+
+/* A pair's sheet opens over the map at its usual width, and the rail gives the map room so the pair's framing stays
+   in view: under 1440 px the rail returns to its list width (the calendar becomes its list by year); from 1440 px it
+   narrows to what the Gantt needs. The switch is instant, so the camera frames the pair in the final layout (the
+   sheet slides in on its own); closing eases the rail back. */
+.gl-page--cal.gl-page--sheet {
+  grid-template-columns: 380px minmax(0, 1fr);
+  transition: none;
+}
+
+@media (min-width: 1440px) {
+  .gl-page--cal.gl-page--sheet {
+    grid-template-columns: clamp(580px, 40vw, 880px) minmax(0, 1fr);
+  }
+}
+
+/* the list head's two controls (the view, the list's order), stacked at the rail's normal width */
+.gl-listhead__tools {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.gl-ranked--cal .gl-listhead {
+  padding-bottom: 8px;
+}
+
+a.gl-tool {
+  text-decoration: none;
+}
+
+/* ------------------------------------------------------------------ the calendar */
+.gl-cal {
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.gl-cal > .loading,
+.gl-cal > .banner--error,
+.gl-cal > .empty,
+.gl-cal__pad {
+  margin: 0 20px;
+}
+
+.gl-cal--stale .gl-cal__gantt,
+.gl-cal--stale .gl-cal-yl {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.gl-cal__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 0 20px;
+}
+
+.gl-cal__n {
+  color: var(--ink-2);
+  margin-left: 2px;
+}
+
+.gl-sort button.is-on .gl-cal__n {
+  color: var(--ink);
+}
+
+.gl-cal__years {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-cal__years select {
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  padding: 3px 4px;
+}
+
+.gl-cal__years .gl-link {
+  font-size: 0.75rem;
+  margin-left: 2px;
+}
+
+.gl-cal__dl {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-left: auto;
+}
+
+.gl-cal__all {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.gl-cal .gl-tool {
+  font-size: 0.75rem;
+  padding: 3px 9px 3px 7px;
+}
+
+.gl-cal__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.gl-cal__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gl-cal__key {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.gl-cal__key--filed {
+  background: color-mix(in srgb, var(--gl-desc) 42%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gl-desc) 85%, transparent);
+}
+
+.gl-cal__key--derived {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--gl-desc) 55%, transparent) 0 2px, transparent 2px 5px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gl-desc) 55%, transparent);
+}
+
+.gl-cal__key--ms {
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--ink);
+  transform: rotate(45deg);
+  margin: 0 3px;
+}
+
+.gl-cal__key--win {
+  background: color-mix(in srgb, var(--gl-ring) 80%, transparent);
+}
+
+.gl-cal__key--winder {
+  background:
+    repeating-linear-gradient(135deg, transparent 0 2px, color-mix(in srgb, var(--night) 70%, transparent) 2px 4px),
+    color-mix(in srgb, var(--gl-ring) 60%, transparent);
+}
+
+.gl-cal__key--gap {
+  height: 0;
+  border-top: 1px dashed color-mix(in srgb, var(--gl-ring) 85%, transparent);
+  border-radius: 0;
+}
+
+.gl-cal__key--today {
+  width: 0;
+  height: 12px;
+  border-left: 1.5px solid var(--ink);
+  border-radius: 0;
+}
+
+.gl-cal__note {
+  margin: 2px 20px 8px;
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+/* ------------------------------------------------------------------ the Gantt */
+.gl-cal__gantt {
+  position: relative;
+  z-index: 0; /* its own stacking context: the axis, tips and card stay under the rail's sticky footer */
+  font-variant-numeric: tabular-nums;
+}
+
+/* the years, pinned to the top of the rail while the rows scroll under them */
+.gl-cal__axis {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: var(--lab) minmax(0, 1fr);
+  padding-right: var(--pr);
+  height: 40px;
+  background: var(--surface);
+  border-top: 1px solid var(--gl-hair);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.gl-cal__axislab {
+  align-self: end;
+  padding: 0 10px 6px 20px;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.gl-cal__axistrack {
+  position: relative;
+}
+
+.gl-cal__year {
+  position: absolute;
+  bottom: 6px;
+  transform: translateX(4px);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  transition: left 0.4s var(--ease);
+}
+
+.gl-cal__todaytag {
+  position: absolute;
+  top: 3px;
+  transform: translateX(-50%);
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 14px;
+  color: var(--night);
+  background: var(--ink);
+  transition: left 0.4s var(--ease);
+}
+
+.gl-cal__body {
+  position: relative;
+}
+
+.gl-cal__under,
+.gl-cal__over {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--lab);
+  right: var(--pr);
+  pointer-events: none;
+}
+
+.gl-cal__over {
+  z-index: 2;
+}
+
+.gl-cal__vline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--gl-hair);
+  transition: left 0.4s var(--ease);
+}
+
+.gl-cal__vline--q {
+  background: rgba(150, 190, 240, 0.045);
+}
+
+.gl-cal__today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1.5px solid color-mix(in srgb, var(--ink) 72%, transparent);
+  transform-origin: top;
+  transition: left 0.4s var(--ease);
+}
+
+/* the lit pair's shared months, from one project's bar to the other's (through the pair's own row between them) */
+.gl-cal__conn {
+  position: absolute;
+  border-left: 1px dashed color-mix(in srgb, var(--gl-ring) 70%, transparent);
+  border-right: 1px dashed color-mix(in srgb, var(--gl-ring) 70%, transparent);
+  background: color-mix(in srgb, var(--gl-ring) 7%, transparent);
+  animation: gl-cal-fade 0.2s ease-out;
+}
+
+/* a lit same-station pair: from the first window's end down (or up) to the pair's row, and on to the second's start */
+.gl-cal__drop {
+  position: absolute;
+  width: 0;
+  border-left: 1px dashed color-mix(in srgb, var(--gl-ring) 75%, transparent);
+  animation: gl-cal-fade 0.2s ease-out;
+}
+
+.gl-cal__row,
+.gl-cal__group,
+.gl-cal__band,
+.gl-cal__none {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0;
+}
+
+.gl-cal__group {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 var(--pr) 6px 20px;
+  border-bottom: 1px solid var(--gl-hair);
+  transition: top 0.45s var(--ease);
+}
+
+.gl-cal__grouph {
+  display: flex;
+  align-items: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.gl-cal__groupn {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.gl-cal__band {
+  display: grid;
+  align-content: end;
+  gap: 3px;
+  padding: 0 var(--pr) 7px 20px;
+  border-top: 1px solid var(--glass-edge);
+  border-bottom: 1px solid var(--gl-hair);
+  transition: top 0.45s var(--ease);
+}
+
+.gl-cal__bandtop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gl-cal__bandh {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* a shared window that can still be acted on, named in the band's heading (opens its pair) */
+.gl-cal__live {
+  flex: none;
+  padding: 0 7px;
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  color: var(--night);
+  background: var(--gl-ring);
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.gl-cal__live:hover,
+.gl-cal__live:focus-visible {
+  background: color-mix(in srgb, var(--gl-ring), #fff 18%);
+}
+
+.gl-cal__live:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.gl-cal__bandp {
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gl-cal__none {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--pr) 0 20px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-cal__row {
+  display: grid;
+  grid-template-columns: var(--lab) minmax(0, 1fr);
+  align-items: center;
+  padding-right: var(--pr);
+  transition:
+    top 0.45s var(--ease),
+    opacity 0.2s;
+}
+
+.gl-cal__row--desc {
+  --c: var(--gl-desc);
+}
+
+.gl-cal__row--gpc {
+  --c: var(--gl-gpc);
+}
+
+.gl-cal__row--ga {
+  --c: var(--gl-ga);
+}
+
+.gl-cal__row--shared {
+  background: rgba(238, 243, 250, 0.018);
+}
+
+.gl-cal__row.is-dim {
+  opacity: 0.5;
+}
+
+.gl-cal__row.is-quiet {
+  opacity: 0.45;
+}
+
+.gl-cal__row.is-lit,
+.gl-cal__row.is-rel {
+  opacity: 1;
+}
+
+.gl-cal__row.is-lit {
+  background: color-mix(in srgb, var(--gl-ring) 8%, transparent);
+}
+
+.gl-cal__row.is-picked {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.gl-cal__row.is-open {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.gl-cal__lab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px 0 20px;
+  font-size: 0.8125rem;
+}
+
+.gl-cal__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gl-cal__row.is-lit .gl-cal__name {
+  font-weight: 600;
+}
+
+.gl-cal__tag {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 3px;
+  font-size: 0.625rem;
+  line-height: 14px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.gl-cal__row--shared .gl-cal__lab {
+  font-size: 0.75rem;
+}
+
+.gl-cal__two {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.gl-cal__two .gl-cal__name {
+  flex: 0 1 auto;
+}
+
+.gl-cal__x {
+  flex: none;
+  color: var(--ink-2);
+}
+
+.gl-cal__ell {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "start derived", said beside its bar */
+.gl-cal__dtag {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  white-space: nowrap;
+  pointer-events: none;
+  transition:
+    left 0.4s var(--ease),
+    right 0.4s var(--ease);
+}
+
+.gl-cal__dtag--after {
+  margin-left: 9px;
+}
+
+.gl-cal__dtag--before {
+  margin-right: 6px;
+}
+
+/* the bar ends just before today: the tag starts past the Today line instead of across it */
+.gl-cal__dtag--today {
+  margin-left: 6px;
+}
+
+/* no room either side of the Today line: the tag sits on a plate over it */
+.gl-cal__dtag--plate {
+  z-index: 3;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--surface);
+}
+
+.gl-cal__row.is-lit .gl-cal__dtag {
+  color: var(--ink);
+}
+
+.gl-cal__rank {
+  flex: none;
+  min-width: 2.3em;
+  font-family: var(--gl-mono);
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.gl-cal__row.is-lit .gl-cal__rank {
+  color: var(--ink);
+}
+
+/* a same-station row's label: the station, and under it what ties the pair (and Sperry's own number for it) */
+.gl-cal__stack {
+  display: grid;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.gl-cal__sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+
+.gl-cal__row.is-lit .gl-cal__sub {
+  color: var(--ink);
+}
+
+/* a project number beside a name that reads like another filed project's (as in the list) */
+.gl-cal__lab .gl-cal__id {
+  flex: none;
+  margin-left: 0;
+  font-size: 0.625rem;
+}
+
+.gl-cal__ics {
+  flex: none;
+  margin-left: auto;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--ink-2) 70%, transparent);
+}
+
+/* with a mouse, a shared row's calendar link appears over the end of its names on hover (the names keep the room);
+   on touch it stays in the row */
+@media (hover: hover) {
+  .gl-cal__lab {
+    position: relative;
+  }
+
+  .gl-cal__row .gl-cal__ics {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--surface);
+    box-shadow: -10px 0 8px var(--surface);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .gl-cal__row:hover .gl-cal__ics,
+  .gl-cal__row.is-lit .gl-cal__ics,
+  .gl-cal__row .gl-cal__ics:focus-visible {
+    opacity: 1;
+  }
+}
+
+.gl-cal__ics:hover,
+.gl-cal__ics:focus-visible {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface), rgb(150 190 240) 9%);
+}
+
+.gl-cal__ics svg,
+.gl-cal__tools svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gl-cal__track {
+  position: relative;
+  height: 100%;
+}
+
+/* a project's build window: filed = a calm fill in the utility's tone; start derived = the same tone, hatched */
+.gl-cal__bar {
+  position: absolute;
+  top: 50%;
+  height: 12px;
+  min-width: 3px;
+  margin-top: -6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transition:
+    left 0.4s var(--ease),
+    width 0.4s var(--ease);
+}
+
+.gl-cal__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--c) 40%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 85%, transparent);
+  transform-origin: left center;
+  transition: background-color 0.15s;
+}
+
+.gl-cal__bar--derived .gl-cal__fill {
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 55%, transparent) 0 2.5px, transparent 2.5px 6px);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 55%, transparent);
+}
+
+.gl-cal__bar:hover .gl-cal__fill,
+.gl-cal__row.is-lit .gl-cal__fill {
+  background-color: color-mix(in srgb, var(--c) 72%, transparent);
+}
+
+.gl-cal__bar--derived:hover .gl-cal__fill,
+.gl-cal__row.is-lit .gl-cal__bar--derived .gl-cal__fill {
+  background-color: color-mix(in srgb, var(--c) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--c);
+}
+
+.gl-cal__bar:focus-visible,
+.gl-cal__win:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.is-cut-l .gl-cal__fill,
+.gl-cal__win.is-cut-l {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  mask-image: linear-gradient(90deg, transparent, #000 16px);
+}
+
+.is-cut-r .gl-cal__fill,
+.gl-cal__win.is-cut-r {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  mask-image: linear-gradient(270deg, transparent, #000 16px);
+}
+
+.is-cut-l.is-cut-r .gl-cal__fill,
+.gl-cal__win.is-cut-l.is-cut-r {
+  mask-image: linear-gradient(90deg, transparent, #000 16px, #000 calc(100% - 16px), transparent);
+}
+
+/* the months this project shares with a partner (a shared window of one of its pairs), under its bar */
+.gl-cal__sm {
+  position: absolute;
+  top: calc(50% + 8px);
+  height: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--gl-ring) 45%, transparent);
+  pointer-events: none;
+  transition:
+    left 0.4s var(--ease),
+    width 0.4s var(--ease),
+    background-color 0.15s;
+}
+
+.gl-cal__sm.is-on {
+  background: var(--gl-ring);
+}
+
+/* the in-service date, as filed: where the bar ends */
+.gl-cal__ms {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin: -3.5px 0 0 -3.5px;
+  border-radius: 1px;
+  background: var(--c);
+  transform: rotate(45deg);
+  pointer-events: none;
+  transition: left 0.4s var(--ease);
+}
+
+.gl-cal__edge {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.625rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.gl-cal__edge--l {
+  left: 2px;
+}
+
+.gl-cal__edge--r {
+  right: 2px;
+}
+
+/* a shared window: the months both plans are building, in the map's overlap ink */
+.gl-cal__win {
+  position: absolute;
+  top: 50%;
+  height: 14px;
+  min-width: 3px;
+  margin-top: -7px;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 0;
+  border-radius: 3px;
+  font: inherit;
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--night);
+  background: color-mix(in srgb, var(--gl-ring) 82%, transparent);
+  cursor: pointer;
+  transition:
+    left 0.4s var(--ease),
+    width 0.4s var(--ease),
+    background-color 0.15s;
+}
+
+.gl-cal__win--past {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--gl-ring) 26%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gl-ring) 34%, transparent);
+}
+
+.gl-cal__win:hover,
+.gl-cal__row.is-lit .gl-cal__win {
+  background: var(--gl-ring);
+  color: var(--night);
+}
+
+/* a shared window resting on a derived start: the same ink, hatched (as a derived bar is), its label on a plate */
+.gl-cal__win--derived,
+.gl-cal__win--derived:hover,
+.gl-cal__row.is-lit .gl-cal__win--derived {
+  background-image: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--night) 42%, transparent) 3px 5.5px);
+}
+
+.gl-cal__win--derived .gl-cal__winlab {
+  padding: 0 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--gl-ring) 30%, var(--surface));
+  color: var(--ink);
+}
+
+.gl-cal__win--derived:hover .gl-cal__winlab,
+.gl-cal__row.is-lit .gl-cal__win--derived .gl-cal__winlab {
+  background: var(--gl-ring);
+  color: var(--night);
+}
+
+.gl-cal__winlab {
+  white-space: nowrap;
+}
+
+/* a same-station pair with no shared window: the time between its two build windows, dashed, with end ticks */
+.gl-cal__gap {
+  position: absolute;
+  top: 50%;
+  height: 14px;
+  min-width: 3px;
+  margin-top: -7px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  background: none;
+  border: 0;
+  border-left: 1.5px solid color-mix(in srgb, var(--gl-ring) 80%, transparent);
+  border-right: 1.5px solid color-mix(in srgb, var(--gl-ring) 80%, transparent);
+  cursor: pointer;
+  transition:
+    left 0.4s var(--ease),
+    width 0.4s var(--ease);
+}
+
+.gl-cal__gap::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px dashed color-mix(in srgb, var(--gl-ring) 70%, transparent);
+}
+
+.gl-cal__gap.is-cut-l {
+  border-left: 0;
+}
+
+.gl-cal__gap.is-cut-r {
+  border-right: 0;
+}
+
+.gl-cal__gap:hover::before,
+.gl-cal__row.is-lit .gl-cal__gap::before {
+  border-top-color: var(--gl-ring);
+}
+
+.gl-cal__gap:focus-visible,
+.gl-cal__gapnone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.gl-cal__gaplab {
+  position: relative;
+  z-index: 3; /* over the Today line */
+  padding: 0 6px;
+  font-size: 0.625rem;
+  letter-spacing: 0.02em;
+  line-height: 14px;
+  white-space: nowrap;
+  color: var(--ink-2);
+  background: var(--surface);
+}
+
+.gl-cal__row.is-lit .gl-cal__gaplab,
+.gl-cal__gap:hover .gl-cal__gaplab {
+  color: var(--ink);
+}
+
+.gl-cal__gapnone {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0;
+  font: inherit;
+  font-size: 0.625rem;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* hover: what, when, and how it was dated */
+.gl-cal__tip {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  gap: 1px;
+  max-width: 300px;
+  padding: 6px 9px;
+  transform: translate(calc(-1 * var(--shift, 50%)), calc(-100% - 4px));
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: gl-cal-fade 0.12s ease-out;
+}
+
+.gl-cal__tip--below {
+  transform: translate(calc(-1 * var(--shift, 50%)), 4px);
+}
+
+.gl-cal__tip--wrap {
+  width: 300px;
+  white-space: normal;
+}
+
+.gl-cal__tipsub {
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+/* a project's card: its window, where it came from, its pairs */
+.gl-cal__card {
+  position: absolute;
+  z-index: 6;
+  width: 352px;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
+  animation: gl-cal-pop 0.18s var(--ease);
+}
+
+.gl-cal__card--up {
+  animation-name: gl-cal-pop-up;
+}
+
+.gl-cal__cardtop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gl-cal__cardtop .gl-close {
+  width: 26px;
+  height: 26px;
+  font-size: 1.05rem;
+}
+
+.gl-cal__eyebrow {
+  display: flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+
+.gl-cal__cardh {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.gl-cal__cardh:focus {
+  outline: none;
+}
+
+.gl-cal__id {
+  margin-left: 4px;
+  font-family: var(--gl-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.gl-cal__dl2 {
+  display: grid;
+  grid-template-columns: 6.25rem minmax(0, 1fr);
+  gap: 5px 10px;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+.gl-cal__dl2 dt {
+  color: var(--ink-2);
+}
+
+.gl-cal__dl2 dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.gl-cal__dl2 a {
+  color: var(--ink);
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in srgb, var(--ink) 35%, transparent);
+}
+
+.gl-cal__as {
+  margin-left: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--glass-edge);
+  border-radius: 3px;
+  font-size: 0.625rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.gl-cal__basis {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
+.gl-cal__cardh4 {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.gl-cal__pairs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  border-top: 1px solid var(--gl-hair);
+}
+
+.gl-cal__pairs button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 2.4em minmax(0, 1fr);
+  gap: 0 6px;
+  padding: 6px 4px;
+  font: inherit;
+  font-size: 0.8125rem;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--gl-hair);
+  cursor: pointer;
+}
+
+.gl-cal__pairs button:hover {
+  background: var(--glass-hi);
+}
+
+.gl-cal__pairname {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gl-cal__pairwhen {
+  grid-column: 2;
+  font-size: 0.6875rem;
+}
+
+.gl-cal__cardfoot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ------------------------------------------------------------------ first view: the bars grow in, the shared windows follow */
+.gl-cal__gantt--intro .gl-cal__fill {
+  animation: gl-cal-grow 0.55s var(--ease) backwards;
+  animation-delay: min(calc(var(--i, 0) * 14ms), 650ms);
+}
+
+.gl-cal__gantt--intro .gl-cal__dtag,
+.gl-cal__gantt--intro .gl-cal__sm,
+.gl-cal__gantt--intro .gl-cal__ms {
+  animation: gl-cal-fade 0.3s ease-out backwards;
+  animation-delay: calc(min(calc(var(--i, 0) * 14ms), 650ms) + 0.45s);
+}
+
+.gl-cal__gantt--intro .gl-cal__win,
+.gl-cal__gantt--intro .gl-cal__gap {
+  animation: gl-cal-win 0.5s var(--ease) backwards;
+  animation-delay: calc(0.4s + min(calc(var(--i, 0) * 28ms), 560ms));
+}
+
+.gl-cal__gantt--intro .gl-cal__today {
+  animation: gl-cal-drop 0.8s var(--ease) 0.15s backwards;
+}
+
+@keyframes gl-cal-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes gl-cal-win {
+  from {
+    opacity: 0;
+    transform: scaleX(0.6);
+  }
+}
+
+@keyframes gl-cal-drop {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes gl-cal-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes gl-cal-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes gl-cal-pop-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* ------------------------------------------------------------------ narrow: a list by year */
+.gl-cal-yl {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+
+.gl-cal-yl__year {
+  border-top: 1px solid var(--gl-hair);
+}
+
+.gl-cal-yl__h {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 20px 6px;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  background: var(--surface);
+}
+
+.gl-cal-yl__this {
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 14px;
+  color: var(--night);
+  background: var(--ink);
+}
+
+.gl-cal-yl__count {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.gl-cal-yl__list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 6px;
+  display: grid;
+}
+
+.gl-cal-yl__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.gl-cal-yl__item.is-dim {
+  opacity: 0.6;
+}
+
+.gl-cal-yl__item--shared {
+  background: rgba(238, 243, 250, 0.03);
+}
+
+.gl-cal-yl__main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 12px 9px 20px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.gl-cal-yl__main:hover {
+  background: var(--glass-hi);
+}
+
+.gl-cal-yl__eyebrow {
+  display: flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+}
+
+.gl-cal-yl__name {
+  font-size: 0.875rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.gl-cal-yl__meta {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-cal-yl__mini {
+  position: relative;
+  display: block;
+  height: 6px;
+  margin-top: 5px;
+  border-radius: 3px;
+  background: rgba(150, 190, 240, 0.07);
+}
+
+.gl-cal-yl__seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+}
+
+.gl-cal-yl__seg--desc {
+  background: var(--gl-desc);
+}
+
+.gl-cal-yl__seg--gpc {
+  background: var(--gl-gpc);
+}
+
+.gl-cal-yl__seg--ga {
+  background: var(--gl-ga);
+}
+
+.gl-cal-yl__seg--derived {
+  background: repeating-linear-gradient(135deg, var(--ink-2) 0 2px, transparent 2px 5px);
+}
+
+.gl-cal-yl__seg--win {
+  background: var(--gl-ring);
+}
+
+.gl-cal-yl__item--past .gl-cal-yl__seg--win {
+  background: color-mix(in srgb, var(--gl-ring) 40%, transparent);
+}
+
+.gl-cal-yl__item--derived .gl-cal-yl__seg--win {
+  background-image: repeating-linear-gradient(135deg, transparent 0 2px, color-mix(in srgb, var(--night) 55%, transparent) 2px 4px);
+}
+
+.gl-cal-yl__seg--gap {
+  top: 50%;
+  bottom: auto;
+  height: 0;
+  border-top: 1px dashed var(--gl-ring);
+  border-radius: 0;
+}
+
+/* the list's head: how many shared windows, and the ones not yet ended (each opens its pair) */
+.gl-cal-yl__sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 2px 16px 10px 20px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-cal-yl__sum p {
+  margin: 0;
+}
+
+.gl-cal-yl__now {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  border-left: 1.5px solid var(--ink);
+}
+
+.gl-cal-yl__ics {
+  margin: 8px 14px 0 0;
+  width: 32px;
+  height: 32px;
+}
+
+.gl-cal-yl__more {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding: 0 16px 10px 20px;
+}
+
+@media (max-width: 760px) {
+  .gl-cal__tools,
+  .gl-cal__legend {
+    padding: 0 16px;
+  }
+
+  .gl-cal__note {
+    margin: 2px 16px 8px;
+  }
+
+  .gl-cal__dl {
+    margin-left: 0;
+  }
+
+  .gl-cal-yl__h,
+  .gl-cal-yl__main,
+  .gl-cal-yl__sum {
+    padding-left: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gl-page,
+  .gl-cal__row,
+  .gl-cal__group,
+  .gl-cal__band,
+  .gl-cal__bar,
+  .gl-cal__win,
+  .gl-cal__ms,
+  .gl-cal__year,
+  .gl-cal__todaytag,
+  .gl-cal__today,
+  .gl-cal__vline,
+  .gl-cal__dtag,
+  .gl-cal__sm,
+  .gl-cal__gap {
+    transition: none;
+  }
+
+  .gl-cal__conn,
+  .gl-cal__drop,
+  .gl-cal__gantt--intro .gl-cal__gap,
+  .gl-cal__tip,
+  .gl-cal__card,
+  .gl-cal__gantt--intro .gl-cal__fill,
+  .gl-cal__gantt--intro .gl-cal__ms,
+  .gl-cal__gantt--intro .gl-cal__sm,
+  .gl-cal__gantt--intro .gl-cal__dtag,
+  .gl-cal__gantt--intro .gl-cal__win,
+  .gl-cal__gantt--intro .gl-cal__today {
+    animation: none;
+  }
+}
