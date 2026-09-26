@@ -19,7 +19,7 @@ import { useOverload } from '../../store'
 import CapacityLayer from './CapacityLayer'
 import { pickCampus } from './capacityPick'
 import './unlock.css'
-import { capNow, capTargetOf, compact, drawnUpgrades, select, useUnlock } from './unlockStore'
+import { capNow, capTargetOf, compact, drawnUpgrades, gemNow, select, useUnlock } from './unlockStore'
 
 const HALO_MIN = 6
 const HALO_MAX = 17
@@ -51,6 +51,24 @@ export default function UnlockLayer() {
 
   const cap = r && u.view === 'capacity' ? capNow(u) : null
   const labels = on && points && !cap ? placeLabels(points, k, project, grid, u.selected) : new Map()
+  // Gemini's verified plan ("Show it" on the Strengthen page): its campuses and raises, its new sites outlined in blue
+  const gem = cap ? gemNow(u) : null
+  if (gem)
+    return (
+      <CapacityLayer
+        m={gem}
+        target={gem.steps.length}
+        shown={gem.steps.length}
+        playing={false}
+        selectedN={null}
+        onPick={(n) => {
+          const st = gem.steps[n - 1]
+          if (st) o.focus([[st.site.lon, st.site.lat]])
+        }}
+        grid={grid}
+        gem
+      />
+    )
   if (cap)
     return (
       <CapacityLayer

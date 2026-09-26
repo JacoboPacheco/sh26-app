@@ -41,13 +41,19 @@ def main():
         if s["status"] != "done":
             print(f"{case}: {s.get('error')}")
             continue
+        # Gemini's challenge to the capacity plan lands after the study is published ("pending" until then): wait for it
+        t1 = time.time()
+        while ((s["result"].get("capacity") or {}).get("ai") or {}).get("status") == "pending" and time.time() - t1 < 180:
+            time.sleep(2)
+            s = call("GET", f"/api/unlock/jobs/{job['id']}")
         r = s["result"]
         key = [r["region"], float(r["mw"]), float(r["load_factor"])]
         out = {"key": key, "fingerprint": fp, "baked_from": BASE, "result": r}
         path = baked.DIR / f"{region}_{int(float(mw))}.json"
         path.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
         cap = (r.get("capacity") or {}).get("firm") or {}
-        print(f"{case}: {time.time() - t0:.0f} s, {path.stat().st_size / 1e3:.0f} kB, AI {(r.get('ai') or {}).get('status')}, capacity today {cap.get('today')} / {len(cap.get('steps') or [])} steps")
+        cap_ai = ((r.get("capacity") or {}).get("ai") or {}).get("status")
+        print(f"{case}: {time.time() - t0:.0f} s, {path.stat().st_size / 1e3:.0f} kB, AI {(r.get('ai') or {}).get('status')}, capacity challenge {cap_ai}, capacity today {cap.get('today')} / {len(cap.get('steps') or [])} steps")
 
 
 if __name__ == "__main__":

@@ -63,6 +63,42 @@ export const STOP_TEXT = {
   cap: 'the study’s $6 billion cap',
   max: 'the search stops at 40',
   time: 'the search’s time limit',
+  gemini: 'Gemini’s plan, verified by the engine',
+}
+
+// Gemini's challenge to the plan (backend/capacity_ai.py), as a plan the meter and the map can draw: only a plan the
+// engine verified (status beat or matched). Its campuses in the backend's order (the engine's kept sites in the
+// engine's order, then Gemini's new ones); the leading engine campuses that fit today stay "today"; every raise goes
+// on the first campus past them (Gemini's plan is a set, priced as a whole, not campus by campus). `gem` marks a
+// site the engine's plan doesn't have (outlined in the Gemini blue).
+const gemCache = new WeakMap()
+export function aiCapPlan(r) {
+  const ai = r?.capacity?.ai
+  if (!ai || !ai.verified || !['beat', 'matched'].includes(ai.status) || !ai.placements?.length) return null
+  if (gemCache.has(ai)) return gemCache.get(ai)
+  const engToday = r.capacity.firm?.today || 0
+  let today = 0
+  while (today < ai.placements.length && ai.placements[today].engine_n != null && ai.placements[today].engine_n <= engToday) today++
+  const cost = ai.cost || { low: 0, high: 0 }
+  const steps = ai.placements.map((p, k) => {
+    const n = k + 1
+    const paid = k === today && ai.projects.length > 0
+    return {
+      n,
+      site: { id: p.id, area: p.area, lat: p.lat, lon: p.lon },
+      free: !paid,
+      cost: paid ? cost : { low: 0, high: 0 },
+      cum_cost: n <= today ? { low: 0, high: 0 } : cost,
+      projects: paid ? ai.projects : [],
+      blocked_by: null,
+      busiest_pct: null,
+      gem: !!p.new,
+      engineN: p.engine_n,
+    }
+  })
+  const out = { today, steps, stop: 'gemini', gemini: true, bar: ai.bar?.campuses || 0 }
+  gemCache.set(ai, out)
+  return out
 }
 export const stopText = (stop) => STOP_TEXT[stop] || 'the search ends'
 

@@ -26,7 +26,7 @@ function upgradesOf(m) {
   return [...byId.values()].map((p) => ({ ...p, firstAt: first.get(p.branch_id) }))
 }
 
-export default function CapacityLayer({ m, target, shown, playing, selectedN, onPick, grid }) {
+export default function CapacityLayer({ m, target, shown, playing, selectedN, onPick, grid, gem = false }) {
   const { k, project } = useMapView()
   const ups = useMemo(() => upgradesOf(m), [m])
   const cities = useMemo(() => (grid ? citiesFor(grid) : []), [grid])
@@ -110,7 +110,7 @@ export default function CapacityLayer({ m, target, shown, playing, selectedN, on
           return (
             <g
               key={n}
-              className={`cl-camp cl-camp--${s}${n > target ? ' cl-camp--past' : ''}${isSel ? ' is-sel' : ''}`}
+              className={`cl-camp cl-camp--${s}${n > target ? ' cl-camp--past' : ''}${isSel ? ' is-sel' : ''}${gem && st.gem ? ' cl-camp--gem' : ''}`}
               transform={`translate(${x} ${y})`}
               onPointerDown={stop}
               onPointerUp={stop}
@@ -119,10 +119,15 @@ export default function CapacityLayer({ m, target, shown, playing, selectedN, on
                 onPick(n)
               }}
             >
-              <title>{`Campus ${n}: ${st.site.area}${n <= today ? ', fits today' : st.free ? ', fits with the upgrades before it' : `, +${shortMoney(st.cost.high)} of upgrades`}`}</title>
+              <title>
+                {gem
+                  ? `Gemini’s campus ${n}: ${st.site.area}${st.gem ? ' (not in the engine’s plan)' : st.engineN ? ` (the engine’s ${ordinal(st.engineN)})` : ''}`
+                  : `Campus ${n}: ${st.site.area}${n <= today ? ', fits today' : st.free ? ', fits with the upgrades before it' : `, +${shortMoney(st.cost.high)} of upgrades`}`}
+              </title>
               <circle className="cl-camp__hit" r={12 / k} />
               {landing && <circle key={`drop${n}`} className="cl-camp__drop" r={r} strokeWidth={1.5 / k} />}
               <circle className="cl-camp__dot" r={r} strokeWidth={(s === 'later' ? 1.2 : 1.5) / k} />
+              {gem && st.gem && <circle className="cl-camp__gem" r={r + 3 / k} strokeWidth={2 / k} />}
               {isSel && <circle className="cl-camp__sel" r={r + 3.5 / k} strokeWidth={1.6 / k} />}
               <text className="cl-camp__n" y={0.5 / k} fontSize={(s === 'later' ? 8 : 9.5) / k} dominantBaseline="middle" textAnchor="middle">
                 {n}

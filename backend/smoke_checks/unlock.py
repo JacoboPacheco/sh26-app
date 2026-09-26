@@ -8,15 +8,20 @@ background job (~10 s on a laptop, bounded at 60 s plus the Gemini step; the ser
 after startup, so this usually joins that job or finds it cached); the checks poll it, then re-run what it
 claims through the public cascade route: a site the plan unlocks must overload before and hold with the
 plan's upgrades. The Strengthen page's fields (plain names, per-step strain and "biggest blackouts gone",
-the budget's running cost) and the peek route (shows a study without starting one) are checked too."""
+the budget's running cost) and the peek route (shows a study without starting one) are checked too, and so is Gemini's
+try at beating the capacity plan (capacity_ai.py): published as "pending" without holding the study back, then a
+known status in the same job; a win only when the engine verified it, re-run here through the cascade route; savings
+only for a verified plan; with no key, not_configured and copy that claims nothing."""
 
 import math
 import time
 
 MW = 1000
 DONE_S = 150  # the study's own bound (60 s on Florida) + Gemini + a slow host
+PENDING_S = 150  # Gemini's challenge lands after the study is published: two rounds of Gemini + the engine's checks
 POLL_S = 1.5
 AI_STATUS = {"used", "not_configured", "offline", "none_verified", "skipped", "error"}
+CAP_AI_STATUS = {"beat", "matched", "lost", "not_configured", "offline", "error", "skipped"}
 
 
 def register(ctx):
@@ -52,6 +57,7 @@ def register(ctx):
             time.sleep(POLL_S)
         r = s["result"]
         state["r"] = r
+        state["id"] = start["id"]
         assert r["synthetic"] is True and "Synthetic grid model" in r["note"], r["note"]
         assert r["already_failing"] is False
         assert r["region"] == "FL" and r["mw"] == MW
@@ -221,9 +227,95 @@ def register(ctx):
         after = ctx.request("POST", "/api/grid/cascade", {**case, "upgrades": ups})
         assert after["total_steps"] == 0 and int(after.get("people_hit", after["people"]) or 0) == 0, (len(chosen), after["total_steps"])
 
+    def capacity_ai():
+        # Gemini tries to beat the capacity plan (backend/capacity_ai.py): a known status; a win only when the engine
+        # verified it, and then the public cascade route agrees (every campus and raise at once: nothing trips) and it
+        # really beats the engine's plan for the money; with no key the copy says so and claims nothing
+        c = state["r"]["capacity"]
+        ai = c.get("ai")
+        if ai is not None and ai["status"] == "pending":
+            # the study was published without waiting for Gemini: the bar and a plain "trying" line, nothing claimed;
+            # the verdict lands in the same job
+            assert ai["verified"] is False and not ai["trace"] and not ai["placements"] and ai["bar"]["campuses"] >= 1, ai
+            assert "Gemini is trying to beat this plan" in ai["sentence"], ai["sentence"]
+            t0 = time.monotonic()
+            while ai["status"] == "pending":
+                assert time.monotonic() - t0 < PENDING_S, f"Gemini's challenge still pending after {PENDING_S} s"
+                time.sleep(POLL_S)
+                s = ctx.request("GET", f"/api/unlock/jobs/{state['id']}")
+                assert s["status"] == "done", s["status"]
+                assert s["result"]["headline"] == state["r"]["headline"], "the study changed while Gemini's challenge landed"
+                c = s["result"]["capacity"]
+                ai = c.get("ai")
+        assert ai is not None and ai["status"] in CAP_AI_STATUS, ai and ai.get("status")
+        assert ai["synthetic"] is True and isinstance(ai["trace"], list) and isinstance(ai["attempts"], list), ai.keys()
+        assert ai["verified"] == (ai["status"] in ("beat", "matched")), (ai["status"], ai["verified"])
+        firm = c["firm"]
+        configured = ctx.request("GET", "/api/ai/status")["configured"]
+        if not configured:
+            assert ai["status"] in ("not_configured", "skipped"), f"no key, but the challenge says {ai['status']}"
+            assert ai["calls"] == 0 and not ai["trace"] and not ai["placements"], ai["calls"]
+            assert not ai["sentence"] or ("isn't set up" in ai["sentence"] and "the engine's plan stands" in ai["sentence"]), ai["sentence"]
+            return
+        if ai["status"] == "skipped":
+            return
+        # the bar: the page's default budget (the largest paid step at or under $50M) and what it connects
+        stops = [0]
+        for st in firm["steps"]:
+            if not st["free"] and st["cum_cost"]["high"] > stops[-1] + 0.5:
+                stops.append(st["cum_cost"]["high"])
+        within = [v for v in stops if v <= 50e6]
+        budget = within[-1] if len(within) > 1 else stops[1]
+
+        def eng_within(money):
+            n = 0
+            for st in firm["steps"]:
+                if st["cum_cost"]["high"] > money + 0.5:
+                    break
+                n = st["n"]
+            return n
+
+        bar_n = eng_within(budget)
+        assert ai["bar"]["campuses"] == bar_n and abs(ai["bar"]["cost"]["high"] - firm["steps"][bar_n - 1]["cum_cost"]["high"]) <= 1, (ai["bar"], bar_n)
+        for i, row in enumerate(ai["trace"], 1):
+            assert row["n"] == i and row["actor"] in ("gemini", "engine") and row["kind"] and row["title"], row
+            # Gemini's own cost figures are shown only as its own words, never as a figure the page stands behind
+            if row["actor"] == "gemini" and "$" in (row.get("detail") or ""):
+                assert "not used" in row["detail"], row["detail"]
+        if ai["status"] in ("lost", "offline", "error"):
+            assert "didn't beat" in ai["sentence"] or "stands" in ai["sentence"], ai["sentence"]
+            assert not any(a["outcome"] in ("beat", "matched") for a in ai["attempts"]), ai["attempts"]
+            assert ai.get("savings_high") is None and ai.get("engine_same_money") is None, "savings reported for a plan the engine didn't verify"
+            return
+        # beat or matched: the plan the page shows, re-checked through the public routes
+        n = ai["campuses"]
+        cost = ai["cost"]["high"]
+        assert n == len(ai["placements"]) >= bar_n and len({x["id"] for x in ai["placements"]}) == n, (n, ai["placements"])
+        assert abs(cost - sum(pj["cost"]["high"] for pj in ai["projects"])) <= len(ai["projects"]) + 1, (cost, [pj["cost"] for pj in ai["projects"]])
+        for pj in ai["projects"]:
+            assert pj["by"] == "gemini" and pj["rating_original_mva"] < pj["rating_after_mva"] <= 5 * pj["rating_original_mva"] + 0.5, pj
+            on_step = abs(pj["rating_after_mva"] / 50 - round(pj["rating_after_mva"] / 50)) < 1e-6
+            assert on_step or pj["rating_after_mva"] >= 5 * pj["rating_original_mva"] - 0.5, f"{pj['short']}: {pj['rating_after_mva']} MVA is not a 50 MVA step"
+        ec = firm["steps"][n - 1]["cum_cost"]["high"] if n <= len(firm["steps"]) else None
+        if ai["status"] == "beat":
+            # more campuses than the engine's plan connects with the same money, by more than the rounding margin
+            assert eng_within(cost) < n, (n, cost, eng_within(cost))
+            assert ec is None or cost < ec - max(0.02 * ec, 250_000) + 1, (cost, ec)
+        else:
+            assert ec is not None and abs(cost - ec) <= max(0.02 * ec, 250_000) + 1, (cost, ec)
+        if n <= 12:
+            main, rest = ai["placements"][0], ai["placements"][1:]
+            case = {"region": "FL", "lat": main["lat"], "lon": main["lon"], "mw": MW, "load_factor": 1.0,
+                    "sites": [{"lat": x["lat"], "lon": x["lon"], "mw": MW} for x in rest],
+                    "upgrades": {str(pj["branch_id"]): pj["rating_after_mva"] for pj in ai["projects"]}}
+            after = ctx.request("POST", "/api/grid/cascade", case)
+            assert after["total_steps"] == 0 and int(after.get("people_hit", after["people"]) or 0) == 0, (n, after["total_steps"])
+            assert after["lost_mw"] <= 0.5, after["lost_mw"]
+
     ctx.check("unlock: bad sizes, the national map, unknown states and jobs are refused", validation)
     ctx.check("unlock: Florida at 1,000 MW finds weak points and a verified plan", study)
     ctx.check("unlock: the cascade route agrees a site the plan unlocks now holds", engine_agrees)
     ctx.check("unlock: the same study again comes from the cache", cached_rerun)
     ctx.check("unlock: peek shows the finished Florida study at once and starts nothing elsewhere", peek)
     ctx.check("unlock: capacity — campuses at once, costs that add up, verified calm, and the cascade route agrees", capacity)
+    ctx.check("unlock: Gemini's try at beating the capacity plan — a known status, a win only when the engine and the cascade route agree", capacity_ai)

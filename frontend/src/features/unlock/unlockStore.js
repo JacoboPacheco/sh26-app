@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { defaultBudget, stepsWithin } from './budget'
-import { capOf, capWithin, defaultCapBudget } from './capacity'
+import { aiCapPlan, capOf, capWithin, defaultCapBudget } from './capacity'
 import { DEFAULT_SIZE, getUnlockJob, peekUnlock, startUnlock } from './unlockApi'
 
 // State the Strengthen page and its map layer share: the study (a background job on the backend), what is on
@@ -41,6 +41,7 @@ let state = {
   playing: false,
   selected: null, // {type: 'cap' | 'step' | 'point' | 'site' | 'bundle', id}
   bundle: null, // a Gemini bundle shown on the map instead of the plan (its index), or null
+  gemShow: false, // the capacity view shows Gemini's verified plan (capacity.ai) instead of the engine's
 }
 const subs = new Set()
 const get = () => state
@@ -67,6 +68,8 @@ export const targetOf = (s) => (s.result ? stepsWithin(s.result, budgetOf(s)) : 
 export const capNow = (s) => capOf(s.result, s.flex)
 export const capBudgetOf = (s) => (s.capBudget != null ? s.capBudget : defaultCapBudget(capNow(s)))
 export const capTargetOf = (s) => capWithin(capNow(s), capBudgetOf(s))
+// Gemini's verified plan when the page shows it (always-on campuses only: the challenge ran on that plan), else null
+export const gemNow = (s) => (s.gemShow && !s.flex ? aiCapPlan(s.result) : null)
 
 export const reducedMotion = () => {
   try {
@@ -95,6 +98,7 @@ const fresh = (region, loadFactor, extra) => ({
   capShown: 0,
   selected: null,
   bundle: null,
+  gemShow: false,
   ...extra,
 })
 
@@ -104,10 +108,12 @@ export async function openStudy({ region, loadFactor, auto = false, force = fals
   const key = keyOf(region, state.size, loadFactor)
   if (!force && state.key === key && state.status !== 'error' && state.status !== 'idle') {
     refreshAi(region, loadFactor)
+    if (capPending(state.result) && !pendTimer) watchPending()
     return
   }
   stopPlay()
   stopCap()
+  stopPending()
   clearTimeout(pollTimer)
   const id = ++runId
   set(fresh(region, loadFactor, { status: 'peeking', estimate: null }))
@@ -132,25 +138,77 @@ export async function openStudy({ region, loadFactor, auto = false, force = fals
 // Coming back to the page picks up Gemini's verified bundles when they are in (the plan and the build-up stay).
 const AI_REFRESH_MS = 30000
 let aiCheckedAt = 0
+const FELL = new Set(['offline', 'error'])
+// how many of the two Gemini steps (the site bundles, the challenge to the capacity plan) fell back
+const fellCount = (r) => (FELL.has(r?.ai?.status) ? 1 : 0) + (FELL.has(r?.capacity?.ai?.status) ? 1 : 0)
 async function refreshAi(region, loadFactor) {
-  const ai = state.result?.ai?.status
-  if (state.status !== 'done' || (ai !== 'offline' && ai !== 'error') || Date.now() - aiCheckedAt < AI_REFRESH_MS) return
+  if (state.status !== 'done' || !fellCount(state.result) || Date.now() - aiCheckedAt < AI_REFRESH_MS) return
   aiCheckedAt = Date.now()
   const key = state.key
   try {
     const p = await peekUnlock({ region, mw: state.size, loadFactor })
     if (p.state !== 'done' || !p.id) return
     const s = await getUnlockJob(p.id)
-    const got = s.result?.ai?.status
-    if (state.key === key && state.status === 'done' && got && got !== 'offline' && got !== 'error') set({ result: s.result })
+    // either step coming back is worth showing (the other may still be unavailable)
+    if (state.key === key && state.status === 'done' && s.result && fellCount(s.result) < fellCount(state.result)) {
+      set({ result: s.result, jobId: p.id })
+      if (capPending(s.result)) watchPending()
+    }
   } catch {
     // the answer on screen stands
   }
 }
 
+// Gemini's challenge to the capacity plan never holds the study back: the study arrives with capacity.ai "pending"
+// and the verdict lands in the same job on the server a few seconds later; the page picks it up here (the plan, its
+// numbers and the build-up on screen stay as they are).
+const PENDING_POLL_MS = 1500
+const PENDING_MAX_MS = 180000
+let pendTimer = null
+const capPending = (r) => r?.capacity?.ai?.status === 'pending'
+function stopPending() {
+  clearTimeout(pendTimer)
+  pendTimer = null
+}
+function watchPending() {
+  stopPending()
+  const { key, region, size, loadFactor } = state
+  const since = Date.now()
+  const tick = async () => {
+    pendTimer = null
+    if (state.key !== key || state.status !== 'done' || !capPending(state.result) || Date.now() - since > PENDING_MAX_MS) return
+    try {
+      let s = null
+      try {
+        s = state.jobId ? await getUnlockJob(state.jobId) : null
+      } catch {
+        s = null // the job may be gone (a restart, or the server let it go): ask for the study again below
+      }
+      if (!s || s.status !== 'done') {
+        s = null
+        const p = await peekUnlock({ region, mw: size, loadFactor })
+        if (p.state === 'done' && p.id) {
+          s = await getUnlockJob(p.id)
+          if (state.key === key) set({ jobId: p.id })
+        }
+      }
+      if (state.key !== key || state.status !== 'done') return
+      if (s?.status === 'done' && s.result && !capPending(s.result)) {
+        set({ result: s.result })
+        return
+      }
+    } catch {
+      // try again on the next tick
+    }
+    if (state.key === key && !pendTimer) pendTimer = setTimeout(tick, PENDING_POLL_MS)
+  }
+  pendTimer = setTimeout(tick, PENDING_POLL_MS)
+}
+
 export async function runStudy({ region, loadFactor }) {
   stopPlay()
   stopCap()
+  stopPending()
   clearTimeout(pollTimer)
   const id = ++runId
   set(
@@ -209,20 +267,21 @@ function finish(s) {
   const first = !played.has(state.key)
   played.add(state.key)
   if (first && m && n > m.today && !reducedMotion() && state.view === 'capacity') playCap(true)
+  if (capPending(result)) watchPending()
 }
 
 // ------------------------------------------------------------------ the capacity view: budget, type, build-up
 export function setView(view) {
   stopPlay()
   stopCap()
-  set((s) => ({ view, autoSites: false, selected: null, bundle: null, capShown: capTargetOf(s) }))
+  set((s) => ({ view, autoSites: false, selected: null, bundle: null, gemShow: false, capShown: capTargetOf(s) }))
 }
 
 export function setCapBudget(dollars) {
   stopCap()
   set((s) => {
     const next = { ...s, capBudget: Math.max(0, dollars) }
-    return { capBudget: next.capBudget, capShown: capTargetOf(next) }
+    return { capBudget: next.capBudget, capShown: capTargetOf(next), gemShow: false }
   })
 }
 
@@ -231,7 +290,7 @@ export function setFlex(flex) {
   stopCap()
   set((s) => {
     const next = { ...s, flex: !!flex, capBudget: null }
-    return { flex: next.flex, capBudget: null, capShown: capTargetOf(next), selected: null }
+    return { flex: next.flex, capBudget: null, capShown: capTargetOf(next), selected: null, gemShow: false }
   })
 }
 
@@ -250,7 +309,7 @@ export function playCap(fromStart = false) {
     return
   }
   let at = fromStart || state.capShown >= n || state.capShown < m.today ? m.today : state.capShown
-  set({ capShown: at, capPlaying: true })
+  set({ capShown: at, capPlaying: true, gemShow: false })
   const delay = (k) => (m.steps[k]?.free ? CAP_FREE_MS : CAP_STEP_MS) // k: the index of the campus about to land
   const tick = () => {
     at += 1
@@ -291,6 +350,11 @@ export function stopPlay() {
 }
 
 export const select = (sel) => set({ selected: sel })
+// Show Gemini's verified plan on the meter and the map in place of the engine's (or go back to the engine's)
+export function showGemini(on) {
+  stopCap()
+  set((s) => ({ gemShow: !!on && !!aiCapPlan(s.result), selected: null, capShown: capTargetOf(s) }))
+}
 export const showBundle = (i) => {
   stopPlay()
   set((s) => ({ bundle: s.bundle === i ? null : i }))

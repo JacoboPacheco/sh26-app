@@ -28,6 +28,7 @@ import { flyTo, pickCampus } from './capacityPick'
 import CapacityCard from './CapacityCard'
 import CapacityMeter from './CapacityMeter'
 import CapacityPlan from './CapacityPlan'
+import GeminiChallenge from './GeminiChallenge'
 import StudyProgress from './StudyProgress'
 import UpgradeCard from './UpgradeCard'
 import UpgradeTable from './UpgradeTable'
@@ -36,6 +37,7 @@ import {
   capBudgetOf,
   capNow,
   capTargetOf,
+  gemNow,
   keyOf,
   openStudy,
   playCap,
@@ -49,6 +51,7 @@ import {
   setView,
   settleCap,
   showBundle,
+  showGemini,
   stopCap,
   stopPlay,
   useUnlock,
@@ -82,6 +85,8 @@ export default function StrengthenPage() {
   const plants = r?.capacity?.plants || null
   const plantsN = plants ? (u.flex ? plants.campuses_flexible : plants.campuses_firm) : null
   const selN = u.selected?.type === 'cap' ? u.selected.id : null
+  // Gemini's verified plan on the meter and the map ("Show it"), in place of the engine's
+  const gm = r ? gemNow(u) : null
 
   // the study for this state, size and load level: shown at once when the backend has it; Florida starts it
   useEffect(() => {
@@ -100,7 +105,12 @@ export default function StrengthenPage() {
   )
 
   const pick = (n) => pickCampus(o, m, n)
+  const pickGem = (n) => {
+    const st = gm?.steps[n - 1]
+    if (st) flyTo(o, [[st.site.lon, st.site.lat]])
+  }
   const watch = () => {
+    showGemini(false)
     select(null)
     mapRef.current?.reset()
     playCap(!(shown > m.today && shown < target))
@@ -140,6 +150,7 @@ export default function StrengthenPage() {
   const hasPlan = !!(m && m.steps.length)
   const duke = r?.capacity?.sources?.find((x) => /Duke/.test(x.name))
   const summary = hasPlan ? meterSummary(m, r.mw, target, plantsN, plants?.reserve_pct) : ''
+  const gemSummary = gm ? `Capacity meter showing Gemini’s plan, verified by the engine: ${fmt(gm.steps.length)} campuses at once for ${money(r.capacity.ai.cost.high)}.` : ''
 
   return (
     <>
@@ -147,15 +158,16 @@ export default function StrengthenPage() {
         <Answer o={o} u={u} r={r} m={m} where={where} national={national} busy={busy} mine={mine} target={target} loadFactor={loadFactor} plantsN={plantsN} />
         {hasPlan && (
           <CapacityMeter
-            m={m}
+            m={gm || m}
             plantsN={plantsN}
             reservePct={plants?.reserve_pct ?? 15}
-            target={target}
-            shown={shown}
-            playing={u.capPlaying}
-            selectedN={selN}
-            onPick={pick}
-            summary={summary}
+            target={gm ? gm.steps.length : target}
+            shown={gm ? gm.steps.length : shown}
+            playing={gm ? false : u.capPlaying}
+            selectedN={gm ? null : selN}
+            onPick={gm ? pickGem : pick}
+            summary={gm ? gemSummary : summary}
+            gem={gm ? r.capacity.ai : null}
           />
         )}
         {!national && (
@@ -214,9 +226,9 @@ export default function StrengthenPage() {
         )}
       </header>
 
-      {m && view === 'capacity' && <MapKey />}
+      {m && view === 'capacity' && <MapKey gem={!!gm?.steps.some((st) => st.gem)} />}
 
-      {r && view === 'capacity' && selN && <CapacityCard r={r} m={m} n={selN} flex={u.flex} target={target} onBudget={setCapBudget} />}
+      {r && view === 'capacity' && selN && !gm && <CapacityCard r={r} m={m} n={selN} flex={u.flex} target={target} onBudget={setCapBudget} />}
       {r && view === 'sites' && (
         <UpgradeCard r={r} selected={u.selected} bundle={u.bundle} target={targetOf(u)} budget={budgetOf(u)} onBudget={setBudget} onPickStep={pickStep} />
       )}
@@ -257,9 +269,10 @@ export default function StrengthenPage() {
                 </button>
               </div>
               {view === 'capacity' ? (
-                <div className="st-pane" role="tabpanel" aria-label="Campuses at once">
+                <div className={`st-pane${gm ? ' is-gem' : ''}`} role="tabpanel" aria-label="Campuses at once">
                   <div className="cp-head">
                     <h2 className="st-h">The plan, campus by campus</h2>
+                    <GeminiChallenge r={r} flex={u.flex} showing={!!gm} onShow={showGemini} />
                     <GeminiLine r={r} onOpen={() => openSites('ai')} />
                   </div>
                   {hasPlan ? (
@@ -476,9 +489,15 @@ function CapBudget({ m, budget, onChange }) {
   )
 }
 
-function MapKey() {
+function MapKey({ gem = false }) {
   return (
     <ul className="st-key" aria-label="Map key">
+      {gem && (
+        <li className="st-key__gem-item">
+          <span className="st-key__m st-key__m--gem" aria-hidden="true" />
+          Gemini’s pick
+        </li>
+      )}
       <li>
         <span className="st-key__m st-key__m--today" aria-hidden="true" />
         Fits today

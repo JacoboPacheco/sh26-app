@@ -33,7 +33,10 @@ UNLOCK_WARM="FL:1000" by default, "0" turns it off) and is never evicted from th
 4  AI PROPOSES. Gemini (llm.complete_json, fallback + timeout) gets the ranked weak points and the
    engine's plan and proposes other bundles; each is verified the same way and kept only if the engine
    confirms it unlocks sites (tag "gemini"; the engine's own steps are tagged "engine"). With no key
-   the engine's plan stands alone.
+   the engine's plan stands alone. At the same time Gemini tries to beat the capacity plan (capacity_ai.py:
+   more campuses at once for the default budget, or the same for less; the engine re-solves, prices and
+   judges it), in result["capacity"]["ai"]. The page never waits for that challenge: the study is published
+   with its status "pending" and the verdict lands in the cached study when the engine has judged it.
 
 Every proposed upgrade is a project-shaped record (id, name, kind, endpoints and geometry, rating before
 and after, cost range, owner = the substation's area name — there is no real utility — and an empty
@@ -68,6 +71,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 import capacity
+import capacity_ai
 import costs
 import danger
 from grid import DEFAULT_REGION, LOAD_FACTOR_MAX, LOAD_FACTOR_MIN, REGIONS, grid_at, region_code
@@ -1077,12 +1081,81 @@ def _found(key: tuple) -> tuple[_Job, bool] | None:
     return (same, False) if same is not None else None
 
 
+_AI_FELL = ("offline", "error")
+_bg_tasks: set = set()  # Gemini's capacity challenges still running after their study was published
+
+
+def _cap_ai_status(result: dict) -> str | None:
+    return ((result.get("capacity") or {}).get("ai") or {}).get("status")
+
+
+async def _bundles_step(study: Study, report, prev: dict | None = None) -> dict:
+    """Gemini's site bundles (_ai). With `prev` (a cached result: the retry) it runs again only if it fell back."""
+    if prev is not None and (prev.get("ai") or {}).get("status") not in _AI_FELL:
+        return prev["ai"]
+    try:
+        return await _ai(study, report)
+    except Exception:  # noqa: BLE001 — the AI step is a bonus; the engine's plan stands alone
+        log.exception("unlock: AI step failed")
+        return {"status": "error", "bundles": [], "asked": 0, "rejected": []}
+
+
+async def _challenge_step(study: Study, prev: dict | None = None) -> dict | None:
+    """Gemini's try at beating the capacity plan (capacity_ai.challenge; it reports no progress: the study is already
+    published). With `prev` (the retry) it runs again only if it fell back; a pending one is still running elsewhere."""
+    if getattr(study, "capacity", None) is None:
+        return None
+    if prev is not None and _cap_ai_status(prev) not in _AI_FELL:
+        return (prev.get("capacity") or {}).get("ai")
+    try:
+        return await capacity_ai.challenge(study)
+    except Exception:  # noqa: BLE001 — the capacity plan stands without Gemini's challenge
+        log.exception("unlock: Gemini's capacity challenge failed")
+        return capacity_ai.failed()
+
+
+def _with_cap_ai(result: dict, cap_ai: dict | None) -> dict:
+    """Gemini's challenge goes in result["capacity"]["ai"] (a fresh capacity dict: the study's own is never changed)."""
+    if result.get("capacity") is not None and cap_ai is not None:
+        result["capacity"] = {**result["capacity"], "ai": cap_ai}
+    return result
+
+
+def _attach_cap_ai(key: tuple, cap_ai: dict) -> None:
+    """The challenge has landed: it replaces "pending" in the cached study for `key` and in every finished job that
+    shows it (a fresh result dict each time, so a response already on its way is never changed under it)."""
+    with _cache_lock:
+        cur = _cache.get(key)
+        if cur is not None and _cap_ai_status(cur) == "pending":
+            _cache[key] = _with_cap_ai(dict(cur), cap_ai)
+    with _jobs_lock:
+        for j in list(_jobs.values()):
+            if j.key == key and j.status == "done" and j.result is not None and _cap_ai_status(j.result) == "pending":
+                j.result = _with_cap_ai(dict(j.result), cap_ai)
+
+
+async def _land_challenge(key: tuple, task: "asyncio.Future") -> None:
+    """Wait for the challenge started beside the bundles and put its verdict in the published study; whatever
+    happens, "pending" never stays (an error lands as capacity_ai.failed())."""
+    cap_ai = None
+    try:
+        cap_ai = await task
+    except asyncio.CancelledError:
+        _attach_cap_ai(key, capacity_ai.failed())
+        raise
+    except Exception:  # noqa: BLE001 — _challenge_step already catches; this is the last guard
+        log.exception("unlock: Gemini's capacity challenge failed")
+    _attach_cap_ai(key, cap_ai or capacity_ai.failed())
+    log.info("unlock: Gemini's capacity challenge for %s at %.0f MW: %s", key[0], key[1], (cap_ai or {}).get("status"))
+
+
 def _retry_ai(key: tuple, hit: dict) -> None:
     """A warm study whose Gemini step fell back (the free tier's per-minute quota, the network, the timeout) tries
     that step again in the background, at most every AI_RETRY_S; the engine's plan and its numbers are unchanged,
-    and Gemini's bundles are kept only when the engine verifies them, as in the first run."""
+    and Gemini's bundles (and its capacity plan) are kept only when the engine verifies them, as in the first run."""
     study = _studies.get(key)
-    if study is None or (hit.get("ai") or {}).get("status") not in ("offline", "error") or not configured():
+    fell = (hit.get("ai") or {}).get("status") in _AI_FELL or _cap_ai_status(hit) in _AI_FELL
+    if study is None or not fell or not configured():
         return
     now = time.monotonic()
     if now - _ai_tried.get(key, 0.0) < AI_RETRY_S:
@@ -1090,14 +1163,18 @@ def _retry_ai(key: tuple, hit: dict) -> None:
     _ai_tried[key] = now
 
     async def again():
-        ai = await _ai(study, lambda *a: None)
+        ai, cap_ai = await asyncio.gather(_bundles_step(study, lambda *a: None, prev=hit), _challenge_step(study, prev=hit))
         _ai_tried[key] = time.monotonic()
-        if ai["status"] in ("offline", "error"):
+        if ai["status"] in _AI_FELL and (cap_ai or {}).get("status") in _AI_FELL:
             return
         result = await run_in_threadpool(study.result, ai)
         with _cache_lock:
-            _cache[key] = result
-        log.info("unlock: Gemini step retried for %s at %.0f MW: %s, %d bundles", key[0], key[1], ai["status"], len(ai["bundles"]))
+            # a challenge that landed meanwhile (or is still pending) is kept unless this retry got a real answer
+            now_ai = ((_cache.get(key) or {}).get("capacity") or {}).get("ai")
+            if now_ai is not None and (cap_ai is None or cap_ai.get("status") in _AI_FELL + ("pending",)):
+                cap_ai = now_ai
+            _cache[key] = _with_cap_ai(result, cap_ai)
+        log.info("unlock: Gemini steps retried for %s at %.0f MW: %s, %d bundles; capacity challenge %s", key[0], key[1], ai["status"], len(ai["bundles"]), (cap_ai or {}).get("status"))
 
     def run():
         try:
@@ -1142,21 +1219,29 @@ def _compute(job: _Job) -> Study:
 
 
 async def _run_job(job: _Job) -> None:
+    chal = None  # Gemini's try at beating the capacity plan, running beside the bundles
     try:
         study = await run_in_threadpool(_compute, job)
 
         def report(phase, done, total, message):
             job.progress = {"phase": phase, "done": int(done), "total": int(total), "message": message}
 
-        try:
-            ai = await _ai(study, report)
-        except Exception:  # noqa: BLE001 — the AI step is a bonus; the engine's plan stands alone
-            log.exception("unlock: AI step failed")
-            ai = {"status": "error", "bundles": [], "asked": 0, "rejected": []}
+        # Gemini's two steps start together: other upgrade bundles for single sites (the page waits for these, as
+        # before), and its try at beating the capacity plan, which the page never waits for: the study is published
+        # with capacity.ai "pending" and the verdict lands in it when the engine has judged it (_land_challenge)
+        cap_ai = capacity_ai.opening(study)
+        if cap_ai is not None and cap_ai["status"] == "pending":
+            chal = asyncio.ensure_future(_challenge_step(study))
+            _bg_tasks.add(chal)  # a strong reference while it runs (the event loop keeps only weak ones)
+            chal.add_done_callback(_bg_tasks.discard)
+        ai = await _bundles_step(study, report)
         _ai_tried[job.key] = time.monotonic()
         if job.key in _PINNED and study.baseline is None:
             _studies[job.key] = study
-        result = await run_in_threadpool(study.result, ai)
+        if chal is not None and chal.done():
+            cap_ai = chal.result() or capacity_ai.failed()  # it finished first: publish its verdict directly
+            chal = None
+        result = _with_cap_ai(await run_in_threadpool(study.result, ai), cap_ai)
         with _cache_lock:
             _cache[job.key] = result
             _cache.move_to_end(job.key)
@@ -1180,6 +1265,12 @@ async def _run_job(job: _Job) -> None:
         job.status = "error"
     finally:
         job.task = None
+        if chal is not None and job.status != "done":
+            chal.cancel()  # the study failed: nothing to put the verdict in
+            chal = None
+    if chal is not None:
+        # the published study waits for nothing; the verdict lands in it (a warm-up's own event loop stays open until then)
+        await _land_challenge(job.key, chal)
 
 
 # ---------------------------------------------------------------------------------- routes

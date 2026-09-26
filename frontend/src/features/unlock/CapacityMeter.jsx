@@ -17,7 +17,7 @@ import { aOrdinal, stopText } from './capacity'
 const MIN = 12
 const STAGGER_MS = 45
 
-export default function CapacityMeter({ m, plantsN, reservePct, target, shown, playing, selectedN, onPick, summary }) {
+export default function CapacityMeter({ m, plantsN, reservePct, target, shown, playing, selectedN, onPick, summary, gem = null }) {
   const ref = useRef(null)
   const [w, setW] = useState(0)
   useLayoutEffect(() => {
@@ -71,8 +71,15 @@ export default function CapacityMeter({ m, plantsN, reservePct, target, shown, p
   const endSub = m.stop === 'plants' || m.stop === 'no_fix' ? `for ${aOrdinal(N + 1)} campus` : ''
 
   return (
-    <div className="cm" ref={ref}>
+    <div className={`cm${gem ? ' cm--gem' : ''}`} ref={ref}>
       <p className="st-sr">{summary}</p>
+      {gem && (
+        <p className="cm-gem" aria-hidden="true">
+          <span className="cm-gem__tag">Gemini’s plan</span>
+          {fmt(N)} at once for {shortMoney(gem.cost.high)}, verified by the engine
+          {steps.some((st) => st.gem) && <span className="cm-gem__key"><span className="cm-gem__swatch" />outlined: sites the engine’s plan doesn’t use</span>}
+        </p>
+      )}
       {w > 0 && (
         <div className="cm-rows" aria-hidden="true">
           {Array.from({ length: rows }, (_, r) => {
@@ -112,6 +119,7 @@ export default function CapacityMeter({ m, plantsN, reservePct, target, shown, p
                       `cm-cell--${s}`,
                       s === 'bought' && !lit && 'is-unlit',
                       marker != null && n > marker && 'cm-cell--gen',
+                      gem && st.gem && 'cm-cell--gem',
                       selectedN === n && 'is-sel',
                       playing && n === shown && 'is-now',
                     ]
@@ -122,7 +130,11 @@ export default function CapacityMeter({ m, plantsN, reservePct, target, shown, p
                         key={n}
                         className={cls}
                         style={{ width: `${cellW}px`, '--cm-d': `${delay}ms` }}
-                        title={`Campus ${n}: ${st.site.area}${st.free ? (n <= today ? ', fits today' : ', fits with the upgrades before it') : `, +${shortMoney(st.cost.high)} of upgrades`}`}
+                        title={
+                          gem
+                            ? `Gemini’s campus ${n}: ${st.site.area}${st.gem ? ' (not in the engine’s plan)' : ''}`
+                            : `Campus ${n}: ${st.site.area}${st.free ? (n <= today ? ', fits today' : ', fits with the upgrades before it') : `, +${shortMoney(st.cost.high)} of upgrades`}`
+                        }
                         onClick={() => onPick(n)}
                       >
                         {cellW >= 18 && <span className="cm-cell__n">{n}</span>}

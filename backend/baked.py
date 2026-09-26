@@ -13,7 +13,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 DIR = HERE / "demo" / "strengthen"
-ENGINE_FILES = ("unlock.py", "capacity.py", "powerflow.py", "danger.py", "costs.py", "grid.py")
+ENGINE_FILES = ("unlock.py", "capacity.py", "capacity_ai.py", "powerflow.py", "danger.py", "costs.py", "grid.py")
 
 
 def fingerprint() -> str:
@@ -43,6 +43,12 @@ def load() -> int:
         if d.get("fingerprint") != fp:
             log.info("baked study %s is from other engine code (%s, now %s): computed live instead", p.name, d.get("fingerprint"), fp)
             continue
+        cap = (d["result"] or {}).get("capacity") or {}
+        if (cap.get("ai") or {}).get("status") == "pending":
+            # baked before Gemini's challenge landed (scripts/bake_strengthen.py waits for it): nothing will finish it here
+            import capacity_ai
+
+            d["result"]["capacity"] = {**cap, "ai": capacity_ai._empty("offline", "Gemini's challenge hadn't finished when this study was saved; the engine's plan stands.", bar=cap["ai"].get("bar"))}
         with unlock._cache_lock:
             unlock._cache[key] = d["result"]
         getattr(unlock, "_PINNED", set()).add(key)  # never evicted, like the warmed study
