@@ -56,3 +56,8 @@
 .cause__v--over {
   color: var(--loss);
 }
+
+/* the cause bars already say how far past its rating the busiest line goes: drop the same sentence below them */
+.sv:has(.cause) + .risk .risk__strain {
+  display: none;
+}
