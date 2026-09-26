@@ -1,5 +1,5 @@
 import { fmt } from '../geo'
-import { useOverload } from '../store'
+import { STEP_MS, useOverload } from '../store'
 import { Button, ErrorBanner } from '../ui'
 
 // The bottom bar: the one place the cascade is started, played and scrubbed, in every mode.
@@ -49,19 +49,26 @@ export default function Timeline() {
           <p className="timeline__hint">Nothing to cascade — no line is over its limit.</p>
         ) : (
           <>
-            <ol className="ticks" aria-label="Cascade steps">
-              {Array.from({ length: n + 1 }, (_, i) => (
-                <li key={i}>
-                  <button
-                    type="button"
-                    className={`tick${i === step ? ' tick--now' : ''}${i < step ? ' tick--past' : ''}`}
-                    onClick={() => setStep(i)}
-                    aria-label={i === 0 ? 'Before the cascade' : `Step ${i}`}
-                    aria-current={i === step ? 'step' : undefined}
-                  />
-                </li>
-              ))}
-            </ol>
+            {/* one continuous bar: the fill glides from step to step while playing */}
+            <div className="flowbar">
+              <div
+                className="flowbar__fill"
+                style={{ width: `${(step / n) * 100}%`, transitionDuration: playing ? `${STEP_MS}ms` : '0ms' }}
+              />
+              <ol className="flowbar__marks" aria-label="Cascade steps">
+                {Array.from({ length: n + 1 }, (_, i) => (
+                  <li key={i} style={{ left: `${(i / n) * 100}%` }}>
+                    <button
+                      type="button"
+                      className={`mark${i === step ? ' mark--now' : ''}${i < step ? ' mark--past' : ''}`}
+                      onClick={() => setStep(i)}
+                      aria-label={i === 0 ? 'Before the cascade' : `Step ${i}`}
+                      aria-current={i === step ? 'step' : undefined}
+                    />
+                  </li>
+                ))}
+              </ol>
+            </div>
             <input
               className="timeline__range"
               type="range"

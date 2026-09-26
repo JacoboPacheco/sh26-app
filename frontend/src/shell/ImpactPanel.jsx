@@ -2,20 +2,31 @@ import Bulletin from '../features/bulletin/Bulletin'
 import MapLegend from '../features/flow/MapLegend'
 import TownsFeed from '../features/impact/TownsFeed'
 import { fmt } from '../geo'
-import { useOverload } from '../store'
+import { STEP_MS, useOverload } from '../store'
 import useCountUp from './useCountUp'
 
 // The right-hand column: who is affected. The giant counter is the one loud thing on the screen.
 export default function ImpactPanel() {
-  const { view, cascade, step, result } = useOverload()
-  const homes = useCountUp(view?.homes || 0)
+  const { view, cascade, step, result, playing } = useOverload()
   const n = cascade?.steps.length || 0
   const done = cascade && n > 0 && step >= n
+  // people once the engine reports them, homes until then
+  const usePeople = view?.people !== undefined
+  const key = usePeople ? 'people' : 'homes'
+  // the peak so far: a cascade can end with fewer people dark than at its worst, but the counter
+  // never counts down mid-replay (the result sentence gives the final number)
+  const peak = cascade && step > 0 ? Math.max(...cascade.steps.slice(0, step).map((s) => s[key] ?? 0)) : (view?.[key] ?? view?.homes ?? 0)
+  const final = done ? cascade.steps[n - 1][key] ?? 0 : null
+  // while playing, the number climbs steadily across each step's interval instead of jumping
+  const homes = useCountUp(peak, playing ? STEP_MS : 500, { linear: playing })
   return (
     <div className="stack panel-body impact">
       <div className="counter" aria-live="polite">
         <span className={`counter__n${homes > 0 ? ' counter__n--dark' : ''}`}>{fmt(homes)}</span>
-        <span className="counter__label">Homes without power (estimate, ~1.4 kW per home)</span>
+        <span className="counter__label">
+          {usePeople ? 'People without power (estimate)' : 'Homes without power (estimate, ~1.4 kW per home)'}
+          {final !== null && final < peak && ` · at its worst; ${fmt(final)} at the end`}
+        </span>
       </div>
       {done && (
         <p className={cascade.outcome === 'islanded' ? 'verdict verdict--bad' : 'verdict'}>
