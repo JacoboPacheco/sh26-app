@@ -7,6 +7,7 @@ import OutageCost from '../features/cost/OutageCost'
 import { LABEL, cascadePeople, homesOf } from '../features/cost/figures'
 import { money, moneyParts, moneyRange } from '../features/cost/money'
 import { FlipOffer, FlipResult } from '../features/fix/Flip'
+import { GeminiDuelOffer } from '../features/fix/GeminiDuelLayer'
 import { flipSide, plantsOut, useFixFollowsCase, useFlip } from '../features/fix/flipCase'
 import TownsFeed from '../features/impact/TownsFeed'
 import { useSteadyLossRate } from '../features/cost/steady'
@@ -71,6 +72,8 @@ export default function ImpactPanel() {
           same case again with the best verified fix), then one click to present it */}
       {result && !fixed && <OutageCost />}
       {done && !calm && !fixed && <FlipOffer rate={rate} />}
+      {/* secondary to the flip: Gemini's recorded plans replayed on the map, each re-run by the engine */}
+      {done && !calm && !fixed && <GeminiDuelOffer rate={rate} />}
       {result && <PresentDamage />}
       {(done || (fixed && settled)) && <ToStrengthen />}
       <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>

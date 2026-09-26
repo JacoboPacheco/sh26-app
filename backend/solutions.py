@@ -17,6 +17,14 @@ the last resort. There is always more than one solution when more than one holds
                                 (lines, MVA, keep %), what the engine found (holds, or which lines stay over and by how
                                 much, people still out), the feedback sent back and the revision, plus agentic totals
                                 (asked, verified, rounds, calls, ms). The trace is written live while the loop runs.
+                                BEAT THE ENGINE: the prompt carries each line's high-end cost (costs.py, as the engine
+                                prices a plan) and the engine's own full-size plan's cost as the bar; every plan is priced
+                                by the engine (verify rows: cost_usd, beats_engine_by, vs); a plan that holds but costs
+                                more goes back with its price ("find a cheaper full-size plan"); the result row and
+                                agentic carry outcome ('beat' | 'matched' | 'lost' | 'failed' | 'none' | 'verified'),
+                                engine_cost_usd, best_cost_usd, beat_by_usd (agentic also `cached`: the calls answered
+                                from the AI cache, which the result row says). Only a 'beat' ranks ahead of the
+                                engine's own plan (_key), so the fix applied always agrees with the result's title.
 
 Every plan the AI proposes is verified by the same cascade engine as every other fix: the AI never decides what
 holds. Everything is an estimate on a SYNTHETIC grid model, never a real utility's network.
@@ -52,6 +60,7 @@ STRAIN_FIXES = 8  # fixes measured per report (one solve each)
 MAX_ROUNDS = 3  # one proposal and up to two revisions after the engine's feedback
 TRACE_MAX = 40  # entries kept in agentic.trace (a round is about 7: the ask, three plans and their three checks)
 TRACE_LINES = 4  # upgraded lines named per proposed plan in the trace
+MATCH_FRAC = 0.01  # a verified AI plan within 1 % of the engine's own plan's cost matches it; cheaper than that beats it
 
 _running: set[str] = set()
 
@@ -84,10 +93,12 @@ def _label(g, bid: int, lang: str) -> str:
     return f"the {a} to {z} line" if lang == "en" else f"la línea de {a} a {z}"
 
 
-def _cost_of(c, g, upgrades: dict) -> dict | None:
-    """What the re-ratings cost (costs.py's published per-mile and per-MVA figures), low and high; None when none."""
+def _cost_of(c, g, upgrades: dict, items: bool = False) -> dict | None:
+    """What the re-ratings cost (costs.py's published per-mile and per-MVA figures), low and high; None when none.
+    items=True adds the priciest re-ratings ({id, to_mva, high}, at most three) for the proposer's feedback."""
     if not upgrades:
         return None
+    items_wanted = items
     try:
         import costs
 
@@ -98,10 +109,110 @@ def _cost_of(c, g, upgrades: dict) -> dict | None:
         items = costs._upgrade_items(g, g.rate, rate, idx, applied)
         if not items:
             return None
-        return {"low": int(sum(it["low"] for it in items)), "high": int(sum(it["high"] for it in items)), "lines": len(items)}
+        out = {"low": int(sum(it["low"] for it in items)), "high": int(sum(it["high"] for it in items)), "lines": len(items)}
+        if items_wanted:
+            out["items"] = [{"id": int(it["id"]), "to_mva": round(float(it["new_mva"])), "high": int(it["high"])} for it in items]
+        return out
     except Exception as e:  # noqa: BLE001 — a cost that can't be computed is left out, never guessed
         log.warning("solutions: cost failed: %s", e)
         return None
+
+
+def _usd(v: float, lang: str = "en") -> str:
+    """A cost as the panel prints it (features/cost/money.js): '$64 million', '$8.41 million', '$1.08 billion'."""
+    v = float(v)
+    for div, en_u, es_u in ((1e9, "billion", "mil millones"), (1e6, "million", "millones")):
+        if v >= div:
+            x = v / div
+            d = 0 if x >= 100 else 1 if x >= 10 else 2
+            s = f"{round(x, d):.{d}f}".rstrip("0").rstrip(".") if d else f"{x:.0f}"
+            return f"${s.replace('.', ',') if lang == 'es' else s} {en_u if lang == 'en' else es_u}"
+    return f"${int(round(v, -3)):,}"
+
+
+def _pct(v: float, lang: str = "en") -> str:
+    """A line's loading as the trace prints it: whole numbers, but one decimal close to the limit (99.7 % is inside
+    its rating, 100.3 % is over it: '100 %' would read as either)."""
+    v = float(v)
+    s = f"{v:.1f}" if 99.5 <= v < 100.5 else f"{v:.0f}"
+    return f"{s.replace('.', ',')} %" if lang == "es" else f"{s}%"
+
+
+def _price_hint(g, bid: int) -> dict | None:
+    """What raising one line costs at the high end, priced exactly as the engine prices a plan (costs.py): a line
+    raised up to RECONDUCTOR_MAX_RATIO x its rating has one flat price (reconductor or rebuild), past that it is a
+    new double-circuit line; a transformer is priced on its whole new rating. Given to Gemini so it can aim for a
+    cheaper plan; the plan itself is priced again by the engine (Gemini's own numbers are never used)."""
+    try:
+        import costs
+
+        i = g.br_index[int(bid)]
+        old = float(g.rate[i])
+
+        def high(to: float) -> float | None:
+            r = np.array(g.rate, dtype=float, copy=True)
+            r[i] = to
+            items = costs._upgrade_items(g, g.rate, r, [i], set())
+            return float(items[0]["high"]) if items else None
+
+        fs, ts = int(g.bus_sub_idx[g.f[i]]), int(g.bus_sub_idx[g.t[i]])
+        if fs == ts:
+            h = high(old * 1.5)
+            return {"kind": "transformer", "per_mva": h / (old * 1.5)} if h else None
+        ratio = float(costs.RECONDUCTOR_MAX_RATIO)
+        within, beyond = high(old * min(1.5, ratio)), high(old * ratio * 1.01)
+        return {"kind": "line", "upto_mva": round(old * ratio), "within": within, "beyond": beyond} if within and beyond else None
+    except Exception as e:  # noqa: BLE001 — a hint that can't be priced is left out
+        log.info("solutions: price hint skipped for %s: %s", bid, e)
+        return None
+
+
+def _say_price(p: dict | None) -> str:
+    if not p:
+        return ""
+    if p["kind"] == "transformer":
+        return f"; high-end cost ${p['per_mva'] / 1e3:,.1f}k per MVA of its NEW rating (a new transformer)"
+    return f"; high-end cost ${p['within'] / 1e6:,.1f}M for any new rating up to {p['upto_mva']:,} MVA, ${p['beyond'] / 1e6:,.1f}M above that (a new line)"
+
+
+def _engine_bar(rep: dict) -> dict | None:
+    """The bar Gemini is asked to beat: the engine's own cheapest verified plan that strengthens the grid and keeps the
+    whole campus (the 'upgrade' family), with its high-end cost and the margin it leaves (margin_pct: its busiest line,
+    or the grid's own busiest line without the campus when that is higher; None when not measured). None when the
+    engine has no such plan."""
+    best = None
+    for f in rep.get("fixes") or []:
+        if f.get("by", "engine") != "engine" or f.get("family") != "upgrade" or f.get("verdict") != "holds":
+            continue
+        hi = (f.get("cost") or {}).get("high")
+        if hi and (best is None or float(hi) < best["high"]):
+            peak = (f.get("strain") or {}).get("peak_pct")
+            alone = ((rep.get("strain") or {}).get("grid_alone") or {}).get("peak_pct")
+            margin = max(float(peak), float(alone or 0)) if peak is not None else None
+            best = {"high": float(hi), "low": float((f.get("cost") or {}).get("low") or 0), "action": str(f.get("action") or ""),
+                    "margin_pct": round(margin, 1) if margin is not None else None}
+    return best
+
+
+MARGIN_SLACK = 0.5  # percentage points over the engine's plan's busiest line still counted as the same margin
+
+
+def _vs(bar: dict | None, cost: float | None, keep_pct: float, peak: float | None = None) -> str | None:
+    """A verified plan against the engine's own: 'beat' (cheaper, the whole campus, the same margin), 'match' (within
+    MATCH_FRAC), 'pricier', 'smaller' (cheaper but for less than the whole campus) or 'thin' (cheaper but it leaves a
+    line hotter than the engine's plan leaves any: less margin, not a like-for-like win). Only 'beat' is a win."""
+    if not bar or not cost:
+        return None
+    d = bar["high"] - float(cost)
+    if abs(d) <= MATCH_FRAC * bar["high"]:
+        return "match"
+    if d > 0:
+        if keep_pct < 99.5:
+            return "smaller"
+        if peak is not None and bar.get("margin_pct") is not None and float(peak) > bar["margin_pct"] + MARGIN_SLACK:
+            return "thin"
+        return "beat"
+    return "pricier"
 
 
 def _must(c, g, fx: dict, total: float) -> dict:
@@ -234,8 +345,18 @@ def _key(fx: dict) -> tuple:
     kept = fx.get("kept_pct")
     tier = 0 if kept is not None and kept >= FULL_KEEP_PCT else 1
     cost = (fx.get("cost") or {}).get("high")
+    d = fx.get("detail") or {}
+    # an AI plan that does not beat the engine's own like for like never ranks ahead of it: cheaper only because it
+    # leaves a line hotter than the engine's plan leaves any ("thin") comes after the plans that keep that margin;
+    # cheaper only because it keeps less than the whole campus ("smaller") after those (a full-size plan with less
+    # margin still comes before one that builds less of the campus); within 1 % of the engine's price ("match": the
+    # result calls it an alternative) right after the engine's own plan, so the engine's plan stays the one applied
+    smaller = (fx.get("family") == "agentic" and kept is not None and kept < 99.5) or d.get("vs") == "smaller"
+    behind = 2 if smaller else 1 if d.get("thin") or d.get("vs") == "thin" else 0
+    if cost is not None and d.get("vs") == "match" and d.get("bar_usd"):
+        cost = max(float(cost), float(d["bar_usd"]) + 1.0)
     # strengthening the grid (the engine's upgrade or an AI plan the engine verified): the cheapest first
-    return (tier, FAMILY_PRIORITY.get(fx.get("family"), 8), cost if cost is not None else float("inf"), -(kept or 0.0))
+    return (tier, FAMILY_PRIORITY.get(fx.get("family"), 8), behind, cost if cost is not None else float("inf"), -(kept or 0.0))
 
 
 def _holds(fixes: list[dict]) -> list[int]:
@@ -324,18 +445,29 @@ def _candidates(rep: dict, c, extra_ids: list[int] | None = None) -> list[dict]:
     out = []
     for bid in ids[:22]:
         i = g.br_index[bid]
-        out.append({"id": bid, "label": _label(g, bid, "en"), "kv": float(g.br_kv[i]), "mva": round(float(g.rate[i])), "tripped_at": tripped_at.get(bid), "loaded_pct": loaded.get(bid)})
+        out.append({"id": bid, "label": _label(g, bid, "en"), "kv": float(g.br_kv[i]), "mva": round(float(g.rate[i])), "tripped_at": tripped_at.get(bid), "loaded_pct": loaded.get(bid),
+                    "price": _price_hint(g, bid)})
     return out
 
 
-def _prompt(rep: dict, c, cands: list[dict], have: list[str], feedback: str = "") -> str:
+def _prompt(rep: dict, c, cands: list[dict], have: list[str], feedback: str = "", bar: dict | None = None) -> str:
     total = float(sum(s.mw for s in c.sites))
     where = c.header.get("sub_area") or "the site"
     lines = "\n".join(
         f"- {x['id']}: {x['label']}, {x['kv']:.0f} kV, {x['mva']} MVA now"
         + (f", already at {x['loaded_pct']:.0f}% of its rating with the data center on" if x.get("loaded_pct") else "")
         + (f", tripped in step {x['tripped_at']}" if x["tripped_at"] else "")
+        + _say_price(x.get("price"))
         for x in cands
+    )
+    # "beat the engine" is the goal: the engine's own full-size plan and its high-end cost are the bar
+    goal = (
+        f"\n\nTHE BAR TO BEAT: the engine's own plan ({bar['action']}) holds at the full size for {_usd(bar['high'])} (high end). "
+        "Your goal is a plan that also holds with keep_pct 100 and costs LESS: the fewest, cheapest changes that hold"
+        + (f", with the same margin: no line above {bar['margin_pct']:.0f}% of its rating (the engine's plan leaves none above that)" if bar.get("margin_pct") is not None else "")
+        + ". The engine prices every plan itself from the costs listed above (any cost you state is ignored); "
+        "a plan that keeps less than 100 is never counted as beating it."
+        if bar else ""
     )
     return (
         f"A {total:,.0f} MW data center at {where} makes the synthetic grid model cascade: {rep['event']['steps']} steps, "
@@ -346,8 +478,9 @@ def _prompt(rep: dict, c, cands: list[dict], have: list[str], feedback: str = ""
         f"At most {MAX_PLAN_LINES} lines per plan. keep_pct is the share of the campus kept, between 90 and 100: 100 is best (people want to see the full amount), "
         "a small lowering is fine. The plans must differ from each other (different lines or a different keep_pct)"
         + (f" and from these plans that are already verified: {'; '.join(have)}." if have else ".")
+        + goal
         + (f"\n\n{feedback}" if feedback else "")
-        + '\n\nAnswer only as JSON: {"plans": [{"name": "at most 6 plain words saying what it upgrades, e.g. two lines and a transformer near the site; no adjectives like aggressive or maximum", "why": "one plain sentence on why it holds", '
+        + '\n\nAnswer only as JSON: {"plans": [{"name": "at most 6 plain words saying what it upgrades, e.g. two lines and a transformer near the site; no adjectives like aggressive or maximum", "why": "one plain sentence on why it holds, with no costs or dollar figures", '
         '"keep_pct": 100, "upgrades": [{"line_id": 123, "to_mva": 900}]}]}'
     )
 
@@ -465,13 +598,18 @@ def _check(c, J, plan: tuple, base_ups: dict) -> tuple[dict | None, str, dict]:
     act = st.active
     peak = float(np.max(np.where(act, st.loading_pct, 0.0))) if st.loading_pct.size else 0.0
     seen = {"holds": verdict == "holds", "verdict": verdict, "steps": int(oc["steps"]), "people": int(oc["people"]), "over": [],
-            "peak_pct": round(peak, 1), "how": how, "mw": round(float(sum(mws)), 1)}
+            "peak_pct": round(peak, 1), "how": how, "mw": round(float(sum(mws)), 1), "keep_pct": round(keep * 100, 1)}
+    # the engine prices the plan itself (costs.py's published figures, the way every fix is priced), holding or not
+    cost = _cost_of(c, g, upgrades, items=True)
+    seen["cost_items"] = cost.pop("items", []) if cost else []
+    seen["cost_usd"] = int(cost["high"]) if cost else None
+    seen["cost_low_usd"] = int(cost["low"]) if cost else None
     if verdict != "holds":
         over = []
         if not ok:
             hot = b._over(st)
             for i in hot[np.argsort(-st.loading_pct[hot])][:5]:
-                over.append(f"{int(g.br_ids[i])}: {b._line(g, int(i))['label']} at {st.loading_pct[i]:.0f}% of {rate[i]:.0f} MVA")
+                over.append(f"{int(g.br_ids[i])}: {b._line(g, int(i))['label']} at {st.loading_pct[i]:.0f}% of {rate[i]:.0f} MVA (it carries {st.loading_pct[i] * rate[i] / 100:,.0f} MVA)")
                 seen["over"].append({"id": int(g.br_ids[i]), "pct": round(float(st.loading_pct[i]), 1), "mva": round(float(rate[i]))})
             seen["over_count"] = int(len(hot))
         fb = f"Plan '{name}' did NOT hold: after {oc['steps']} cascade steps {oc['people']:,} people (estimate) were still without power."
@@ -479,6 +617,15 @@ def _check(c, J, plan: tuple, base_ups: dict) -> tuple[dict | None, str, dict]:
             fb += " Lines still over their limit: " + "; ".join(over) + "."
         seen["ms"] = round((time.perf_counter() - t0) * 1000)
         return None, fb, seen
+    # the plan holds: its most loaded lines (the margin it leaves, set against the engine's own plan's)
+    ld = np.where(act, st.loading_pct, 0.0)
+    seen["top"] = [{"id": int(g.br_ids[i]), "pct": round(float(ld[i]), 1), "mva": round(float(rate[i]))} for i in np.argsort(-ld)[:3] if ld[i] > 0]
+    # how hard each upgrade it made works (an upgrade at 50 % is oversized: where a cheaper plan can save), priciest first
+    priced = {it["id"]: it["high"] for it in seen.get("cost_items") or []}
+    seen["upgraded"] = sorted(
+        ({"id": int(k), "to_mva": round(float(v)), "pct": round(float(ld[g.br_index[int(k)]]), 1), "high": priced.get(int(k))} for k, v in ups_new.items() if int(k) in g.br_index),
+        key=lambda u: -(u["high"] or 0),
+    )[:6]
     chosen = sorted(g.br_index[k] for k in ups_new)
     lst, mva, km = b._upgrade_list(g, g.rate, rate, chosen)
     new_total = float(sum(mws))
@@ -490,15 +637,20 @@ def _check(c, J, plan: tuple, base_ups: dict) -> tuple[dict | None, str, dict]:
     ap = {**b._size_apply(c, mws), "upgrades": {str(k): float(v) for k, v in upgrades.items()}}
     fx = b._fix("agentic", action, "holds", oc, trade, detail, ap, 0)
     fx["by"] = "gemini"
+    fx["cost"] = cost  # (enrich prices it again, the same way)
     seen["ms"] = round((time.perf_counter() - t0) * 1000)
     return fx, "", seen
 
 
-def _same(fx: dict, others: list[dict]) -> bool:
-    """A plan already listed (same upgraded lines at the same size) is not a new solution."""
+def _same(fx: dict, others: list[dict], cost: float | None = None) -> bool:
+    """A plan already listed (same upgraded lines at the same size) is not a new solution, unless it raises them to
+    other ratings for a different price (`cost`, high end): the same lines for less is a cheaper plan."""
     ids = set((fx.get("apply") or {}).get("upgrades") or {})
     for o in others:
         if set((o.get("apply") or {}).get("upgrades") or {}) == ids and abs(float(o.get("kept_pct") or 100) - float(fx["detail"]["kept_pct"])) < 1.0:
+            oc = (o.get("cost") or {}).get("high")
+            if cost is not None and oc and abs(float(oc) - float(cost)) > MATCH_FRAC * max(float(oc), float(cost)):
+                continue
             return True
     return False
 
@@ -558,17 +710,19 @@ class _Trace:
         row["n"] = len(self.rows) + 1
         self.rows.append(row)
 
-    def ask(self, rnd: int, rep: dict, c, cands: list[dict]) -> None:
+    def ask(self, rnd: int, rep: dict, c, cands: list[dict], bar: dict | None = None) -> None:
         total = float(sum(s.mw for s in c.sites))
         where = c.header.get("sub_area") or ""
         ev = rep.get("event") or {}
         over = sum(1 for x in cands if x.get("loaded_pct"))
+        goal_en = f" The bar to beat: the engine's own plan, {_usd(bar['high'])} (high end)." if bar else ""
+        goal_es = f" La meta: superar el plan del propio motor, {_usd(bar['high'], 'es')} (extremo alto)." if bar else ""
         self.add(round=rnd, actor="engine", kind="ask", tone="info",
                  title={"en": f"Sent Gemini the case: {_n(total)} MW" + (f" at {where}" if where else "") + f", {_steps(int(ev.get('steps') or 0), 'en')}",
                         "es": f"Le pasó a Gemini el caso: {_n(total)} MW" + (f" en {where}" if where else "") + f", {_steps(int(ev.get('steps') or 0), 'es')}"},
-                 detail={"en": f"{_people_say(int(ev.get('people') or 0), 'en').capitalize()}. Asked for {PLANS_ASKED} plans that keep the full size, from {len(cands)} lines it may re-rate ({over} already over their limit).",
-                         "es": f"{_people_say(int(ev.get('people') or 0), 'es').capitalize()}. Le pidió {PLANS_ASKED} planes que mantengan el tamaño completo, con {len(cands)} líneas que puede reforzar ({over} ya sobre su límite)."},
-                 lines_offered=len(cands))
+                 detail={"en": f"{_people_say(int(ev.get('people') or 0), 'en').capitalize()}. Asked for {PLANS_ASKED} plans that keep the full size, from {len(cands)} lines it may re-rate ({over} already over their limit).{goal_en}",
+                         "es": f"{_people_say(int(ev.get('people') or 0), 'es').capitalize()}. Le pidió {PLANS_ASKED} planes que mantengan el tamaño completo, con {len(cands)} líneas que puede reforzar ({over} ya sobre su límite).{goal_es}"},
+                 lines_offered=len(cands), engine_cost_usd=int(bar["high"]) if bar else None)
 
     def proposed(self, rnd: int, revised: bool, name: str, why: str, keep: float, rows: list[dict], mva: float) -> None:
         pct = round(keep * 100)
@@ -585,33 +739,76 @@ class _Trace:
                  detail={"en": "It named no line on the list with a higher rating, so there was nothing to run.",
                          "es": "No nombró ninguna línea de la lista con una capacidad mayor, así que no había nada que probar."})
 
-    def verified(self, rnd: int, g, seen: dict, duplicate: bool) -> None:
+    def verified(self, rnd: int, g, seen: dict, duplicate: bool, bar: dict | None = None, vs: str | None = None) -> None:
+        cost = seen.get("cost_usd")
+        # the engine's own price for the plan, and (holding plans) how it compares with the engine's own plan
+        priced = {"cost_usd": cost, "cost_low_usd": seen.get("cost_low_usd"), "keep_pct": seen.get("keep_pct"),
+                  "engine_cost_usd": int(bar["high"]) if bar else None, "margin_pct": bar.get("margin_pct") if bar else None,
+                  "beats_engine_by": int(round(bar["high"] - cost)) if bar and cost and seen.get("holds") else None, "vs": vs}
+        if seen.get("holds") and seen.get("top"):  # the plan's most loaded lines (its margin), named
+            priced["top"] = [{**t, "label": _label(g, t["id"], "en")} for t in seen["top"]]
         if seen.get("holds"):
-            en = f"No line trips and {_people_say(seen['people'], 'en')}; the busiest line runs at {seen['peak_pct']:.0f}% of its rating."
-            es = f"Ninguna línea se dispara y {_people_say(seen['people'], 'es')}; la línea más cargada va al {seen['peak_pct']:.0f} % de su capacidad."
+            en = f"No line trips and {_people_say(seen['people'], 'en')}; the busiest line runs at {_pct(seen['peak_pct'])} of its rating."
+            es = f"Ninguna línea se dispara y {_people_say(seen['people'], 'es')}; la línea más cargada va al {_pct(seen['peak_pct'], 'es')} de su capacidad."
+            if cost:
+                en += f" The engine prices it at {_usd(cost)} (high end)"
+                es += f" El motor lo valora en {_usd(cost, 'es')} (extremo alto)"
+                d = abs(bar["high"] - cost) if bar else 0
+                if vs == "beat":
+                    en += f": {_usd(d)} under its own plan ({_usd(bar['high'])})."
+                    es += f": {_usd(d, 'es')} menos que su propio plan ({_usd(bar['high'], 'es')})."
+                elif vs == "match":
+                    en += f", the same as its own plan ({_usd(bar['high'])})."
+                    es += f", lo mismo que su propio plan ({_usd(bar['high'], 'es')})."
+                elif vs == "pricier":
+                    en += f": {_usd(d)} more than its own plan ({_usd(bar['high'])})."
+                    es += f": {_usd(d, 'es')} más que su propio plan ({_usd(bar['high'], 'es')})."
+                elif vs == "smaller":
+                    en += f", less than its own plan ({_usd(bar['high'])}) but for {seen.get('keep_pct', 100):.0f}% of the campus, so it does not beat it."
+                    es += f", menos que su propio plan ({_usd(bar['high'], 'es')}) pero para el {seen.get('keep_pct', 100):.0f} % del campus, así que no lo supera."
+                elif vs == "thin":
+                    en += (f", less than its own plan ({_usd(bar['high'])}), but it leaves a line at {_pct(seen['peak_pct'])} of its rating where the engine's plan "
+                           f"leaves none above {_pct(bar['margin_pct'])}: less margin, so it does not beat it.")
+                    es += (f", menos que su propio plan ({_usd(bar['high'], 'es')}), pero deja una línea al {_pct(seen['peak_pct'], 'es')} de su capacidad donde el plan del motor "
+                           f"no deja ninguna por encima del {_pct(bar['margin_pct'], 'es')}: menos margen, así que no lo supera.")
+                else:
+                    en += "."
+                    es += "."
             if duplicate:
                 en += " Same as a plan already listed, so it is not added twice."
                 es += " Es igual a un plan ya listado, así que no se añade dos veces."
             self.add(round=rnd, actor="engine", kind="verify", tone="holds", holds=True, duplicate=duplicate, people=seen["people"], steps=seen["steps"],
-                     peak_pct=seen["peak_pct"], ms=seen.get("ms"),
+                     peak_pct=seen["peak_pct"], ms=seen.get("ms"), **priced,
                      title={"en": "Engine re-ran the case: it holds", "es": "El motor repitió el caso: aguanta"}, detail={"en": en, "es": es})
             return
         over = [{**o, "label": _label(g, o["id"], "en"), "label_es": _label(g, o["id"], "es")} for o in seen.get("over") or []]
         en = f"{_steps(seen.get('steps', 0), 'en').capitalize()}, {_people_say(seen.get('people', 0), 'en')}."
         es = f"{_steps(seen.get('steps', 0), 'es').capitalize()}, {_people_say(seen.get('people', 0), 'es')}."
         if over:
-            en += " Still over: " + "; ".join(f"{o['label']} at {o['pct']:.0f}% of {_n(o['mva'])} MVA" for o in over[:2]) + (f" (+{len(over) - 2} more)" if len(over) > 2 else "") + "."
-            es += " Siguen sobre su límite: " + "; ".join(f"{o['label_es']} al {o['pct']:.0f} % de {_n(o['mva'])} MVA" for o in over[:2]) + (f" (y {len(over) - 2} más)" if len(over) > 2 else "") + "."
+            en += " Still over: " + "; ".join(f"{o['label']} at {_pct(o['pct'])} of {_n(o['mva'])} MVA" for o in over[:2]) + (f" (+{len(over) - 2} more)" if len(over) > 2 else "") + "."
+            es += " Siguen sobre su límite: " + "; ".join(f"{o['label_es']} al {_pct(o['pct'], 'es')} de {_n(o['mva'])} MVA" for o in over[:2]) + (f" (y {len(over) - 2} más)" if len(over) > 2 else "") + "."
         self.add(round=rnd, actor="engine", kind="verify", tone="over", holds=False, people=seen.get("people", 0), steps=seen.get("steps", 0),
-                 over=[{k: o[k] for k in ("id", "label", "pct", "mva")} for o in over[:5]], over_count=seen.get("over_count", len(over)), ms=seen.get("ms"),
+                 over=[{k: o[k] for k in ("id", "label", "pct", "mva")} for o in over[:5]], over_count=seen.get("over_count", len(over)), ms=seen.get("ms"), **priced,
                  title={"en": "Engine re-ran the case: it fails", "es": "El motor repitió el caso: falla"}, detail={"en": en, "es": es})
 
-    def feedback(self, rnd: int, failed: int, extra_ids: list[int]) -> None:
-        self.add(round=rnd, actor="engine", kind="feedback", tone="info", failed=failed, lines_added=len(extra_ids),
-                 title={"en": f"Sent the engine's findings back to Gemini ({failed} {'plan' if failed == 1 else 'plans'} failed)",
-                        "es": f"Le devolvió a Gemini lo que encontró el motor ({failed} {'plan falló' if failed == 1 else 'planes fallaron'})"},
-                 detail={"en": "The lines still over their limit and by how much, with those lines added to the ones it may re-rate. Asked it to revise.",
-                         "es": "Las líneas que siguen sobre su límite y por cuánto, añadidas a las que puede reforzar. Le pidió que revise."})
+    def feedback(self, rnd: int, failed: int, extra_ids: list[int], pricier: int = 0, bar: dict | None = None) -> None:
+        parts_en, parts_es = [], []
+        if failed:
+            parts_en.append(f"{failed} {'plan' if failed == 1 else 'plans'} failed")
+            parts_es.append(f"{failed} {'plan falló' if failed == 1 else 'planes fallaron'}")
+        if pricier:
+            parts_en.append(f"{pricier} held but did not beat the engine's {_usd(bar['high'])}" if bar else f"{pricier} held")
+            parts_es.append(f"{pricier} {'aguantó' if pricier == 1 else 'aguantaron'} sin superar los {_usd(bar['high'], 'es')} del motor" if bar else f"{pricier} aguantaron")
+        det_en = "The lines still over their limit and by how much, with those lines added to the ones it may re-rate." if failed else ""
+        det_es = "Las líneas que siguen sobre su límite y por cuánto, añadidas a las que puede reforzar." if failed else ""
+        if pricier and bar:
+            det_en = (det_en + " " if det_en else "") + f"For each plan that held, its price against the engine's own plan ({_usd(bar['high'])}): find a cheaper full-size plan."
+            det_es = (det_es + " " if det_es else "") + f"Para cada plan que aguantó, su precio frente al plan del motor ({_usd(bar['high'], 'es')}): buscar un plan completo más barato."
+        self.add(round=rnd, actor="engine", kind="feedback", tone="info", failed=failed, pricier=pricier, lines_added=len(extra_ids),
+                 engine_cost_usd=int(bar["high"]) if bar else None,
+                 title={"en": f"Sent the engine's findings back to Gemini ({', '.join(parts_en)})",
+                        "es": f"Le devolvió a Gemini lo que encontró el motor ({', '.join(parts_es)})"},
+                 detail={"en": f"{det_en} Asked it to revise.".strip(), "es": f"{det_es} Le pidió que revise.".strip()})
 
     def offline(self, rnd: int) -> None:
         self.add(round=rnd, actor="gemini", kind="offline", tone="muted",
@@ -619,12 +816,88 @@ class _Trace:
                         "es": "Gemini no respondió" if rnd == 1 else "Gemini no respondió a la revisión"},
                  detail={"en": "Unavailable or too slow: the engine's own ways to build it stand.", "es": "No disponible o demasiado lento: quedan las soluciones del propio motor."})
 
-    def result(self, asked: int, verified: int, rounds: int, calls: int, ms: int) -> None:
-        self.add(final=True, round=rounds, actor="engine", kind="result", tone="holds" if verified else "muted",
-                 title={"en": f"{verified} of {asked} AI {'plan' if asked == 1 else 'plans'} verified and added" if asked else "No AI plan to add",
-                        "es": f"{verified} de {asked} {'plan' if asked == 1 else 'planes'} de IA verificados y añadidos" if asked else "Ningún plan de IA que añadir"},
-                 detail={"en": f"{rounds} {'round' if rounds == 1 else 'rounds'}, {calls} Gemini {'call' if calls == 1 else 'calls'}, {ms / 1000:.1f} s. Only plans the engine re-ran and found holding are listed.",
-                         "es": f"{rounds} {'ronda' if rounds == 1 else 'rondas'}, {calls} {'llamada' if calls == 1 else 'llamadas'} a Gemini, {ms / 1000:.1f} s. Solo se listan los planes que el motor repitió y aguantan."})
+    def result(self, asked: int, verified: int, rounds: int, calls: int, ms: int, bar: dict | None = None, best: dict | None = None, cached: int = 0) -> dict:
+        """The last row. With the engine's own plan as the bar, its title is the honest end of the contest: Gemini's
+        cheapest verified plan against the engine's. Returns the outcome fields (also kept on agentic). `cached`: how
+        many of the calls were answered from the AI cache (an answer Gemini gave when this case first ran): said so,
+        so a replayed run's timing never reads as Gemini answering in a fraction of a second."""
+        counts_en = f"{verified} of {asked} AI {'plan' if asked == 1 else 'plans'} verified and added" if asked else "No AI plan to add"
+        counts_es = f"{verified} de {asked} {'plan' if asked == 1 else 'planes'} de IA verificados y añadidos" if asked else "Ningún plan de IA que añadir"
+        rounds_en = f"{rounds} {'round' if rounds == 1 else 'rounds'}"
+        rounds_es = f"{rounds} {'ronda' if rounds == 1 else 'rondas'}"
+        tail_en = "Only plans the engine re-ran and found holding are listed."
+        tail_es = "Solo se listan los planes que el motor repitió y aguantan."
+        if calls and cached >= calls:
+            run_en = (f"{rounds_en}; {calls} Gemini {'answer' if calls == 1 else 'answers'} kept from when this case first ran, "
+                      f"every plan re-run by the engine just now ({ms / 1000:.1f} s). {tail_en}")
+            run_es = (f"{rounds_es}; {calls} {'respuesta' if calls == 1 else 'respuestas'} de Gemini guardadas de cuando se corrió este caso por primera vez, "
+                      f"cada plan repetido por el motor ahora mismo ({ms / 1000:.1f} s). {tail_es}")
+        else:
+            got_en = f" ({cached} answered from the cache)" if cached else ""
+            got_es = f" ({cached} respondidas desde la caché)" if cached else ""
+            run_en = f"{rounds_en}, {calls} Gemini {'call' if calls == 1 else 'calls'}{got_en}, {ms / 1000:.1f} s. {tail_en}"
+            run_es = f"{rounds_es}, {calls} {'llamada' if calls == 1 else 'llamadas'} a Gemini{got_es}, {ms / 1000:.1f} s. {tail_es}"
+        out = {"outcome": "none" if not asked else None, "engine_cost_usd": int(bar["high"]) if bar else None,
+               "best_cost_usd": int(best["cost"]) if best else None,
+               "beat_by_usd": int(round(bar["high"] - best["cost"])) if bar and best and best.get("vs") == "beat" else None}
+        title_en, title_es = counts_en, counts_es
+        detail_en, detail_es = run_en, run_es
+        if asked and bar:
+            e_en, e_es = _usd(bar["high"]), _usd(bar["high"], "es")
+            if not best:
+                out["outcome"] = "failed"
+                title_en = f"No Gemini plan held; the engine's own plan stands ({e_en})"
+                title_es = f"Ningún plan de Gemini aguantó; queda el plan del propio motor ({e_es})"
+            elif best.get("vs") == "beat":
+                out["outcome"] = "beat"
+                title_en = f"Gemini's plan: {_usd(best['cost'])}, {_usd(bar['high'] - best['cost'])} under the engine's own"
+                title_es = f"El plan de Gemini: {_usd(best['cost'], 'es')}, {_usd(bar['high'] - best['cost'], 'es')} menos que el del propio motor"
+            elif best.get("vs") == "match":
+                out["outcome"] = "matched"
+                title_en = f"Gemini matched the engine ({_usd(best['cost'])}); its plans are listed as alternatives"
+                title_es = f"Gemini igualó al motor ({_usd(best['cost'], 'es')}); sus planes quedan como alternativas"
+            elif best.get("vs") == "thin":
+                out["outcome"] = "lost"
+                title_en = (f"Gemini didn't beat the engine: its {_usd(best['cost'])} plan runs a line at {_pct(best['peak_pct'])} of its rating, "
+                            f"the engine's {e_en} plan none above {_pct(bar['margin_pct'])}; its plans are listed as alternatives")
+                title_es = (f"Gemini no superó al motor: su plan de {_usd(best['cost'], 'es')} deja una línea al {_pct(best['peak_pct'], 'es')} de su capacidad, "
+                            f"el del motor ({e_es}) ninguna por encima del {_pct(bar['margin_pct'], 'es')}; sus planes quedan como alternativas")
+            elif best.get("vs") == "smaller":
+                out["outcome"] = "lost"
+                kp = float(best.get("keep_pct") or 100)
+                title_en = (f"Gemini didn't beat the engine: its cheapest plan, {_usd(best['cost'])}, builds only {kp:.0f}% of the campus; "
+                            f"the engine's {e_en} plan builds all of it; its plans are listed as alternatives")
+                title_es = (f"Gemini no superó al motor: su plan más barato, {_usd(best['cost'], 'es')}, construye solo el {kp:.0f} % del campus; "
+                            f"el del motor ({e_es}) lo construye entero; sus planes quedan como alternativas")
+            elif best.get("vs") == "pricier":
+                out["outcome"] = "lost"
+                more = best["cost"] - bar["high"]
+                title_en = (f"Gemini didn't beat the engine: its cheapest plan that holds costs {_usd(best['cost'])}, "
+                            f"{_usd(more)} more than the engine's {e_en}; its plans are listed as alternatives")
+                title_es = (f"Gemini no superó al motor: su plan más barato que aguanta cuesta {_usd(best['cost'], 'es')}, "
+                            f"{_usd(more, 'es')} más que los {e_es} del motor; sus planes quedan como alternativas")
+            else:
+                out["outcome"] = "lost"
+                title_en = f"Gemini didn't beat the engine: its best, {_usd(best['cost'])}, against {e_en}; its plans are listed as alternatives"
+                title_es = f"Gemini no superó al motor: su mejor plan, {_usd(best['cost'], 'es')}, frente a {e_es}; sus planes quedan como alternativas"
+            detail_en, detail_es = f"{counts_en}. {run_en}", f"{counts_es}. {run_es}"
+        elif asked:
+            out["outcome"] = "verified" if verified else "failed"
+        self.add(final=True, round=rounds, actor="engine", kind="result", tone="holds" if verified else "muted", **out,
+                 title={"en": title_en, "es": title_es}, detail={"en": detail_en, "es": detail_es})
+        return out
+
+
+def _in_ai_cache(prompt: str, model: str | None) -> bool:
+    """Whether complete_json will answer this prompt from the AI cache (an answer Gemini gave earlier for the same
+    prompt), checked the way llm.py keys and ages its cache. Read-only: never moves or drops an entry."""
+    try:
+        import llm
+
+        hit = llm._cache.get(llm._cache_key(prompt, SYSTEM, True, None, model))
+        return bool(hit) and time.time() - float(hit[0]) <= llm.CACHE_TTL_S
+    except Exception:  # noqa: BLE001 — only the wording of the run's summary depends on it
+        return False
 
 
 def _live(rep: dict, key: str, **fields) -> None:
@@ -639,7 +912,7 @@ def _live(rep: dict, key: str, **fields) -> None:
 
 async def propose(key: str) -> None:
     """Gemini proposes, the engine verifies, a failing plan gets one revision with the engine's findings."""
-    from llm import AGENT_MODEL, AGENT_THINKING, complete_json
+    from llm import AGENT_MODEL, AGENT_THINKING, complete_json, note_check
 
     b = _b()
     rep = b.report_by_key(key)
@@ -654,8 +927,12 @@ async def propose(key: str) -> None:
     J = b._Judge(int(rep["event"]["people"]), int(rep["event"]["steps"]), int((rep.get("bound") or {}).get("people") or 0), float((rep.get("bound") or {}).get("lost_mw") or 0.0))
     ratings = {int(g.br_ids[i]): float(g.rate[i]) for i in range(g.m)}
     have = [f["action"] for f in rep["fixes"] if f.get("verdict") == "holds" and f.get("family") in ("upgrade", "combo", "agentic")]
-    asked = verified = calls = 0
+    # the goal (beat the engine): its own cheapest full-size plan, priced the way every plan is priced
+    bar = _engine_bar(rep)
+    asked = verified = calls = cached = 0
     added: list[dict] = []
+    held: list[dict] = []  # every verified AI plan, with its price against the bar (the result names the cheapest)
+    beat = False
     feedback = ""
     extra_ids: list[int] = []
     tr = _Trace()
@@ -664,49 +941,97 @@ async def propose(key: str) -> None:
     for rnd in range(MAX_ROUNDS):
         cands = _candidates(rep, c, extra_ids)
         if rnd == 0:
-            tr.ask(1, rep, c, cands)
-        raw, offline = await complete_json(_prompt(rep, c, cands, have + [f["action"] for f in added], feedback), system=SYSTEM, fallback={"plans": []},
+            tr.ask(1, rep, c, cands, bar)
+        prompt = _prompt(rep, c, cands, have + [f["action"] for f in added], feedback, bar)
+        was_cached = _in_ai_cache(prompt, AGENT_MODEL)
+        raw, offline = await complete_json(prompt, system=SYSTEM, fallback={"plans": []},
                                            timeout=AI_TIMEOUT_S, surface="solutions", model=AGENT_MODEL, thinking=AGENT_THINKING)
         calls += 1
+        cached += 1 if was_cached and not offline else 0
         if offline:
             tr.offline(rnd + 1)
             break
         listed = raw if isinstance(raw, list) else (raw.get("plans") if isinstance(raw, dict) else None)
         plans = [p for p in (listed or []) if isinstance(p, dict)][:PLANS_ASKED]
         failed: list[str] = []
+        pricier: list[str] = []  # plans that held but did not beat the engine's own (sent back with their price)
+        thin_ids: list[int] = []  # lines a cheaper plan left hotter than the engine's plan leaves any
         for p in plans:
             clean = _clean_plan(p, g, ratings)
             if clean is None:
+                note_check("solutions", False, "an upgrade plan that named no line on the list with a higher rating")
                 tr.unusable(rnd + 1, p.get("name"))
                 continue
             asked += 1
             rows, mva = _plan_lines(g, clean[0], ratings)
             tr.proposed(rnd + 1, rnd > 0, clean[2], clean[3], clean[1], rows, mva)
             fx, fb, seen = await asyncio.get_running_loop().run_in_executor(None, _check, c, J, clean, c.upgrades)
-            dup = fx is not None and _same(fx, rep["fixes"] + added)
+            dup = fx is not None and _same(fx, rep["fixes"] + added, seen.get("cost_usd"))
+            vs = _vs(bar, seen.get("cost_usd"), float(seen.get("keep_pct") or 100), seen.get("peak_pct")) if fx is not None else None
+            if fx is not None and vs:  # how it did against the engine's own plan: only a 'beat' ranks ahead of it (_key)
+                fx["detail"]["vs"] = vs
+                fx["detail"]["bar_usd"] = int(bar["high"])
+            if vs == "thin":  # cheaper only by leaving less margin: ranked after the plans that keep the engine's margin
+                fx["detail"]["thin"] = True
+                fx["detail"]["margin_pct"] = bar.get("margin_pct")
             if not seen.get("skipped"):
-                tr.verified(rnd + 1, g, seen, dup)
+                note_check("solutions", fx is not None, "an upgrade plan the engine re-ran through the full cascade: " + ("a line still over its limit" if seen.get("over") else "people still without power"), None if fx is not None else (f"{seen['over'][0]['pct']:g}%" if seen.get("over") else f"{seen.get('people', 0):,} people"))
+                tr.verified(rnd + 1, g, seen, dup, bar, vs)
             if fx is None:
                 failed.append(fb)
-            elif not dup:
-                added.append(fx)
-                verified += 1
+            else:
+                if not dup:
+                    added.append(fx)
+                    verified += 1
+                if seen.get("cost_usd"):
+                    held.append({"cost": float(seen["cost_usd"]), "vs": vs, "keep_pct": float(seen.get("keep_pct") or 100), "name": clean[2], "peak_pct": seen.get("peak_pct")})
+                if vs == "beat":
+                    beat = True
+                elif bar and seen.get("cost_usd"):
+                    cost_s, bar_s = _usd(seen["cost_usd"]), _usd(bar["high"])
+                    hot = [t for t in seen.get("top") or [] if bar.get("margin_pct") is not None and t["pct"] > bar["margin_pct"] + MARGIN_SLACK]
+                    pricier.append(
+                        f"Plan '{clean[2]}' holds but keeps only {seen.get('keep_pct', 100):.0f}% of the campus; to beat the engine's {bar_s} a plan must keep 100%." if vs == "smaller"
+                        else (f"Plan '{clean[2]}' holds for {cost_s} (high end) but leaves "
+                              + "; ".join(f"{t['id']}: {_label(g, t['id'], 'en')} at {t['pct']:.0f}% of {t['mva']:,} MVA (it carries {t['pct'] * t['mva'] / 100:,.0f} MVA)" for t in hot[:3])
+                              + f". The engine's plan ({bar_s}) leaves no line above {bar['margin_pct']:.0f}%: find a full-size plan under {bar_s} with that margin.") if vs == "thin"
+                        else f"Plan '{clean[2]}' holds but costs {cost_s} (high end), the same as the engine's {bar_s}; find a cheaper full-size plan." if vs == "match"
+                        else f"Plan '{clean[2]}' holds but costs {cost_s} (high end) vs the engine's {bar_s}; find a cheaper full-size plan."
+                    )
+                    if vs in ("pricier", "match") and seen.get("upgraded"):  # where its money goes and how hard each upgrade works
+                        pricier[-1] += " Its upgrades, as the engine priced and loaded them: " + "; ".join(
+                            f"{u['id']} raised to {u['to_mva']:,} MVA runs at {u['pct']:.0f}%" + (f", {_usd(u['high'])}" if u.get("high") else "") for u in seen["upgraded"]) + "."
+                    thin_ids += [t["id"] for t in hot if t["id"] not in thin_ids]  # it may re-rate them next round
             _live(rep, key, asked=asked, verified=verified, calls=calls)
-        if len(added) >= 2 or not failed:
+        # stop once a plan beats the engine's own, or when nothing is left to send back; without a bar (no engine plan
+        # that keeps the whole campus) the old rule: two verified plans are enough
+        if beat or (not failed and not pricier) or (bar is None and len(added) >= 2):
             break
         extra_ids = [int(x.split(":")[0]) for f in failed for x in f.split("Lines still over their limit: ")[-1].split("; ") if x.split(":")[0].strip().isdigit()][:10]
+        extra_ids += [i for i in thin_ids if i not in extra_ids][: max(0, 12 - len(extra_ids))]
         if rnd + 1 < MAX_ROUNDS:
-            tr.feedback(rnd + 2, len(failed), extra_ids)
-        feedback = "The engine checked your previous plans:\n" + "\n".join(failed[:3]) + "\nRevise: propose replacement plans that fix what is still over its limit."
+            tr.feedback(rnd + 2, len(failed), extra_ids, len(pricier), bar)
+        asks = []
+        if failed:
+            asks.append("propose replacement plans that fix what is still over its limit")
+        if pricier and bar:
+            asks.append(f"find full-size plans (keep_pct 100) that cost less than the engine's {_usd(bar['high'])}: fewer or smaller upgrades "
+                        "(a line's price is flat up to twice its rating; a transformer's follows its new rating), "
+                        + (f"while every line stays at or under {bar['margin_pct']:.0f}% of its rating" if bar.get("margin_pct") is not None else "while every line stays within its rating"))
+        feedback = "The engine checked your previous plans:\n" + "\n".join(failed[:3] + pricier[:3]) + "\nRevise: " + " and ".join(asks) + "."
     total = float(sum(s.mw for s in c.sites))
     for fx in added:
         fx["kept_mw"] = float(fx["detail"]["mw"])
         fx["kept_pct"] = round(100.0 * fx["kept_mw"] / total, 1) if total else None
     rounds = min(rnd + 1, MAX_ROUNDS)
     ms = round((time.perf_counter() - t_start) * 1000)
-    tr.result(asked, verified, rounds, calls, ms)
+    # Gemini's best verified plan against the engine's own: the cheapest that keeps the whole campus (else the cheapest)
+    full = [h for h in held if h["keep_pct"] >= 99.5]
+    wins = [h for h in held if h["vs"] == "beat"]
+    best = min(wins or full or held, key=lambda h: h["cost"]) if held else None
+    outcome = tr.result(asked, verified, rounds, calls, ms, bar, best, cached)
     status = {"status": "done", "asked": asked, "verified": verified, "added": len(added), "rounds": rounds, "by": "gemini",
-              "calls": calls, "ms": ms, "model": AGENT_MODEL, "trace": list(tr.rows)}
+              "calls": calls, "cached": cached, "ms": ms, "model": AGENT_MODEL, "trace": list(tr.rows), **outcome}
     # The report may have been rebuilt while Gemini worked (a request with a bigger time budget replaces an
     # "unchecked" one under the same key): write the verified plans into every copy still reachable.
     targets = [rep]
@@ -715,7 +1040,7 @@ async def propose(key: str) -> None:
         targets.append(cur)
     for r in targets:
         if added:
-            fixes = list(r["fixes"]) + [fx for fx in added if not _same(fx, r["fixes"])]
+            fixes = list(r["fixes"]) + [fx for fx in added if not _same(fx, r["fixes"], (fx.get("cost") or {}).get("high"))]
             enrich(c, g, fixes, total)
             r["fixes"] = fixes
             r["solutions"] = ranked(fixes)

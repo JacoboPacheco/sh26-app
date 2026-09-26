@@ -3,6 +3,7 @@ import BoomPanel from './features/boom/BoomPanel'
 import DangerLayer from './features/danger/DangerLayer'
 import BestSitesLayer from './features/fix/BestSitesLayer'
 import FixPanel from './features/fix/FixPanel'
+import GeminiDuelLayer from './features/fix/GeminiDuelLayer'
 import FlowCanvas from './features/flow/FlowCanvas'
 import Intro from './features/flow/Intro'
 import HurricaneLayer from './features/hurricane/HurricaneLayer'
@@ -204,6 +205,8 @@ function MissionControl() {
             <BoomLayer />
             <BestSitesLayer />
             <PlantsLayer />
+            {/* last: Gemini's recorded plans replayed over everything ("Let Gemini fix it") */}
+            <GeminiDuelLayer />
           </g>
           <UnlockLayer />
         </GridMap>

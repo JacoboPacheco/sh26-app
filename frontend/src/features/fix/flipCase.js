@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { runCascade } from '../../api'
 import { fmt } from '../../geo'
 import { cleanBody, getReport, refetchReport } from '../briefing/briefingApi'
@@ -118,34 +118,86 @@ export function bestFixOf(report) {
 }
 
 // The briefing report for a case (cached with the presentation's; Florida's is warmed while the case holds
-// still), and its best fix. While the AI proposer is still adding verified plans, ask again every few seconds for
-// a minute: a Gemini plan that ranks first becomes the button's fix, as it becomes the deck's.
+// still), and its best fix. While the AI proposer is still adding verified plans, ask again every few seconds (up
+// to 90 s): a Gemini plan that ranks first becomes the button's fix, as it becomes the deck's.
+//
+// ONE poller per case, shared by everything that asks (the flip's button, Fix it, "Let Gemini fix it"): the whole
+// venue shares one IP and /api/briefing allows 30 a minute, so three components must not ask three times. The
+// first answer for a new case can come before the proposer has started (agentic not in yet): asked again a few
+// times. A failed ask (a 429, a dropped connection) waits longer and asks again instead of ending the chain.
+const POLL_MS = 5000
+const POLL_RETRY_MS = 9000
+const POLL_FOR_MS = 90000
+const POLL_NOT_STARTED = 3 // answers with no agentic yet, before the poller stops waiting for it
+const PENDING = { report: null, failed: false, done: false, polling: false }
+const polls = new Map() // key -> {snap, subs, timer, t0, empty, again}
+
+function pollFor(key) {
+  const p = { snap: { ...PENDING, polling: true }, subs: new Set(), timer: 0, t0: performance.now(), empty: 0, again: null }
+  polls.set(key, p)
+  const b = JSON.parse(key)
+  const mine = () => polls.get(key) === p
+  const set = (patch) => {
+    p.snap = { ...p.snap, ...patch }
+    p.subs.forEach((f) => f())
+  }
+  const later = (ms) => {
+    if (!mine()) return
+    if (performance.now() - p.t0 >= POLL_FOR_MS) return set({ polling: false })
+    clearTimeout(p.timer)
+    p.timer = setTimeout(() => refetchReport(b).then(take, miss), ms)
+  }
+  const take = (r) => {
+    if (!mine()) return
+    const st = r?.agentic?.status
+    if (!st) p.empty += 1
+    const more = st === 'running' || (!st && p.empty <= POLL_NOT_STARTED)
+    set({ report: r, failed: false, done: true, polling: more })
+    if (more) later(POLL_MS)
+  }
+  const miss = () => {
+    if (!mine()) return
+    if (p.snap.report) return later(POLL_RETRY_MS) // keep the answer on hand and ask again, later
+    set({ failed: true, done: true, polling: false })
+  }
+  // ask again from now (the offer's "Check again" once the 90 s ran out)
+  p.again = () => {
+    if (!mine()) return
+    p.t0 = performance.now()
+    p.empty = 0
+    set({ polling: true })
+    later(0)
+  }
+  getReport(b).then(take, miss)
+  return p
+}
+
+function watchPoll(key, f) {
+  if (!key) return () => {}
+  const p = polls.get(key) || pollFor(key)
+  p.subs.add(f)
+  return () => {
+    p.subs.delete(f)
+    if (p.subs.size) return
+    clearTimeout(p.timer)
+    if (polls.get(key) === p) polls.delete(key)
+  }
+}
+
 export function useBestFix(body, enabled) {
   const key = enabled && body ? JSON.stringify(cleanBody(body)) : ''
-  const [s, setS] = useState({ key: '', report: null, failed: false })
-  useEffect(() => {
-    if (!key) return undefined
-    let live = true
-    let timer = 0
-    const b = JSON.parse(key)
-    const t0 = performance.now()
-    const take = (r) => {
-      if (!live) return
-      setS({ key, report: r, failed: false })
-      if (r?.agentic?.status === 'running' && performance.now() - t0 < 60000)
-        timer = setTimeout(() => refetchReport(b).then(take).catch(() => {}), 5000)
-    }
-    getReport(b)
-      .then(take)
-      .catch(() => live && setS({ key, report: null, failed: true }))
-    return () => {
-      live = false
-      clearTimeout(timer)
-    }
-  }, [key])
-  const mine = s.key === key && !!key
-  const report = mine ? s.report : null
-  return { report, fix: bestFixOf(report), loading: !!key && !mine, failed: mine && s.failed }
+  const sub = useCallback((f) => watchPoll(key, f), [key])
+  const snap = useCallback(() => (key ? polls.get(key)?.snap || PENDING : PENDING), [key])
+  const s = useSyncExternalStore(sub, snap, snap)
+  const report = key ? s.report : null
+  return {
+    report,
+    fix: bestFixOf(report),
+    loading: !!key && !s.done,
+    failed: !!key && s.failed,
+    polling: !!key && s.polling,
+    recheck: () => polls.get(key)?.again?.(),
+  }
 }
 
 // A plant outage's cascade (Plants tab: backend/plants.py echoes `outages`, `retire_fuels` and `removed`) is a
