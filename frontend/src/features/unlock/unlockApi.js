@@ -2,6 +2,7 @@ import { api } from '../../api'
 
 // Strengthen the grid (backend/unlock.py): a background study per (region, size, load level).
 // start → {id, status, cached}; job → {status, progress {phase, done, total, message}, partial {sites, points} | result | error}
+// peek → {state: done | queued | running | none, id, estimate_s, sites, warm}: what can be shown without starting a study
 export const SIZES = [500, 1000, 2000, 5000]
 export const DEFAULT_SIZE = 1000
 
@@ -12,3 +13,6 @@ export const startUnlock = ({ region, mw, loadFactor = 1 }) =>
   })
 
 export const getUnlockJob = (id) => api(`/api/unlock/jobs/${encodeURIComponent(id)}`)
+
+export const peekUnlock = ({ region, mw, loadFactor = 1 }) =>
+  api(`/api/unlock/peek?region=${encodeURIComponent(region)}&mw=${encodeURIComponent(mw)}&load_factor=${encodeURIComponent(loadFactor)}`)

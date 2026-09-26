@@ -492,6 +492,11 @@ export function OverloadProvider({ user, children }) {
         setRegion(code, { place: [sc.lat, sc.lon], mw: sc.mw })
         return
       }
+      // a saved scenario is the same case every time: drop what the last case added (Strengthen's "Try it"
+      // upgrades, a storm's knocked-out lines, Ctrl+click campuses); another state's scenario gets this from clearCase
+      setUpgradesState({})
+      setTripState([])
+      setExtraSitesState([])
       setMwState(sc.mw)
       setMode('campus')
       placeHere(sc.lat, sc.lon)

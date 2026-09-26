@@ -11,6 +11,8 @@ import ImpactLayer from './features/impact/ImpactLayer'
 import PlantsLayer from './features/plants/PlantsLayer'
 import UnlockLayer from './features/unlock/UnlockLayer'
 import UnlockPanel from './features/unlock/UnlockPanel'
+import StrengthenPage from './features/unlock/StrengthenPage'
+import { NO_SUBS, strengthenClick, useStayOnStrengthen, useStrengthenLines } from './features/unlock/strengthenMap'
 import PlantsPanel from './features/plants/PlantsPanel'
 import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
@@ -130,6 +132,13 @@ function MissionControl() {
   // the grid's mood follows the time of day: dim and calm at night, hot in a heat wave
   const level = loadFactor < 0.7 ? 'night' : loadFactor < 0.9 ? 'morning' : loadFactor > 1.001 ? 'heat' : 'peak'
   const Panel = MODES.find((m) => m.id === mode)?.Panel || CampusPanel
+  // Strengthen the grid is a full page around the same map: the grid alone (no demo campus, no cascade layers)
+  const strengthen = mode === 'unlock'
+  const strengthenLines = useStrengthenLines(grid)
+  // the living flow draws the demo's case (its overloads stream red): on Strengthen it runs only while that case
+  // is empty, when what it draws is the grid alone
+  const flowOn = !strengthen || (!result && !o.cascade)
+  useStayOnStrengthen(o) // a state change on that page keeps you on it
   const sites = [
     ...(site ? [{ lat: result?.sub_lat ?? site.lat, lon: result?.sub_lon ?? site.lon, primary: true }] : []),
     ...extraSites.map((s) => ({ lat: s.lat, lon: s.lon })),
@@ -171,60 +180,69 @@ function MissionControl() {
   }, [])
 
   return (
-    <div className={`mc mc--${level}`} ref={rootRef}>
+    <div className={`mc mc--${level}${strengthen ? ' mc--unlock' : ''}`} ref={rootRef}>
       {grid ? (
         <GridMap
           ref={mapRef}
           grid={grid}
-          lineClasses={view.lineClasses}
-          subClasses={view.subClasses}
-          sites={sites}
-          tap={tap}
-          headroomMode={headroomOn && !!headroom}
-          onPlace={place}
-          tool={mapTool}
-          overlay={(refs) => <FlowCanvas {...refs} />}
+          lineClasses={strengthen ? strengthenLines : view.lineClasses}
+          subClasses={strengthen ? NO_SUBS : view.subClasses}
+          sites={strengthen ? [] : sites}
+          tap={strengthen ? null : tap}
+          headroomMode={!strengthen && headroomOn && !!headroom}
+          onPlace={strengthen ? strengthenClick(o) : place}
+          tool={strengthen ? null : mapTool}
+          overlay={flowOn ? (refs) => <FlowCanvas {...refs} /> : undefined}
         >
-          <DangerLayer />
-          <CascadeFX />
-          <ImpactLayer />
-          <HurricaneLayer />
-          <BoomLayer />
-          <BestSitesLayer />
-          <PlantsLayer />
+          {/* the demo's layers stay mounted (their state survives a visit to Strengthen) but hidden there */}
+          <g display={strengthen ? 'none' : undefined}>
+            <DangerLayer />
+            <CascadeFX />
+            <ImpactLayer />
+            <HurricaneLayer />
+            <BoomLayer />
+            <BestSitesLayer />
+            <PlantsLayer />
+          </g>
           <UnlockLayer />
         </GridMap>
       ) : (
         <div className="mc-loading">{gridError ? <ErrorBanner error={gridError} onRetry={loadGrid} /> : <Loading label={`Loading ${o.regions?.find((r) => r.code === o.region)?.name || 'the'} grid…`} />}</div>
       )}
 
-      <TopBar active={mode === 'unlock' ? 'strengthen' : 'demo'} onPick={pickTab} withState />
-      <header className="mc-top">
-        <div className="mc-title">
-          <h1 className="hook">When the next AI data center plugs in, whose lights go out?</h1>
-          <p className="pitch">AI finds where data centers strain the grid, tests the fixes that take the strain away, and shows how many more it can safely carry.</p>
-        </div>
-        <ScenarioBar />
-      </header>
+      <TopBar active={strengthen ? 'strengthen' : 'demo'} onPick={pickTab} withState />
+      {strengthen ? (
+        <StrengthenPage />
+      ) : (
+        <>
+          <header className="mc-top">
+            <div className="mc-title">
+              <h1 className="hook">When the next AI data center plugs in, whose lights go out?</h1>
+              <p className="pitch">AI finds where data centers strain the grid, tests the fixes that take the strain away, and shows how many more it can safely carry.</p>
+            </div>
+            <ScenarioBar />
+          </header>
 
-      <aside className="mc-left glass" aria-label="Scenario">
-        <nav className="modes" aria-label="Mode">
-          {MODES.map((m) => (
-            <button key={m.id} type="button" className={`mode${m.id === mode ? ' mode--on' : ''}`} aria-pressed={m.id === mode} onClick={() => setMode(m.id)}>
-              {m.label}
-            </button>
-          ))}
-        </nav>
-        <Panel />
-      </aside>
+          <aside className="mc-left glass" aria-label="Scenario">
+            <nav className="modes" aria-label="Mode">
+              {MODES.map((m) => (
+                <button key={m.id} type="button" className={`mode${m.id === mode ? ' mode--on' : ''}`} aria-pressed={m.id === mode} onClick={() => setMode(m.id)}>
+                  {m.label}
+                </button>
+              ))}
+            </nav>
+            <Panel />
+          </aside>
 
-      <aside className="mc-right glass" aria-label="Who is affected">
-        <ImpactPanel />
-      </aside>
+          <aside className="mc-right glass" aria-label="Who is affected">
+            <ImpactPanel />
+          </aside>
 
-      <footer className="mc-bottom glass">
-        <Timeline />
-      </footer>
+          <footer className="mc-bottom glass">
+            <Timeline />
+          </footer>
+        </>
+      )}
 
       <p className="mc-credit">
         <span className="pill">Synthetic grid model (Breakthrough Energy / Texas A&amp;M), not any utility&apos;s network</span>

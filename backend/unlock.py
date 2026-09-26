@@ -4,9 +4,13 @@ they let connect. CLAUDE.md -> Decisions -> UNLOCK.
 
 POST /api/unlock/start      {region, mw, load_factor} -> {id, status, cached}: a background study
 GET  /api/unlock/jobs/{id}  -> {status, progress, partial (sites tested, weak points), result | error}
+GET  /api/unlock/peek?region=&mw=&load_factor= -> {state: done | queued | running | none, id, estimate_s, sites}:
+     what the Strengthen page can show at once (a finished or running study) without starting one
 
-Nothing runs until someone presses the button (LAZY): the study is a background job with progress,
-cached per (region, size rounded to 50 MW, load level). One study computes at a time (CPU-bound).
+Outside Florida nothing runs until someone presses the button (LAZY): the study is a background job with
+progress, cached per (region, size rounded to 50 MW, load level). One study computes at a time (CPU-bound).
+Florida at 1,000 MW and today's load is warmed a few seconds after startup (the page opens with answers;
+UNLOCK_WARM="FL:1000" by default, "0" turns it off) and is never evicted from the cache.
 
 1  LEARN. A campus of `mw` is dropped at every candidate site, one per town (danger.candidates: the
    town's best-connected substation, snapped the way a click there snaps). One linear solve per site
@@ -50,6 +54,7 @@ import asyncio
 import copy
 import logging
 import math
+import os
 import re
 import secrets
 import threading
@@ -57,7 +62,7 @@ import time
 from collections import OrderedDict
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -106,6 +111,13 @@ ALONE = "each site tested alone, not all at once"  # the qualifier every site-op
 _compute_lock = threading.Lock()  # one study computes at a time (CPU-bound: two only slow each other)
 _cache: "OrderedDict[tuple, dict]" = OrderedDict()
 _cache_lock = threading.Lock()
+_PINNED: set[tuple] = set()  # studies warmed at startup: never evicted
+_measured: dict[str, float] = {}  # region -> seconds per candidate site in its last study (for the page's estimate)
+_studies: dict[tuple, "Study"] = {}  # warm studies, kept so a Gemini step that fell back can be tried again
+_ai_tried: dict[tuple, float] = {}  # key -> time.monotonic() of its last Gemini attempt
+AI_RETRY_S = 90.0  # a warm study whose Gemini step fell back (quota, network, timeout) tries it again at most this often
+SECONDS_PER_SITE = 0.04  # before a region has run once (Florida: 234 sites in ~9 s with Gemini; Texas: 716 in ~27 s)
+WARM_DELAY_S = 8.0  # after the other warm-ups (danger zones, plants) have had the CPU
 
 
 # ---------------------------------------------------------------------------------- names
@@ -147,12 +159,37 @@ def _label(g: Grid, i: int) -> str:
     return f"the {a} to {z} line" + (f" (circuit {n})" if n else "")
 
 
+def _short(g: Grid, i: int) -> str:
+    """The plain name a table row carries: "Naples 12 transformer", "Hollywood–Hallandale line",
+    "Fort Lauderdale 20–35 line (circuit 2)" (the numbers are the synthetic model's substation names)."""
+    fs, ts = _ends(g, i)
+    n = _circuit(g, i)
+    if fs == ts:
+        return f"{_title(g.sub_name[fs])} transformer" + (f" (unit {n})" if n else "")
+    a, z = area_of(g.sub_name[fs]), area_of(g.sub_name[ts])
+    na, nz = _title(g.sub_name[fs]), _title(g.sub_name[ts])
+    if a and z and a != z:
+        name = f"{a}–{z}"
+    elif a and a == z and na.startswith(a) and nz.startswith(a) and na != a and nz != a:
+        name = f"{a} {na[len(a):].strip()}–{nz[len(a):].strip()}"  # both ends in one town: "Fort Lauderdale 20–35"
+    else:
+        name = f"{na}–{nz}"
+    return f"{name} line" + (f" (circuit {n})" if n else "")
+
+
+def _where(g: Grid, i: int) -> str:
+    """The town(s) it sits in: "North Fort Myers", "Tampa · Oldsmar"."""
+    fs, ts = _ends(g, i)
+    a, z = area_of(g.sub_name[fs]) or _title(g.sub_name[fs]), area_of(g.sub_name[ts]) or _title(g.sub_name[ts])
+    return a if a == z else f"{a} · {z}"
+
+
 def _end(g: Grid, s: int) -> dict:
     return {"sub": int(g.sub_ids[s]), "name": g.sub_name[s], "area": area_of(g.sub_name[s]), "lat": round(float(g.sub_lat[s]), 4), "lon": round(float(g.sub_lon[s]), 4)}
 
 
 def _branch(g: Grid, i: int) -> dict:
-    """Where a line or transformer is: both ends, its midpoint, its kind."""
+    """Where a line or transformer is: both ends, its midpoint, its kind, its plain name."""
     fs, ts = _ends(g, i)
     a, b = _end(g, fs), _end(g, ts)
     return {
@@ -160,6 +197,8 @@ def _branch(g: Grid, i: int) -> dict:
         "kind": "transformer" if fs == ts else "line",
         "kv": float(g.br_kv[i]),
         "label": _label(g, i),
+        "short": _short(g, i),
+        "where": _where(g, i),
         "from": a,
         "to": b,
         "mid": [round((a["lat"] + b["lat"]) / 2, 4), round((a["lon"] + b["lon"]) / 2, 4)],
@@ -711,6 +750,8 @@ class Study:
             "kind": b["kind"],
             "kv": b["kv"],
             "label": b["label"],
+            "short": b["short"],
+            "where": b["where"],
             "from": b["from"],
             "to": b["to"],
             "geometry": {"type": "segment" if line else "point", "coords": [[b["from"]["lon"], b["from"]["lat"]], [b["to"]["lon"], b["to"]["lat"]]] if line else [[b["from"]["lon"], b["from"]["lat"]]]},
@@ -756,6 +797,13 @@ class Study:
         ok_now = int(self.ok0.sum())
         self._point_rank = {g.br_index[p["branch_id"]]: p["rank"] for p in self.points}
         lines: set[int] = set()
+        # the blackouts a campus would set off today, biggest first: `biggest_gone` counts how many of the biggest are
+        # gone (in a row from the top) once a step's sites connect with no line over its limit
+        ranked = [int(j) for j in np.argsort(-self.hit0, kind="stable") if self.hit0[j] > 0]
+        rank_of = {j: k for k, j in enumerate(ranked)}
+        gone: set[int] = set()
+        lead = 0
+        over_prev = self.overloads(g.rate)
         for n, st in enumerate(self.steps, 1):
             lines.update(st["changes"])
             good = st["verified"] + st["unverified"]  # verified, or not reached in time (flagged)
@@ -763,6 +811,10 @@ class Study:
             cum_lo += st["lo"]
             cum_hi += st["hi"]
             lost = [self.hit0[j] for j in good if self.hit0[j] > 0]
+            gone.update(rank_of[j] for j in good if j in rank_of)
+            while lead in gone:
+                lead += 1
+            over_now = self.overloads(st["rate"])
             steps.append(
                 {
                     "n": n,
@@ -780,15 +832,17 @@ class Study:
                     "blackout_prevented_max": int(max(lost)) if lost else 0,
                     "blackout_sites_prevented": len(lost),
                     "mw_unlocked": round((ok_now - int(self.ok0.sum())) * self.mw),  # site capacity, each site on its own
-                    "overloads_left": self.overloads(st["rate"]),  # line overloads across the tested sites after this step
+                    "overloads_before": over_prev,  # line overloads across the tested sites before this step
+                    "overloads_left": over_now,  # line overloads across the tested sites after this step
+                    "biggest_gone": lead,  # the biggest blackouts (today's, in a row from the top) no longer set off
                 }
             )
-        for j, row in enumerate(self.site_rows):
-            row["unlocked_at"] = None
-            row["hit_after"] = int(self.hit_after[j]) if self.hit_after[j] >= 0 else None
+            over_prev = over_now
+        # fresh rows for this answer (a later Gemini retry builds another; a cached answer is never changed in place)
+        rows = [{**row, "unlocked_at": None, "hit_after": int(self.hit_after[j]) if self.hit_after[j] >= 0 else None} for j, row in enumerate(self.site_rows)]
         for s in steps:
             for x in s["newly"]:
-                self.site_rows[self._site_index[x["id"]]]["unlocked_at"] = s["n"]
+                rows[self._site_index[x["id"]]]["unlocked_at"] = s["n"]
         eng = self.summary_engine()
         more = sum(s["newly_count"] for s in steps)
         simulated = self.hit0 >= 0
@@ -825,7 +879,7 @@ class Study:
             "sites_total": self.ns,
             "points": self.points,
             "steps": steps,
-            "sites": self.site_rows,
+            "sites": rows,
             "before": {
                 "sites_ok": int(self.ok0.sum()),
                 "blackout_sites": before_bo,
@@ -919,7 +973,7 @@ async def _ai(study: Study, report) -> dict:
         if rnd and study.elapsed() > study.budget * 0.9:
             break
         prompt, allowed = study.ai_prompt(feedback)
-        raw, offline = await complete_json(prompt, system=SYSTEM, fallback={"bundles": []}, timeout=AI_TIMEOUT_S)
+        raw, offline = await complete_json(prompt, system=SYSTEM, fallback={"bundles": []}, timeout=AI_TIMEOUT_S, surface="unlock")
         if offline:
             status = "offline" if rnd == 0 else status
             break
@@ -1005,6 +1059,62 @@ def _gc_jobs() -> None:
         del _jobs[old]
 
 
+def _found(key: tuple) -> tuple[_Job, bool] | None:
+    """(a job for `key`, cached?) without starting one: a finished study as a fresh done job, or the job already
+    computing it (the warm-up, or another visitor's run). Call with _jobs_lock held."""
+    with _cache_lock:
+        hit = _cache.get(key)
+    if hit is not None:
+        _retry_ai(key, hit)
+        job = _Job(key)
+        job.result, job.status = hit, "done"
+        job.progress = {"phase": "done", "done": 1, "total": 1, "message": "From the last run"}
+        _jobs[job.id] = job
+        return job, True
+    same = next((j for j in _jobs.values() if j.key == key and j.status in ("queued", "running")), None)
+    return (same, False) if same is not None else None
+
+
+def _retry_ai(key: tuple, hit: dict) -> None:
+    """A warm study whose Gemini step fell back (the free tier's per-minute quota, the network, the timeout) tries
+    that step again in the background, at most every AI_RETRY_S; the engine's plan and its numbers are unchanged,
+    and Gemini's bundles are kept only when the engine verifies them, as in the first run."""
+    study = _studies.get(key)
+    if study is None or (hit.get("ai") or {}).get("status") not in ("offline", "error") or not configured():
+        return
+    now = time.monotonic()
+    if now - _ai_tried.get(key, 0.0) < AI_RETRY_S:
+        return
+    _ai_tried[key] = now
+
+    async def again():
+        ai = await _ai(study, lambda *a: None)
+        _ai_tried[key] = time.monotonic()
+        if ai["status"] in ("offline", "error"):
+            return
+        result = await run_in_threadpool(study.result, ai)
+        with _cache_lock:
+            _cache[key] = result
+        log.info("unlock: Gemini step retried for %s at %.0f MW: %s, %d bundles", key[0], key[1], ai["status"], len(ai["bundles"]))
+
+    def run():
+        try:
+            asyncio.run(again())
+        except Exception:  # noqa: BLE001 — a retry is best effort; the cached answer stands
+            log.exception("unlock: Gemini retry failed")
+
+    threading.Thread(target=run, name="unlock-ai-retry", daemon=True).start()
+
+
+def _estimate(code: str) -> tuple[int, int]:
+    """(seconds a study of `code` should take, candidate sites): from its last run, else a per-site rule of thumb."""
+    g = grid_at(1.0, code)
+    ns = len(danger.candidates(g, code))
+    per = _measured.get(code) or (sum(_measured.values()) / len(_measured) if _measured else SECONDS_PER_SITE)
+    cap = (BUDGET_FL if code == DEFAULT_REGION else BUDGET_OTHER) + AI_TIMEOUT_S * AI_ROUNDS
+    return int(min(cap, max(5.0, math.ceil(per * ns + 2.0)))), ns
+
+
 def _compute(job: _Job) -> Study:
     code, mw, lf = job.key
 
@@ -1034,12 +1144,20 @@ async def _run_job(job: _Job) -> None:
         except Exception:  # noqa: BLE001 — the AI step is a bonus; the engine's plan stands alone
             log.exception("unlock: AI step failed")
             ai = {"status": "error", "bundles": [], "asked": 0, "rejected": []}
+        _ai_tried[job.key] = time.monotonic()
+        if job.key in _PINNED and study.baseline is None:
+            _studies[job.key] = study
         result = await run_in_threadpool(study.result, ai)
         with _cache_lock:
             _cache[job.key] = result
             _cache.move_to_end(job.key)
-            while len(_cache) > CACHE_SIZE:
-                _cache.popitem(last=False)
+            while len(_cache) > CACHE_SIZE:  # the oldest study goes first; the warm Florida study stays
+                old = next((k for k in _cache if k not in _PINNED), None)
+                if old is None:
+                    break
+                del _cache[old]
+        if study.baseline is None and getattr(study, "ns", 0):
+            _measured[job.key[0]] = result["learned"]["seconds"] / study.ns  # seconds per site, for the next estimate
         job.result = result
         job.progress = {"phase": "done", "done": 1, "total": 1, "message": f"Done in {result['learned']['seconds']:.0f} s"}
         job.status = "done"
@@ -1063,17 +1181,10 @@ async def start(request: Request, body: UnlockIn):
     key = _key_of(body)
     with _jobs_lock:
         _gc_jobs()
-        with _cache_lock:
-            hit = _cache.get(key)
-        if hit is not None:
-            job = _Job(key)
-            job.result, job.status = hit, "done"
-            job.progress = {"phase": "done", "done": 1, "total": 1, "message": "From the last run"}
-            _jobs[job.id] = job
-            return {"id": job.id, "status": job.status, "cached": True}
-        same = next((j for j in _jobs.values() if j.key == key and j.status in ("queued", "running")), None)
-        if same is not None:
-            return {"id": same.id, "status": same.status, "cached": False}
+        found = _found(key)
+        if found is not None:
+            job, cached = found
+            return {"id": job.id, "status": job.status, "cached": cached}
         if sum(1 for j in _jobs.values() if j.status in ("queued", "running")) >= RUNNING_MAX:
             raise HTTPException(status_code=429, detail="The engine is busy with other studies. Try again in a minute.")
         job = _Job(key)
@@ -1096,3 +1207,63 @@ def job_status(request: Request, job_id: str = PathParam(..., pattern=r"^[A-Za-z
     else:
         out["partial"] = {"sites": copy.copy(job.partial.get("sites")), "points": job.partial.get("points")}
     return out
+
+
+@router.get("/api/unlock/peek")
+@limiter.limit("240/minute")
+def peek(
+    request: Request,
+    region: str = Query(DEFAULT_REGION, max_length=8),
+    mw: float = Query(1000.0),
+    load_factor: float = Query(1.0),
+):
+    """What the Strengthen page can show at once, without starting anything (LAZY): a finished study (a done job
+    to fetch), the job already computing it, or nothing yet with how long a run should take."""
+    key = _key_of(UnlockIn(region=region, mw=mw, load_factor=load_factor))
+    with _jobs_lock:
+        _gc_jobs()
+        found = _found(key)
+    est, ns = _estimate(key[0])
+    out = {"region": key[0], "mw": key[1], "load_factor": key[2], "estimate_s": est, "sites": ns, "warm": key in _PINNED}
+    if found is None:
+        return {**out, "state": "none", "id": None}
+    job, _ = found
+    return {**out, "state": job.status, "id": job.id}
+
+
+# ---------------------------------------------------------------------------------- warm-up
+def _warm_keys() -> list[tuple[str, float, float]]:
+    """UNLOCK_WARM: "FL:1000" (default), "FL:1000,FL:500", or "0" for none. Florida only (LAZY)."""
+    out = []
+    for item in os.getenv("UNLOCK_WARM", f"{DEFAULT_REGION}:1000").split(","):
+        code, _, size = item.strip().partition(":")
+        if code.strip().upper() != DEFAULT_REGION:
+            continue
+        try:
+            out.append(_key_of(UnlockIn(region=code, mw=float(size or 1000), load_factor=1.0)))
+        except (HTTPException, ValueError):
+            log.warning("unlock: ignoring UNLOCK_WARM entry %r", item)
+    return out
+
+
+def _warm() -> None:
+    """Compute the warm studies in this thread (its own event loop for the Gemini step); a visitor who opens the
+    page meanwhile joins the running job and sees its progress."""
+    for key in _WARM:
+        with _jobs_lock:
+            if _found(key) is not None:
+                continue
+            job = _Job(key)
+            _jobs[job.id] = job
+        try:
+            asyncio.run(_run_job(job))
+        except Exception:  # noqa: BLE001 — warming is best effort; the page's own request computes it anyway
+            log.exception("unlock: warm-up failed")
+
+
+_WARM = _warm_keys()
+_PINNED.update(_WARM)
+if _WARM:
+    _warmer = threading.Timer(WARM_DELAY_S, _warm)
+    _warmer.daemon = True  # never holds the process open at shutdown
+    _warmer.start()

@@ -1,0 +1,1288 @@
+/* Strengthen the grid, the full page (StrengthenPage.jsx). App adds .mc--unlock to the map page's root while
+   mode === 'unlock'; the root becomes a grid: the header across the top, the map (left and center) beside the
+   ranked table's rail (right), the credit line under both. The map and its floating pieces (the build-up bar,
+   the key, the selected card) are absolutely positioned grid items placed in the map's area, so the shared map
+   never remounts. Sober incident room: plain tabular figures, amber for the weak points (strain), GREEN only
+   for the fix and what it unlocks, the interface blue for selection, red nowhere. */
+
+.st-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ layout */
+@media (min-width: 861px) {
+  .mc.mc--unlock {
+    --st-rail-w: clamp(480px, 46vw, 720px);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--st-rail-w);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'head head'
+      'map rail'
+      'credit credit';
+    column-gap: var(--gutter);
+    row-gap: 10px;
+    padding: 12px var(--gutter) 0;
+  }
+
+  .mc--unlock > .st-play,
+  .mc--unlock > .st-legend,
+  .mc--unlock > .st-card {
+    position: absolute;
+    z-index: 3;
+  }
+
+  .mc--unlock > .st-play {
+    left: 12px;
+    bottom: 12px;
+    max-width: calc(100% - 200px);
+  }
+
+  .mc--unlock > .st-legend {
+    left: 12px;
+    bottom: 78px;
+  }
+
+  .mc--unlock > .st-card {
+    top: 12px;
+    right: 12px;
+    width: min(330px, calc(100% - 24px));
+    max-height: calc(100% - 70px);
+    overflow: auto;
+  }
+
+  .st-rail {
+    container: st-rail / inline-size;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-right: 2px;
+  }
+
+  .st-table {
+    flex: 1 1 0;
+    min-height: 280px;
+  }
+}
+
+.mc--unlock > .map {
+  grid-area: map;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.mc--unlock > .mc-loading {
+  grid-area: map;
+}
+
+.mc--unlock .map-controls {
+  right: 10px;
+  bottom: 10px;
+}
+
+/* The demo's cascade effects draw on a canvas that CascadeFX portals into the map box (outside the SVG group
+   App hides here), and it keeps drawing through the replay plus its afterglow: never over the Strengthen map. */
+.mc--unlock .bx-canvas {
+  display: none;
+}
+
+.mc--unlock > .mc-credit {
+  position: static;
+  grid-area: credit;
+  padding: 2px 0 8px;
+}
+
+.st-head {
+  grid-area: head;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.st-play,
+.st-legend,
+.st-card {
+  grid-area: map;
+}
+
+.st-rail {
+  grid-area: rail;
+}
+
+/* ------------------------------------------------------------------ header */
+.st-head__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  flex-wrap: wrap;
+}
+
+.st-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.st-title__h {
+  margin: 0;
+  font-size: 1.6rem;
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 72%;
+  color: var(--ink);
+}
+
+.st-title__where {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--glass-edge);
+}
+
+.st-ctl {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+  flex-wrap: wrap;
+}
+
+.st-ctl__k {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.st-size {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.st-size__opts {
+  display: inline-flex;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.st-size__b {
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 0.3rem 0.7rem;
+  background: transparent;
+  color: var(--ink-2);
+  border: 0;
+  border-right: 1px solid var(--glass-edge);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.st-size__b:last-child {
+  border-right: 0;
+}
+
+.st-size__b:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.st-size__b.is-on {
+  background: var(--glass-hi);
+  color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.st-size__b:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.st-budget {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.st-budget__v {
+  min-width: 8.5rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.st-budget input {
+  width: clamp(160px, 18vw, 260px);
+  accent-color: var(--hr-ok);
+}
+
+/* the headline: the answer in one line, figures bright, the words between them quiet */
+.st-hl {
+  display: grid;
+  gap: 3px;
+  min-height: 3.1rem;
+}
+
+.st-hl__line,
+.st-hl--plain {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.st-hl--wait {
+  opacity: 0.7;
+}
+
+.st-hl__fig {
+  font-size: 1.5rem;
+  font-weight: 750;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.st-hl__sep {
+  margin: 0 0.45em;
+  color: var(--border);
+}
+
+.st-hl__arrow {
+  margin: 0 0.4em;
+  color: var(--hr-ok);
+}
+
+.st-hl__muted {
+  font-size: 0.9rem;
+}
+
+.st-hl__gone {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.st-hl__sub {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.st-good {
+  color: var(--hr-ok);
+}
+
+.st-hl__fig.st-good {
+  color: var(--hr-ok);
+}
+
+.st-warn {
+  color: var(--strain);
+}
+
+.st-hl__fig.st-warn {
+  color: var(--strain);
+}
+
+.st-link {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ------------------------------------------------------------------ over the map */
+.st-play {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 6px 12px 6px 6px;
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+.st-play .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.st-play__icon {
+  width: 0;
+  height: 0;
+  border-left: 8px solid currentColor;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+
+.st-play__icon.is-pause {
+  width: 8px;
+  height: 10px;
+  border: 0;
+  border-left: 3px solid currentColor;
+  border-right: 3px solid currentColor;
+}
+
+.st-scrub {
+  display: grid;
+  gap: 1px;
+}
+
+.st-scrub input {
+  width: clamp(110px, 12vw, 170px);
+  accent-color: var(--hr-ok);
+  display: block;
+  margin: 0;
+}
+
+.st-play__at {
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.st-legend {
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+}
+
+.st-legend summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.st-legend ul {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.st-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.st-key {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.st-key--wp {
+  background: color-mix(in srgb, var(--strain) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--strain) 70%, transparent);
+}
+
+.st-key--up {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hr-ok);
+}
+
+.st-key--ok {
+  width: 7px;
+  height: 7px;
+  margin: 0 2.5px;
+  background: var(--lit);
+  opacity: 0.6;
+}
+
+.st-key--blocked {
+  width: 7px;
+  height: 7px;
+  margin: 0 2.5px;
+  border: 1.4px solid var(--strain);
+}
+
+.st-key--blackout {
+  width: 7px;
+  height: 7px;
+  margin: 0 2.5px;
+  background: var(--strain);
+}
+
+.st-key--unlocked {
+  width: 8px;
+  height: 8px;
+  margin: 0 2px;
+  background: var(--hr-ok);
+}
+
+/* the selected upgrade, weak point, site or Gemini bundle */
+.st-card {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  font-size: 0.82rem;
+  line-height: 1.45;
+  animation: st-card-in 0.2s ease-out;
+}
+
+@keyframes st-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.st-card__x {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  background: none;
+  border: 0;
+  color: var(--ink-2);
+  cursor: pointer;
+  padding: 4px;
+}
+
+.st-card__x:hover {
+  color: var(--ink);
+}
+
+.st-card__kicker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding-right: 1.5rem;
+}
+
+.st-card__h {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.25;
+  font-weight: 700;
+}
+
+.st-card__more,
+.st-card__where,
+.st-card__meta,
+.st-card__hint {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.st-card__where {
+  margin: -4px 0 0;
+  font-size: 0.78rem;
+}
+
+.st-card__why,
+.st-card__fix,
+.st-card__budget {
+  margin: 0;
+}
+
+.st-card__parts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.st-card__parts li {
+  display: grid;
+  gap: 1px;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--hr-ok) 60%, transparent);
+}
+
+.st-card__part {
+  font-weight: 600;
+}
+
+.st-card__meta {
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-card__meta strong {
+  color: var(--hr-ok);
+}
+
+.st-card__facts {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.st-card__facts div {
+  display: grid;
+  grid-template-columns: 5.8rem 1fr;
+  gap: 8px;
+}
+
+.st-card__facts dt {
+  color: var(--ink-2);
+}
+
+.st-card__facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-card__try {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.st-card__try .btn {
+  padding: 0.25rem 0.65rem;
+  font-size: 0.78rem;
+}
+
+.st-card__hint {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+}
+
+/* ------------------------------------------------------------------ the rail */
+.st-h {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.st-h__sub {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.st-table,
+.st-note,
+.st-run,
+.st-progress,
+.st-bottom,
+.st-how-it {
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+}
+
+.st-note,
+.st-run,
+.st-progress {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.st-note p,
+.st-run p {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.st-note .btn,
+.st-run .btn {
+  justify-self: start;
+}
+
+.st-run .btn {
+  font-size: 0.95rem;
+  padding: 0.55rem 1.1rem;
+}
+
+.st-run__time {
+  font-size: 0.8rem;
+}
+
+.st-progress__time {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.st-progress__pts ol {
+  margin: 6px 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 4px;
+  font-size: 0.78rem;
+}
+
+.st-progress__pts li span {
+  display: block;
+  color: var(--ink-2);
+  font-size: 0.74rem;
+}
+
+/* the table */
+.st-table {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.st-table__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 10px 12px 4px;
+  flex-wrap: wrap;
+}
+
+.st-seg {
+  display: inline-flex;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.st-seg button {
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  background: transparent;
+  border: 0;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.st-seg button + button {
+  border-left: 1px solid var(--glass-edge);
+}
+
+.st-seg button.is-on {
+  background: var(--glass-hi);
+  color: var(--ink);
+}
+
+.st-seg__n {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  margin-left: 2px;
+}
+
+.st-ailine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0 12px 8px;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.st-ailine .st-how {
+  font-size: 0.75rem;
+}
+
+.st-table__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.st-t {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-t thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface);
+  padding: 7px 6px 6px;
+  text-align: left;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--glass-edge);
+  line-height: 1.2;
+  vertical-align: bottom;
+}
+
+.st-t thead th:nth-child(1) {
+  width: 2rem;
+}
+
+.st-t thead th:nth-child(3) {
+  width: 5rem;
+}
+
+.st-t thead th:nth-child(4) {
+  width: 5.8rem;
+}
+
+.st-t thead th:nth-child(5) {
+  width: 5.4rem;
+}
+
+.st-t thead th:nth-child(6) {
+  width: 5.2rem;
+}
+
+.st-t thead th:nth-child(7) {
+  width: 4.4rem;
+}
+
+.st-t td,
+.st-t tbody th {
+  padding: 6px;
+  text-align: left;
+  vertical-align: top;
+  font-weight: 400;
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-edge) 60%, transparent);
+}
+
+.st-t .st-t__num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.st-t thead th.st-t__num {
+  white-space: normal;
+}
+
+.st-t__n {
+  color: var(--ink-2);
+  font-weight: 700;
+}
+
+.st-t__what {
+  min-width: 0;
+}
+
+.st-t__btn {
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.st-t__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.st-t__more {
+  font-weight: 400;
+  color: var(--ink-2);
+}
+
+.st-t__sub {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.7rem;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.st-t__wp {
+  color: var(--strain);
+}
+
+.st-row {
+  cursor: pointer;
+  transition: background-color 0.25s ease;
+}
+
+.st-row:hover {
+  background: var(--glass-hi);
+}
+
+.st-row--built .st-t__n {
+  color: var(--hr-ok);
+}
+
+.st-row--over {
+  opacity: 0.42;
+}
+
+.st-row--now {
+  background: color-mix(in srgb, var(--hr-ok) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--hr-ok);
+}
+
+.st-row--sel,
+.st-row--sel:hover {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.st-row--rule td {
+  padding: 6px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  border-bottom: 1px dashed var(--border);
+  background: var(--glass-hi);
+}
+
+.st-empty {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--ink-2);
+  font-size: 0.85rem;
+}
+
+/* the chart and before/after, side by side when the rail is wide enough */
+.st-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 0.55fr);
+  gap: var(--space-3);
+  align-items: start;
+  padding: 10px 12px 12px;
+  flex: none;
+}
+
+@container st-rail (max-width: 560px) {
+  .st-bottom {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .st-ba__tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.st-chart {
+  margin: 0;
+  position: relative;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.st-chart__cap {
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  line-height: 1.35;
+}
+
+.st-chart__cap strong {
+  color: var(--ink);
+}
+
+.st-chart__sub {
+  font-size: 0.72rem;
+}
+
+.st-chart__plot {
+  position: relative;
+}
+
+.st-chart__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--space-3);
+}
+
+.st-chart__whole {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.st-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+  overflow: visible;
+}
+
+.st-chart__spent {
+  fill: color-mix(in srgb, var(--hr-ok) 6%, transparent);
+}
+
+.st-curve--budget {
+  fill: none;
+  stroke: var(--hr-ok);
+  stroke-width: 1.5px;
+  stroke-opacity: 0.4;
+  stroke-linejoin: round;
+}
+
+.st-chart__budget {
+  stroke: var(--hr-ok);
+  stroke-width: 1px;
+  stroke-dasharray: 3 3;
+}
+
+.st-chart__blabel {
+  fill: var(--ink);
+  font-size: 10.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-chart .ul-tick,
+.st-chart .ul-note {
+  font-size: 10px;
+}
+
+/* before and after */
+.st-ba {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.st-ba .st-h {
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.st-ba__tiles {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.st-ba__tile {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.st-ba__tile dt {
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  line-height: 1.3;
+}
+
+.st-ba__tile dd {
+  margin: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.st-ba__fig {
+  font-size: 1.1rem;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.st-ba__before {
+  color: var(--strain);
+}
+
+.st-ba__arrow {
+  margin: 0 0.35em;
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.st-ba__after {
+  color: var(--hr-ok);
+}
+
+.st-ba__bars {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.st-ba__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+}
+
+.st-ba__bar--before {
+  width: 100%;
+  background: color-mix(in srgb, var(--strain) 32%, transparent);
+}
+
+.st-ba__bar--after {
+  background: var(--hr-ok);
+  transition: width 0.5s ease;
+}
+
+.st-ba__note {
+  font-size: 0.7rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* how it works */
+.st-how-it {
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+  flex: none;
+}
+
+.st-how-it summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.st-how-it p {
+  margin: 6px 0 0;
+}
+
+.st-how-it strong {
+  color: var(--ink);
+}
+
+.st-how-it ul {
+  margin: 4px 0 0;
+  padding-left: 1.1rem;
+}
+
+.st-how-it a {
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------------ phones: one column */
+@media (max-width: 860px) {
+  .mc.mc--unlock {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'head'
+      'map'
+      'card'
+      'legend'
+      'rail'
+      'credit';
+    padding-bottom: var(--gutter);
+  }
+
+  .mc.mc--unlock > .map {
+    grid-area: map;
+    height: 56vh;
+  }
+
+  .mc--unlock > .st-play {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    z-index: 3;
+    padding: 4px 8px 4px 4px;
+    gap: var(--space-2);
+  }
+
+  .st-play .btn {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .st-scrub {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .st-scrub input {
+    width: 100%;
+  }
+
+  .mc--unlock > .st-legend {
+    grid-area: legend;
+  }
+
+  .mc--unlock > .st-card {
+    grid-area: card;
+  }
+
+  .st-rail {
+    container: st-rail / inline-size;
+    display: grid;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .st-table__scroll {
+    max-height: 60vh;
+  }
+
+  .st-head__row,
+  .st-ctl {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .st-size {
+    flex-wrap: wrap;
+  }
+
+  .st-size__opts {
+    flex: 1 1 100%;
+  }
+
+  .st-size__b {
+    flex: 1 1 0;
+    padding: 0.35rem 0.3rem;
+  }
+
+  .st-budget {
+    width: 100%;
+  }
+
+  .st-budget input {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  .st-hl__line,
+  .st-hl--plain {
+    font-size: 1rem;
+  }
+
+  .st-hl__fig {
+    font-size: 1.25rem;
+  }
+}
+
+/* a narrow rail (phones): each row becomes a small card, the name on the left and its figures stacked on the
+   right; the strain and who-found-it columns step aside (the line above the table says who) */
+@container st-rail (max-width: 520px) {
+  .st-t,
+  .st-t tbody {
+    display: block;
+  }
+
+  .st-t thead {
+    display: none;
+  }
+
+  .st-t tr.st-row {
+    display: grid;
+    grid-template-columns: 1.5rem minmax(0, 1fr) auto;
+    column-gap: 8px;
+    padding: 8px 4px;
+    border-bottom: 1px solid color-mix(in srgb, var(--glass-edge) 60%, transparent);
+  }
+
+  .st-t tr.st-row > * {
+    padding: 0;
+    border: 0;
+  }
+
+  .st-t tr.st-row > :nth-child(1) {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+  }
+
+  .st-t tr.st-row > :nth-child(2) {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+  }
+
+  .st-t tr.st-row > :nth-child(3) {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .st-t tr.st-row > :nth-child(4) {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .st-t tr.st-row > :nth-child(6) {
+    grid-column: 3;
+    grid-row: 3;
+  }
+
+  .st-t tr.st-row > :nth-child(5),
+  .st-t tr.st-row > :nth-child(7),
+  .st-t .st-t__opt {
+    display: none;
+  }
+
+  .st-t tr.st-row .st-t__num .st-t__sub {
+    display: inline;
+    margin-left: 4px;
+  }
+
+  .st-t tr.st-row .st-t__num .st-t__opt {
+    display: none;
+  }
+
+  .st-t tr.st-row--rule {
+    display: block;
+  }
+
+  .st-t tr.st-row--rule td {
+    display: block;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .st-card,
+  .st-row,
+  .st-ba__bar--after {
+    animation: none;
+    transition: none;
+  }
+}

@@ -4,9 +4,11 @@ ctx: check(name, fn), request(method, path, data=None, headers=None, expect=200)
 auth() -> headers for this run's throwaway user, expected (expected_whatif.json).
 
 Read-only: a study stores nothing (an in-memory job and cache). One Florida study at 1,000 MW runs as a
-background job (~10 s on a laptop, bounded at 60 s plus the Gemini step); the checks poll it, then
-re-run what it claims through the public cascade route: a site the plan unlocks must overload before and
-hold with the plan's upgrades."""
+background job (~10 s on a laptop, bounded at 60 s plus the Gemini step; the server warms it a few seconds
+after startup, so this usually joins that job or finds it cached); the checks poll it, then re-run what it
+claims through the public cascade route: a site the plan unlocks must overload before and hold with the
+plan's upgrades. The Strengthen page's fields (plain names, per-step strain and "biggest blackouts gone",
+the budget's running cost) and the peek route (shows a study without starting one) are checked too."""
 
 import math
 import time
@@ -96,6 +98,24 @@ def register(ctx):
         assert abs(h["cost_high"] - steps[-1]["cum_cost"]["high"]) <= len(steps) + 1, (h["cost_high"], steps[-1]["cum_cost"])
         assert 0 < h["cost_low"] <= h["cost_high"], h
         assert r["after"]["worst"]["people_hit"] <= r["before"]["worst"]["people_hit"], (r["before"]["worst"], r["after"]["worst"])
+        # the Strengthen page: plain names, the budget's running cost, per-step strain and the biggest blackouts gone
+        for x in pts + [pj for st in steps for pj in st["projects"]]:
+            assert x["short"] and not x["short"].startswith("the ") and x["short"].endswith(("line", "transformer", ")")), x["short"]
+            assert x["where"], x
+        highs = [st["cum_cost"]["high"] for st in steps]
+        assert highs == sorted(highs), "the plan's running cost goes down somewhere (the budget slices it)"
+        prev = r["headline"]["strain"]["line_overloads_before"]
+        for st in steps:
+            assert st["overloads_before"] == prev, (st["n"], st["overloads_before"], prev)
+            prev = st["overloads_left"]
+        gone = [st["biggest_gone"] for st in steps]
+        assert gone == sorted(gone) and 0 <= gone[-1] <= r["before"]["blackout_sites"], gone
+        ranked = sorted((x for x in r["sites"] if (x["hit0"] or 0) > 0), key=lambda x: -x["hit0"])
+        lead = 0
+        while lead < len(ranked) and ranked[lead]["unlocked_at"] is not None:
+            lead += 1
+        # (ties in people hit can order either way; the count is the same unless a tie straddles the cut)
+        assert abs(gone[-1] - lead) <= 1, (gone[-1], lead)
         # the headline in siting language, and the strain from the study's own numbers
         assert h["mw_unlocked"] == more * MW and f"{more:,} more sites can host {MW:,} MW" in h["sentence"], h["sentence"]
         # the summed figure is site options, never capacity that connects together: the visible text says so
@@ -144,7 +164,27 @@ def register(ctx):
         assert s["status"] == "done" and s["result"]["headline"] == state["r"]["headline"], "the cached study differs"
         assert time.monotonic() - t0 < 10, "a cached study should come back at once"
 
+    def peek():
+        ctx.request("GET", "/api/unlock/peek?region=US&mw=1000", expect=422)
+        ctx.request("GET", "/api/unlock/peek?region=FL&mw=50", expect=422)
+        # the finished Florida study shows at once (the `study` check above cached it). `warm` says whether the
+        # server warms it at startup: true locally, false on Render (render.yaml sets UNLOCK_WARM=0), so only its type is checked
+        pk = ctx.request("GET", "/api/unlock/peek?region=FL&mw=1000&load_factor=1")
+        assert pk["state"] == "done" and pk["id"] and isinstance(pk["warm"], bool), pk
+        assert pk["sites"] == state["r"]["sites_total"] and pk["estimate_s"] > 0, pk
+        s = ctx.request("GET", f"/api/unlock/jobs/{pk['id']}")
+        assert s["status"] == "done" and s["result"]["headline"] == state["r"]["headline"], "the peeked study differs"
+        # elsewhere a peek starts nothing (LAZY): the page offers a button with the time it takes
+        q = "/api/unlock/peek?region=RI&mw=450&load_factor=1"
+        a = ctx.request("GET", q)
+        assert a["estimate_s"] > 0 and a["sites"] > 0 and a["warm"] is False, a
+        if a["state"] == "none":
+            time.sleep(1.0)
+            b = ctx.request("GET", q)
+            assert b["state"] == "none" and b["id"] is None, f"a peek started a study: {b}"
+
     ctx.check("unlock: bad sizes, the national map, unknown states and jobs are refused", validation)
     ctx.check("unlock: Florida at 1,000 MW finds weak points and a verified plan", study)
     ctx.check("unlock: the cascade route agrees a site the plan unlocks now holds", engine_agrees)
     ctx.check("unlock: the same study again comes from the cache", cached_rerun)
+    ctx.check("unlock: peek shows the finished Florida study at once and starts nothing elsewhere", peek)
