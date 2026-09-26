@@ -21,6 +21,7 @@ import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Button, ErrorBanner, Loading } from '../../ui'
 import AiBadge from '../ai/AiBadge'
+import { BuildCaption, useBuildNarration } from '../narrate'
 import { money, moneyRange } from '../cost/money'
 import { budgetOf, targetOf } from './unlockStore'
 import { capStopIndex, capStops, capWithin, costAt, count, levelPhrase, ordinal, sizeLabel, stopText, stopsClause } from './capacity'
@@ -52,8 +53,10 @@ import {
   settleCap,
   showBundle,
   showGemini,
+  showCap,
   stopCap,
   stopPlay,
+  talkCap,
   useUnlock,
 } from './unlockStore'
 import './unlock.css'
@@ -110,10 +113,10 @@ export default function StrengthenPage() {
     if (st) flyTo(o, [[st.site.lon, st.site.lat]])
   }
   const watch = () => {
-    showGemini(false)
+    if (gm) showGemini(false) // only when Gemini's plan is up: it resets the map to the answer (undoing a resume)
     select(null)
     mapRef.current?.reset()
-    playCap(!(shown > m.today && shown < target))
+    talkCap() // the narrated build-up (useBuildNarration below): "Keep building" resumes, else it starts over
   }
   const openSites = (start = 'plan') => {
     setSitesStart((s) => ({ view: start, key: s.key + 1 }))
@@ -150,6 +153,29 @@ export default function StrengthenPage() {
   const hasPlan = !!(m && m.steps.length)
   const duke = r?.capacity?.sources?.find((x) => /Duke/.test(x.name))
   const summary = hasPlan ? meterSummary(m, r.mw, target, plantsN, plants?.reserve_pct) : ''
+
+  // "Watch it get built" plays the presenter: heard only when this viewer turned sound on (captions always), and the
+  // map follows the voice. The first build-up on open stays the silent timer (MUTED: nothing plays audio by itself).
+  // It plays only over the finished study on screen; stopCap() (every size, type, budget, view, state or load change,
+  // Gemini's plan, the Pause button, leaving the page) stops it. "Keep building" resumes the paused slide; "Watch it
+  // get built" starts over; a paused caption stays up only while the button offers to keep building.
+  const resumable = hasPlan && shown > m.today && shown < target
+  const nb = useBuildNarration({
+    region,
+    mw: r?.mw ?? u.size,
+    loadFactor,
+    mode: u.flex ? 'flexible' : 'firm',
+    budget,
+    lang: 'en',
+    playing: u.capTalk && hasPlan,
+    fromStart: !resumable,
+    onStep: (n) => showCap(Math.max(m?.today ?? 0, n)),
+    onDone: (why) => {
+      if (why === 'error' && hasPlan) playCap(true) // no script (e.g. the study was dropped): the silent build-up instead
+      else settleCap() // the last word: the budget's answer stands
+    },
+  })
+  const building = u.capTalk || u.capPlaying
   const gemSummary = gm ? `Capacity meter showing Gemini’s plan, verified by the engine: ${fmt(gm.steps.length)} campuses at once for ${money(r.capacity.ai.cost.high)}.` : ''
 
   return (
@@ -194,13 +220,13 @@ export default function StrengthenPage() {
             {/* with reduced motion the plan stands complete at once: there is no build-up to watch */}
             {hasPlan && !still && (
               <Button
-                variant={u.capPlaying ? 'secondary' : 'primary'}
-                onClick={u.capPlaying ? stopCap : watch}
+                variant={building ? 'secondary' : 'primary'}
+                onClick={building ? stopCap : watch}
                 disabled={target <= m.today}
                 title={target <= m.today ? 'Raise the budget: there is nothing to build yet' : undefined}
               >
-                <span aria-hidden="true" className={`st-watch__icon${u.capPlaying ? ' is-pause' : ''}`} />
-                {u.capPlaying ? 'Pause' : shown > m.today && shown < target ? 'Keep building' : 'Watch it get built'}
+                <span aria-hidden="true" className={`st-watch__icon${building ? ' is-pause' : ''}`} />
+                {building ? 'Pause' : resumable ? 'Keep building' : 'Watch it get built'}
               </Button>
             )}
           </div>
@@ -227,6 +253,7 @@ export default function StrengthenPage() {
       </header>
 
       {m && view === 'capacity' && <MapKey gem={!!gm?.steps.some((st) => st.gem)} />}
+      {m && view === 'capacity' && !gm && (building || resumable) && <BuildCaption nb={nb} />}
 
       {r && view === 'capacity' && selN && !gm && <CapacityCard r={r} m={m} n={selN} flex={u.flex} target={target} onBudget={setCapBudget} />}
       {r && view === 'sites' && (

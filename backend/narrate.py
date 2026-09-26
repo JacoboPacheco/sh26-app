@@ -755,6 +755,7 @@ def _check(p: Plan, slides: list[dict], tmpl: dict, facts: Facts, got: dict, onl
             if text and _same(text, template):
                 continue  # Gemini gave the template back: it stays labeled a template
             ok, why, n = validate(p, s, lang, text, template, facts)
+            llm.note_check(SURFACE, ok, f"a narration line: {why}")
             if ok:
                 ok_lines[(s["id"], lang)] = text
                 checked += n

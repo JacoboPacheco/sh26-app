@@ -36,6 +36,7 @@ let state = {
   capBudget: null, // dollars (high end) for the capacity plan; null = the default (capacity.js)
   capShown: 0, // campuses on the map and lit in the meter (the build-up)
   capPlaying: false,
+  capTalk: false, // the narrated build-up (features/narrate) is on: the presenter's voice moves capShown
   budget: null, // dollars (high end) for the site-by-site plan; null = the study's default (budget.js)
   shown: 0, // site-by-site plan steps shown on the map and in its table
   playing: false,
@@ -327,7 +328,22 @@ export function playCap(fromStart = false) {
 export function stopCap() {
   clearTimeout(capTimer)
   capTimer = null
-  if (state.capPlaying) set({ capPlaying: false })
+  if (state.capPlaying || state.capTalk) set({ capPlaying: false, capTalk: false })
+}
+
+// The narrated build-up (features/narrate): the presenter's voice moves the campuses instead of the timer.
+// talkCap() starts it (the page's hook plays while capTalk is on); showCap(n) is each step the voice reaches (the map,
+// meter and plan show the campus being built, as with the timer). stopCap() ends it like the timer, so every change
+// that stops the build-up (size, type, budget, view, Gemini's plan, state, load level, leaving the page) stops the
+// voice too.
+export function talkCap() {
+  clearTimeout(capTimer)
+  capTimer = null
+  set({ capTalk: true, capPlaying: false })
+}
+
+export function showCap(n) {
+  set((s) => ({ capShown: Math.max(0, n), capPlaying: s.capTalk }))
 }
 
 // Leaving the page mid build-up: the answer stands complete for the next visit.
