@@ -6,8 +6,16 @@ You're a great engineer and this team is lucky to have you on this build — let
 [One paragraph: what it does, who it's for, why it's interesting to a judge in 30 seconds.]
 
 ## Sponsor / company challenges to target
-[Pasted at Phase 0 — name, sponsor, their actual eligibility requirement. `/ideas` and `/spec` mark the targeted ones `← claimed`; the rest stay for a runner-up switch.]
-- [ ]
+[Pasted at Phase 0 — name, sponsor, their actual eligibility requirement. `/ideas` and `/spec` mark the targeted ones `← claimed`; the rest stay for a runner-up switch.] Full text + Devpost link: C:\dev\notes\SPONSORS.md. Devpost: https://shellhacks-2026.devpost.com/ (opt in per challenge or you're not judged for it).
+- [ ] Sperry Tech — The GridLock Challenge: tool that compares AT LEAST TWO utilities' public future construction plans and flags overlaps (physically close OR scheduled around the same time). Prizes: 1st guaranteed internships + MacBook Airs, 2nd interviews + iPads, 3rd interviews.
+- [ ] Waymo — Mobility Challenge: use publicly available data (e.g. Google Maps APIs) to improve transportation. Prizes TBA.
+- [ ] Microsoft — What's Missing?: AI-powered experience that makes something difficult/inaccessible/missing better; core experience CANNOT be a chatbot or depend on a chat window; demo must show a real task accomplished. Swag.
+- [ ] Assurant — Take Control of AI: privacy protection, spending visibility, or confident AI-tool selection. Headphones / desk set / trackball.
+- [ ] Blackstone — Reimagining the Investor Experience: public financial/economic data; portfolio understanding or research. $350 gift card.
+- [ ] State Farm — Auto Insurance: make auto insurance simpler for students, reduce everyday risks. Backpacks, safes.
+- [ ] INIT National — Building Together: help student builders collaborate over weeks/months. Claude subscriptions per member.
+- [ ] MLH — Best Use of Gemini API (swag kits). MLH — Best Use of ElevenLabs (earbuds). MLH — Tiger Data (Postgres-based time-series; Stream Deck Mini). MLH — DigitalOcean ($200 credits; mouse). MLH — Snowflake API (Raspberry Pi). MLH — MongoDB Atlas (M5Stack). MLH — Solana (Ledger). MLH — GoDaddy Registry best domain (gift card).
+- Best Overall (1st–3rd; creativity, execution, impact; in-person 3-min demo) — automatic. Best First-Time Hacker — needs 50% first-timers and opt-in.
 
 ## Stack
 FastAPI (backend; SQLite locally, Postgres on Render), React + Vite (frontend), Render + Vercel (deploy) — change only if the idea truly needs something else.
@@ -34,8 +42,8 @@ Shell commands go through the Bash tool (Git Bash) from the repo root. The shell
 - Deployed: `backend/venv/Scripts/python backend/smoke_test.py <render-url> <vercel-url>` tests the deployed pair (CORS, build URL, every endpoint); `backend/venv/Scripts/python backend/seed.py <render-url>` creates the demo account if missing and adds any missing `seed_project_data` rows.
 
 ## Timeline
-- Kickoff (K): [fill at kickoff, e.g. 2026-09-25 19:00 local]
-- Hacking ends (E): [the 2026 Hacker Guide says Sunday 2026-09-27 11:00 ET, submissions close at the same time — confirm at kickoff]
+- Kickoff (K): 2026-09-25 23:00 ET
+- Hacking ends (E): 2026-09-27 11:00 ET (last commit AND Devpost submission both before this; Round 2 tables by 13:00)
 - Phase times: the PLAYBOOK phase headers.
 
 ## Deployed
