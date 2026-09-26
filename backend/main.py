@@ -26,6 +26,7 @@ _log_file.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(
 for _name in ("uvicorn", "uvicorn.access"):
     logging.getLogger(_name).addHandler(_log_file)
 
+import ask
 import auth
 import briefing
 import bulletin
@@ -115,6 +116,7 @@ app.include_router(hospitals.router)
 app.include_router(briefing.router)
 app.include_router(voice.router)
 app.include_router(plants.router)
+app.include_router(ask.router)
 
 
 @app.get("/api/health")
