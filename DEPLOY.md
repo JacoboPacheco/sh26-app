@@ -40,7 +40,7 @@ backend\venv\Scripts\python backend\seed.py https://<your-render-url>
 Then warm the AI caches once (the Render disk is wiped on every deploy and restart, so Gemini's cached answers are gone), and confirm Strengthen's baked Florida study loaded:
 
 ```
-backendenv\Scripts\python scripts\prewarm_ai.py https://<your-render-url>
+backend\venv\Scripts\python scripts\prewarm_ai.py https://<your-render-url>
 curl https://<your-render-url>/api/unlock/peek?region=FL^&mw=1000
 ```
 
