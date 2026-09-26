@@ -315,6 +315,11 @@ def whatif(request: Request, body: CaseIn):
         active[g.br_index[bid]] = False
     state = g.solve(active, extra, g.rates_with(upgrades))
     over = g.overloaded(state)
+    # each overloaded line's loading WITHOUT the campus (same network, trips and upgrades): the cause in two
+    # numbers ("76 % without this campus, 141 % with it"); the stored base state when nothing is tripped or raised
+    alone = g.base if not trip and not upgrades else g.solve(active, np.zeros(g.n), g.rates_with(upgrades))
+    for o in over:
+        o["base_pct"] = round(float(alone.loading_pct[g.br_index[o["id"]]]), 1)
     # "Where the people are": each overloaded line with the people its power flows on to — the same
     # rule the cascade's people-hit counter uses when that line fails — and everyone in the path, each once
     at_risk, path = [], set()

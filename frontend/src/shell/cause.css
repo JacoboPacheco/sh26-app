@@ -1,0 +1,58 @@
+/* the cause in two numbers (SiteVerdict CauseBars): without the campus, with it, a mark at the rating */
+.cause {
+  margin: 0.15rem 0 0.25rem;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.cause__name {
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.cause__row {
+  display: grid;
+  grid-template-columns: 8.2rem minmax(0, 1fr) 3rem;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.cause__track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--glass-hi);
+}
+
+.cause__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--ink-2);
+}
+
+.cause__fill--over {
+  background: var(--loss);
+}
+
+.cause__limit {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 1px;
+  background: var(--ink);
+}
+
+.cause__v {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.cause__v--over {
+  color: var(--loss);
+}
