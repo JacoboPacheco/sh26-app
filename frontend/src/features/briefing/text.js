@@ -37,16 +37,33 @@ export const T = {
     txtLocal: 'Transcript (.txt, from this page)',
     askSoon: 'Ask about this scenario: coming with the next update.',
     slideOf: (i, n) => `Slide ${i} of ${n}`,
-    proof: 'Every family of fixes, re-run on the model',
+    proof: 'Every family of fixes, re-run on the model (people still out, estimate)',
     split: 'Where the people without power come from (estimate)',
     physical: 'Cut off by the damage',
     cascade: 'Lost to the cascade',
     campus: 'Due to the data center',
-    stillOut: 'still out (estimate)',
+    stillOut: 'out',
     waves: 'Rebuild order (people back, estimate)',
     wave: 'Wave',
     lines: 'lines',
+    linesInAll: 'lines in all',
     back: 'back',
+    stopsCascade: 'Stops the cascade',
+    // the bottom line: the takeaway, every figure from the engine's report
+    takeaway: 'The recommendation',
+    bestFix: 'Best fix, re-run on the model',
+    rerun: (steps, ppl) => `${steps} ${steps === 1 ? 'step' : 'steps'} · ${ppl} people out (estimate)`,
+    alsoHolds: 'Also verified to hold',
+    ifNothing: 'If nothing changes',
+    peopleOut: (ppl) => `${ppl} people without power (estimate)`,
+    unreachable: 'Beyond any fix',
+    unreachableV: (ppl) => `${ppl} people (estimate): only rebuilding lines reconnects them`,
+    rebuildFirst: 'Rebuild first',
+    rebuildFirstV: (lines, km, ppl) => `${lines} lines${km ? `, ${km} km` : ''}: ${ppl} people back (estimate)`,
+    harden: 'Harden before the next storm',
+    hardenV: (k, ppl) => `${k} lines keep ${ppl} people on (estimate)`,
+    whyOrder: 'Why this order',
+    orderBeats: (repairs, ppl) => `At ${repairs} repairs this order keeps ${ppl} fewer people in the dark than rebuilding the biggest lines first (estimate)`,
   },
   es: {
     sim: 'SIMULACRO',
@@ -83,16 +100,32 @@ export const T = {
     txtLocal: 'Transcripción (.txt, de esta página)',
     askSoon: 'Preguntas sobre este escenario: llegan con la próxima actualización.',
     slideOf: (i, n) => `Diapositiva ${i} de ${n}`,
-    proof: 'Cada familia de soluciones, simulada de nuevo',
+    proof: 'Cada familia de soluciones, simulada de nuevo (personas aún sin luz, estimación)',
     split: 'De dónde salen las personas sin electricidad (estimación)',
     physical: 'Aisladas por el daño',
     cascade: 'Perdidas en la cascada',
     campus: 'Por el centro de datos',
-    stillOut: 'siguen sin luz (estimación)',
+    stillOut: 'sin luz',
     waves: 'Orden de reconstrucción (personas con luz, estimación)',
     wave: 'Fase',
     lines: 'líneas',
+    linesInAll: 'líneas en total',
     back: 'recuperan la luz',
+    stopsCascade: 'Detiene la cascada',
+    takeaway: 'La recomendación',
+    bestFix: 'Mejor solución, simulada de nuevo',
+    rerun: (steps, ppl) => `${steps} ${steps === 1 ? 'paso' : 'pasos'} · ${ppl} personas sin luz (estimación)`,
+    alsoHolds: 'También funcionan',
+    ifNothing: 'Si nada cambia',
+    peopleOut: (ppl) => `${ppl} personas sin electricidad (estimación)`,
+    unreachable: 'Fuera del alcance de cualquier solución',
+    unreachableV: (ppl) => `${ppl} personas (estimación): solo reconstruir líneas las reconecta`,
+    rebuildFirst: 'Reconstruir primero',
+    rebuildFirstV: (lines, km, ppl) => `${lines} líneas${km ? `, ${km} km` : ''}: ${ppl} personas recuperan la luz (estimación)`,
+    harden: 'Reforzar antes de la próxima tormenta',
+    hardenV: (k, ppl) => `${k} líneas mantienen a ${ppl} personas con luz (estimación)`,
+    whyOrder: 'Por qué este orden',
+    orderBeats: (repairs, ppl) => `Con ${repairs} reparaciones, este orden deja ${ppl} personas menos a oscuras que reconstruir primero las líneas más grandes (estimación)`,
   },
 }
 
@@ -166,9 +199,18 @@ export function people(n, lang = 'en') {
   return fmt(v)
 }
 
+// 1,812,593 → "1.81M" (the wave strip's narrow cells)
+export function compact(n) {
+  const v = Number(n) || 0
+  if (Math.abs(v) >= 1e6) return `${(v / 1e6).toFixed(v >= 1e7 ? 1 : 2).replace(/\.?0+$/, '')}M`
+  if (Math.abs(v) >= 1e4) return `${Math.round(v / 1e3)}k`
+  return fmt(v)
+}
+
 export const usd = (n) => {
   const v = Number(n) || 0
   if (v >= 1e9) return `$${(v / 1e9).toFixed(1).replace(/\.0$/, '')} billion`
   if (v >= 1e6) return `$${(v / 1e6).toFixed(1).replace(/\.0$/, '')} million`
+  if (v > 0 && v < 1) return v < 0.01 ? 'under 1 cent' : `${Math.round(v * 100)} cents` // a per-household share
   return `$${fmt(v)}`
 }

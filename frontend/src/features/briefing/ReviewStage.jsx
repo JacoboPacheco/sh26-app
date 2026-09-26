@@ -10,7 +10,7 @@ import MapOverlay from './MapOverlay'
 import Progress from './Progress'
 import Slide from './Slide'
 import './briefing.css'
-import { cleanBody, notLive } from './briefingApi'
+import { cleanBody, notLive, rememberReplay } from './briefingApi'
 import { applyBase, loc, setStoreCase, stepIndexOf, transcriptText } from './stage'
 import { T } from './text'
 import useDeck from './useDeck'
@@ -78,12 +78,15 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
       const c = O.cascade
       const map = slide.map || {}
       const last = c?.steps?.length || 0
+      // a storm's own step (n = 0: the damage, before anything overloads). A storm briefing's "calm"
+      // moments show that damage, never an intact grid, and it opens on the whole region, not the campus.
+      const storm = c ? stepIndexOf(c, 0) : null
       if (c) {
         if (map.mode === 'replay') O.setStep(playing ? (map.step_from > 0 ? (stepIndexOf(c, map.step_from) ?? 0) : 0) : (stepIndexOf(c, map.step_to) ?? last))
-        else if (map.mode === 'calm' || map.mode === 'cause' || map.mode === 'fix') O.setStep(0)
+        else if (map.mode === 'calm' || map.mode === 'cause' || map.mode === 'fix') O.setStep(storm ?? 0)
         else if (map.mode === 'final' || map.mode === 'restore') O.setStep(last)
       }
-      camera(slide.camera)
+      camera(storm != null && slide.id === 'event' ? { type: 'region' } : slide.camera)
       const waves = reportRef.current?.recovery?.waves?.length || 0
       setFx({
         hl: map.highlight_lines || [],
@@ -182,6 +185,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     } else if (report?.replay) {
       // a catastrophe: the engine's cascade, as computed (more storm lines than the grid API takes)
       replayKey.current = key
+      rememberReplay(report.replay, body)
       O.startCascade({}, Promise.resolve(report.replay)).then(() => oRef.current.setStep(0))
     }
   }, [loadReplay, body, report])

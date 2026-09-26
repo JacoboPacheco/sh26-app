@@ -51,5 +51,15 @@ export function prefetchBriefing(body) {
     .catch(() => {})
 }
 
+// A catastrophe's cascade, loaded into the map from its report, remembers the case it came from (the
+// preset), so the review card under it asks for that briefing (cached) instead of re-sending the
+// storm's thousand downed lines, which the case API refuses.
+const replayBodies = new WeakMap()
+export const rememberReplay = (cascade, body) => cascade && typeof cascade === 'object' && replayBodies.set(cascade, cleanBody(body))
+export const replayBodyOf = (cascade) => (cascade && typeof cascade === 'object' ? replayBodies.get(cascade) || null : null)
+
+// The region a catastrophe preset belongs to: its id starts with the state code ('tx-gulf-landfall').
+export const presetRegion = (id) => (/^[a-z]{2}-/.test(String(id)) ? String(id).slice(0, 2).toUpperCase() : 'FL')
+
 // The route isn't there yet (another track is still building it): the preview falls back to its fixture.
 export const notLive = (err) => /^(Not Found|Method Not Allowed|Request failed \((404|405)\))$/.test(err?.message || '')

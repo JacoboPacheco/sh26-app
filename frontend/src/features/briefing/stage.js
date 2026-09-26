@@ -19,6 +19,9 @@ export function bestApply(report) {
   return f && f.verdict === 'holds' ? f.apply || null : null
 }
 
+// a restoration wave's lines: all rebuilt so far (the people back are counted that way too)
+export const linesOf = (w) => w.lines_total ?? (Array.isArray(w.lines) ? w.lines.length : (w.lines_count ?? w.line_count))
+
 // every word of the deck as text: the accessible version of the captions, and the .txt download
 // The case a fix is applied to: the body itself, or for a preset the case the engine expanded it into
 // (its replay). null when the map can't run it (a catastrophe knocks out more lines than the grid API takes).

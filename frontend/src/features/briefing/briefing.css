@@ -452,7 +452,7 @@ html.review-open [data-review-hide] {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
   gap: 4px;
 }
 
@@ -488,6 +488,42 @@ html.review-open [data-review-hide] {
 
 .rs-wave--lit strong {
   color: var(--hr-ok);
+}
+
+/* the bottom line: the recommendation, as facts */
+.rs-takeaway {
+  margin: 0;
+  display: grid;
+  gap: 0;
+  border-left: 3px solid var(--hr-ok);
+  padding-left: var(--space-3);
+  font-size: 0.95rem;
+}
+
+.rs-takeaway--nofix {
+  border-left-color: var(--strain);
+}
+
+.rs-takeaway__row {
+  padding: 0.45rem 0;
+}
+
+.rs-takeaway__row + .rs-takeaway__row {
+  border-top: 1px solid var(--glass-edge);
+}
+
+.rs-takeaway dt {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.rs-takeaway dd {
+  margin: 0.1rem 0 0;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 /* ------------------------------------------------------------------ captions (lower third) */
@@ -776,9 +812,14 @@ html.review-open [data-review-hide] {
 }
 
 .rs-tl__n {
-  grid-row: span 3;
+  grid-row: span 4;
   font-weight: 700;
   color: var(--ink-2);
+}
+
+.rs-tl__why {
+  color: var(--ink-2);
+  font-size: 0.875rem;
 }
 
 .rs-tl__dark {
@@ -860,6 +901,12 @@ html.review-open [data-review-hide] {
   color: var(--ink-2);
 }
 
+.rs-notes--sources {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  padding-left: 0;
+}
+
 .rs-doc__foot {
   font-size: 0.75rem;
   color: var(--ink-2);
@@ -885,6 +932,7 @@ html.review-open [data-review-hide] {
 
 .rs-map__ln--fix {
   stroke: var(--hr-ok);
+  stroke-opacity: 0.85;
 }
 
 .rs-map__xf {
@@ -991,6 +1039,30 @@ html.review-open [data-review-hide] {
 
   .rs-banner {
     white-space: normal;
+  }
+
+  /* the controls fit a phone: they wrap instead of running off the edge */
+  .rs-controls {
+    left: var(--gutter);
+    right: var(--gutter);
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    border-radius: var(--radius-lg);
+  }
+
+  .rs-ctl--play {
+    min-width: 5rem;
+    padding: 0 0.9rem;
+  }
+
+  .rs-panel {
+    bottom: 150px;
+  }
+
+  .rs-ask,
+  .rs-transcript {
+    bottom: 150px;
   }
 }
 

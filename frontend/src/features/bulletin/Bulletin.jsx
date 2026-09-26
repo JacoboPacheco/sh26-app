@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useOverload } from '../../store'
 import { Button, ErrorBanner, Loading } from '../../ui'
 import ReviewStage from '../briefing/ReviewStage'
-import { getReport, notLive, prefetchBriefing } from '../briefing/briefingApi'
+import { getReport, notLive, prefetchBriefing, replayBodyOf } from '../briefing/briefingApi'
 import { bodyFor } from '../briefing/stage'
 import './bulletin.css'
+
+const MAX_TRIPS = 400 // backend/grid.py
 
 // The review card (it replaces the old three-sentence bulletin): once a cascade has played out, the
 // incident's one-line headline (deterministic, from the engine) and the way into the review stage —
@@ -24,7 +26,10 @@ export default function ReviewCard() {
   }, [caseBody, cascadeBody])
 
   const request = useCallback((c) => {
-    const body = bodyFor(c, caseRef.current.caseBody, caseRef.current.cascadeBody)
+    // a catastrophe the stage loaded into the map: its preset; else the case the cascade ran with
+    const body = replayBodyOf(c) || bodyFor(c, caseRef.current.caseBody, caseRef.current.cascadeBody)
+    // more downed lines than the case API takes and no preset to name it by: no briefing to ask for
+    if ((body?.trip?.length || 0) > MAX_TRIPS) return setRes({ cascade: c, body: null, report: null, error: null })
     setRes({ cascade: c, body, report: null, error: null })
     prefetchBriefing(body) // the deck too, template then Gemini
     getReport(body)

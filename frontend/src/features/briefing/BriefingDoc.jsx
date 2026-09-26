@@ -1,7 +1,7 @@
 import { useOverload } from '../../store'
 import { Badge, Button } from '../../ui'
 import { SplitBar } from './Slide'
-import { loc } from './stage'
+import { linesOf, loc } from './stage'
 import { FAMILY, T, VERDICT, num, people, usd } from './text'
 
 // The full written briefing: the report laid out as a document, top to bottom. The timeline is synced
@@ -25,9 +25,7 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
       <p className="rs-doc__banner">{loc(deck, 'banner', lang) || report.banner}</p>
       {lang === 'es' && <p className="muted">El informe escrito está en inglés; las diapositivas, los subtítulos y la narración están en español.</p>}
       <header className="rs-doc__head">
-        <p className="rs-doc__kicker">
-          {t.sim} · {deck?.title?.[lang] || 'Incident briefing'}
-        </p>
+        <p className="rs-doc__kicker">{deck?.title?.[lang] || `${t.sim} · Incident briefing`}</p>
         <h2 id="rs-doc-title">{report.headline?.text}</h2>
         <div className="row">
           <Badge tone={report.verdict === 'preventable' ? 'neutral' : 'warn'}>{VERDICT_LABEL[report.verdict] || report.verdict}</Badge>
@@ -70,8 +68,18 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
                         : row.lines?.map((l) => `${capital(l.label)}${l.pct_before ? ` trips at ${Math.round(l.pct_before)}%` : ''}`).join('; ')}
                       {row.action === 'shed' && ' (customers cut to hold a line)'}
                     </span>
+                    {(() => {
+                      const w = hottest(row.why)
+                      return (
+                        w && (
+                          <span className="rs-tl__why">
+                            Its flow moves onto {w.label} (+{num(Math.round(w.delta_mw))} MW{w.pct_after != null ? `, now at ${Math.round(w.pct_after)}%` : ''})
+                          </span>
+                        )
+                      )
+                    })()}
                     {row.newly_dark?.length > 0 && <span className="rs-tl__dark">Power lost (estimates): {darkList(row.newly_dark)}</span>}
-                    <span className="rs-tl__cum">{num(row.people_cum)} people out (estimate)</span>
+                    <span className="rs-tl__cum">{row.people_cum > 0 ? `${num(row.people_cum)} people without power so far (estimate)` : 'No one has lost power yet'}</span>
                   </button>
                 </li>
               )
@@ -117,7 +125,8 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
           </table>
           {report.hospitals?.count > 0 && (
             <p className="muted">
-              {num(report.hospitals.count)} hospitals are in the affected areas and would run on backup power (count only; {report.hospitals.source}).
+              {num(report.hospitals.count)} hospitals are in the dark areas and would run on backup power (a count, no names; {report.hospitals.source}).
+              {report.hospitals.assumption ? ` ${report.hospitals.assumption}` : ''}
             </p>
           )}
         </section>
@@ -147,8 +156,8 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
             </ul>
           )}
           {report.cost.sources?.length > 0 && (
-            <p className="rs-notes">
-              Source:{' '}
+            <p className="rs-notes rs-notes--sources">
+              Sources:{' '}
               {report.cost.sources.map((src, i) => (
                 <span key={src.url || i}>
                   {i > 0 && '; '}
@@ -216,13 +225,18 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
       {rec && (
         <section aria-labelledby="rs-doc-rec">
           <h3 id="rs-doc-rec">Restoration: rebuild in this order</h3>
-          {rec.method !== 'lp' && <p className="muted">Line limits not applied in this plan (a connectivity estimate, not verified).</p>}
+          <p>
+            {rec.method === 'lp'
+              ? `Each wave is checked on the model (${rec.method_note || 'line limits applied'}).`
+              : 'Line limits were not applied in this plan: it is a connectivity estimate, not verified.'}{' '}
+            Counts are cumulative: the lines rebuilt so far and the people back so far.
+          </p>
           <table className="rs-table">
             <thead>
               <tr>
                 <th scope="col">Wave</th>
-                <th scope="col">Lines rebuilt</th>
-                <th scope="col">Length</th>
+                <th scope="col">Lines rebuilt (in all)</th>
+                <th scope="col">Length (in all)</th>
                 <th scope="col">People back (estimate)</th>
                 <th scope="col">Still out (estimate)</th>
               </tr>
@@ -231,18 +245,24 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
               {rec.waves.map((w) => (
                 <tr key={w.n}>
                   <th scope="row">{w.n}</th>
-                  <td>{num(Array.isArray(w.lines) && w.lines.length ? w.lines.length : w.line_count)}</td>
-                  <td>{w.km != null ? `${num(w.km)} km` : '–'}</td>
+                  <td>{num(linesOf(w))}</td>
+                  <td>{(w.km_total ?? w.km) != null ? `${num(Math.round(w.km_total ?? w.km))} km` : '–'}</td>
                   <td>{num(w.people_back)}</td>
                   <td>{num(w.people_out)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {rec.baseline?.plan_better_by > 0 && (
+            <p>
+              The order matters: after {num(rec.baseline.repairs)} repairs, this plan leaves {num(rec.baseline.plan_people_out)} people without power; rebuilding the
+              biggest lines first would leave {num(rec.baseline.people_out)} (estimates).
+            </p>
+          )}
           {rec.hardening?.length > 0 && (
             <p>
               Hardening before the next storm:{' '}
-              {rec.hardening.map((h) => `${h.k} lines keep ${num(h.people_kept_on)} people on (estimate)`).join('; ')}.
+              {rec.hardening.map((h) => `${h.k} lines${h.km != null ? ` (${num(Math.round(h.km))} km)` : ''} kept standing would keep ${num(h.people_kept_on)} people on (estimate)`).join('; ')}.
             </p>
           )}
         </section>
@@ -286,6 +306,12 @@ function range(v, unit) {
   const one = (x) => (unit === 'USD' ? usd(x) : typeof x === 'number' ? num(x) : String(x))
   const tail = unit === 'USD' ? '' : ` ${unit || ''}`
   return Array.isArray(v) ? `${one(v[0])} to ${one(v[1])}${tail}` : `${one(v)}${tail}`
+}
+
+// of the lines a trip pushed flow onto, the one that ends up most loaded (where the failure heads next)
+function hottest(why) {
+  const rows = (why || []).filter((w) => w?.label && w.delta_mw > 0)
+  return rows.length ? rows.reduce((a, b) => ((b.pct_after ?? 0) > (a.pct_after ?? 0) ? b : a)) : null
 }
 
 const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : '')
