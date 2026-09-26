@@ -40,7 +40,7 @@ with sync_playwright() as p:
         expect(page.locator("circle.sub--dark").first).to_be_attached()
 
         # 4 — scale: the same spot at 500 MW is calm (keyboard on the slider, as a judge could do).
-        slider = page.get_by_label("Size (MW)")
+        slider = page.get_by_label("Size (MW)", exact=True)
         slider.focus()
         slider.press("Home")  # 100 MW
         for _ in range(8):  # 50 MW per step → 500 MW
