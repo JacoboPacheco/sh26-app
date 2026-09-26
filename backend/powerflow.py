@@ -323,6 +323,12 @@ class Grid:
         return float(min(self.headroom_for_buses(np.array([bus]))[0], 1e6))
 
     # ------------------------------------------------------------------ cascade
+    def _hottest(self, state: State, limit: int = 60) -> list[dict]:
+        """Branches above HOT_PCT, hottest first, capped so a 30-step cascade stays a small payload."""
+        idx = np.flatnonzero(state.active & (state.loading_pct > HOT_PCT))
+        idx = idx[np.argsort(-state.loading_pct[idx])][:limit]
+        return [{"id": int(self.br_ids[i]), "pct": round(float(state.loading_pct[i]), 1)} for i in idx]
+
     def lost_by_sub(self, state: State, min_mw: float = 0.1) -> dict[int, float]:
         """Existing load lost per substation (MW), only where it's at least `min_mw`."""
         per = np.zeros(len(self.sub_ids))
@@ -365,7 +371,7 @@ class Grid:
                         "tripped": tripped_ids,
                         "dark_subs": sorted({int(self.sub_ids[self.bus_sub_idx[i]]) for i in np.flatnonzero(newly_dark)}),
                         "newly_affected": sorted(fresh, key=lambda x: -x[1]),
-                        "hot": [self.branch_info(i, state) for i in np.flatnonzero(state.active & (state.loading_pct > HOT_PCT))],
+                        "hot": self._hottest(state),
                         "lost_mw": round(state.lost_existing_mw, 1),
                         "homes": int(round(state.lost_existing_mw * HOMES_PER_MW)),
                         "site_dark_mw": round(state.lost_extra_mw, 1),

@@ -33,13 +33,21 @@ A saved-scenario click reproduces step 2 exactly (same site, same MW); that is w
 
 The walking skeleton is M1 + M2 + M3 in their ugliest form on the UI kit's defaults (PLAYBOOK Phase 2). If it isn't green by K+10 the cut rule removes M3 first: it is step 4 of the script, furthest from the wow moment in step 3.
 
-## Nice-to-haves (build order; the last is cut first)
+## Expansion (user, Sat 01:08–01:12: "much bigger… everything, while not cluttered")
 
-1. **Hospitals on backup** — HIFLD Hospitals (public), Florida subset committed as `backend/demo/hospitals_fl.json`; hospitals within 15 km of a dark substation show "on backup power" during the cascade, with a count.
-2. **Hurricane trigger** — click any line to knock it out; the same cascade engine runs from there. Copy: "a hurricane takes out this corridor".
-3. **Plain-English explanation (the one extra integration — MLH Gemini API)** — `POST /api/grid/explain` sends the cascade summary to `complete()` with `fallback=` a templated sentence and `timeout=10`, returns `{text, fallback}`, stores nothing; the UI shows a `<Badge tone="warn">` when it fell back. Built only after every must-have is green; `demo_path.py` must pass with it disabled.
-4. **Fix it (stretch)** — greedy: raise the rating of the most overloaded line by one standard step, re-run, repeat until calm; list the upgrades and their total added MVA.
-5. **Basemap tiles** — optional dark tiles under the outline if the design pass wants streets; the app must keep working with no network access to a tile server.
+Mission control (committed a7cd95e): the map is the whole screen; glass panels float over it — a mode rail on the left (Data center · Hurricane · AI boom · Fix it), the impact column on the right (giant homes counter, towns feed, bulletin), the cascade timeline along the bottom, the heat-wave clock top right. Design direction "city lights at night": substations glow sodium-orange like towns and go black when they lose power; cyan current; red overload; Archivo Variable.
+
+Engine: every request is a *case* — `{lat, lon, mw}` plus optional `sites` (more campuses), `load_factor` (heat-wave clock; each level a cached Grid with its own headroom), `trip` (lines knocked out first), `upgrades` (raised ratings). The cascade reports each step's newly affected substations (towns feed) and signed flows (flow animation). Features plug in through `useOverload()` (store.jsx), GridMap layers/tools, and per-feature stub files.
+
+Feature tracks (built in parallel by the workflow `overload-feature-tracks`, each then reviewed):
+1. **Living grid** — electricity flowing along every line (canvas, speed from the solver's flows), a one-time opening, a visual legend ("the lights are substations; the only data center is yours").
+2. **Heat-wave clock** — 3 AM / 9 AM / 4 PM / heat wave (load ×0.62 / 0.82 / 1.0 / 1.08). Measured: Fort Myers at 500 MW is calm at 4 PM and cascades 30 steps (~1.9M homes, estimate) in the heat wave.
+3. **Hurricane mode** — draw a storm track (or pick a hypothetical preset); lines within its corridor are knocked out as the storm passes; the same cascade runs, with or without a data center. `POST /api/hurricane/track`.
+4. **Who loses power** — a live feed of towns losing power (substation names → towns, homes as estimates) and labels on the map. Hospitals on backup power wait for the HIFLD download OK.
+5. **Fix it + best sites** — greedy smallest set of rating upgrades (MVA added, no costs) that makes the case calm, "Apply" turns the map calm; ranked best sites for the chosen size. `POST /api/fix`, `GET /api/best-sites`.
+6. **Emergency bulletin** — Gemini writes a 3-sentence public bulletin from server-computed facts, templated fallback, `{text, fallback}`, read aloud with the browser's speech (MLH Gemini). `POST /api/bulletin`.
+7. **AI-boom mode** — several gigawatt campuses at once (preset: five 1 GW near the biggest metros); where does Florida break first.
+Later: ElevenLabs voice (needs a key), hospitals layer (needs the download OK), dark basemap tiles.
 
 ## Explicitly out of scope
 

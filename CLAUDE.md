@@ -26,12 +26,15 @@ Must have (demo breaks without these — tick each in the commit that finishes i
 - [x] M2 — cascade: trip → re-solve → spread until settled/islanded, animated steps, homes-without-power estimate
 - [x] M3 — headroom heatmap: MW each substation can take before the first overload
 
-Nice to have (build top-down; cut bottom-up):
-- [ ] 1. HIFLD hospitals "on backup power" near dark substations
-- [ ] 2. Hurricane trigger: click a line to trip it, same cascade
-- [ ] 3. Gemini plain-English cascade explanation with fallback (the one extra integration; MLH Gemini API)
-- [ ] 4. Fix it: cheapest line upgrades that clear the overload
-- [ ] 5. Optional dark basemap tiles (must work offline without them)
+Nice to have — the expansion the user asked for (Sat 01:10: "everything, while not cluttered"), built in parallel by a workflow (Sat 01:33), one track each:
+- [ ] 1. Living grid: electricity flowing along every line (canvas), a one-time opening, a visual map legend
+- [ ] 2. Heat-wave clock: time-of-day load presets (3 AM / 9 AM / 4 PM / heat wave) + ambient tint
+- [ ] 3. Hurricane mode: draw a storm track, its corridor is knocked out, the same cascade runs (replaces "click a line")
+- [ ] 4. Who loses power: a live feed of towns going dark + town labels on the map (hospitals wait for the HIFLD download OK)
+- [ ] 5. Fix it (smallest set of upgrades, in MVA) + best sites for the chosen size
+- [ ] 6. Gemini emergency bulletin with fallback + read aloud (browser speech) — MLH Gemini
+- [ ] 7. AI-boom mode: several gigawatt campuses at once
+- [ ] 8. Later: ElevenLabs voice for the bulletin (needs a key) · hospitals on backup (needs the HIFLD download OK) · dark basemap tiles
 
 Explicitly NOT doing:
 - [ ] AC power flow / voltages / dynamics; real or real-time utility data; user-uploaded grids; markets or cost modeling; login screen; report export; native mobile layout
@@ -135,7 +138,8 @@ Coastline (user, Sat 00:58): download the Census cartographic boundary (cb_*_us_
 ## Current status
 PHASE: 3 — milestone 1 done at hour 2 (skeleton green Sat 00:52; the user reviewed it on localhost at 01:08 and asked for a much bigger build)
 deployed: no
-DO FIRST: the expansion the user picks (Sat 01:10 question: look & feel, big features, AI/sponsor pieces, parallel build) — the user wants far more than the skeleton and to use much more of the usage budget.
+DO FIRST: integrate the workflow `overload-feature-tracks` (run wf_bfa214db-d79, launched Sat 01:33): 7 tracks (flow, heat, hurricane, impact, fix, bulletin, boom), each built in its own files then reviewed. When it finishes: read each track's report + shared_requests, apply the shared requests, run /check, screenshot each feature, extend demo_path.py, one commit per feature. Mission-control shell + case engine committed in a7cd95e.
+Away (user out "for a little bit" since 01:17): no questions; WAITING ON YOU lines instead.
 working: walking skeleton green in `/check` incl. `frontend/e2e/demo_path.py`, now on the Fort Myers hero (drop 1,500 MW → red → cascade, 49 substations dark → slider to 500 → calm → headroom legend). Camera flies to the drop and out to the cascade; overloaded lines glow and throb, tripped lines flash, dark substations cast a blackout shadow, the homes counter counts up. Census coastline (`backend/demo/build_outline.py`). Backend: `grid.py` (GET /api/grid, POST whatif + cascade at 120/min, GET headroom), `scenarios.py` (per-user, owner-only, seeded Orlando + Miami). Frontend: `GridMap.jsx` (SVG, pan/zoom, click or drop to place), `Panels.jsx`, `App.jsx`. EXAMPLE feature removed. Milestone 0 (validation) PASS Sat 00:10; `validate.py` and `scratch/test_powerflow.py` still green.
 demo finding (Sat 00:55, needs a user decision): Orlando's cascade is small (3 steps, ~38k homes, 1 substation dark) and the same at any size; Fort Myers is calm at 500 MW and collapses at 1,500 MW (9 steps, ~1.05M homes, 49 substations dark); substation MIAMI 23 (25.757, −80.246) at 500 MW runs 25 steps, ~1.96M homes, 33 dark. Overloaded lines at full-state zoom are only a few px long — a zoom-to-site on drop would make the red visible.
 in progress: nothing. Next after the click-through: PHASE 3, the design direction (Decisions), deploy.

@@ -156,6 +156,9 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
 
   const k = view.k
   const mapView = useMemo(() => ({ k, project }), [k])
+  // lights shrink as you zoom in (by √zoom, so they still grow a little); bucketed so the heavy
+  // layer re-renders only when the zoom crosses a step, not on every pan frame
+  const zoomBucket = k < 1.5 ? 1 : k < 2.5 ? 2 : k < 4 ? 3 : k < 6 ? 5 : 8
 
   return (
     <div className={`map${tool ? ' map--tool' : ''}`} style={tool?.cursor ? { cursor: tool.cursor } : undefined}>
@@ -194,7 +197,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
           {LAKES.map((d) => (
             <path key={d} className="map-lake" d={d} />
           ))}
-          <GridLayers geom={geom} lineClasses={lineClasses} subClasses={subClasses} />
+          <GridLayers geom={geom} lineClasses={lineClasses} subClasses={subClasses} zoomBucket={zoomBucket} />
           <MapViewCtx.Provider value={mapView}>{children}</MapViewCtx.Provider>
           {CITIES.map((c) => {
             const [x, y] = project(c.lon, c.lat)
@@ -224,7 +227,8 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
 }
 
 // The heavy part (≈3,300 lines + 1,300 lights), memoized so panning and zooming don't re-render it.
-const GridLayers = memo(function GridLayers({ geom, lineClasses, subClasses }) {
+const GridLayers = memo(function GridLayers({ geom, lineClasses, subClasses, zoomBucket = 1 }) {
+  const shrink = 1 / Math.sqrt(zoomBucket)
   const line = (s, top) => (
     <line
       key={top ? `t${s.i}` : s.i}
@@ -241,12 +245,12 @@ const GridLayers = memo(function GridLayers({ geom, lineClasses, subClasses }) {
         {geom.dots
           .filter((d) => subClasses[d.id] === 'sub--dark')
           .map((d) => (
-            <circle key={d.id} cx={d.x} cy={d.y} r={7} fill="url(#blackout)" />
+            <circle key={d.id} cx={d.x} cy={d.y} r={7 * shrink} fill="url(#blackout)" />
           ))}
       </g>
       <g className="halos">
         {geom.dots.map((d) => (
-          <circle key={d.id} className={`halo ${subClasses[d.id] || ''}`} cx={d.x} cy={d.y} r={d.r * 3.2} fill="url(#citylight)" />
+          <circle key={d.id} className={`halo ${subClasses[d.id] || ''}`} cx={d.x} cy={d.y} r={d.r * 3.2 * shrink} fill="url(#citylight)" />
         ))}
       </g>
       <g className="lines">{geom.segments.map((s) => line(s, false))}</g>
@@ -254,7 +258,7 @@ const GridLayers = memo(function GridLayers({ geom, lineClasses, subClasses }) {
       <g className="lines">{geom.segments.filter((s) => TOP.has(lineClasses[s.i])).map((s) => line(s, true))}</g>
       <g className="subs">
         {geom.dots.map((d) => (
-          <circle key={d.id} className={`sub ${subClasses[d.id] || ''}`} cx={d.x} cy={d.y} r={d.r} />
+          <circle key={d.id} className={`sub ${subClasses[d.id] || ''}`} cx={d.x} cy={d.y} r={d.r * shrink} />
         ))}
       </g>
     </>

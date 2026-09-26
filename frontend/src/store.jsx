@@ -237,15 +237,15 @@ export function OverloadProvider({ user, children }) {
   // ------------------------------------------------------------------ headroom
   const levelKey = loadFactor.toFixed(2)
   const headroom = headroomByLevel[levelKey] || null
-  const fetchHeadroom = useCallback(() => {
-    setHeadroomError(null)
-    getHeadroom(loadFactor)
-      .then((h) => setHeadroomByLevel((m) => ({ ...m, [loadFactor.toFixed(2)]: h.by_sub })))
-      .catch(setHeadroomError)
-  }, [loadFactor])
+  // fetched when the heatmap is on and this level isn't cached; Retry clears the error, which refetches
   useEffect(() => {
-    if (headroomOn && !headroom && !headroomError) fetchHeadroom()
-  }, [headroomOn, headroom, headroomError, fetchHeadroom])
+    if (!headroomOn || headroom || headroomError) return
+    const key = loadFactor.toFixed(2)
+    getHeadroom(loadFactor)
+      .then((h) => setHeadroomByLevel((m) => ({ ...m, [key]: h.by_sub })))
+      .catch(setHeadroomError)
+  }, [headroomOn, headroom, headroomError, loadFactor])
+  const fetchHeadroom = useCallback(() => setHeadroomError(null), [])
   const toggleHeadroom = useCallback(() => setHeadroomOn((on) => !on), [])
 
   // ------------------------------------------------------------------ scenarios
