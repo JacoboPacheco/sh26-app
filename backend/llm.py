@@ -19,10 +19,13 @@ fallback keeps working when the day's quota is gone. Swap providers by rewriting
 import asyncio
 import base64
 import copy
+import hashlib
 import http.client
 import json
 import logging
 import os
+import time
+from collections import OrderedDict
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -60,6 +63,52 @@ def _take_daily_slot() -> bool:
         return False
     _daily["used"] += 1
     return True
+# What the AI panel reports (in memory; a backend restart resets it): calls that reached Google, answers
+# served from the cache, calls that fell back, and the same per surface (a short label a call site passes).
+_stats: dict = {"ok": 0, "fallback": 0, "cached": 0, "by_surface": {}, "last_error": ""}
+_cache: "OrderedDict[str, tuple[float, str]]" = OrderedDict()
+CACHE_MAX = 256
+CACHE_TTL_S = 6 * 3600
+
+
+def _note(surface: str | None, outcome: str) -> None:
+    if outcome in _stats:
+        _stats[outcome] += 1
+    if surface:
+        row = _stats["by_surface"].setdefault(surface, {"ok": 0, "fallback": 0, "cached": 0})
+        row[outcome] = row.get(outcome, 0) + 1
+
+
+def _cache_key(prompt: str, system: str | None, json_mode: bool, schema: dict | None) -> str:
+    raw = json.dumps([MODEL, system or "", prompt, json_mode, schema], sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _cache_get(key: str) -> str | None:
+    hit = _cache.get(key)
+    if not hit:
+        return None
+    if time.time() - hit[0] > CACHE_TTL_S:
+        _cache.pop(key, None)
+        return None
+    _cache.move_to_end(key)
+    return hit[1]
+
+
+def _cache_put(key: str, text: str) -> None:
+    _cache[key] = (time.time(), text)
+    _cache.move_to_end(key)
+    while len(_cache) > CACHE_MAX:
+        _cache.popitem(last=False)
+
+
+def usage() -> dict:
+    """Today's whole-app AI budget (the number the AI panel shows)."""
+    today = datetime.now(QUOTA_TZ).date().isoformat()
+    used = _daily["used"] if _daily["day"] == today else 0
+    return {"day": today, "used_today": used, "cap": AI_DAILY_CAP, "remaining": max(0, AI_DAILY_CAP - used)}
+
+
 # Flash-Lite: the free tier allows ~500 requests/day on Lite models vs ~20/day on
 # full Flash (as of Sept 2026) — a demo needs the 500. Override with GEMINI_MODEL.
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
@@ -90,6 +139,8 @@ async def complete(
     fallback: str | None = None,
     image: tuple[bytes, str] | None = None,
     timeout: float | None = None,
+    cache: bool = False,
+    surface: str | None = None,
 ) -> str:
     """`fallback`: a canned answer to return instead of raising if the AI is
     unconfigured, out of quota, unreachable, or slow — so a demo survives a dead API.
@@ -99,14 +150,29 @@ async def complete(
     The swallowed error is logged as a WARNING (see backend/server.log).
     `timeout`: seconds to wait for Gemini (default 60) — use ~10 on the demo path.
     `image`: (bytes, mime_type) to send alongside the prompt, e.g. the `contents`
-    from an upload — Gemini reads photos, screenshots, whiteboards, receipts."""
+    from an upload — Gemini reads photos, screenshots, whiteboards, receipts.
+    `cache`: serve an identical earlier answer (same model, system and prompt) from memory for six
+    hours instead of spending quota again; only for prompts built from a fact sheet, never for a
+    photo. `surface`: a short label for the AI panel's per-feature counters."""
+    key = _cache_key(prompt, system, json_mode, None) if cache and image is None else None
+    if key:
+        hit = _cache_get(key)
+        if hit is not None:
+            _note(surface, "cached")
+            return hit
     try:
-        return await _complete(prompt, system, json_mode, image, timeout)
+        text = await _complete(prompt, system, json_mode, image, timeout)
     except HTTPException as e:
+        _stats["last_error"] = str(e.detail)[:200]
         if fallback is not None:
+            _note(surface, "fallback")
             logging.getLogger("uvicorn.error").warning("AI fallback used: %s", e.detail)
             return fallback
         raise
+    _note(surface, "ok")
+    if key:
+        _cache_put(key, text)
+    return text
 
 
 async def complete_json(
@@ -115,6 +181,9 @@ async def complete_json(
     fallback: dict | list | None = None,
     image: tuple[bytes, str] | None = None,
     timeout: float | None = None,
+    schema: dict | None = None,
+    cache: bool = False,
+    surface: str | None = None,
 ) -> tuple[dict | list, bool]:
     """`complete` in JSON mode, parsed, returned as `(data, used_fallback)`. If the
     model returns invalid JSON it is asked once more; then `fallback` is returned
@@ -123,30 +192,66 @@ async def complete_json(
     ('Answer as {"tags": ["..."]}'). Route pattern:
         data, offline = await complete_json(prompt, fallback=NO_ANSWER, timeout=10)
         return {**data, "fallback": offline}
-    """
+    `schema`: a JSON Schema the reply must follow (Gemini structured output); a call that Google
+    rejects with the schema is retried once without it, so a schema quirk never costs the answer.
+    `cache` and `surface`: as in `complete`."""
     log = logging.getLogger("uvicorn.error")
+    key = _cache_key(prompt, system, True, schema) if cache and image is None else None
+    if key:
+        hit = _cache_get(key)
+        if hit is not None:
+            try:
+                data = json.loads(hit)
+                _note(surface, "cached")
+                return data, False
+            except ValueError:
+                _cache.pop(key, None)
     text = ""
+    use_schema = schema
     for attempt in range(2):
         nudge = "" if attempt == 0 else "\n\nYour previous answer was not valid JSON. Reply with ONLY valid JSON."
+        err: HTTPException | None = None
         try:
-            text = await _complete(prompt + nudge, system, True, image, timeout)
+            text = await _complete(prompt + nudge, system, True, image, timeout, use_schema)
         except HTTPException as e:
+            err = e
+        if err is not None and use_schema is not None and err.status_code == 502 and "(400)" in str(err.detail):
+            use_schema = None  # Google refused the schema itself: ask again in plain JSON mode
+            err = None
+            try:
+                text = await _complete(prompt + nudge, system, True, image, timeout, None)
+            except HTTPException as e:
+                err = e
+        if err is not None:
+            _stats["last_error"] = str(err.detail)[:200]
             if fallback is not None:
-                log.warning("AI fallback used: %s", e.detail)
+                _note(surface, "fallback")
+                log.warning("AI fallback used: %s", err.detail)
                 return copy.deepcopy(fallback), True
-            raise
+            raise err
         try:
-            return json.loads(text), False
+            data = json.loads(text)
         except ValueError:
             continue
+        _note(surface, "ok")
+        if key:
+            _cache_put(key, text)
+        return data, False
+    _stats["last_error"] = "invalid JSON twice"
     if fallback is not None:
+        _note(surface, "fallback")
         log.warning("AI fallback used: invalid JSON twice: %r", text[:120])
         return copy.deepcopy(fallback), True
     raise HTTPException(status_code=502, detail="AI returned invalid JSON twice")
 
 
 async def _complete(
-    prompt: str, system: str | None, json_mode: bool, image: tuple[bytes, str] | None, timeout: float | None
+    prompt: str,
+    system: str | None,
+    json_mode: bool,
+    image: tuple[bytes, str] | None,
+    timeout: float | None,
+    schema: dict | None = None,
 ) -> str:
     key = os.getenv("GEMINI_API_KEY")
     if not key:
@@ -167,6 +272,8 @@ async def _complete(
         body["systemInstruction"] = {"parts": [{"text": system}]}
     if json_mode:
         body["generationConfig"] = {"responseMimeType": "application/json"}
+        if schema is not None:
+            body["generationConfig"]["responseJsonSchema"] = schema
 
     url = f"{API_BASE}/models/{MODEL}:generateContent"
     try:
@@ -189,9 +296,29 @@ class AskRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
 
 
+# Where the app uses Gemini, for the on-screen "How AI is used" panel (frontend/src/features/ai). Every
+# surface follows one rule: Gemini writes or proposes, the engine or the fact sheet checks, and a labeled
+# fallback runs when the key, the quota or the network is missing.
+SURFACES = [
+    {"id": "deck", "name": "Present the damage", "gemini": "Writes the presenter's words from the computed fact sheet.",
+     "check": "Every number in the text must appear in the fact sheet, or the plain-template text is used.", "fallback": "Template writer"},
+    {"id": "solutions", "name": "Ways to build it", "gemini": "Proposes grid upgrades that would let the full campus connect.",
+     "check": "The power-flow engine re-runs the case with each proposal; only plans that hold are shown.", "fallback": "Engine-generated fixes only"},
+    {"id": "unlock", "name": "Strengthen the grid", "gemini": "Proposes bundles of upgrades from the weak points found by simulation.",
+     "check": "The engine re-scans every site with the bundle added; the unlocked MW is measured, not claimed.", "fallback": "Cheapest-first ranking"},
+    {"id": "cost", "name": "Cost estimate", "gemini": "Estimates each cost line from the case facts, with the assumption shown.",
+     "check": "Ranges are clamped to the formula's bounds.", "fallback": "Formula estimate"},
+    {"id": "ask", "name": "Ask about this case", "gemini": "Chooses which computed facts answer a question and words the answer.",
+     "check": "Only facts from the case's fact sheet may be cited; other numbers are rejected.", "fallback": "Rule-based answers"},
+    {"id": "planner", "name": "Planner", "gemini": "Chooses the next what-if to run toward a goal.",
+     "check": "Every step is an engine run; the plan is what the engine measured.", "fallback": "Greedy search"},
+]
+
+
 @router.get("/status")
 def status():
-    return {"configured": configured(), "model": MODEL}
+    return {"configured": configured(), "model": MODEL, **usage(), "served": {k: _stats[k] for k in ("ok", "fallback", "cached")},
+            "by_surface": _stats["by_surface"], "cached_answers": len(_cache), "surfaces": SURFACES}
 
 
 # Example route — copy this shape for real features: auth required and a per-visitor

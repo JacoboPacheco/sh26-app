@@ -1080,7 +1080,7 @@ async def run_agent(p: Planner) -> tuple[str, dict | None]:
         prompt = _prompt(p, history, AI_CALLS - call, feedback)
         feedback = None
         try:
-            reply, offline = await asyncio.wait_for(complete_json(prompt, system=SYSTEM, fallback=OFFLINE, timeout=min(10.0, left)), left)
+            reply, offline = await asyncio.wait_for(complete_json(prompt, system=SYSTEM, fallback=OFFLINE, timeout=min(10.0, left), surface="planner"), left)
         except asyncio.TimeoutError:
             return "slow", None
         p.ai_calls += 1

@@ -1021,6 +1021,7 @@ FAMILY_LABEL = {
     "onsite": "Generate on site",
     "combo": "Smaller, plus upgrades",
     "remove": "Don't build it here",
+    "agentic": "Proposed by AI, checked by the engine",
 }
 MOVE_POOL = 40  # the roomiest towns (level 1.0) tried for a move
 MOVE_KEEP = 3
@@ -1383,7 +1384,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 )
             elif fam == "combo":
                 s_fit = shrink_res.get("s", 0.0) if shrink_res.get("ok") else 0.0
-                s_mid = (s_fit + 1.0) / 2.0
+                s_mid = 0.9 if s_fit < 0.9 else (s_fit + 1.0) / 2.0  # a small lowering (10 %) plus upgrades: people want more power
                 mws = _site_mws(c, s_mid)
                 extra = _extra_for(g, c.buses, mws)
                 new_upg, rate, chosen, maxed, limited = _greedy(c, g, extra)
@@ -1430,13 +1431,10 @@ def inc_oc(inc: dict) -> dict:
 
 
 def _best_fix(fixes: list[dict]) -> int | None:
-    for i, f in enumerate(fixes):
-        if f["verdict"] == "holds" and f["family"] != "remove":
-            return i
-    part = [(f["outcome"]["people"], i) for i, f in enumerate(fixes) if f["verdict"] == "partly" and f["family"] != "remove" and f.get("outcome")]
-    if part:
-        return min(part)[1]
-    return None
+    """The fix the report calls best: building it here at (nearly) the full amount comes first, then smaller ones."""
+    import solutions
+
+    return solutions.best_fix(fixes)
 
 
 def _firm_note(c: _Case, inc: dict) -> dict | None:
@@ -2064,6 +2062,13 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
         except Exception as e:  # noqa: BLE001
             log.warning("briefing: firm note failed: %s", e)
     timing["fixes"] = _ms(t0)
+    if fixes:
+        try:
+            import solutions
+
+            solutions.enrich(c, g, fixes, float(sum(s.mw for s in c.sites)))
+        except Exception as e:  # noqa: BLE001 — the ranking is an addition; the fixes stand without it
+            log.warning("briefing: solutions.enrich failed: %s", e)
     best = _best_fix(fixes)
     if nothing:
         verdict = "nothing_happened"
@@ -2138,6 +2143,8 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
         "cost": None,
         "fixes": fixes,
         "best_fix": best,
+        "solutions": sorted((i for i, f in enumerate(fixes) if f.get("rank")), key=lambda i: fixes[i]["rank"]),  # verified fixes, best first
+        "agentic": None,
         "firm_note": firm_note,
         "bound": bound,
         "split": split,
@@ -2301,6 +2308,12 @@ def _public(rep: dict) -> dict:
 @limiter.limit("30/minute")
 async def post_briefing(request: Request, body: BriefingIn):
     rep = await run_in_threadpool(report_for, body)
+    try:
+        import solutions
+
+        solutions.kick(rep["key"])  # Gemini proposes plans, the engine verifies them, in the background
+    except Exception as e:  # noqa: BLE001
+        log.warning("briefing: could not start the AI proposer: %s", e)
     return _public(rep)
 
 

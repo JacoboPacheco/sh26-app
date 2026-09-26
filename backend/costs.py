@@ -729,7 +729,7 @@ async def cost_ai(request: Request, body: CostIn):
         hit = _ai_cache.get(key)
     if hit is not None:  # the same case again (a replay, a reload): don't spend the day's AI quota twice
         return {**det, "ai": hit, "fallback": False}
-    raw, offline = await complete_json(_prompt(det), system=AI_SYSTEM, fallback={"_formula": True}, timeout=10)
+    raw, offline = await complete_json(_prompt(det), system=AI_SYSTEM, fallback={"_formula": True}, timeout=10, surface="cost")
     items, all_fell_back = (None, True) if offline else _clean_ai(raw, det)
     if all_fell_back:
         if not offline:

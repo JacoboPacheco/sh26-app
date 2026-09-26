@@ -86,7 +86,11 @@ def register(ctx):
         assert fams[:5] == ["shrink", "move", "flexible", "time_of_day", "upgrade"], fams
         holds = [f for f in fixes if f["verdict"] == "holds"]
         assert holds and holds[0]["family"] == "shrink" and holds[0]["apply"] == {"mw": 550.0}, holds[:1]
-        assert r["verdict"] == "preventable" and fixes[r["best_fix"]]["family"] == "shrink", (r["verdict"], r["best_fix"])
+        # building it at the full amount is the priority (user, Sat 05:58): the best fix keeps (nearly) the whole campus
+        best = fixes[r["best_fix"]]
+        assert r["verdict"] == "preventable" and best["verdict"] == "holds" and best["family"] != "shrink", (r["verdict"], r["best_fix"], best["family"])
+        assert (best.get("kept_pct") or 0) >= 90, best
+        assert len(r["solutions"]) >= 2, r["solutions"]  # always more than one way
         tod = next(f for f in fixes if f["family"] == "time_of_day")
         assert tod["verdict"] == "fails", tod
         for f in fixes:
@@ -148,7 +152,7 @@ def register(ctx):
     ctx.check("briefing: hero report — timeline, root cause, areas (briefing.py)", hero_report)
     ctx.check("briefing: Category 5 across Florida — no fix exists, LP-verified rebuild waves, cached repeat", catastrophe_no_fix_and_plan)
     ctx.check("briefing: fact texts carry no alert phrasing or storm names", check_text_is_strict)
-    ctx.check("briefing: hero fixes verified — shrink to 550 MW first; every 'holds' re-runs calm", hero_fixes_are_verified)
+    ctx.check("briefing: hero fixes verified — full size first, shrink to 550 MW still holds; every 'holds' re-runs calm", hero_fixes_are_verified)
     ctx.check("briefing: Gulf storm + campus — no fix exists, campus families not needed", storm_has_no_fix)
     ctx.check("briefing: fact sheet has <= 160 unique facts, people marked estimates", facts_are_well_formed)
     ctx.check("briefing: heat wave + 500 MW is the last straw on a Jacksonville transformer", heat_is_last_straw)

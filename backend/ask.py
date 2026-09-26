@@ -1896,7 +1896,7 @@ async def _gemini(ctx: _Ctx) -> dict | None:
         allow = rnd < MAX_TOOLS
         try:
             data, offline = await asyncio.wait_for(
-                llm.complete_json(_prompt(ctx, calls, tool_facts, allow), system=SYSTEM, fallback=_NO_ANSWER, timeout=10), AI_CALL_DEADLINE_S
+                llm.complete_json(_prompt(ctx, calls, tool_facts, allow), system=SYSTEM, fallback=_NO_ANSWER, timeout=10, surface="ask"), AI_CALL_DEADLINE_S
             )
         except asyncio.TimeoutError:
             log.warning("Ask: Gemini took over %ss; fact-sheet answer instead", AI_CALL_DEADLINE_S)

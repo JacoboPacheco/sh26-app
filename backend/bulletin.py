@@ -52,10 +52,13 @@ log = logging.getLogger("uvicorn.error")
 VERSION = 1
 LANGS = ("en", "es")
 ORDER = ("toll", "event", "chain", "areas", "hospitals", "cost", "cause", "fix", "no_fix", "recovery", "bottom_line")
-# the ≤ 60 s presentation: the toll (expected cost and outage time) first, then who is hit, why it failed, what to do
+# the ≤ 60 s API variant (length=short): the toll first, then who is hit, why it failed, what to do
 SHORT = ("toll", "areas", "cause", "fix", "no_fix", "bottom_line")
+# the presentation (deck["short"], what "Present the damage" plays): the toll, the play-by-play, the crucial
+# infrastructure (hospitals), why it failed, the verified solutions, the bottom line
+PRESENT = ("toll", "chain", "areas", "hospitals", "cause", "fix", "no_fix", "bottom_line")
 # narration characters; the short deck is the <= 60 s demo version (~14.5 spoken chars/s + pauses)
-BUDGET = {"full": {"en": 2000, "es": 2300}, "short": {"en": 800, "es": 920}}
+BUDGET = {"full": {"en": 3800, "es": 4400}, "short": {"en": 1300, "es": 1500}}
 # per-segment caps; Spanish runs ~15-20 % longer than English for the same content
 PRESENTER_MAX = {"en": 320, "es": 384}
 ANALYST_MAX = {"en": 420, "es": 504}
@@ -946,7 +949,7 @@ def _step_sentence(w: Writer, st: dict, lang: str, seen: set | None = None) -> s
                                      else f"Primero, las tormentas derriban {num(k, lang)} líneas{tail}.")
         return cue("step", 0) + (f"First, the storm knocks out {num(k)} lines{tail}." if en
                                  else f"Primero, la tormenta derriba {num(k, lang)} líneas{tail}.")
-    head = f"Step {words(n, 'en')}: " if en else f"Paso {words(n, 'es')}: "
+    head = f"Play {words(n, 'en')}: " if en else f"Jugada {words(n, 'es')}: "
     if st.get("action") == "shed":
         held = w.line_label(st.get("held_line"), lang)
         area = dark[0] if dark else None
@@ -990,6 +993,35 @@ def _group_sentence(w: Writer, group: list[dict], lang: str, after: bool = True,
         s = f"Pasos {words(a, 'es')} a {words(b, 'es')}: se {'dispara' if trips == 1 else 'disparan'} {words(trips, 'es', fem=True)} {'línea' if trips == 1 else 'líneas'}{' más' if after else ''}"
         s += f", y {join(dark, 'es')} {'se queda' if len(dark) == 1 else 'se quedan'} sin luz." if dark else "."
     return spread(s, "step", list(range(a, b + 1)))
+
+
+def _plays(w: Writer) -> list[dict]:
+    """The cascade as plays for the play-by-play: one per failure, with what it is, how hard it was pushed, and who it hit."""
+    steps = (w.r.get("replay") or {}).get("steps") or []
+    rows = {int(r.get("n", 0)): r for r in w.timeline if isinstance(r, dict)}
+    hosp = {a["area"]: int(a["count"]) for a in ((w.r.get("hospitals") or {}).get("areas") or [])}
+    plays, prev = [], 0
+    for st in steps:
+        n = int(st.get("n") or 0)
+        if n <= 0:
+            continue
+        tr = [int(b) for b in (st.get("tripped") or [])]
+        bid = tr[0] if tr else st.get("held_line")
+        if bid is None:
+            continue
+        i = w.g.br_index.get(int(bid))
+        kind = "transformer" if i is not None and int(w.g.bus_sub_idx[w.g.f[i]]) == int(w.g.bus_sub_idx[w.g.t[i]]) else "line"
+        ln = ((rows.get(n) or {}).get("lines") or [{}])[0]
+        hit = int(st.get("people_hit") or 0)
+        areas = [h["area"] for h in (st.get("hits") or []) if h.get("area")][:3]
+        plays.append({
+            "n": n, "action": st.get("action"), "kind": kind, "id": int(bid),
+            "label": {"en": w.line_label(bid, "en"), "es": w.line_label(bid, "es")},
+            "loading_pct": ln.get("pct_before"), "people_hit": hit, "people_delta": max(hit - prev, 0), "people_total": hit,
+            "areas": areas, "hospitals": sum(hosp.get(a, 0) for a in areas), "dark": len(st.get("dark_subs") or []),
+        })
+        prev = hit
+    return plays[:30]
 
 
 def s_chain(w: Writer, lv: Level) -> dict:
@@ -1095,6 +1127,7 @@ def s_chain(w: Writer, lv: Level) -> dict:
                       "fact_key": "event.steps", "tone": "alert"}
     out["camera"] = cam("bbox", pts, line_ids=ids) if pts else (cam("areas", [a.get("center") for a in w.areas[:4]]) if w.areas else region_cam(w))
     out["map"] = mapspec("replay", 0, w.steps, highlight=ids[:1])
+    out["plays"] = _plays(w)
     out["facts_used"] = w.keys("event.steps", "event.storm_lines_out", *[f"step.{s['n']}.line" for s in tl], *[f"step.{s['n']}.pct_before" for s in tl])
     return out
 
@@ -1465,53 +1498,81 @@ def s_fix(w: Writer, lv: Level) -> dict:
         out["map"] = mapspec("calm", 0, 0)
         out["facts_used"] = w.keys("event.room_mw", "deck.room_mw")
         return out
-    ordered = sorted(w.fixes, key=lambda f: (f is not best, FAMILY_ORDER.index(f["family"]) if f.get("family") in FAMILY_ORDER else 99))
-    # the fixes a planner could choose ('remove' is the no-campus floor, said on the cause slide)
+    # the verified solutions, best first: building it HERE at (nearly) the full amount before anything smaller
+    sol = [w.fixes[i] for i in (w.r.get("solutions") or []) if isinstance(i, int) and 0 <= i < len(w.fixes)] or [best]
+    if best not in sol:
+        sol.insert(0, best)
+    ordered = sorted(w.fixes, key=lambda f: (f not in sol, sol.index(f) if f in sol else 0, FAMILY_ORDER.index(f["family"]) if f.get("family") in FAMILY_ORDER else 99))
     listed = [f for f in ordered if f.get("verdict") in ("holds", "partly", "fails") and f.get("family") != "remove"][:5]
+    n_opts = len(sol) if len(sol) <= 2 else max(2, min(len(sol), 1 + lv.checks))  # always more than one when more than one holds
+    opts = sol[:n_opts]
     for lang in LANGS:
         en = lang == "en"
-        phrase = _fix_phrase(w, best, lang)
-        verdict = _fix_verdict(w, best, lang)
-        o = best.get("outcome") or {}
-        if best.get("verdict") == "holds" and int(o.get("steps") or 0) == 0:
-            with_it = "With it, no line trips." if en else "Con ella, ninguna línea se dispara."
-        elif o.get("people"):
-            with_it = (f"With it, {people_say(o['people'], 'en')} still lose power." if en
-                       else f"Con ella, {people_say(o['people'], 'es')} siguen sin luz.")
+        where = w.where(lang) or w.place or ""
+        size = mw_say(w.mw, lang)
+        if w.multi:
+            intro = (f"How to fix it. If you want to build {words(len(w.sites), 'en')} campuses, {size} in all, this is what you have to do." if en
+                     else f"Cómo evitarlo. Si quieres construir {words(len(w.sites), 'es', before_noun=True)} campus, {size} en total, esto es lo que tienes que hacer.")
         else:
-            with_it = f"Verdict: {verdict}." if en else f"Resultado: {verdict}."
-        body = sentences([(("How to fix it." if en else "Cómo evitarlo."), False),
-                          (("We tested each fix by re-running the model." if en else "Probamos cada solución volviendo a correr el modelo."), 2),
-                          ((f"The best one: {phrase}." if en else f"La mejor: {phrase}."), False),
-                          (with_it, False)], lv, PRESENTER_MAX[lang])
-        checks = [f"{cap(_fix_phrase(w, f, lang))}: {_fix_verdict(w, f, lang, short=True)}." for f in listed if f is not best]
-        analyst = ""
-        for n in range(min(len(checks), lv.checks), -1, -1):
-            head = cue("fix", "show") + ("The others, each re-run in the model. " if en else "Las demás, cada una probada en el modelo. ")
-            analyst = head + " ".join(checks[:n]) if n else ""
-            if plain_len(analyst) <= ANALYST_MAX[lang]:
-                break
-        segs = [_seg("presenter", body)]
-        if analyst:
-            segs.append(_seg("analyst", analyst))
-        else:
-            segs[0]["prefix"] = cue("fix", "show")
+            intro = (f"How to fix it. If you want to build {size} here" + (f" at {where}" if where else "") + ", this is what you have to do." if en
+                     else f"Cómo evitarlo. Si quieres construir {size} aquí" + (f", en {where}" if where else "") + ", esto es lo que tienes que hacer.")
+        segs = [_seg("presenter", sentences([(intro, False), (("There is more than one way, and the engine re-ran every one." if en else "Hay más de una manera, y el motor probó cada una."), 2)], lv, PRESENTER_MAX[lang]))]
+        for k, fx in enumerate(opts):
+            o = fx.get("outcome") or {}
+            ph = _fix_phrase(w, fx, lang)
+            kept, pct, cost = fx.get("kept_mw"), fx.get("kept_pct"), fx.get("cost")
+            if pct is not None and pct >= 99.5:
+                keeps = (f"It keeps all {size}." if en else f"Conserva los {size} completos.")
+            elif kept is not None:
+                keeps = (f"It keeps {mw_say(kept, lang)} of the {num(w.mw, lang)}." if en else f"Conserva {mw_say(kept, lang)} de los {num(w.mw, lang)}.")
+            else:
+                keeps = ""
+            money = ""
+            if cost and cost.get("high"):
+                usd, _ = usd_say(cost["high"], lang)
+                money = (f"It costs an estimated {usd}." if en else f"Cuesta unos {usd}, según la estimación.")
+            works = ("With it, no line trips." if en else "Con ella, ninguna línea se dispara.") if int(o.get("steps") or 0) == 0 else (
+                f"With it, {people_say(o.get('people') or 0, 'en')} still lose power." if en else f"Con ella, {people_say(o.get('people') or 0, 'es')} siguen sin luz.")
+            by = (" The AI proposed this one, and the engine checked it." if en else " La IA propuso esta, y el motor la comprobó.") if fx.get("by") == "gemini" else ""
+            text = (f"Option {words(k + 1, 'en')}: {ph}. {keeps} {money} {works}{by}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {money} {works}{by}")
+            text = " ".join(text.split())
+            if plain_len(text) > ANALYST_MAX[lang]:  # too long: drop the money and the provenance
+                text = " ".join((f"Option {words(k + 1, 'en')}: {ph}. {keeps} {works}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {works}").split())
+            segs.append(_seg("analyst", cue("option", k) + text))
         out["narr"][lang] = segs
         pre = ("Preventable" if en else "Evitable") if w.verdict == "preventable" else ("Partly preventable" if en else "Evitable en parte")
-        act = best.get("action") if en else None
-        out["headline"][lang] = f"{pre}: {act[:1].lower() + act[1:] if act else phrase}" + (" (verified)" if en else " (verificado)")
+        n_hold = sum(1 for f in sol if f.get("verdict") == "holds")
+        target = (mw_show(w.mw) + (f" at {where}" if where and not w.multi else "")) if en else (mw_show(w.mw) + (f" en {where}" if where and not w.multi else ""))
+        if w.verdict == "preventable" and n_hold:
+            if en:
+                out["headline"][lang] = f"To build {target}: {n_hold} verified {'way' if n_hold == 1 else 'ways'}"
+            else:
+                out["headline"][lang] = f"Para construir {target}: {n_hold} {'manera verificada' if n_hold == 1 else 'maneras verificadas'}"
+        else:
+            out["headline"][lang] = f"{pre}: {(best.get('action') or _fix_phrase(w, best, lang))[:80]}"
         out["lines"][lang] = [f"{(f.get('action') if en else None) or cap(_fix_phrase(w, f, lang))} · {VERDICT_CHIP.get(f.get('verdict'), ('', ''))[0 if en else 1]}"[:LINE_MAX]
                               for f in listed[:3]]
     ap = best.get("apply") or {}
     up_ids = [int(k) for k in (ap.get("upgrades") or {})]
-    out["big"] = {"value": _fix_big(w, best, "en"), "display": {"en": _fix_big(w, best, "en"), "es": _fix_big(w, best, "es")},
-                  "label": {"en": "verified fix", "es": "solución verificada"}, "fact_key": f"fix.{best.get('family')}.action", "tone": "good"}
+    all_ids = sorted({int(k) for f in opts for k in ((f.get("apply") or {}).get("upgrades") or {})})
+    kept_best = best.get("kept_mw")
+    out["big"] = {"value": kept_best if kept_best is not None else _fix_big(w, best, "en"),
+                  "display": {"en": mw_show(kept_best) if kept_best is not None else _fix_big(w, best, "en"), "es": mw_show(kept_best) if kept_best is not None else _fix_big(w, best, "es")},
+                  "label": {"en": "kept by the best verified fix", "es": "que conserva la mejor solución verificada"}, "fact_key": f"fix.{best.get('family')}.action", "tone": "good"}
     out["chips"] = [{"family": f.get("family"), "verdict": f.get("verdict"),
                      "label": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
                      "people": (f.get("outcome") or {}).get("people")} for f in ordered]
-    if up_ids:
-        pts = [p for bid in up_ids for p in w.line_pts(bid)]
-        out["camera"] = cam("bbox", pts, line_ids=up_ids)
+    out["options"] = [{
+        "fix": w.fixes.index(f), "family": f.get("family"),
+        "name": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
+        "kept_mw": f.get("kept_mw"), "kept_pct": f.get("kept_pct"), "must": f.get("must") or {"en": [], "es": []},
+        "cost": f.get("cost"), "by": f.get("by") or "engine", "verdict": f.get("verdict"), "outcome": f.get("outcome"),
+        "lines": [{"id": x["id"], "label": x.get("label"), "old_mva": x.get("old_mva"), "new_mva": x.get("new_mva")} for x in ((f.get("detail") or {}).get("list") or [])[:20]],
+        "apply": f.get("apply"),
+    } for f in opts]
+    if all_ids:
+        pts = [p for bid in all_ids for p in w.line_pts(bid)]
+        out["camera"] = cam("bbox", pts, line_ids=all_ids)
     elif ap.get("lat") is not None:
         pt = [round(float(ap["lon"]), 4), round(float(ap["lat"]), 4)]
         site = w.site_pt()
@@ -1877,12 +1938,13 @@ def finish(report: dict, composed: dict, length: str, ai_meta: dict) -> dict:
                          "banner": f"SIMULACIÓN · modelo sintético de la red de {w.region_es} (Breakthrough Energy / Texas A&M, CC-BY 4.0) · no es la red de ninguna empresa eléctrica · toda cifra de personas o costos es una estimación."}},
         "languages": list(LANGS),
         "slides": slides_out,
-        "short": [s["id"] for s in slides_out if s["id"] in SHORT],
+        "short": [s["id"] for s in slides_out if s["id"] in PRESENT],
         "total_chars": totals,
         "budget": BUDGET[length],
         "est_s": {lang: round(v, 1) for lang, v in est_total.items()},
         "ai": {"by": by, **ai_meta},
         "extra_facts": w.extra,
+        "agentic": report.get("agentic"),  # the AI proposer: {status: running|done|off|error, asked, verified, added}; a deck fetched while it runs lacks its plans
     }
     deck["deck_key"] = hashlib.sha1(json.dumps([report.get("key"), length, VERSION, [(s["id"], s["narration"]) for s in slides_out]],
                                                sort_keys=True, default=str).encode()).hexdigest()
@@ -2098,7 +2160,7 @@ def _clean_ai(text) -> str:
 # scenario's core facts right after the fixed SIMULATION sentence; in review, flash-lite rewrote it as
 # "a 1,500 megawatt data center ... leaves room for only 557 megawatts", which passes the number check
 # but inverts what the numbers mean. The first thing a listener hears stays deterministic.
-AI_KEEP_TEMPLATE = ("event", "toll")
+AI_KEEP_TEMPLATE = ("event", "toll", "fix")  # the numbers and the plans are the engine's: templates only
 
 
 def ai_slots(composed: dict) -> list[dict]:
@@ -2351,7 +2413,7 @@ async def ai_bodies(report: dict, composed: dict, length: str) -> tuple[dict, di
         none = {"slides": {}}
         try:
             data, offline = await asyncio.wait_for(
-                complete_json(prompt, system=AI_SYSTEM, fallback=none, timeout=AI_TIMEOUT_S), AI_DEADLINE_S)
+                complete_json(prompt, system=AI_SYSTEM, fallback=none, timeout=AI_TIMEOUT_S, surface="deck"), AI_DEADLINE_S)
         except asyncio.TimeoutError:
             log.warning("briefing deck: Gemini took over %ss; templates used", AI_DEADLINE_S)
             data, offline = none, True
@@ -2386,6 +2448,13 @@ async def build_deck(body: DeckIn) -> tuple[dict, dict]:
     """(deck, report). ai=false: templates only, instantly. ai=true: Gemini's presenter prose where it
     passes the checks (cached per report), templates everywhere else."""
     report = await run_in_threadpool(report_for_case, body)
+    if report.get("key"):
+        try:
+            import solutions
+
+            solutions.kick(report["key"])  # AI-proposed plans, verified by the engine, arrive in the background
+        except Exception as e:  # noqa: BLE001
+            log.warning("bulletin: could not start the AI proposer: %s", e)
     composed = await run_in_threadpool(compose, report, body.length, None)
     meta = {"numbers_checked": 0, "rejected": 0, "fallback": bool(body.ai)}
     if body.ai:
