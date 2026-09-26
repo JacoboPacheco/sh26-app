@@ -1,29 +1,37 @@
-"""The narrated build-up for Strengthen the grid: when the viewer presses "Watch it get built", a presenter voice
-says what the map draws, campus by campus ("Campus three goes in at Crystal River. The Jacksonville 64
-transformer stopped it at all thirty sites tried; raising it from 235 to 350 megavolt-amperes costs up to $6.24
-million."). CLAUDE.md -> Decisions -> STRENGTHEN IS THE HEART, GEMINI MAX, MUTED, AI SURFACES.
+"""The narrated play-by-play for Strengthen the grid: when the viewer presses "Watch it get built", the page leaves its
+dashboard for a full-screen map and a presenter voice walks through the build in about a minute, whatever the
+budget: the grid's weak points first, then the upgrades in at most four PACKAGES (Gemini groups them, the engine
+checks the grouping), then the whole plan's answer. CLAUDE.md -> Decisions -> STRENGTHEN PLAY-BY-PLAY, STRENGTHEN IS
+THE HEART, PRESENT V2 (framing: the problem is in today's grid), GEMINI MAX, MUTED, AI SURFACES.
 
 POST /api/strengthen/narration {region, mw, load_factor, mode: firm|flexible, budget (USD, high end), lang: en|es, ai}
-  -> a script shaped for the narration engine the deck uses (frontend useNarration): slides[{id, kind, step_from,
-     step, steps, headline{lang}, narration{lang: [{role, text, chars, cues, key}]}, est_s{lang}, written_by{lang}}]
-     plus the facts every number comes from, the names that hold digits, and how Gemini did.
+  -> a script shaped for the narration engine the deck uses (frontend useNarration): slides[{id, kind: intro|package|
+     close, step_from, step, steps, package, headline{lang}, narration{lang: [{role, text, chars, cues, key}]},
+     est_s{lang}, written_by{lang}}] plus packages[] (who, where, what it costs, the campuses it lets in), problems[]
+     (the weak points that stop the next campuses, with their loading on today's grid), grouping{by, checks, ...}
+     (who grouped the upgrades and what was checked), the facts every number comes from and the names that hold digits.
   409 while no finished study exists for that state, size and load level (it never starts one: LAZY), 422 bad body.
 
-The script: an INTRO (today's campuses at once, what stops the next one; the synthetic model named once), one
-slide per PAID campus step the budget buys (a free step after it rides along in the same slide), and a CLOSING
-(what the budget buys at once, the power plants' reserve line, what the next campus would take). Each slide says
-which campuses the map shows: `step_from` when it enters, `step` cues as the words reach them, `step` when it ends.
+THE GROUPING. The paid campus steps the budget buys (each with the free campuses that ride along after it) are cut
+into at most 4 packages, each a CONTIGUOUS run of steps, so the campuses-at-once count and the running cost after a
+package are the engine's own numbers (never re-added by a model). Gemini (one call, a JSON schema, surface
+"strengthen_narration") proposes the cuts, a short place-based name and why they belong together (same corridor,
+same limit); code checks it: contiguous, every paid step exactly once, the package count for the number of steps,
+every place a name says is one its upgrades touch (and every name different), no digits outside the facts, no real
+utility or company names, short text in both languages. What fails goes back once with the reasons (proposal ->
+checks -> feedback -> revision); a grouping that still fails, no key or no answer falls back to the ENGINE'S grouping
+(cut where consecutive steps' upgrades jump furthest across the state, named from the dominant area), labeled so.
 
-Gemini (one call, both languages, a JSON schema; surface "strengthen_narration", the agent model at minimal
-thinking) writes the lines from a fact sheet whose numbers are already in their spoken form. Every line is checked:
-each digit must be one of that slide's facts (names that hold digits masked), spelled numbers must be ones the
-data has, the place and the step's cost must be said, the intro must name the synthetic model, no abbreviations
-the voice would stumble on, no real utility or company names. The lines that fail go back to Gemini once with the
-checks' reasons and are checked again (proposal -> checks -> feedback -> revision); a line that still fails keeps its
-template. With no key, no quota, or ai=false, the templates run (labeled). Florida's default budgets (both campus
-types) are written ahead once unlock's warm study is in (UNLOCK_WARM; NARRATE_WARM=0 skips), so the first click
-doesn't wait on Gemini. Every segment is registered with voice.py, so the page asks
-ElevenLabs for it by key; the browser voice or captions alone are the page's fallbacks.
+THE SCRIPT: an INTRO (how many fit today; what stops the next one framed as a weakness already in today's grid, with
+its loading today), one slide per PACKAGE (its name, what gets raised by kind, its cost at the high end, how many
+campuses fit at once after it) and a CLOSING (the whole plan's answer, the power plants' reserve line when it binds,
+the synthetic model named). About 45-75 s spoken. Gemini writes the lines from a fact sheet whose numbers are already
+in their spoken form; every line is checked (each digit one of the slide's facts, names that hold digits masked;
+spelled numbers the data has; the cost, count and place said; no abbreviations; no real names); failures go back
+once, a line that still fails keeps its template. With no key, no quota, or ai=false, templates run (labeled).
+Florida's default and largest budgets (both campus types) are written ahead once unlock's warm study is in
+(UNLOCK_WARM; NARRATE_WARM=0 skips). Every segment is registered with voice.py, so the page asks ElevenLabs for it by
+key; the browser voice or captions alone are the page's fallbacks.
 
 Everything describes the SYNTHETIC grid model (Breakthrough Energy / Texas A&M), not any utility's network; costs
 are the high end of labeled estimates.
@@ -32,6 +40,7 @@ are the high end of labeled estimates.
 import asyncio
 import difflib
 import hashlib
+import itertools
 import json
 import logging
 import math
@@ -40,13 +49,14 @@ import re
 import threading
 import time
 import unicodedata
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+import grid as gridmod
 import llm
 import unlock
 import voice
@@ -57,18 +67,28 @@ from limiter import limiter
 router = APIRouter(tags=["narrate"])
 log = logging.getLogger("uvicorn.error")
 
-VERSION = 2
+VERSION = 4  # 4: a claims check on the grouping (kinds, a shared limit); template lines speak only the engine's reason
 LANGS = ("en", "es")
 SURFACE = "strengthen_narration"
 AI_TIMEOUT_S = 10  # per socket read inside llm
-AI_DEADLINE_S = 16  # the whole call
+AI_DEADLINE_S = 16  # the lines' whole call
+GROUP_DEADLINE_S = 12  # the grouping's whole call (it runs first: the lines are written for its packages)
 LINE_MAX = {"en": 300, "es": 360}  # a slide's spoken line, characters
+TOTAL_MAX_S = 76.0  # the whole script, spoken (English pace); longer Gemini lines give way to their templates
 HOLD_S = 0.8  # the narration engine's pause before the next slide
 SCRIPTS_MAX = 64
 AI_MAX = 32
+GROUPS_MAX = 32
+PKG_MAX = 4
+NAME_MAX = {"en": 48, "es": 56}  # a package name, characters (the beat strip shows the English one; Spanish runs longer)
+WHY_MAX = 140  # why its upgrades belong together, characters
+SAME_PLACE_KM = 25.0  # the engine's grouping: consecutive steps whose upgrades sit closer than this are one place
+UNEVEN_KM = 10.0  # ... and a cut must be worth this many km of jump per squared step of unevenness it costs
 REVISE_MIN_S = 5.0  # a revision round (the failed lines, with the checks' reasons) is asked only with this much time left
+GROUP_REVISE_MIN_S = 4.0
 RETRY_S = 60.0  # a case where no Gemini line passed is asked again after this long, not on every request
 RETRYABLE = ("Gemini unavailable", "every line failed its checks")
+GROUP_RETRYABLE = ("Gemini unavailable",)  # a grouping that failed its checks isn't asked again (the answer is cached)
 DEFAULT_BUDGET = 50e6  # the page opens at the largest budget stop at or under this (capacity.js DEFAULT_CAP_BUDGET)
 WARM_WAIT_S = 900.0  # the warm-up waits this long for unlock's warm study, then gives up
 WARM_POLL_S = 5.0
@@ -81,11 +101,15 @@ STOP = {  # why the search ended, as the end of a sentence
 }
 ORD_EN = ["zeroth", "first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth", "tenth", "eleventh", "twelfth"]
 ORD_ES = ["", "primero", "segundo", "tercero", "cuarto", "quinto", "sexto", "séptimo", "octavo", "noveno", "décimo"]
+LEAD = {"en": ("First up", "Next", "Last"), "es": ("Primero", "Después", "Por último")}
+ONE_LEAD = {"en": "One package does it", "es": "Basta un paquete"}
 
 _scripts: "OrderedDict[tuple, dict]" = OrderedDict()
 _ai: "OrderedDict[tuple, tuple[dict, dict, float]]" = OrderedDict()  # (lines, meta, when)
-_ai_mutex = threading.Lock()  # the warm-up thread writes _ai too
+_groups: "OrderedDict[tuple, tuple[list, dict, float, bool]]" = OrderedDict()  # (packages, trace, when, retry later?)
+_ai_mutex = threading.Lock()  # the warm-up thread writes _ai and _groups too
 _ai_locks: dict[tuple, asyncio.Lock] = {}
+_group_locks: dict[tuple, asyncio.Lock] = {}
 
 
 # ------------------------------------------------------------------------------------------ words
@@ -276,7 +300,7 @@ def check_numbers(text: str, facts: Facts, slide: str | None) -> tuple[bool, str
     return True, None, len(toks)
 
 
-# ------------------------------------------------------------------------------------------ the script
+# ------------------------------------------------------------------------------------------ the plan
 class Plan:
     """One study's capacity search, read for one mode and budget."""
 
@@ -306,253 +330,1010 @@ class Plan:
         # the fingerprint of what is narrated (a re-run study with other numbers gets its own script)
         self.fp = hashlib.sha1(json.dumps([self.steps[: self.bought + 1], self.today, self.plants_n, self.m.get("stop")],
                                           sort_keys=True, default=str).encode()).hexdigest()[:16]
+        self.gkey = (self.key, self.mode, self.bought, self.fp)
 
     def size(self, lang: str, adj: bool = True) -> str:
         return mw_say(self.mw, lang, adj=adj)
 
-    def slides(self) -> list[dict]:
-        """The slide list (no text yet): intro, one per paid step bought (free ones after it ride along), closing."""
-        out = [{"id": "intro", "kind": "intro", "step_from": 0, "step": self.today, "steps": list(range(1, self.today + 1))}]
-        cur = None
+    def units(self) -> list[dict]:
+        """The paid steps the budget buys, in the engine's order, each with the free campuses that fit after it."""
+        out: list[dict] = []
         for st in self.steps[self.today: self.bought]:
-            if not st["free"] or cur is None:
-                cur = {"id": f"step-{st['n']}", "kind": "step", "step_from": st["n"], "step": st["n"], "steps": [st["n"]], "main": st, "free": []}
-                out.append(cur)
+            if not st["free"] or not out:
+                out.append({"main": st, "steps": [st]})
             else:
-                cur["free"].append(st)
-                cur["steps"].append(st["n"])
-                cur["step"] = st["n"]
-        out.append({"id": "close", "kind": "close", "step_from": self.bought, "step": self.bought, "steps": []})
+                out[-1]["steps"].append(st)
         return out
 
+    def binds(self) -> bool:
+        """The power plants (with their reserve kept) supply fewer campuses than the budget connects."""
+        return self.plants_n is not None and self.bought > 0 and self.plants_n < self.bought
 
-def build_facts(p: Plan, slides: list[dict]) -> Facts:
+    def next_block(self) -> dict | None:
+        fb = self.first_block
+        return fb if fb and fb.get("at_campus") == self.today + 1 else None
+
+
+def majority(b: dict | None) -> dict | None:
+    """A limit that stopped a campus at most of the sites tried (the page's blockOf): 'what stops it'."""
+    return b if b and b.get("of") and int(b.get("blocks") or 0) * 2 >= int(b["of"]) else None
+
+
+def pkg_range(u: int) -> tuple[int, int]:
+    """How many packages a build of `u` paid steps may have: 1-2 -> 1, 3-5 -> 2-3, more -> 3-4."""
+    if u <= 0:
+        return 0, 0
+    if u <= 2:
+        return 1, 1
+    if u <= 5:
+        return 2, 3
+    return 3, PKG_MAX
+
+
+def engine_k(u: int) -> int:
+    return 0 if u <= 0 else 1 if u <= 2 else 2 if u <= 4 else 3 if u <= 8 else PKG_MAX
+
+
+def _mid(pj: dict) -> tuple[float, float]:
+    m = pj.get("mid")
+    if m:
+        return float(m[0]), float(m[1])
+    return (float(pj["from"]["lat"]) + float(pj["to"]["lat"])) / 2, (float(pj["from"]["lon"]) + float(pj["to"]["lon"])) / 2
+
+
+def center_of(steps: list[dict]) -> tuple[float, float]:
+    pts = [_mid(pj) for st in steps for pj in st["projects"]] or [(float(st["site"]["lat"]), float(st["site"]["lon"])) for st in steps]
+    return sum(a for a, _ in pts) / len(pts), sum(b for _, b in pts) / len(pts)
+
+
+def km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
+    return 6371.0 * 2 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def projects_of(steps: list[dict]) -> list[dict]:
+    """Every line and transformer the steps raise, once: its rating before the first raise, after the last."""
+    by: dict = {}
+    for st in steps:
+        for pj in st["projects"]:
+            b = pj["branch_id"]
+            if b in by:
+                by[b] = {**by[b], "rating_after_mva": pj["rating_after_mva"]}
+            else:
+                by[b] = {**pj, "first_step": st["n"]}
+    return list(by.values())
+
+
+def areas_of(pj: dict) -> list[str]:
+    return [a for a in dict.fromkeys([(pj.get("from") or {}).get("area"), (pj.get("to") or {}).get("area")]) if a] or ([pj["where"]] if pj.get("where") else [])
+
+
+def area_weights(projects: list[dict]) -> list[tuple[str, float]]:
+    """The places a package's upgrades touch, heaviest (by cost) first."""
+    w: dict[str, float] = {}
+    for pj in projects:
+        areas = areas_of(pj)
+        share = max(float(pj["cost"]["high"]), 1.0) / max(1, len(areas))
+        for a in areas:
+            w[a] = w.get(a, 0.0) + share
+    return sorted(w.items(), key=lambda x: -x[1])
+
+
+def make_package(p: Plan, units: list[dict], a: int, b: int, i: int) -> dict:
+    """Package i: units a..b (0-based, inclusive). Its counts and running cost are the engine's own numbers."""
+    us = units[a: b + 1]
+    steps = [st for u in us for st in u["steps"]]
+    first, last = steps[0]["n"], steps[-1]["n"]
+    before = p.steps[first - 2]["cum_cost"] if first >= 2 else {"low": 0, "high": 0}
+    after = steps[-1]["cum_cost"]
+    projs = projects_of(steps)
+    lines = sum(1 for x in projs if x.get("kind") != "transformer")
+    pk = {
+        "i": i, "id": f"pkg-{i}", "units": [a + 1, b + 1], "steps": [st["n"] for st in steps], "paid": [u["main"]["n"] for u in us],
+        "first": first, "last": last,
+        "cost_low": round(after["low"] - before["low"]), "cost_high": round(after["high"] - before["high"]), "cum_high": round(after["high"]),
+        "upgrades": len(projs), "lines": lines, "transformers": len(projs) - lines,
+        "areas": [x for x, _ in area_weights(projs)][:4],
+        "_projects": projs, "_steps": steps,
+    }
+    # the engine's own reason, from the data: a template line speaks this one (never Gemini's, so a line labeled
+    # "template" holds no model text); the card shows the grouper's reason, checked by _check_grouping
+    pk["_why_engine"] = why_engine(pk)
+    return pk
+
+
+def public_pkg(pk: dict) -> dict:
+    return {k: v for k, v in pk.items() if not k.startswith("_")}
+
+
+# ------------------------------------------------------------------------------------------ place words
+_TOK = re.compile(r"[A-Za-zÀ-ÿ]+")
+GENERIC = {_fold(w) for w in (
+    "the a an and of around near north south east west central northern southern eastern western northeast northwest "
+    "southeast southwest upper lower inner outer coast coastal corridor corridors loop ring grid package packages "
+    "line lines transformer transformers upgrade upgrades station stations substation substations both these its it "
+    "same limit links link hub hubs belt again first next last grid network area areas zone zones region backbone "
+    "reinforcement reinforcements expansion expansions upgrade tie ties interconnection capacity core cluster build "
+    "el la los las de del y en torno cerca norte sur este oeste centro central corredor paquete linea lineas "
+    "transformador transformadores mejora mejoras subestacion subestaciones otra vez ambos mismo limite red redes zona "
+    "zonas region regiones refuerzo refuerzos ampliacion ampliaciones enlace enlaces nodo nodos interconexion "
+    "capacidad conexion conexiones eje nucleo obra obras "
+    # more generic words Gemini writes in a name (a Spanish first draft said "Actualizaciones en Orlando y Jacksonville")
+    "actualizacion actualizaciones modernizacion modernizaciones transmision tramo tramos fase fases lote lotes "
+    "cable cables tendido plan planes corredores "
+    "transmission stretch stretches phase phases batch works cable cables span spans"
+).split()}
+
+
+def place_tokens(items) -> set[str]:
+    out: set[str] = set()
+    for s in items:
+        if s:
+            out |= {_fold(t) for t in _TOK.findall(str(s))}
+    return out - GENERIC
+
+
+def own_places(pk: dict) -> set[str]:
+    """The place words a package's upgrades touch: their towns and substations (no line or transformer words)."""
+    return place_tokens(x for pj in pk["_projects"] for x in (pj.get("where"), (pj.get("from") or {}).get("area"), (pj.get("to") or {}).get("area"),
+                                                              unlock._title((pj.get("from") or {}).get("name", "")),
+                                                              unlock._title((pj.get("to") or {}).get("name", ""))))
+
+
+def limit_places(pk: dict) -> set[str]:
+    """The place words of the limits that stopped its campuses (a reason may name them)."""
+    bs = [st.get("blocked_by") for st in pk["_steps"] if st.get("blocked_by")]
+    return place_tokens(x for b in bs for x in (b.get("where"), (b.get("from") or {}).get("area"), (b.get("to") or {}).get("area"),
+                                                 unlock._title((b.get("from") or {}).get("name", "")), unlock._title((b.get("to") or {}).get("name", ""))))
+
+
+def place_problem(text: str, own: set[str], extra: set[str], need_own: bool, prose: bool) -> str | None:
+    """Every capitalized word that isn't a generic word must be one of the package's places (a reason's sentence
+    openers are exempt); a name must say at least one of its own places."""
+    toks: list[str] = []
+    if prose:
+        for sent in re.split(r"(?<=[.!?;:])\s+", text):
+            toks += _TOK.findall(sent)[1:]
+    else:
+        toks = _TOK.findall(text)
+    for t in toks:
+        f = _fold(t)
+        if t[:1].isupper() and f not in GENERIC and f not in own and f not in extra:
+            return f"names a place its upgrades don't touch: {t}"
+    if need_own and not any(_fold(t) in own for t in _TOK.findall(text)):
+        return "names no place its upgrades touch"
+    return None
+
+
+def _real_names(text: str) -> str | None:
+    m = FORBIDDEN_LOCAL.search(text)
+    if m:
+        return m.group(0)
+    try:
+        rx = llm._names_rule()[0]  # the analyst's list of real utilities and grid operators (read only)
+        m = rx.search(text)
+        if m:
+            return m.group(0)
+        m = llm._GRIDLOCK_NAMES.search(text)
+        if m:
+            return m.group(0)
+    except Exception:  # noqa: BLE001 - the local list above still ran
+        pass
+    return None
+
+
+# ------------------------------------------------------------------------------------------ the engine's grouping
+def _noun(pk: dict) -> tuple[str, str]:
+    if pk["transformers"] and not pk["lines"]:
+        return "transformers", "Transformadores"
+    if pk["lines"] and not pk["transformers"]:
+        return "lines", "Líneas"
+    return "upgrades", "Mejoras"
+
+
+def why_engine(pk: dict) -> dict:
+    blocks = [majority(st.get("blocked_by")) for st in pk["_steps"]]
+    blocks = [b for b in blocks if b]
+    areas = pk["areas"][:2] or [pk["_steps"][0]["site"]["area"]]
+    if blocks:
+        top, n = Counter(b["branch_id"] for b in blocks).most_common(1)[0]
+        b = next(x for x in blocks if x["branch_id"] == top)
+        if n >= 2 and n >= len(pk["paid"]):  # "these campuses": every campus it pays for (the claims check's rule)
+            return {"en": f"The same limit stopped these campuses: {label_of(b, 'en')}.",
+                    "es": f"El mismo límite frenó estos campus: {label_of(b, 'es')}."}
+        if len(pk["paid"]) == 1:
+            return {"en": f"{cap(label_of(b, 'en'))} stopped this campus; these upgrades make room for it.",
+                    "es": f"{cap(label_of(b, 'es'))} frenó este campus; estas mejoras le hacen sitio."}
+    pts = [_mid(pj) for pj in pk["_projects"]]
+    c = center_of(pk["_steps"])
+    if pts and max(km(c, q) for q in pts) < 60:
+        return {"en": f"Its upgrades sit close together, around {join(areas, 'en')}.",
+                "es": f"Sus mejoras están juntas, en torno a {join(areas, 'es')}."}
+    return {"en": f"The next stretch of the build, around {join(areas, 'en')}.",
+            "es": f"El siguiente tramo de la obra, en torno a {join(areas, 'es')}."}
+
+
+def name_engine(pkgs: list[dict]) -> None:
+    """Each package named from its dominant places (by cost), every name different."""
+    used: set[str] = set()
+    for pk in pkgs:
+        ws = area_weights(pk["_projects"])
+        areas = [a for a, _ in ws] or [pk["_steps"][0]["site"]["area"]]
+        cands = [[areas[0]]]
+        if len(areas) > 1:
+            # a second place that carries real weight is named too ("Orlando and Jacksonville transformers")
+            cands = [[areas[0], areas[1]], [areas[0]]] if ws[1][1] >= 0.4 * ws[0][1] else cands
+            cands += [[areas[0], areas[1]], [areas[1]]]
+        if len(areas) > 2:
+            cands += [[areas[0], areas[2]], [areas[1], areas[2]], [areas[2]]]
+        en_noun, es_noun = _noun(pk)
+        pick = next((c for c in cands if f"{join(c, 'en')} {en_noun}".lower() not in used), None)
+        again = pick is None
+        pick = pick or cands[0]
+        en = f"{join(pick, 'en')} {en_noun}" + (" again" if again else "")
+        es = f"{es_noun} de {join(pick, 'es')}" + (", otra vez" if again else "")
+        used.add(en.lower())
+        pk["name"] = {"en": en, "es": es}
+        pk["why"] = why_engine(pk)
+
+
+def engine_grouping(p: Plan, units: list[dict]) -> list[dict]:
+    """Cut the ordered steps into engine_k(U) runs where consecutive steps' upgrades jump furthest across the state
+    (jumps under SAME_PLACE_KM count as none), without making the packages very uneven (UNEVEN_KM)."""
+    u = len(units)
+    if not u:
+        return []
+    k = engine_k(u)
+    cuts: tuple[int, ...] = ()
+    if k > 1:
+        centers = [center_of(x["steps"]) for x in units]
+        jump = [km(centers[i], centers[i + 1]) for i in range(u - 1)]
+        jump = [d if d >= SAME_PLACE_KM else 0.0 for d in jump]
+        even = u / k
+        best = None
+        for c in itertools.combinations(range(u - 1), k - 1):  # at most C(39, 3): a few thousand, instant
+            edges = (0, *(x + 1 for x in c), u)
+            sizes = [edges[j + 1] - edges[j] for j in range(k)]
+            score = sum(jump[x] for x in c) - UNEVEN_KM * sum((z - even) ** 2 for z in sizes)
+            if best is None or score > best[0] + 1e-9:
+                best = (score, c)
+        cuts = best[1]
+    bounds, a = [], 0
+    for c in cuts:
+        bounds.append((a, c))
+        a = c + 1
+    bounds.append((a, u - 1))
+    pkgs = [make_package(p, units, x, y, i + 1) for i, (x, y) in enumerate(bounds)]
+    name_engine(pkgs)
+    return pkgs
+
+
+# ------------------------------------------------------------------------------------------ Gemini's grouping
+CHECK_IDS = ("contiguous", "cover", "count", "places", "claims", "numbers", "names", "text")
+
+# what a name or a reason claims about its upgrades, checked against the package: a kind ("Jacksonville lines" must
+# raise a line); a limit it names (it stopped one of the package's campuses, or the package raises it); a shared limit
+# ("the same transformer stopped them": one limit stopped two of its campuses); "both" (the package lets in two) and
+# "all / every / each" (one limit stopped every paid campus in it)
+_KIND_IN = {
+    "line": re.compile(r"\b(?:lines?|l[ií]neas?)\b", re.I),
+    "transformer": re.compile(r"\b(?:transformers?|transformador(?:es)?)\b", re.I),
+}
+_SAME_CLAIM = {
+    "en": re.compile(r"\b(?:same|shared?|common|single)\b[^.;:]{0,30}?\b(limit|line|transformer|constraint|bottleneck|element)s?\b", re.I),
+    "es": re.compile(r"\b(?:mism[oa]s?|compart\w*|com[uú]n|[uú]nic[oa]s?)\b[^.;:]{0,30}?\b(l[ií]mite|l[ií]nea|transformador|restricci[oó]n|cuello)\w*", re.I),
+}
+_CLAIM_KIND = {"line": "line", "linea": "line", "transformer": "transformer", "transformador": "transformer"}
+_UNIT_WORD = re.compile(r"\b(?:units?|unidad(?:es)?)\b", re.I)  # the prompt numbers the steps as units; the viewer sees campuses
+_BOTH = {"en": re.compile(r"\bboth\b", re.I), "es": re.compile(r"\bamb[oa]s\b", re.I)}
+_EVERY = {"en": re.compile(r"\b(?:all|every|each)\b", re.I), "es": re.compile(r"\b(?:tod[oa]s|cada)\b", re.I)}
+# "these campuses" as the claim's subject (not "one of these campuses"): the claim is about every campus it pays for
+_THESE = {"en": re.compile(r"(?<!of )\b(?:these|those)\s+campuses\b", re.I), "es": re.compile(r"(?<!de )\b(?:estos|esos)\s+campus\b", re.I)}
+_STOP_VERB = {
+    "en": re.compile(r"\b(?:stop|stops|stopped|limit|limits|limited|held back|holds back|hold back|block|blocks|blocked|capped|constrained|hit|hits|encounter\w*|face[sd]?|met|meet)\b", re.I),
+    "es": re.compile(r"\b(?:fren\w*|limitad\w*|limit[oó]|limitan|bloque\w*|detuv\w*|choca\w*|toparon|topan|encontrar\w*)\b", re.I),
+}
+
+
+def check_labels(u: int) -> dict:
+    lo, hi = pkg_range(u)
+    steps = f"{u} paid {'step' if u == 1 else 'steps'}"
+    return {
+        "contiguous": "Each package is a run of consecutive campus steps",
+        "cover": "Every paid step is in exactly one package",
+        "count": (f"One package for {steps}" if hi == 1 else f"{lo} to {hi} packages for {steps}"),
+        "places": "Each name says only places its upgrades touch; every name different",
+        "claims": "Names and reasons match the data: lines or transformers as raised, and every limit named stopped the campuses it says",
+        "numbers": "No numbers outside the engine's facts",
+        "names": "No real utility or company names",
+        "text": "Short names and reasons, in English and in Spanish",
+    }
+
+
+def _mask_all(p: Plan) -> Facts:
+    """Every name that holds digits in this plan (the grouping's number check masks them)."""
     f = Facts()
-    f.add("campus.mw", "Campus size", p.mw, "MW")
-    f.add("today", "Campuses the grid model carries at once today, with no upgrades", p.today, "campuses")
-    f.add("bought.n", "Campuses at once with the upgrades the budget buys", p.bought, "campuses")
-    f.add("bought.cost_high", "What those upgrades cost, high end", round(p.cost["high"]), "USD")
-    if p.plants_n is not None:
-        f.add("plants.campuses", "Campuses the power plants cover with the planning reserve kept", p.plants_n, "campuses")
-        f.add("plants.reserve_pct", "Planning reserve kept on the state's own load", p.reserve, "%")
-    for st in p.steps[p.today: p.bought]:
+    for st in p.steps:
         f.name(st["site"]["area"])
-    for st in p.steps[: p.today]:
-        f.name(st["site"]["area"])
-    if p.first_block:
-        f.branch(p.first_block)
-        f.add("first_block.campus", "The campus the first blocker stops", p.first_block.get("at_campus"), "", "intro")
-    for s in slides:
-        if s["kind"] != "step":
-            continue
-        st, sid = s["main"], s["id"]
-        f.add(f"{sid}.n", "Campus number", st["n"], "", sid)
-        f.add(f"{sid}.cost_high", "What this campus's upgrades cost, high end", round(st["cost"]["high"]), "USD", sid)
-        f.add(f"{sid}.cum_high", "Running total, high end", round(st["cum_cost"]["high"]), "USD", sid)
-        f.add(f"{sid}.upgrades", "Lines and transformers raised for it", len(st["projects"]), "", sid)
-        b = st.get("blocked_by")
-        if b:
-            f.branch(b)
-            f.add(f"{sid}.blocks", "Sites tried where that line reached its rating first", b.get("blocks"), "sites", sid)
-            f.add(f"{sid}.of", "Sites tried for this campus", b.get("of"), "sites", sid)
-        lead = lead_project(st)
-        for j, pj in enumerate([lead] + [x for x in st["projects"] if x is not lead][:2]):
+        f.branch(st.get("blocked_by"))
+        for pj in st["projects"]:
             f.branch(pj)
-            f.add(f"{sid}.p{j}.before", f"{pj.get('short')}: rating before", half_up(pj["rating_before_mva"]), "MVA", sid)
-            f.add(f"{sid}.p{j}.after", f"{pj.get('short')}: rating after", half_up(pj["rating_after_mva"]), "MVA", sid)
-        for fr in s["free"]:
-            f.add(f"{sid}.free{fr['n']}", "A campus that then fits with no new upgrade", fr["n"], "", sid)
-            f.name(fr["site"]["area"])
-    nxt = p.steps[p.bought] if p.bought < len(p.steps) else None
-    if nxt:
-        f.add("next.n", "The next campus", nxt["n"], "", "close")
-        f.add("next.cum_high", "What the next campus would take in all, high end", round(nxt["cum_cost"]["high"]), "USD", "close")
     f.name(p.state, p.state_es)
     return f
 
 
-def lead_project(st: dict) -> dict:
-    b = st.get("blocked_by") or {}
-    return next((pj for pj in st["projects"] if pj.get("branch_id") == b.get("branch_id")), None) or max(st["projects"], key=lambda pj: pj["cost"]["high"])
+_EN_WORDS = re.compile(r"\b(the|and|of|lines|line|transformers|transformer|upgrades|with|same|stopped|around|near)\b", re.I)
+_ES_MARKS = (" el ", " la ", " los ", " las ", " de ", " del ", " que ", " se ", "ción", "ñ", " y ", "transformador", "línea", "linea", "mejora")
+
+
+def _kind(b: dict) -> str:
+    return "transformer" if b.get("kind") == "transformer" else "line"
+
+
+def _dash(s: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[‐‑‒–—-]", "-", _fold(s or ""))).strip()
+
+
+def plan_limits(p: Plan) -> list[dict]:
+    """Every limit that stopped a campus anywhere in the plan, once (a reason may only name one of these)."""
+    out: dict = {}
+    for st in p.steps:
+        b = st.get("blocked_by")
+        if b and b.get("branch_id") is not None:
+            out.setdefault(b["branch_id"], b)
+    return list(out.values())
+
+
+def limit_forms(b: dict) -> set[str]:
+    """The ways a reason may name a limit: its short name, its label in both languages, with or without its circuit."""
+    raw = {b.get("short") or ""}
+    for lang in LANGS:
+        raw.add(re.sub(r"^(the|el|la) ", "", label_of(b, lang)))
+    raw |= {re.sub(r"\s*\((circuit|circuito|unit|unidad) \d+\)$", "", x) for x in list(raw)}
+    return {_dash(x) for x in raw if x and len(x) >= 6}
+
+
+def shared_limits(pk: dict) -> dict:
+    """{branch_id: 'line' | 'transformer'} of each limit that stopped at least two of the package's campuses (the
+    same rule as why_engine's "the same limit stopped these campuses")."""
+    blocks = [b for b in (majority(st.get("blocked_by")) for st in pk["_steps"]) if b]
+    n = Counter(b["branch_id"] for b in blocks)
+    return {b["branch_id"]: _kind(b) for b in blocks if n[b["branch_id"]] >= 2}
+
+
+def claim_problem(pk: dict, limits: list[dict], name: str, why: str, lang: str) -> str | None:
+    """What a name or a reason says that this package's data doesn't (None: nothing). A name's kind must be one it
+    raises. A limit the reason names must have stopped one of its campuses or be raised in it. "The same limit /
+    line / transformer" needs one limit (of that kind) that stopped two of its campuses; "both" needs a package of two
+    campuses; "all / every / each" about a limit needs one that stopped every paid campus in it."""
+    if name and _KIND_IN["line"].search(name) and not pk["lines"]:
+        return f"the name {name!r} says lines, but the package raises only transformers"
+    if name and _KIND_IN["transformer"].search(name) and not pk["transformers"]:
+        return f"the name {name!r} says transformers, but the package raises only lines"
+    if not why:
+        return None
+    text = _dash(why)
+    named = [b for b in limits if any(f in text for f in limit_forms(b))]
+    stopped = Counter(b["branch_id"] for b in (majority(st.get("blocked_by")) for st in pk["_steps"]) if b)
+    touched = {pj["branch_id"] for pj in pk["_projects"]} | {st["blocked_by"]["branch_id"] for st in pk["_steps"] if st.get("blocked_by")}
+    for b in named:
+        if b["branch_id"] not in touched:
+            return f"the reason names {b.get('short')}, which stopped none of its campuses and isn't raised in it"
+    kinds = {b["branch_id"]: _kind(b) for b in limits}
+    pool = [b["branch_id"] for b in named] or list(stopped)  # the limit(s) the claim is about
+    paid = set(pk["paid"])
+    paid_by = [(majority(st.get("blocked_by")) or {}).get("branch_id") for st in pk["_steps"] if st["n"] in paid]
+    need = len(paid_by)
+    same = _SAME_CLAIM[lang].search(why)
+    both = _BOTH[lang].search(why)
+    every = _EVERY[lang].search(why)
+    these = _THESE[lang].search(why)
+    whole = both or every or these  # the claim is about every campus it pays for
+    if same:
+        kind = _CLAIM_KIND.get(_fold(same.group(1)))
+        hits = [x for x in pool if stopped[x] >= 2]
+        if not hits:
+            return f"the reason says {same.group(0)!r}, but no single limit stopped two of its campuses"
+        if kind and not any(kinds.get(x) == kind for x in hits):
+            return f"the reason says {same.group(0)!r}, but the limit its campuses share is a {'line' if kind == 'transformer' else 'transformer'}"
+        if whole and not any(stopped[x] >= need for x in hits):
+            return (f"the reason says {same.group(0)!r} of {whole.group(0)!r}, but no single limit stopped every campus it pays for "
+                    "(say which limit stopped most of them, or give another reason)")
+    if both and len(pk["steps"]) != 2 and need != 2:
+        return f"the reason says {both.group(0)!r}, but the package lets in {len(pk['steps'])} campuses"
+    if named and whole and _STOP_VERB[lang].search(why):
+        ids = {b["branch_id"] for b in named}
+        if not all(x in ids for x in paid_by):
+            return (f"the reason says {whole.group(0)!r} met {', '.join(str(b.get('short')) for b in named)}, but not every campus it pays for "
+                    "was stopped by it (say which one it stopped, or name every limit)")
+    if whole and not named and _STOP_VERB[lang].search(why):
+        # "limits in Orlando stopped these campuses": every campus it pays for was stopped by a limit in a place it says
+        at = {st["n"]: majority(st.get("blocked_by")) for st in pk["_steps"] if st["n"] in paid}
+        where = {n: place_tokens([b.get("where"), (b.get("from") or {}).get("area"), (b.get("to") or {}).get("area"),
+                                   unlock._title((b.get("from") or {}).get("name", "")), unlock._title((b.get("to") or {}).get("name", ""))])
+                 for n, b in at.items() if b}
+        said = place_tokens([why]) & (own_places(pk) | set().union(*where.values()))
+        off = [n for n, w in where.items() if said and not (w & said)]
+        if off:
+            b = at[off[0]]
+            return (f"the reason puts the limits that stopped {whole.group(0)!r} in {', '.join(sorted(said))}, but campus {off[0]} was stopped by "
+                    f"{b.get('short')} (name that place too, or say 'most of these campuses')")
+    return None
+
+
+def check_grouping(p: Plan, units: list[dict], data, note: bool = True) -> tuple[list[dict] | None, list[dict], list[str]]:
+    """Gemini's grouping through the checks: (packages or None, [{id, label, ok, detail}], reasons for a revision).
+    Gemini's grouping counts in the AI panel's checks (note); the engine's own run of the same code doesn't."""
+    pkgs, checks, reasons = _check_grouping(p, units, data)
+    if note:
+        for c in checks:
+            llm.note_check(SURFACE, c["ok"], f"the upgrade grouping: {c['detail']}")
+    return pkgs, checks, reasons
+
+
+def _check_grouping(p: Plan, units: list[dict], data) -> tuple[list[dict] | None, list[dict], list[str]]:
+    u = len(units)
+    lo, hi = pkg_range(u)
+    res = {c: None for c in CHECK_IDS}  # None = passed; else the first reason
+    reasons: list[str] = []
+
+    def fail(cid: str, why: str) -> None:
+        if res[cid] is None:
+            res[cid] = why
+        reasons.append(why)
+
+    def checks() -> list[dict]:
+        labels = check_labels(u)
+        return [{"id": c, "label": labels[c], "ok": res[c] is None, "detail": res[c]} for c in CHECK_IDS]
+
+    rows = data.get("packages") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not rows:
+        fail("cover", "the answer has no packages")
+        return None, checks(), reasons
+    spans = []
+    for r in rows:
+        try:
+            a, b = int(r.get("first_unit")), int(r.get("last_unit"))
+        except (TypeError, ValueError, AttributeError):
+            fail("contiguous", "a package without whole first_unit and last_unit numbers")
+            continue
+        spans.append((a, b, r))
+    spans.sort(key=lambda x: (x[0], x[1]))
+    expect = 1
+    for a, b, _r in spans:
+        if a > b:
+            fail("contiguous", f"a package runs backwards (units {a} to {b})")
+        elif a > expect:
+            fail("cover", f"units {expect} to {a - 1} are in no package")
+        elif a < expect:
+            fail("cover", f"unit {a} is in two packages")
+        if b > u or a < 1:
+            fail("cover", f"a package names unit {max(a, b) if b > u else a}, but there are only {u}")
+        expect = max(expect, b + 1)
+    if expect <= u:
+        fail("cover", f"units {expect} to {u} are in no package")
+    if not lo <= len(spans) <= hi:
+        fail("count", f"{len(spans)} packages: use between {lo} and {hi}")
+    if res["contiguous"] or res["cover"] or res["count"]:
+        return None, checks(), reasons
+
+    pkgs = [make_package(p, units, a - 1, b - 1, i + 1) for i, (a, b, _r) in enumerate(spans)]
+    mask = _mask_all(p)
+    limits = plan_limits(p)
+    state = place_tokens([p.state, p.state_es])
+    seen: dict[str, set] = {lang: set() for lang in LANGS}
+    for pk, (_a, _b, r) in zip(pkgs, spans):
+        own, lim = own_places(pk), limit_places(pk)
+        pk["name"], pk["why"] = {}, {}
+        for lang in LANGS:
+            name = _clean(r.get(f"name_{lang}"))
+            why = _clean(r.get(f"why_{lang}"))
+            tag = f"package {pk['i']} ({lang})"
+            pk["name"][lang], pk["why"][lang] = name, why
+            # each failure says exactly what to fix: the revision round sends these reasons back to Gemini
+            if not name:
+                fail("text", f"{tag}: the name is missing")
+            elif len(name) > NAME_MAX[lang] or len(name.split()) > 7:
+                fail("text", f"{tag}: the name {name!r} is too long ({len(name)} characters, {len(name.split())} words; at most {NAME_MAX[lang]} characters and 7 words: name at most two places)")
+            if not why:
+                fail("text", f"{tag}: the reason is missing")
+            elif len(why) > WHY_MAX:
+                fail("text", f"{tag}: the reason is too long ({len(why)} characters; at most {WHY_MAX})")
+            if _UNIT_WORD.search(mask.mask(f"{name} {why}")):
+                fail("text", f"{tag}: says 'unit', the prompt's word; the viewer sees campuses (say 'these campuses', never unit numbers)")
+            low = f" {why.lower()} "
+            if lang == "es" and why and not any(t in f" {why.lower()} " or t in f" {name.lower()} " for t in _ES_MARKS):
+                fail("text", f"{tag}: not Spanish")
+            if lang == "es" and _EN_WORDS.search(mask.mask(f"{name} {why}")):
+                fail("text", f"{tag}: an English word in the Spanish text")
+            if lang == "en" and sum(t in low for t in (" el ", " la ", " los ", " las ", " que ", " del ")) >= 2:
+                fail("text", f"{tag}: not English")
+            bad = place_problem(name, own, state, need_own=True, prose=False) if name else None
+            if bad:
+                fail("places", f"{tag} name {name!r}: {bad}")
+            bad = place_problem(why, own | lim, state, need_own=False, prose=True) if why else None
+            if bad:
+                fail("places", f"{tag} reason: {bad}")
+            bad = claim_problem(pk, limits, name, why, lang)
+            if bad:
+                fail("claims", f"{tag}: {bad}")
+            key = _fold(name)
+            if key and key in seen[lang]:
+                fail("places", f"{tag}: the name {name!r} is used twice; every package needs its own")
+            seen[lang].add(key)
+            for text in (name, why):
+                if _NUM.search(mask.mask(text)):
+                    fail("numbers", f"{tag}: a number in {text!r} (say it without digits)")
+                hit = _real_names(text)
+                if hit:
+                    fail("names", f"{tag}: a real name, {hit!r}")
+            counts = (len(pk["steps"]), len(pk["paid"]), pk["upgrades"], pk["lines"], pk["transformers"], pk["first"], pk["last"])
+            known = {w for x in counts for form in (words(x, lang), words(x, lang, fem=True), words(x, lang, before_noun=True), ordinal(x, lang))
+                     for w in re.findall(r"[a-záéíóúñü]+", form.lower())}
+            extra = number_words(mask.mask(f"{name} {why}"), lang) - known
+            if extra:
+                fail("numbers", f"{tag}: a spelled number the data doesn't have: {sorted(extra)}")
+    return (pkgs if all(v is None for v in res.values()) else None), checks(), reasons
+
+
+GROUP_SYSTEM = """You are a grid planner preparing a one-minute narrated play-by-play of a build-up on a map. Data-center
+campuses connect one after another to a SYNTHETIC grid model of a U.S. state (Breakthrough Energy / Texas A&M), not any
+real utility's network. Each paid step raises some lines and transformers so the next campus fits. You get the steps in
+the engine's order, numbered as UNITS, with the places their upgrades touch. Group the units into packages for the
+narration.
+
+Rules:
+- Packages are CONTIGUOUS runs of units in the given order: never reorder, skip or repeat a unit. Package one starts at
+  unit 1, each next package starts right after the previous one ends, the last one ends at the last unit.
+- Use a number of packages within the range the prompt gives.
+- Put units together when their upgrades belong together: the same corridor or area, or the same limit (the same line or
+  transformer stopped their campuses). Cut where the upgrades move to another part of the state.
+- name_en / name_es: a short place-based name, two to five words and at most 40 characters (Spanish at most 50), no
+  leading article, naming at most two places, built ONLY from the places in that package's units' upgrade_places, e.g. "Jacksonville transformers", "Lines north of Orlando", "Orlando and Saint
+  Cloud lines"; Spanish "Transformadores de Jacksonville", "Líneas al norte de Orlando". Every package gets its own
+  name. Keep place names exactly as written, never translated.
+- A name says "lines" only when the package raises a line and "transformers" only when it raises a transformer (see each
+  upgrade's kind); for a mix, say "upgrades" or name the corridor.
+- why_en / why_es: one short, concrete sentence (under 110 characters) on why these upgrades belong together, from the
+  data: the limit they share, named as what_stopped_it writes it, or the towns the corridor runs between. Name a limit
+  only if it stopped one of the package's units or is one of its upgrades. Say "the same limit / line / transformer"
+  ONLY when what_stopped_it names that same limit for at least two of the package's units; "both" only for a package
+  of exactly two campuses; "these campuses" / "all" / "every" / "each" as what a limit stopped only when it stopped
+  every unit in the package (otherwise "most of these campuses", or name each limit).
+  Never a generic reason ("regional capacity needs"). Spanish written natively, not word for word.
+- No digits and no counts in names or reasons (a limit's own name, exactly as what_stopped_it writes it, keeps its
+  number); no real utility, company, agency or project names; no dates.
+- The viewer never sees units: in names and reasons say "these campuses" / "estos campus", never "unit", "units" or a
+  unit's number.
+
+Answer only with JSON: {"packages": [{"first_unit": 1, "last_unit": 2, "name_en": "...", "name_es": "...", "why_en": "...", "why_es": "..."}]}."""
+
+GROUP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "packages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "first_unit": {"type": "integer"}, "last_unit": {"type": "integer"},
+                    "name_en": {"type": "string"}, "name_es": {"type": "string"},
+                    "why_en": {"type": "string"}, "why_es": {"type": "string"},
+                },
+                "required": ["first_unit", "last_unit", "name_en", "name_es", "why_en", "why_es"],
+            },
+        }
+    },
+    "required": ["packages"],
+}
+
+
+def group_prompt(p: Plan, units: list[dict]) -> str:
+    lo, hi = pkg_range(len(units))
+    lines = [f"STATE: {p.state}. CAMPUS: {mw_say(p.mw, 'en', adj=True)}, {'flexible' if p.flex else 'always on'}.",
+             f"UNITS: {len(units)}. Use {'exactly one package' if hi == 1 else f'between {lo} and {hi} packages'}.", "", "UNITS (the engine's order):"]
+    prev = None
+    for i, x in enumerate(units, 1):
+        st = x["main"]
+        projs = projects_of(x["steps"])
+        c = center_of(x["steps"])
+        b = majority(st.get("blocked_by"))
+        row = {
+            "unit": i,
+            "campuses": [s["n"] for s in x["steps"]],
+            "campus_connects_at (not an upgrade place)": st["site"]["area"],
+            "what_stopped_it": (f"{label_of(b, 'en')} ({b.get('where') or (b.get('from') or {}).get('area')})" if b else "no single limit"),
+            "upgrades": [{"name": pj.get("short"), "kind": pj.get("kind"), "places": areas_of(pj)} for pj in projs][:8],
+            "upgrade_places": [a for a, _w in area_weights(projs)],
+            "upgrades_center_lat_lon": [round(c[0], 2), round(c[1], 2)],
+            "km_from_previous_unit": (round(km(prev, c)) if prev else 0),
+        }
+        prev = c
+        lines.append(json.dumps(row, ensure_ascii=False))
+    lines += ["", 'Group them now, as JSON {"packages": [{"first_unit": 1, "last_unit": 2, "name_en": "...", "name_es": "...", "why_en": "...", "why_es": "..."}]}.']
+    return "\n".join(lines)
+
+
+def group_revise_prompt(prompt: str, data, reasons: list[str]) -> str:
+    out = [prompt, "", "YOUR FIRST GROUPING FAILED THESE CHECKS (the engine checks every package against the data and the rules):"]
+    out += [f"- {r}" for r in reasons[:10]]
+    out += ["Your answer was: " + json.dumps(data, ensure_ascii=False)[:1800],
+            'Answer again with the whole grouping, fixing exactly what is named, as JSON {"packages": [...]}.']
+    return "\n".join(out)
+
+
+async def _ask(prompt: str, budget_s: float, system: str | None = None, schema: dict | None = None, empty: dict | None = None) -> tuple[dict, bool]:
+    """One Gemini call within `budget_s` seconds: (JSON, offline)."""
+    none = empty if empty is not None else {"slides": []}
+    try:
+        return await asyncio.wait_for(
+            llm.complete_json(prompt, system=system or SYSTEM, fallback=none, timeout=AI_TIMEOUT_S, schema=schema or SCHEMA, surface=SURFACE,
+                              model=llm.AGENT_MODEL, thinking=llm.AGENT_THINKING),
+            max(1.0, budget_s))
+    except asyncio.TimeoutError:
+        log.warning("strengthen narration: Gemini took over %.0fs", budget_s)
+        return none, True
+
+
+async def gemini_grouping(p: Plan, units: list[dict]) -> tuple[list[dict] | None, dict]:
+    """Gemini proposes the packages; the checks run; a failure goes back once with the reasons. (packages or None,
+    trace). None with trace['offline']: no answer."""
+    t0 = time.monotonic()
+    prompt = group_prompt(p, units)
+    data, offline = await _ask(prompt, GROUP_DEADLINE_S, GROUP_SYSTEM, GROUP_SCHEMA, {"packages": []})
+    if offline:
+        return None, {"offline": True}
+    pkgs, checks, reasons = check_grouping(p, units, data)
+    first = list(reasons)
+    rounds, revised = 1, False
+    left = GROUP_DEADLINE_S - (time.monotonic() - t0)
+    if pkgs is None and left >= GROUP_REVISE_MIN_S:
+        rounds = 2
+        data2, off2 = await _ask(group_revise_prompt(prompt, data, reasons), left, GROUP_SYSTEM, GROUP_SCHEMA, {"packages": []})
+        if not off2:
+            pkgs, checks, reasons = check_grouping(p, units, data2)
+            revised = pkgs is not None
+    if pkgs is None:
+        log.warning("strengthen narration: Gemini's grouping rejected, the engine's used: %s", "; ".join(reasons)[:500])
+    return pkgs, {"offline": False, "rounds": rounds, "revised": revised, "checks": checks,
+                  "first_draft_rejections": first[:8], "rejections": reasons[:8]}
+
+
+def finalize_grouping(p: Plan, units: list[dict], pkgs: list[dict] | None, tr: dict | None, reason: str | None) -> tuple[list[dict], dict]:
+    """Gemini's checked packages, or the engine's grouping (checked by the same code) with why Gemini's isn't used."""
+    u = len(units)
+    lo, hi = pkg_range(u)
+    base = {"surface": SURFACE, "units": u, "range": [lo, hi], "model": llm.AGENT_MODEL}
+    if not units:
+        return [], {**base, "by": "none", "verified": True, "reason": "no upgrades to group", "packages": 0, "checks": []}
+    if pkgs is not None:
+        return pkgs, {**base, "by": "gemini", "verified": True, "reason": None, "packages": len(pkgs), "checks": tr["checks"],
+                      "rounds": tr.get("rounds", 1), "revised": tr.get("revised", False),
+                      "first_draft_rejections": tr.get("first_draft_rejections", [])}
+    eng = engine_grouping(p, units)
+    rows = [{"first_unit": pk["units"][0], "last_unit": pk["units"][1], **{f"{k}_{lang}": pk[k][lang] for k in ("name", "why") for lang in LANGS}} for pk in eng]
+    _ok, checks, bad = check_grouping(p, units, {"packages": rows}, note=False)
+    if bad:
+        log.warning("strengthen narration: the engine's own grouping failed a check: %s", "; ".join(bad)[:300])
+    out = {**base, "by": "engine", "verified": not bad, "reason": reason, "packages": len(eng), "checks": checks}
+    if tr and tr.get("checks"):
+        out["gemini_checks"] = tr["checks"]
+        out["rounds"] = tr.get("rounds", 1)
+        out["first_draft_rejections"] = tr.get("first_draft_rejections", [])
+        out["rejections"] = tr.get("rejections", [])
+    return eng, out
+
+
+def _group_get(key: tuple):
+    with _ai_mutex:
+        hit = _groups.get(key)
+        if hit is None or (hit[3] and time.monotonic() - hit[2] > RETRY_S):
+            return None
+        _groups.move_to_end(key)
+        return hit[0], dict(hit[1])
+
+
+def _group_put(key: tuple, pkgs: list[dict], trace: dict) -> None:
+    with _ai_mutex:
+        _groups[key] = (pkgs, trace, time.monotonic(), trace.get("reason") in GROUP_RETRYABLE)
+        while len(_groups) > GROUPS_MAX:
+            _groups.popitem(last=False)
+
+
+async def grouping_for(p: Plan, units: list[dict], ai_on: bool) -> tuple[list[dict], dict]:
+    """The packages for this plan and budget, and who grouped them (cached per study, mode and budget)."""
+    if not units:
+        return finalize_grouping(p, units, None, None, None)
+    if not ai_on:
+        return finalize_grouping(p, units, None, None, "AI off for this request")
+    if not llm.configured():
+        return finalize_grouping(p, units, None, None, "Gemini not configured")
+    hit = _group_get(p.gkey)
+    if hit is not None:
+        return hit
+    lock = _group_locks.setdefault(p.gkey, asyncio.Lock())
+    async with lock:
+        hit = _group_get(p.gkey)
+        if hit is not None:
+            return hit
+        pk, tr = await gemini_grouping(p, units)
+        _group_locks.pop(p.gkey, None)
+        res = finalize_grouping(p, units, pk, tr, None if pk is not None else ("Gemini unavailable" if tr.get("offline") else "Gemini's grouping failed its checks"))
+        _group_put(p.gkey, *res)
+        return res[0], dict(res[1])
+
+
+# ------------------------------------------------------------------------------------------ the script's parts
+def base_pct(p: Plan, b: dict) -> int | None:
+    """The limit's loading on today's grid model at the study's load level, percent of its rating (whole)."""
+    try:
+        g = gridmod.grid_at(p.lf, p.code)
+        i = g.br_index.get(b["branch_id"]) if hasattr(g.br_index, "get") else g.br_index[b["branch_id"]]
+        return None if i is None else int(round(float(g.base.loading_pct[i])))
+    except Exception:  # noqa: BLE001 - the intro just doesn't say it
+        return None
+
+
+def problems_of(p: Plan, pkgs: list[dict]) -> list[dict]:
+    """The weak points in today's grid this build runs into: what stops the next campus, then each paid step's
+    majority limit, each once; which package raises it (if any)."""
+    cands = []
+    nb = p.next_block()
+    if nb:
+        cands.append((nb, p.today + 1))
+    for st in p.steps[p.today: p.bought]:
+        b = majority(st.get("blocked_by"))
+        if b:
+            cands.append((b, st["n"]))
+    out, seen = [], set()
+    for b, n in cands:
+        if b["branch_id"] in seen:
+            continue
+        seen.add(b["branch_id"])
+        fixed = next((pk["i"] for pk in pkgs if any(pj["branch_id"] == b["branch_id"] for pj in pk["_projects"])), None)
+        out.append({
+            "branch_id": b["branch_id"], "kind": b.get("kind"), "short": b.get("short"), "label": b.get("label"), "where": b.get("where"),
+            "from": {k: (b.get("from") or {}).get(k) for k in ("lat", "lon", "area")}, "to": {k: (b.get("to") or {}).get(k) for k in ("lat", "lon", "area")},
+            "mid": b.get("mid"), "stops": n, "base_pct": base_pct(p, b), "fixed_in": fixed, "rate_est": bool(b.get("rate_est")),
+        })
+    return out[:6]
+
+
+def slides_of(p: Plan, pkgs: list[dict]) -> list[dict]:
+    """Intro, one slide per package (the map shows the campuses before it when it enters; its campuses drop in as
+    the words run), closing."""
+    out = [{"id": "intro", "kind": "intro", "step_from": 0, "step": p.today, "steps": list(range(1, p.today + 1))}]
+    prev = p.today
+    for pk in pkgs:
+        out.append({"id": pk["id"], "kind": "package", "step_from": prev, "step": pk["last"], "steps": list(pk["steps"]), "pkg": pk})
+        prev = pk["last"]
+    out.append({"id": "close", "kind": "close", "step_from": p.bought, "step": p.bought, "steps": []})
+    return out
+
+
+def build_facts(p: Plan, slides: list[dict], problems: list[dict]) -> Facts:
+    f = Facts()
+    pkgs = [s["pkg"] for s in slides if s["kind"] == "package"]
+    f.add("campus.mw", "Campus size", p.mw, "MW")
+    f.add("today", "Campuses the grid model carries at once today, with no upgrades", p.today, "campuses")
+    f.add("bought.n", "Campuses at once with the upgrades the budget buys", p.bought, "campuses")
+    f.add("bought.cost_high", "What those upgrades cost, high end", round(p.cost["high"]), "USD")
+    f.add("packages.n", "Packages the upgrades are grouped into", len(pkgs), "")
+    if p.binds():
+        f.add("plants.campuses", "Campuses the power plants cover with the planning reserve kept", p.plants_n, "campuses")
+        f.add("plants.reserve_pct", "Planning reserve kept on the state's own load", p.reserve, "%")
+    for st in p.steps[: p.bought]:
+        f.name(st["site"]["area"])
+    nb = p.next_block()
+    if nb:
+        f.branch(nb)
+        f.add("intro.next", "The campus the first weak point stops", nb.get("at_campus"), "", "intro")
+        pb = next((x for x in problems if x["branch_id"] == nb["branch_id"]), None)
+        if pb and pb.get("base_pct") is not None:
+            f.add("intro.base_pct", "Its loading on today's grid, percent of its rating", pb["base_pct"], "%", "intro")
+    if problems:
+        f.add("intro.weak_points", "Weak points in today's grid that hold back the campuses in this build", len(problems), "", "intro")
+        if len(problems) > 1:
+            f.add("intro.more_weak_points", "More weak points like the first one", len(problems) - 1, "", "intro")
+    for pb in problems:
+        f.branch(pb)
+    for s in slides:
+        if s["kind"] != "package":
+            continue
+        pk, sid = s["pkg"], s["id"]
+        f.add(f"{sid}.i", "Package number", pk["i"], "", sid)
+        f.add(f"{sid}.cost_high", "What this package's upgrades cost, high end", pk["cost_high"], "USD", sid)
+        f.add(f"{sid}.cum_high", "Running total after it, high end", pk["cum_high"], "USD", sid)
+        f.add(f"{sid}.first", "Its first campus", pk["first"], "", sid)
+        f.add(f"{sid}.last", "Campuses at once after it (its last campus)", pk["last"], "", sid)
+        f.add(f"{sid}.campuses", "Campuses it lets in", len(pk["steps"]), "", sid)
+        f.add(f"{sid}.upgrades", "Lines and transformers it raises", pk["upgrades"], "", sid)
+        f.add(f"{sid}.lines", "Lines it raises", pk["lines"], "", sid)
+        f.add(f"{sid}.transformers", "Transformers it raises", pk["transformers"], "", sid)
+        for pj in pk["_projects"]:
+            f.branch(pj)
+        for st in pk["_steps"]:
+            f.branch(st.get("blocked_by"))
+        f.name(*pk["name"].values())
+    f.name(p.state, p.state_es)
+    # the campus size as said: "2000 megavatios" is a fact, not a year (the forbidden-words check reads years)
+    f.name(mw_say(p.mw, "es"), mw_say(p.mw, "en"), mw_say(p.mw, "en", adj=True))
+    return f
 
 
 def _usd(v: float, lang: str) -> str:
     return usd_say(v, lang)[0]
 
 
-PLACES_ALL = 4  # the intro names every place up to four; past that, three and "N more places"
+def lead_of(i: int, k: int, lang: str) -> str:
+    if k == 1:
+        return ONE_LEAD[lang]
+    return LEAD[lang][0 if i == 1 else 2 if i == k else 1]
 
 
-def today_places(p: Plan) -> tuple[list[str], int]:
-    """(the places the intro names, how many more it counts): today's campuses' places, each once, in order."""
-    areas = list(dict.fromkeys(st["site"]["area"] for st in p.steps[: p.today]))
-    if len(areas) <= PLACES_ALL:
-        return areas, 0
-    return areas[:3], len(areas) - 3
-
-
-def places_phrase(p: Plan, lang: str) -> str:
-    """'Intercession City, Spring Hill, Gainesville and Crystal River' / '..., and two more places'."""
-    named, more = today_places(p)
-    extra = [] if more <= 0 else [f"{words(more, 'en')} more {'place' if more == 1 else 'places'}" if lang == "en"
-                                  else f"{words(more, 'es', before_noun=True)} {'lugar' if more == 1 else 'lugares'} más"]
-    return join(named + extra, lang)
-
-
-def tmpl_intro(p: Plan, lang: str) -> tuple[str, str]:
-    """(text, its first sentence: the step cues spread over it)."""
+def tmpl_intro(p: Plan, pkgs: list[dict], problems: list[dict], lang: str, short: bool = False) -> tuple[str, str]:
+    """(text, its first sentence: today's campuses appear over it). short: without "and N more weak points like it"
+    (the card still shows it), for a script that would run past TOTAL_MAX_S."""
     en = lang == "en"
     t = p.today
-    where = places_phrase(p, lang)
     if en:
         kind = "flexible " if p.flex else ""
-        if t:
-            s1 = f"On the synthetic grid model, {p.state} carries {words(t, 'en')} more {kind}{p.size('en')} data {'center' if t == 1 else 'centers'} at once today, with no upgrades: at {where}."
-        else:
-            s1 = f"On the synthetic grid model, {p.state} can't carry even one more {kind}{p.size('en')} data center at once without upgrades."
+        s1 = (f"Today, {p.state}'s grid model carries {words(t, 'en')} more {kind}{p.size('en')} data {'center' if t == 1 else 'centers'} at once." if t
+              else f"Today, {p.state}'s grid model can't carry even one more {kind}{p.size('en')} data center.")
     else:
-        kind = " flexibles" if p.flex else ""
         if t:
-            s1 = (f"En el modelo sintético de la red, {p.state_es} soporta hoy {words(t, 'es', before_noun=True)} {'centro' if t == 1 else 'centros'} de datos"
-                  f"{kind if t > 1 else (' flexible' if p.flex else '')} más, de {p.size('es')}{' cada uno' if t > 1 else ''}, a la vez, sin mejoras: en {where}.")
+            kind = (" flexibles" if t > 1 else " flexible") if p.flex else ""
+            s1 = f"Hoy, el modelo de la red de {p.state_es} soporta {words(t, 'es', before_noun=True)} {'centro' if t == 1 else 'centros'} de datos{kind} más de {p.size('es')} a la vez."
         else:
-            s1 = f"En el modelo sintético de la red, {p.state_es} no soporta ni un centro de datos{' flexible' if p.flex else ''} más de {p.size('es')} sin mejoras."
+            s1 = f"Hoy, el modelo de la red de {p.state_es} no soporta ni un centro de datos{' flexible' if p.flex else ''} más de {p.size('es')}."
     parts = [s1]
-    fb = p.first_block
-    if fb and fb.get("at_campus") == t + 1:
-        parts.append(f"{cap(label_of(fb, 'en'))} stops the {ordinal(t + 1, 'en')}." if en
-                     else f"Al {ordinal(t + 1, 'es')} lo frena {label_of(fb, 'es')}.")
+    nb = p.next_block()
+    if nb:
+        pb = next((x for x in problems if x["branch_id"] == nb["branch_id"]), None)
+        pct = pb.get("base_pct") if pb else None
+        pct = pct if pct is not None and pct >= 50 else None
+        others = 0 if short else max(0, len(problems) - 1)
+        nxt = ordinal(t + 1, lang)
+        if en:
+            more = "" if not others else (", and one more weak point like it" if others == 1 else f", and {words(others, 'en')} more weak points like it")
+            if pct is not None:
+                parts.append(f"What stops the {nxt} isn't the campus: it's {label_of(nb, 'en')}, already at {pct} percent of its rating"
+                             + (f"{more}." if more else " on today's grid."))
+            else:
+                parts.append(f"What stops the {nxt} isn't the campus: it's {label_of(nb, 'en')}, a weak point already in today's grid{more}.")
+        else:
+            more = "" if not others else (", y otro punto débil como ese" if others == 1 else f", y {words(others, 'es', before_noun=True)} puntos débiles más como ese")
+            if pct is not None:
+                parts.append(f"Lo que frena al {nxt} no es el campus: es {label_of(nb, 'es')}, que ya funciona al {pct} por ciento de su capacidad"
+                             + (f"{more}." if more else " en la red de hoy."))
+            else:
+                parts.append(f"Lo que frena al {nxt} no es el campus: es {label_of(nb, 'es')}, un punto débil que ya existe en la red de hoy{more}.")
     if p.flex:
-        parts.append("A flexible campus runs at full power except on peak afternoons, when it drops to half." if en
-                     else "Un campus flexible funciona a plena potencia salvo en las tardes de máxima demanda, cuando baja a la mitad.")
-    if p.bought > t:
-        parts.append(f"Here is what {_usd(p.cost['high'], 'en')} of upgrades builds, campus by campus." if en
-                     else f"Esto es lo que construyen {_usd(p.cost['high'], 'es')} en mejoras, campus por campus.")
+        parts.append("Flexible campuses drop to half power on peak afternoons." if en else "Los campus flexibles bajan a la mitad de potencia en las tardes de máxima demanda.")
+    if pkgs:
+        k = len(pkgs)
+        parts.append(f"Here's the fix, in {words(k, 'en')} {'package' if k == 1 else 'packages'}." if en
+                     else f"Así se arregla, en {words(k, 'es', before_noun=True)} {'paquete' if k == 1 else 'paquetes'}.")
     return " ".join(parts), s1
 
 
-def tmpl_step(p: Plan, s: dict, lang: str) -> str:
-    en = lang == "en"
-    st = s["main"]
-    n, area = st["n"], st["site"]["area"]
-    parts = [f"Campus {words(n, 'en')} goes in at {area}." if en else f"El campus {words(n, 'es')} se conecta en {area}."]
-    b = st.get("blocked_by")
-    if b:
-        blocks, of = int(b.get("blocks") or 0), int(b.get("of") or 0)
-        if en:
-            where = f"all {words(of, 'en')} sites tried" if blocks >= of else f"{words(blocks, 'en')} of the {words(of, 'en')} sites tried"
-            parts.append(f"{cap(label_of(b, 'en'))} stopped it at {where}.")
-        else:
-            where = f"los {words(of, 'es')} sitios probados" if blocks >= of else f"{words(blocks, 'es')} de los {words(of, 'es')} sitios probados"
-            parts.append(f"{cap(label_of(b, 'es'))} lo frenó en {where}.")
-    pj = lead_project(st)
-    lo, hi = mva(pj["rating_before_mva"], lang), mva(pj["rating_after_mva"], lang)
-    usd = _usd(st["cost"]["high"], lang)
-    one = len(st["projects"]) == 1
-    same = bool(b) and pj.get("branch_id") == b.get("branch_id")  # the upgrade raises what stopped it
-    tr = pj.get("kind") == "transformer"
-    if en:
-        if one and same:
-            parts.append(f"Raising it from {lo} to {hi} megavolt-amperes costs up to {usd}.")
-        elif one:
-            parts.append(f"The fix raises {label_of(pj, 'en')} from {lo} to {hi} megavolt-amperes, for up to {usd}.")
-        else:
-            led = f"that {'transformer' if tr else 'line'}" if same else label_of(pj, "en")
-            parts.append(f"The fix raises {kinds_phrase(st['projects'], 'en')}, led by {led} from {lo} to {hi} megavolt-amperes: up to {usd} in all.")
-    else:
-        if one and same:
-            parts.append(f"Ampliarlo de {lo} a {hi} megavoltamperios cuesta hasta {usd}.")
-        elif one:
-            parts.append(f"La solución amplía {label_of(pj, 'es')} de {lo} a {hi} megavoltamperios, por hasta {usd}.")
-        else:
-            led = ("ese transformador" if tr else "esa línea") if same else label_of(pj, "es")
-            parts.append(f"La solución amplía {kinds_phrase(st['projects'], 'es')}, empezando por {led}, de {lo} a {hi} megavoltamperios: hasta {usd} en total.")
-    free = s["free"]
-    if len(free) == 1:
-        fr = free[0]
-        parts.append(f"Campus {words(fr['n'], 'en')} then fits at {fr['site']['area']} with no new upgrade." if en
-                     else f"Después, el campus {words(fr['n'], 'es')} cabe en {fr['site']['area']} sin otra mejora.")
-    elif free:
-        ns = join([words(fr["n"], lang) for fr in free], lang)
-        places = join([fr["site"]["area"] for fr in free], lang)
-        parts.append(f"Then campuses {ns} fit at {places}, with no new upgrade." if en
-                     else f"Después, los campus {ns} caben en {places}, sin otra mejora.")
-    return " ".join(parts)
+WHY_SPOKEN_MAX_K = 2  # with one or two packages the play-by-play also says why each one's upgrades belong together
 
 
-def tmpl_close(p: Plan, lang: str) -> str:
+def go_in(pk: dict, lang: str) -> str:
+    """'campus three' / 'campuses three to six' (the data's form of which campuses the package lets in)."""
+    a, b = pk["first"], pk["last"]
+    if lang == "en":
+        return f"campus {words(a, 'en')}" if a == b else f"campuses {words(a, 'en')} to {words(b, 'en')}"
+    return f"el campus {words(a, 'es')}" if a == b else f"los campus {words(a, 'es')} a {words(b, 'es')}"
+
+
+def at_once(n: int, lang: str) -> str:
+    """'Now six fit at once.' / 'Ahora caben seis a la vez.'"""
+    if lang == "en":
+        return f"Now {words(n, 'en')} {'fits' if n == 1 else 'fit'} at once."
+    return f"Ahora {'cabe' if n == 1 else 'caben'} {words(n, 'es', before_noun=n != 1)} a la vez."
+
+
+def tmpl_package(p: Plan, s: dict, k: int, lang: str, short: bool = False) -> str:
+    pk = s["pkg"]
+    kinds = kinds_phrase(pk["_projects"], lang)
+    usd = _usd(pk["cost_high"], lang)
+    why = f" {pk['_why_engine'][lang]}" if not short and k <= WHY_SPOKEN_MAX_K and pk.get("_why_engine", {}).get(lang) else ""
+    if lang == "en":
+        return f"{lead_of(pk['i'], k, 'en')}: {pk['name']['en']}.{why} {cap(kinds)} raised, up to {usd}. {at_once(pk['last'], 'en')}"
+    verb = "amplía" if pk["upgrades"] == 1 else "amplían"
+    return f"{lead_of(pk['i'], k, 'es')}: {pk['name']['es']}.{why} Se {verb} {kinds}, por hasta {usd}. {at_once(pk['last'], 'es')}"
+
+
+def tmpl_close(p: Plan, lang: str, short: bool = False) -> str:
+    """short: the power plants' line without its reserve percent (the beat card keeps it), for a long build."""
     en = lang == "en"
     n, t = p.bought, p.today
     parts = []
     if n > t:
-        if en:
-            parts.append(f"With {_usd(p.cost['high'], 'en')} of upgrades, the grid model carries {words(n, 'en')} {'flexible ' if p.flex else ''}{p.size('en')} data centers at once, up from {words(t, 'en')} today.")
-        else:
-            parts.append(f"Con {_usd(p.cost['high'], 'es')} en mejoras, el modelo de la red soporta {words(n, 'es', before_noun=True)} centros de datos{' flexibles' if p.flex else ''} de {p.size('es')} a la vez, frente a {words(t, 'es', before_noun=True)} hoy.")
+        parts.append(f"In all: {_usd(p.cost['high'], 'en')} of upgrades, and {words(n, 'en')} {'fits' if n == 1 else 'fit'} at once, up from {words(t, 'en')} today." if en
+                     else f"En total: {_usd(p.cost['high'], 'es')} en mejoras, y {'cabe' if n == 1 else 'caben'} {words(n, 'es', before_noun=n != 1)} a la vez, frente a {words(t, 'es', before_noun=True)} hoy.")
     elif n:
-        parts.append(f"Without upgrades, the grid model stops at {words(n, 'en')}." if en else f"Sin mejoras, el modelo de la red se queda en {words(n, 'es', before_noun=True)}.")
+        parts.append(f"Without upgrades, {p.state}'s grid model stops at {words(n, 'en')}." if en else f"Sin mejoras, el modelo de la red de {p.state_es} se queda en {words(n, 'es', before_noun=True)}.")
     else:
         parts.append("Without upgrades, no campus of this size fits." if en else "Sin mejoras, no cabe ningún campus de este tamaño.")
-    pn = p.plants_n
-    if pn is not None and n > 0:
-        r = num(p.reserve, lang)
+    if p.binds() and short:
+        pn = p.plants_n
         if pn == 0:
-            parts.append(f"The power plants can't cover even one with a {r} percent reserve kept: every campus here also needs new generation or flexibility." if en
-                         else f"Las centrales no cubren ni uno manteniendo una reserva del {r} por ciento: cada campus también necesita nueva generación o flexibilidad.")
-        elif pn < n:
-            parts.append(f"The power plants cover {words(pn, 'en')} of them with a {r} percent reserve kept; past that, campuses also need new generation or flexibility, not only wires." if en
-                         else f"Las centrales cubren {words(pn, 'es', before_noun=True)} de ellos con una reserva del {r} por ciento; a partir de ahí, los campus también necesitan nueva generación o flexibilidad, no solo cables.")
+            parts.append("The power plants can't supply even one: every campus also needs new generation or flexible hours." if en
+                         else "Las centrales no abastecen ni uno: cada campus también necesita nueva generación u horario flexible.")
         else:
-            them = ("it" if n == 1 else "both" if n == 2 else f"all {words(n, 'en')}") if en else ("ese campus" if n == 1 else f"los {words(n, 'es', before_noun=True)}")
-            parts.append(f"The power plants cover {them} with a {r} percent reserve kept; past {words(pn, 'en')}, campuses also need new generation or flexibility." if en
-                         else f"Las centrales cubren {them} con una reserva del {r} por ciento; a partir de {words(pn, 'es', before_noun=True)}, los campus también necesitan nueva generación o flexibilidad.")
-    nxt = p.steps[n] if n < len(p.steps) else None
-    if nxt:
-        parts.append(f"The {ordinal(nxt['n'], 'en')} would take {_usd(nxt['cum_cost']['high'], 'en')} in all." if en
-                     else f"El {ordinal(nxt['n'], 'es')} costaría {_usd(nxt['cum_cost']['high'], 'es')} en total.")
-    else:
-        stop = STOP.get(p.m.get("stop"), STOP["max"])
-        parts.append(f"Then {stop[0]}." if en else f"Después, {stop[1]}.")
+            parts.append(f"The power plants supply {words(pn, 'en')} of them; past that, campuses need new generation or flexible hours too." if en
+                         else f"Las centrales abastecen {words(pn, 'es', before_noun=True)}; a partir de ahí, los campus también necesitan nueva generación u horario flexible.")
+    elif p.binds():
+        pn, r = p.plants_n, num(p.reserve, lang)
+        if pn == 0:
+            parts.append(f"The power plants can't supply even one with a {r} percent reserve kept: every campus also needs new generation or flexible hours." if en
+                         else f"Las centrales no abastecen ni uno manteniendo una reserva del {r} por ciento: cada campus también necesita nueva generación u horario flexible.")
+        else:
+            parts.append(f"The power plants supply {words(pn, 'en')} of them with a {r} percent reserve kept; past that, campuses need new generation or flexible hours too." if en
+                         else f"Las centrales abastecen {words(pn, 'es', before_noun=True)} con una reserva del {r} por ciento; a partir de ahí, los campus también necesitan nueva generación u horario flexible.")
+    parts.append("All on a synthetic grid model." if en else "Todo sobre un modelo sintético de la red.")
     return " ".join(parts)
 
 
-def templates(p: Plan, slides: list[dict]) -> dict:
+def templates(p: Plan, slides: list[dict], problems: list[dict]) -> dict:
     """{(slide id, lang): text} and the intro's first sentence per language."""
-    out, first = {}, {}
+    pkgs = [s["pkg"] for s in slides if s["kind"] == "package"]
+    out, short, first = {}, {}, {}
     for lang in LANGS:
         for s in slides:
             if s["kind"] == "intro":
-                out[(s["id"], lang)], first[lang] = tmpl_intro(p, lang)
-            elif s["kind"] == "step":
-                out[(s["id"], lang)] = tmpl_step(p, s, lang)
+                out[(s["id"], lang)], first[lang] = tmpl_intro(p, pkgs, problems, lang)
+                short[(s["id"], lang)] = tmpl_intro(p, pkgs, problems, lang, short=True)[0]
+            elif s["kind"] == "package":
+                out[(s["id"], lang)] = tmpl_package(p, s, len(pkgs), lang)
+                short[(s["id"], lang)] = tmpl_package(p, s, len(pkgs), lang, short=True)
             else:
                 out[(s["id"], lang)] = tmpl_close(p, lang)
-    return {"text": out, "first": first}
+                short[(s["id"], lang)] = tmpl_close(p, lang, short=True)
+    return {"text": out, "short": short, "first": first}
 
 
-# ------------------------------------------------------------------------------------------ Gemini
-SYSTEM = """You are the presenter narrating a build-up on a map: data-center campuses connect one by one to a
-SYNTHETIC grid model of a U.S. state (Breakthrough Energy / Texas A&M), not any real utility's network, and the
-upgrades that make room for each one are drawn as you speak. For each slide you get its PURPOSE and its DATA (values
+def prepare(p: Plan, pkgs: list[dict]) -> dict:
+    """Everything the lines are written from: the slides, the weak points, the facts, the templates."""
+    problems = problems_of(p, pkgs)
+    slides = slides_of(p, pkgs)
+    facts = build_facts(p, slides, problems)
+    tm = templates(p, slides, problems)
+    return {"pkgs": pkgs, "problems": problems, "slides": slides, "facts": facts, "tmpl": tm["text"], "tmpl_short": tm["short"], "first": tm["first"]}
+
+
+def gsig(pkgs: list[dict]) -> tuple:
+    return tuple((pk["first"], pk["last"], pk["name"]["en"], pk["name"]["es"]) for pk in pkgs)
+
+
+# ------------------------------------------------------------------------------------------ Gemini's lines
+SYSTEM = """You are the presenter of a short play-by-play on a map: data-center campuses connect one by one to a
+SYNTHETIC grid model of a U.S. state (Breakthrough Energy / Texas A&M), not any real utility's network, and the upgrades
+that make room for them go in as PACKAGES, drawn as you speak. For each slide you get its PURPOSE and its DATA (values
 computed by the grid engine, with every number already in its spoken form in English and Spanish). Write what the
-presenter says on that slide, once in English and once in Spanish.
+presenter says on that slide, once in English and once in Spanish. The whole narration runs about a minute.
 
 Rules:
-- Short spoken sentences in the present tense, calm and clear, one idea per sentence. Lead with the campus and the place.
-- Say only what the DATA says. Write every number exactly in its given spoken form ("$6.24 million", "from 235 to 350
-  megavolt-amperes"; Spanish "6.24 millones de dólares", "megavoltamperios"). Never compute a new number: no sums,
-  differences, ratios, percentages or comparisons ("twice", "half") of your own.
-- Campus numbers and small counts as words, as the DATA writes them ("campus three", "all thirty sites").
-- Keep every place, line and transformer name exactly as the DATA writes it, in both languages; never translate a place.
-- Never write "MW", "MVA", "GW" or "%": say megawatts / megavolt-amperes / percent (megavatios / megavoltamperios / por ciento).
+- Short spoken sentences in the present tense, calm and clear, one idea per sentence.
+- FRAMING: the problem is a weakness already in today's grid (a line or transformer already near its rating), not the
+  data center; a campus is only what exposes it. Never blame the campus or its developer.
+- Say only what the DATA says. Write every number exactly in its given spoken form ("$24.1 million"; Spanish "24.1
+  millones de dólares"). Never compute a new number: no sums, differences, ratios, percentages or comparisons ("twice",
+  "half") of your own.
+- Campus numbers and small counts as words, as the DATA writes them ("campuses three to six", "seven at once").
+- Keep every package name, place, line and transformer name exactly as the DATA writes it, in both languages.
+- Never write "MW", "MVA", "GW" or "%": say megawatts / percent (megavatios / por ciento).
 - Costs are the high end of an estimate: say "up to" (Spanish "hasta").
-- The intro names the synthetic grid model once ("on the synthetic grid model" / "en el modelo sintético de la red");
-  no other slide repeats it.
+- Only the closing names the synthetic grid model ("a synthetic grid model" / "un modelo sintético de la red").
 - Never name a real utility, company, agency or project; no dates or years; no advice to the public.
 - Stay within each slide's max_chars.
 - The Spanish is written natively for a U.S. Spanish-speaking audience, not translated word for word. "Campus" stays
-  "campus" (plural "los campus"), never "campamento". The size comes after the noun: "dos centros de datos de 1000
-  megavatios" or "dos campus de 1000 megavatios", never "dos 1000 megavatios campus".
+  "campus" (plural "los campus"), never "campamento". The size comes after the noun: "centros de datos de 1000
+  megavatios", never "1000 megavatios campus".
 - Plain text only: no markdown, lists, emoji or quotation marks around the line.
 
 Answer only with JSON: {"slides": [{"id": "<slide id>", "en": "...", "es": "..."}]}, one entry per slide id, in order."""
@@ -573,9 +1354,9 @@ SCHEMA = {
 }
 
 PURPOSE = {
-    "intro": "how many campuses fit at once today and where (say where_they_connect whole: every place in it, and its 'more places' when it has them); what stops the next one; that this is the synthetic grid model (say it once); what the budget builds next",
-    "step": "the campus that goes in and where; what stopped it at the sites tried; the upgrade that lets it in and its cost; then EVERY campus listed in then_fits_with_no_new_upgrade, by number and place",
-    "close": "how many campuses fit at once with the budget's upgrades, against today; the power plants' reserve line (past it campuses also need new generation or flexibility); what the next campus would take",
+    "intro": "how many campuses fit at once today (say campuses_at_once_today); what stops the next one, framed as a weakness ALREADY in today's grid, not the campus (say what_stops_the_next_campus, and its_loading_today and more_weak_points_like_it when given); then that the fix comes in this many packages",
+    "package": "lead with the package (say lead and name exactly); what gets raised, by kind (say raised); its cost (say cost_high_end exactly, as 'up to'); how many campuses fit at once after it (say campuses_at_once_after); when say_why is true, also why its upgrades belong together, in a few words",
+    "close": "the whole plan: what the upgrades cost and how many campuses fit at once, against today; the power plants' reserve line when given (past it, campuses also need new generation or flexible hours); that this is a synthetic grid model, not any utility's network (say it here, once)",
 }
 
 
@@ -583,55 +1364,46 @@ def _both(fn) -> dict:
     return {lang: fn(lang) for lang in LANGS}
 
 
-def slide_data(p: Plan, s: dict) -> dict:
+def slide_data(p: Plan, s: dict, problems: list[dict], k: int) -> dict:
     """The slide's content as data, every number in its spoken form (no sentences to copy)."""
     d: dict = {"campus_size": _both(lambda lang: p.size(lang)), "campus_type": "flexible (full power except on peak afternoons, half power then)" if p.flex else "always on"}
     if s["kind"] == "intro":
         t = p.today
         d["state"] = {"en": p.state, "es": p.state_es}
         d["campuses_at_once_today_with_no_upgrades"] = _both(lambda lang: words(t, lang))
-        d["where_they_connect"] = _both(lambda lang: places_phrase(p, lang))  # every place, or three and "N more places"
-        fb = p.first_block
-        if fb and fb.get("at_campus") == t + 1:
-            d["what_stops_the_next_campus"] = _both(lambda lang: label_of(fb, lang))
+        nb = p.next_block()
+        if nb:
+            d["what_stops_the_next_campus"] = _both(lambda lang: label_of(nb, lang))
             d["the_next_campus"] = _both(lambda lang: ordinal(t + 1, lang))
-        if p.bought > t:
-            d["the_budget_builds_next_high_end"] = _both(lambda lang: _usd(p.cost["high"], lang))
-        d["must_say_once"] = {"en": "on the synthetic grid model", "es": "en el modelo sintético de la red"}
-    elif s["kind"] == "step":
-        st = s["main"]
-        d["campus_number"] = _both(lambda lang: words(st["n"], lang))
-        d["place"] = st["site"]["area"]
-        b = st.get("blocked_by")
-        if b:
-            d["what_stopped_it"] = _both(lambda lang: label_of(b, lang))
-            d["at_sites_tried"] = ({"en": f"all {words(b['of'], 'en')}", "es": f"los {words(b['of'], 'es')}"} if b["blocks"] >= b["of"]
-                                   else {"en": f"{words(b['blocks'], 'en')} of the {words(b['of'], 'en')}", "es": f"{words(b['blocks'], 'es')} de los {words(b['of'], 'es')}"})
-        pj = lead_project(st)
-        d["upgrades"] = [{"name": _both(lambda lang, x=x: label_of(x, lang)), "rating_from": _both(lambda lang, x=x: mva(x["rating_before_mva"], lang)),
-                          "rating_to": _both(lambda lang, x=x: mva(x["rating_after_mva"], lang)), "unit": {"en": "megavolt-amperes", "es": "megavoltamperios"}}
-                         for x in [pj] + [x for x in st["projects"] if x is not pj][:2]]
-        if len(st["projects"]) > 1:
-            d["all_upgrades_for_this_campus"] = _both(lambda lang: kinds_phrase(st["projects"], lang))
-        d["cost_high_end"] = _both(lambda lang: _usd(st["cost"]["high"], lang))
-        if s["free"]:
-            d["then_fits_with_no_new_upgrade"] = [{"campus_number": _both(lambda lang, fr=fr: words(fr["n"], lang)), "place": fr["site"]["area"]} for fr in s["free"]]
+            pb = next((x for x in problems if x["branch_id"] == nb["branch_id"]), None)
+            if pb and pb.get("base_pct") is not None and pb["base_pct"] >= 50:
+                d["its_loading_today"] = {"en": f"{pb['base_pct']} percent of its rating", "es": f"{pb['base_pct']} por ciento de su capacidad"}
+            if len(problems) > 1:
+                d["more_weak_points_like_it"] = _both(lambda lang: words(len(problems) - 1, lang))
+        if k:
+            d["packages"] = _both(lambda lang: words(k, lang))
+    elif s["kind"] == "package":
+        pk = s["pkg"]
+        d["lead"] = _both(lambda lang: lead_of(pk["i"], k, lang))
+        d["name"] = dict(pk["name"])
+        d["why_they_belong_together"] = dict(pk["why"])
+        d["say_why"] = k <= WHY_SPOKEN_MAX_K
+        d["raised"] = _both(lambda lang: kinds_phrase(pk["_projects"], lang))
+        d["cost_high_end"] = _both(lambda lang: _usd(pk["cost_high"], lang))
+        d["campuses_that_go_in"] = _both(lambda lang: go_in(pk, lang))
+        d["campuses_at_once_after"] = _both(lambda lang: words(pk["last"], lang))
     else:
         n, t = p.bought, p.today
+        d["state"] = {"en": p.state, "es": p.state_es}
         d["campuses_at_once_with_the_budget"] = _both(lambda lang: words(n, lang))
         d["campuses_at_once_today"] = _both(lambda lang: words(t, lang))
         if n > t:
             d["upgrades_cost_high_end"] = _both(lambda lang: _usd(p.cost["high"], lang))
-        if p.plants_n is not None and n > 0:
+        if p.binds():
             d["power_plants_cover_with_the_reserve_kept"] = _both(lambda lang: words(p.plants_n, lang))
             d["planning_reserve"] = {"en": f"{num(p.reserve, 'en')} percent", "es": f"{num(p.reserve, 'es')} por ciento"}
-            d["past_the_power_plants"] = "campuses also need new generation or flexibility, not only wires"
-        nxt = p.steps[n] if n < len(p.steps) else None
-        if nxt:
-            d["the_next_campus"] = _both(lambda lang: ordinal(nxt["n"], lang))
-            d["the_next_campus_would_take_in_all_high_end"] = _both(lambda lang: _usd(nxt["cum_cost"]["high"], lang))
-        else:
-            d["then"] = {"en": STOP.get(p.m.get("stop"), STOP["max"])[0], "es": STOP.get(p.m.get("stop"), STOP["max"])[1]}
+            d["past_the_power_plants"] = "campuses also need new generation or flexible hours, not only wires"
+        d["must_say_once"] = {"en": "a synthetic grid model, not any utility's network", "es": "un modelo sintético de la red"}
     return d
 
 
@@ -648,10 +1420,17 @@ def _same(a: str, b: str) -> bool:
 
 
 def limit_of(template: str, lang: str) -> int:
-    return min(max(LINE_MAX[lang], len(template) + 40), max(int(len(template) * 1.35) + 50, 140))
+    """A Gemini line may run a little longer than its template, never much: the whole script stays about a minute
+    (and never shorter than the template itself plus a little: some intros must say a lot)."""
+    return max(min(LINE_MAX[lang], max(int(len(template) * 1.25) + 20, 120)), len(template) + 20)
 
 
-def validate(p: Plan, s: dict, lang: str, text: str, template: str, facts: Facts) -> tuple[bool, str | None, int]:
+def says_count(n: int, low: str, lang: str) -> bool:
+    forms = {words(n, lang), words(n, lang, before_noun=True), str(n)}
+    return any(re.search(rf"\b{re.escape(x)}\b", low) for x in forms)
+
+
+def validate(p: Plan, s: dict, lang: str, text: str, template: str, facts: Facts, problems: list[dict], k: int) -> tuple[bool, str | None, int]:
     """One Gemini line: length, language, no abbreviations, the must-says, spelled numbers, every digit a fact."""
     lim = limit_of(template, lang)
     if not text or len(text) < 20:
@@ -670,35 +1449,43 @@ def validate(p: Plan, s: dict, lang: str, text: str, template: str, facts: Facts
         if name.lower() in low:
             return False, f"a translated place name: {name}", 0
     folded = _fold(text)
-    if s["kind"] == "intro" and ("synthetic" if lang == "en" else "sintetic") not in folded:
-        return False, "the intro must name the synthetic model", 0
-    if s["kind"] == "intro":
-        named, more = today_places(p)
-        for area in named:  # every campus that fits today is placed (no "four ... at three places")
-            if _fold(area) not in folded:
-                return False, f"does not say where: {area}", 0
-        if more > 0 and not re.search(r"\b(more|other|others|mas|otros|otras)\b", folded):
-            return False, "drops the other places today's campuses connect at", 0
     if lang == "es" and re.search(r"campament|megavatios\s+(?:campus|centros?)\b", folded):
         return False, "Spanish wording: 'campamento', or the size before the noun", 0
     if lang == "es" and re.search(r"\b(to|the|and|from|with|of)\b", facts.mask(text), re.IGNORECASE):
         return False, "an English word in the Spanish line", 0  # "de 137 to 200 megavoltamperios" (names masked first)
-    if s["kind"] == "step":
-        st = s["main"]
-        for area in [st["site"]["area"]] + [fr["site"]["area"] for fr in s["free"]]:
-            if _fold(area) not in folded:
-                return False, f"does not say where: {area}", 0
-        figure = _NUM.search(usd_say(st["cost"]["high"], lang)[0]).group(0)  # "6.2" of "$6.2 million"
+    if s["kind"] == "intro":
+        if p.today > 0 and not says_count(p.today, low, lang):
+            return False, "does not say how many fit today", 0
+        nb = p.next_block()
+        if nb:
+            where = nb.get("where") or (nb.get("from") or {}).get("area") or ""
+            if where and _fold(where) not in folded:
+                return False, f"does not name what stops the next campus ({where})", 0
+            # the framing: a weakness already in TODAY's grid, measured (its loading today), not the campus
+            if not re.search(r"\b(today|hoy)\b", low):
+                return False, "does not frame the weak point as today's grid (say 'today')", 0
+            pb = next((x for x in problems if x["branch_id"] == nb["branch_id"]), None)
+            if pb and pb.get("base_pct") is not None and pb["base_pct"] >= 50 and not re.search(rf"\b{pb['base_pct']}\b", text):
+                return False, "does not say its loading on today's grid (its_loading_today)", 0
+    elif s["kind"] == "package":
+        pk = s["pkg"]
+        figure = _NUM.search(usd_say(pk["cost_high"], lang)[0]).group(0)  # "24.1" of "$24.1 million"
         if figure not in text:
-            return False, "does not say this campus's cost", 0
-    if s["kind"] == "close" and p.bought > 0:
-        n = p.bought
-        forms = {words(n, lang), words(n, lang, before_noun=True), str(n)}
-        if not any(re.search(rf"\b{re.escape(x)}\b", low) for x in forms):
+            return False, "does not say this package's cost", 0
+        if not says_count(pk["last"], low, lang):
+            return False, "does not say how many fit at once after it", 0
+        own = own_places(pk)
+        spots = [t for t in _TOK.findall(pk["name"][lang]) if _fold(t) in own]
+        if spots and not any(_fold(t) in folded for t in spots):
+            return False, "does not name the package (its place)", 0
+    else:
+        if p.bought > 0 and not says_count(p.bought, low, lang):
             return False, "does not say how many fit at once", 0
-        if p.plants_n is not None and ("generation" if lang == "en" else "generacion") not in folded:
-            return False, "drops the power plants' line (past it, new generation or flexibility)", 0
-    data_text = json.dumps(slide_data(p, s), ensure_ascii=False)
+        if p.binds() and ("generation" if lang == "en" else "generacion") not in folded:
+            return False, "drops the power plants' line (past it, new generation or flexible hours)", 0
+        if ("synthetic" if lang == "en" else "sintetic") not in folded:
+            return False, "the closing must name the synthetic grid model", 0
+    data_text = json.dumps(slide_data(p, s, problems, k), ensure_ascii=False)
     known = number_words(template, lang) | number_words(data_text, lang) | facts.known_words(s["id"], lang)
     extra = number_words(facts.mask(text), lang) - known
     if extra:
@@ -706,7 +1493,9 @@ def validate(p: Plan, s: dict, lang: str, text: str, template: str, facts: Facts
     return check_numbers(text, facts, s["id"])
 
 
-def prompt_of(p: Plan, slides: list[dict], tmpl: dict, facts: Facts) -> str:
+def prompt_of(p: Plan, parts: dict) -> str:
+    slides, tmpl, facts, problems = parts["slides"], parts["tmpl"], parts["facts"], parts["problems"]
+    k = len(parts["pkgs"])
     lines = [f"STATE: {p.state} (Spanish: {p.state_es}). CAMPUS: {mw_say(p.mw, 'en', adj=True)}, {'flexible' if p.flex else 'always on'}.",
              "FACTS (from the grid engine; the only numbers you may use):"]
     for f in facts.rows:
@@ -717,22 +1506,9 @@ def prompt_of(p: Plan, slides: list[dict], tmpl: dict, facts: Facts) -> str:
         lines.append(f"- id: {s['id']}")
         lines.append(f"  PURPOSE: {PURPOSE[s['kind']]}")
         lines.append("  max_chars: " + ", ".join(f"{lang} {int(limit_of(tmpl[(s['id'], lang)], lang) * 0.85)}" for lang in LANGS))
-        lines.append("  DATA: " + json.dumps(slide_data(p, s), ensure_ascii=False))
+        lines.append("  DATA: " + json.dumps(slide_data(p, s, problems, k), ensure_ascii=False))
     lines += ["", 'Write every slide now, as JSON {"slides": [{"id": "...", "en": "...", "es": "..."}]}.']
     return "\n".join(lines)
-
-
-async def _ask(prompt: str, budget_s: float) -> tuple[dict, bool]:
-    """One Gemini call within `budget_s` seconds: (JSON, offline)."""
-    none = {"slides": []}
-    try:
-        return await asyncio.wait_for(
-            llm.complete_json(prompt, system=SYSTEM, fallback=none, timeout=AI_TIMEOUT_S, schema=SCHEMA, surface=SURFACE,
-                              model=llm.AGENT_MODEL, thinking=llm.AGENT_THINKING),
-            max(1.0, budget_s))
-    except asyncio.TimeoutError:
-        log.warning("strengthen narration: Gemini took over %.0fs; templates used", budget_s)
-        return none, True
 
 
 def _rows(data) -> dict:
@@ -743,18 +1519,19 @@ def _rows(data) -> dict:
     return got
 
 
-def _check(p: Plan, slides: list[dict], tmpl: dict, facts: Facts, got: dict, only: set | None = None):
+def _check(p: Plan, parts: dict, got: dict, only: set | None = None):
     """Gemini's lines through validate(): ({(id, lang): text}, numbers checked, [(slide, lang, text, why)])."""
     ok_lines, checked, failed = {}, 0, []
-    for s in slides:
+    k = len(parts["pkgs"])
+    for s in parts["slides"]:
         for lang in LANGS:
             if only is not None and (s["id"], lang) not in only:
                 continue
             text = _clean((got.get(s["id"]) or {}).get(lang))
-            template = tmpl[(s["id"], lang)]
+            template = parts["tmpl"][(s["id"], lang)]
             if text and _same(text, template):
                 continue  # Gemini gave the template back: it stays labeled a template
-            ok, why, n = validate(p, s, lang, text, template, facts)
+            ok, why, n = validate(p, s, lang, text, template, parts["facts"], parts["problems"], k)
             llm.note_check(SURFACE, ok, f"a narration line: {why}")
             if ok:
                 ok_lines[(s["id"], lang)] = text
@@ -768,10 +1545,14 @@ def _hint(s: dict, lang: str, why: str | None, tmpl: dict) -> str:
     """A failed check, said so the revision can act on it."""
     why = why or "empty"
     out = [why]
-    if s["kind"] == "step" and "cost" in why:
-        out.append(f"say {usd_say(s['main']['cost']['high'], lang)[0]!r} exactly as the DATA writes it")
-    if "where" in why:
-        out.append("name every place in the DATA exactly as written")
+    if s["kind"] == "package" and "cost" in why:
+        out.append(f"say {usd_say(s['pkg']['cost_high'], lang)[0]!r} exactly as the DATA writes it")
+    if "package" in why and "place" in why:
+        out.append("say the package's name exactly as the DATA writes it")
+    if "synthetic" in why:
+        out.append("say 'a synthetic grid model' (Spanish 'un modelo sintético de la red') in the closing")
+    if "stops the next" in why:
+        out.append("name what_stops_the_next_campus exactly as the DATA writes it")
     out.append(f"stay under {int(limit_of(tmpl[(s['id'], lang)], lang) * 0.85)} characters")
     return "; ".join(out)
 
@@ -786,24 +1567,24 @@ def revise_prompt(prompt: str, failed: list, tmpl: dict) -> str:
     return "\n".join(out)
 
 
-async def gemini_lines(p: Plan, slides: list[dict], tmpl: dict, facts: Facts) -> tuple[dict, dict] | None:
+async def gemini_lines(p: Plan, parts: dict) -> tuple[dict, dict] | None:
     """Gemini writes every slide (one call, both languages); the checks run on every line; the lines that fail go back
     once with the reasons (proposal -> checks -> feedback -> revision) and are checked again. A line that still fails
     keeps its template. None: Gemini unavailable (no answer in time, no quota, an error)."""
     t0 = time.monotonic()
-    prompt = prompt_of(p, slides, tmpl, facts)
+    prompt = prompt_of(p, parts)
     data, offline = await _ask(prompt, AI_DEADLINE_S)
     if offline:
         return None
-    lines, checked, failed = _check(p, slides, tmpl, facts, _rows(data))
+    lines, checked, failed = _check(p, parts, _rows(data))
     first = [f"{s['id']}/{lang}: {why}" for s, lang, _t, why in failed]
     revised, rounds = 0, 1
     left = AI_DEADLINE_S - (time.monotonic() - t0)
     if failed and left >= REVISE_MIN_S:
         rounds = 2
-        data2, offline2 = await _ask(revise_prompt(prompt, failed, tmpl), left)
+        data2, offline2 = await _ask(revise_prompt(prompt, failed, parts["tmpl"]), left)
         if not offline2:
-            fixed, n2, failed = _check(p, slides, tmpl, facts, _rows(data2), only={(s["id"], lang) for s, lang, _t, _w in failed})
+            fixed, n2, failed = _check(p, parts, _rows(data2), only={(s["id"], lang) for s, lang, _t, _w in failed})
             lines.update(fixed)
             checked += n2
             revised = len(fixed)
@@ -833,10 +1614,10 @@ def _ai_put(key: tuple, lines: dict, meta: dict) -> None:
             _ai.popitem(last=False)
 
 
-async def ai_lines(p: Plan, slides: list[dict], tmpl: dict, facts: Facts) -> tuple[dict, dict]:
-    """({(slide id, lang): checked Gemini line}, meta), cached per study, mode and budget; a line that fails its checks
-    (after one revision) keeps its template."""
-    key = (p.key, p.mode, p.bought, p.fp)
+async def ai_lines(p: Plan, parts: dict) -> tuple[dict, dict]:
+    """({(slide id, lang): checked Gemini line}, meta), cached per study, mode, budget and grouping; a line that fails
+    its checks (after one revision) keeps its template."""
+    key = (*p.gkey, gsig(parts["pkgs"]))
     hit = _ai_get(key)
     if hit is not None:
         return hit
@@ -847,7 +1628,7 @@ async def ai_lines(p: Plan, slides: list[dict], tmpl: dict, facts: Facts) -> tup
         hit = _ai_get(key)
         if hit is not None:
             return hit
-        res = await gemini_lines(p, slides, tmpl, facts)
+        res = await gemini_lines(p, parts)
         _ai_locks.pop(key, None)
         if res is None:
             return {}, {"fallback": True, "reason": "Gemini unavailable", "numbers_checked": 0, "rejected": 0}
@@ -856,23 +1637,54 @@ async def ai_lines(p: Plan, slides: list[dict], tmpl: dict, facts: Facts) -> tup
 
 
 # ------------------------------------------------------------------------------------------ warm-up
-def default_budget(m: dict) -> float:
-    """The budget the page opens at (capacity.js defaultCapBudget): the largest stop at or under $50 million, else
-    the first paid one; the stops are each paid step's running total (high end)."""
+def budget_stops(m: dict) -> list[float]:
+    """The page's budget stops (capacity.js capStops): nothing, then each paid step's running total (high end)."""
     stops = [0.0]
     for st in m.get("steps") or []:
         if not st["free"] and st["cum_cost"]["high"] > stops[-1] + 0.5:
             stops.append(st["cum_cost"]["high"])
+    return stops
+
+
+def default_budget(m: dict) -> float:
+    """The budget the page opens at (capacity.js defaultCapBudget): the largest stop at or under $50 million, else
+    the first paid one."""
+    stops = budget_stops(m)
     if len(stops) < 2:
         return 0.0
     within = [v for v in stops if v <= DEFAULT_BUDGET]
     return within[-1] if len(within) > 1 else stops[1]
 
 
+def max_budget(m: dict) -> float:
+    return budget_stops(m)[-1]
+
+
+async def _warm_one(p: Plan) -> str:
+    """One budget's grouping and lines written ahead (the raw calls, no locks: this runs on the warm-up's own loop)."""
+    units = p.units()
+    hit = _group_get(p.gkey)
+    if hit is None:
+        pk, tr = await gemini_grouping(p, units)
+        res = finalize_grouping(p, units, pk, tr, None if pk is not None else ("Gemini unavailable" if tr.get("offline") else "Gemini's grouping failed its checks"))
+        _group_put(p.gkey, *res)
+        hit = res
+    pkgs, trace = hit[0], hit[1]
+    parts = prepare(p, pkgs)
+    key = (*p.gkey, gsig(pkgs))
+    if _ai_get(key) is None:
+        res = await gemini_lines(p, parts)
+        if res is not None and _ai_get(key) is None:
+            _ai_put(key, *res)
+        return f"grouped by {trace['by']}, lines {'unavailable' if res is None else ('gemini' if res[0] else 'templates')}"
+    return f"grouped by {trace['by']}, lines cached"
+
+
 def _warm() -> None:
-    """Florida's narration written ahead, so the first "Watch it get built" doesn't wait on Gemini: once each of
-    unlock's warm studies (UNLOCK_WARM: Florida only, "0" on Render) is in its cache, the page's default budget for
-    both campus types. The answer lands in llm's disk cache too, so the next restart is instant. NARRATE_WARM=0 skips."""
+    """Florida's play-by-play written ahead, so the first "Watch it get built" doesn't wait on Gemini: once each of
+    unlock's warm studies (UNLOCK_WARM: Florida only, "0" on Render) is in its cache (a baked study is there at once),
+    the page's default budget and its largest, for both campus types. The answers land in llm's disk cache too, so the
+    next restart is instant. NARRATE_WARM=0 skips."""
     if os.getenv("NARRATE_WARM", "1") == "0" or not llm.configured():
         return
     todo = list(unlock._WARM)
@@ -887,18 +1699,16 @@ def _warm() -> None:
             if hit.get("already_failing") or not (hit.get("capacity") or {}).get("firm"):
                 continue
             for mode in ("firm", "flexible"):
-                try:
-                    p = Plan(key, hit, mode, default_budget(hit["capacity"].get(mode) or {}))
-                    k = (p.key, p.mode, p.bought, p.fp)
-                    if _ai_get(k) is not None or p.bought <= p.today:
-                        continue
-                    slides = p.slides()
-                    res = asyncio.run(gemini_lines(p, slides, templates(p, slides)["text"], build_facts(p, slides)))
-                    if res is not None and _ai_get(k) is None:
-                        _ai_put(k, *res)
-                    log.info("strengthen narration: warmed %s %s (%s)", key, mode, "unavailable" if res is None else ("gemini" if res[0] else "templates"))
-                except Exception:  # noqa: BLE001 - best effort: the page's own request writes it anyway
-                    log.exception("strengthen narration: warm-up failed")
+                mm = hit["capacity"].get(mode) or {}
+                for budget in dict.fromkeys([default_budget(mm), max_budget(mm)]):
+                    try:
+                        p = Plan(key, hit, mode, budget)
+                        if p.bought <= p.today:
+                            continue
+                        how = asyncio.run(_warm_one(p))
+                        log.info("strengthen narration: warmed %s %s $%.0fM (%s)", key, mode, budget / 1e6, how)
+                    except Exception:  # noqa: BLE001 - best effort: the page's own request writes it anyway
+                        log.exception("strengthen narration: warm-up failed")
         if todo:
             time.sleep(WARM_POLL_S)
 
@@ -931,24 +1741,27 @@ def cues_for(s: dict, text: str, first: str | None) -> list[dict]:
     cues = []
     if s["kind"] == "intro":
         cues += spread_cues(text, first if first and first in text else first_sentence(text), s["steps"])
-    elif s["kind"] == "step":
+    elif s["kind"] == "package":
+        # nothing new when the package enters (its upgrades draw first); its campuses drop in over the rest of the
+        # words, the first about a third of the way in, the last near the end
         cues.append({"char": 0, "name": "step", "value": s["step_from"]})
-        low = text.lower()
-        prev = 0
-        for fr in s["free"]:  # a campus that rides along lands as its place is said (its last mention: the first may be a line's name)
-            i = low.rfind(fr["site"]["area"].lower())
-            prev = len(text) if i < 0 else max(i, prev)
-            cues.append({"char": prev, "name": "step", "value": fr["n"]})
+        L = len(text)
+        starts = [m.start() for m in re.finditer(r"\S+", text) if 0.3 * L <= m.start() <= 0.9 * L] or [int(0.3 * L)]
+        ns = s["steps"]
+        for i, n in enumerate(ns):
+            j = round(i * (len(starts) - 1) / (len(ns) - 1)) if len(ns) > 1 else 0
+            cues.append({"char": starts[j], "name": "step", "value": n})
     cues.append({"char": len(text), "name": "step", "value": s["step"]})  # the slide always ends on its own picture
-    return sorted(cues, key=lambda c: c["char"])
+    return sorted(cues, key=lambda c: (c["char"], c["value"]))
 
 
 def headline(p: Plan, s: dict, lang: str) -> str:
     en = lang == "en"
     if s["kind"] == "intro":
         return (f"{p.today} at once today" if en else f"{p.today} a la vez hoy")
-    if s["kind"] == "step":
-        return f"Campus {s['main']['n']} · {s['main']['site']['area']}"
+    if s["kind"] == "package":
+        pk = s["pkg"]
+        return f"{pk['name'][lang]} · {usd_show(pk['cost_high'])}"
     if p.bought > p.today:
         return f"{p.bought} at once for {usd_show(p.cost['high'])}" if en else f"{p.bought} a la vez por {usd_show(p.cost['high'])}"
     return (f"{p.bought} at once, no upgrades" if en else f"{p.bought} a la vez, sin mejoras")
@@ -983,24 +1796,46 @@ def finished_study(body: NarrationIn) -> tuple[tuple, dict]:
     return key, hit
 
 
-def compose(p: Plan, lang: str, lines: dict, meta: dict, ai_on: bool) -> dict:
-    slides = p.slides()
-    facts = build_facts(p, slides)
-    tm = templates(p, slides)
+def est_of(text: str, lang: str) -> float:
+    return round(len(text) / CHARS_PER_S[lang] + HOLD_S, 1)
+
+
+def compose(p: Plan, parts: dict, lang: str, lines: dict, meta: dict, ai_on: bool, grouping: dict) -> dict:
+    slides = parts["slides"]
+    tmpl = {s["id"]: parts["tmpl"][(s["id"], lang)] for s in slides}
+    chosen = {s["id"]: (lines[(s["id"], lang)] if (s["id"], lang) in lines else None) for s in slides}
+    # about a minute: past TOTAL_MAX_S (English pace) the Gemini lines that run longest past their templates give way
+    total = sum(est_of(chosen[s["id"]] or tmpl[s["id"]], lang) for s in slides) * (CHARS_PER_S[lang] / CHARS_PER_S["en"])
+    for s in sorted(slides, key=lambda x: -(len(chosen[x["id"]] or "") - len(tmpl[x["id"]]))):
+        if total <= TOTAL_MAX_S:
+            break
+        if chosen[s["id"]] and len(chosen[s["id"]]) > len(tmpl[s["id"]]):
+            total -= (len(chosen[s["id"]]) - len(tmpl[s["id"]])) / CHARS_PER_S["en"]
+            chosen[s["id"]] = None
+    # ... and past it still (a long build's plain script), the templates speak their short forms (the intro without
+    # "and N more weak points like it", a package without its reason), biggest saving first; the cards keep both
+    short = parts.get("tmpl_short") or {}
+    for s in sorted(slides, key=lambda x: -(len(tmpl[x["id"]]) - len(short.get((x["id"], lang)) or tmpl[x["id"]]))):
+        if total <= TOTAL_MAX_S:
+            break
+        sh = short.get((s["id"], lang))
+        if chosen[s["id"]] is None and sh and len(sh) < len(tmpl[s["id"]]):
+            total -= (len(tmpl[s["id"]]) - len(sh)) / CHARS_PER_S["en"]
+            tmpl[s["id"]] = sh
     out, flat = [], []
     for s in slides:
-        use_ai = (s["id"], lang) in lines
-        text = lines[(s["id"], lang)] if use_ai else tm["text"][(s["id"], lang)]
-        cues = cues_for(s, text, None if use_ai else tm["first"].get(lang))
+        use_ai = chosen[s["id"]] is not None
+        text = chosen[s["id"]] if use_ai else tmpl[s["id"]]
+        cues = cues_for(s, text, None if use_ai else parts["first"].get(lang))
         seg = {"role": "presenter", "text": text, "chars": len(text), "cues": cues}
         flat.append(seg)
         out.append({
             "id": s["id"], "kind": s["kind"], "step_from": s["step_from"], "step": s["step"], "steps": s["steps"],
+            "package": s["pkg"]["i"] if s["kind"] == "package" else None,
             "headline": {lang: headline(p, s, lang)},
             "narration": {lang: [seg]},
-            "est_s": {lang: round(len(text) / CHARS_PER_S[lang] + HOLD_S, 1)},
+            "est_s": {lang: est_of(text, lang)},
             "written_by": {lang: "gemini" if use_ai else "template"},
-            "site": (s["main"]["site"] if s["kind"] == "step" else None),
         })
     for i, seg in enumerate(flat):  # voice keys, with the neighbors' text for smoother intonation across slides
         seg["key"] = voice.register(seg["text"], lang, "presenter", prev_text=flat[i - 1]["text"] if i else None,
@@ -1014,11 +1849,15 @@ def compose(p: Plan, lang: str, lines: dict, meta: dict, ai_on: bool) -> dict:
         "title": {lang: (f"Watch it get built · {p.state} · {size} campuses" if lang == "en" else f"Así se construye · {p.state_es} · campus de {size}")},
         "today": p.today, "steps_total": len(p.steps), "stop": p.m.get("stop"),
         "bought": {"n": p.bought, "cost_low": round(p.cost["low"]), "cost_high": round(p.cost["high"])},
+        "plants": {"campuses": p.plants_n, "reserve_pct": p.reserve, "binds": p.binds()},
         "slides": out,
+        "packages": [public_pkg(pk) for pk in parts["pkgs"]],
+        "problems": parts["problems"],
+        "grouping": grouping,
         "est_s": {lang: round(sum(s["est_s"][lang] for s in out), 1)},
         "ai": {"by": written, "fallback": written == "template", "requested": ai_on, "surface": SURFACE, **meta},
-        "facts": facts.public(),
-        "names": sorted(facts.names),
+        "facts": parts["facts"].public(),
+        "names": sorted(parts["facts"].names),
         "synthetic": True,
         "note": "Synthetic grid model (Breakthrough Energy / Texas A&M), not any utility's network; costs are the high end of estimates.",
     }
@@ -1031,16 +1870,16 @@ async def narration(request: Request, body: NarrationIn):
     p = Plan(key, hit, body.mode, body.budget)
     ck = (key, p.mode, p.bought, p.fp, body.lang, body.ai, llm.configured())
     cached = _scripts.get(ck)
-    if cached is not None and not (body.ai and cached["ai"]["fallback"] and cached["ai"].get("reason") in RETRYABLE):
+    if cached is not None and not (body.ai and ((cached["ai"]["fallback"] and cached["ai"].get("reason") in RETRYABLE)
+                                                or cached["grouping"].get("reason") in GROUP_RETRYABLE)):
         _scripts.move_to_end(ck)
         return cached
+    pkgs, grouping = await grouping_for(p, p.units(), body.ai)
+    parts = await run_in_threadpool(prepare, p, pkgs)
     lines, meta = {}, {"fallback": True, "reason": "AI off for this request", "numbers_checked": 0, "rejected": 0}
     if body.ai:
-        slides = p.slides()
-        facts = await run_in_threadpool(build_facts, p, slides)
-        tm = templates(p, slides)
-        lines, meta = await ai_lines(p, slides, tm["text"], facts)
-    script = await run_in_threadpool(compose, p, body.lang, lines, meta, body.ai)
+        lines, meta = await ai_lines(p, parts)
+    script = await run_in_threadpool(compose, p, parts, body.lang, lines, meta, body.ai, grouping)
     _scripts[ck] = script
     while len(_scripts) > SCRIPTS_MAX:
         _scripts.popitem(last=False)

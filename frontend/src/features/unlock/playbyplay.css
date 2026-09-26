@@ -1,0 +1,996 @@
+/* "Watch it get built", the full-screen play-by-play (PlayByPlay.jsx over the page, PbpLayer.jsx on the map).
+   Incident room, sober: opaque dark panels, plain tabular figures, one condensed heavy title per beat. Color only where
+   it carries meaning: AMBER (--strain) for the weak points in today's grid, GREEN (--hr-ok) for what the upgrades
+   add, light ink for what fits today; red nowhere (nothing here is lost). One focal motion at a time: the camera
+   flight, then the lines drawing, then the campuses dropping in; no glow, no bounces, no pops. */
+
+/* ------------------------------------------------------------------ the page while it is open */
+/* the map takes the whole page under the top bar; the dashboard (answer, meter, controls, plan) steps away */
+.mc.mc--unlock:has(> .pbp) {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+}
+
+.mc.mc--unlock:has(> .pbp) > .map {
+  position: absolute;
+  inset: 0;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  animation: pbp-fade 420ms ease-out both;
+}
+
+.mc.mc--unlock:has(> .pbp) > :is(.st-head, .st-rail, .st-key, .st-card, .mc-credit, .bn-cap),
+.mc.mc--unlock:has(> .pbp) .map-controls {
+  display: none;
+}
+
+/* the dashboard slides away first (then the layout switches), and slides back in on return */
+.st-head.is-away,
+.st-rail.is-away {
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 240ms ease-in,
+    transform 240ms ease-in;
+}
+
+.st-head.is-away {
+  transform: translateY(-18px);
+}
+
+.st-rail.is-away {
+  transform: translateX(28px);
+}
+
+.st-head.is-back {
+  animation: pbp-back-down 380ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.st-rail.is-back {
+  animation: pbp-back-left 380ms cubic-bezier(0.2, 0.7, 0.2, 1) 60ms both;
+}
+
+@keyframes pbp-back-down {
+  from {
+    opacity: 0;
+    transform: translateY(-18px);
+  }
+}
+
+@keyframes pbp-back-left {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+@keyframes pbp-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------ the overlay */
+.pbp {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 14px var(--gutter) 10px;
+  pointer-events: none; /* the map between the panels still pans and zooms */
+  color: var(--ink);
+}
+
+.pbp :is(.pbp__top > *, .pbp-card, .pbp-final, .pbp__foot > *) {
+  pointer-events: auto;
+}
+
+.pbp .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.pbp__top {
+  grid-row: 1;
+  grid-column: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+}
+
+.pbp-back {
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 650;
+  padding: 0.5rem 0.85rem;
+  color: var(--ink);
+  background: rgba(5, 10, 20, 0.9);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pbp-back:hover {
+  border-color: var(--border);
+}
+
+.pbp-back:focus-visible,
+.pbp-who__checks summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- the beats: a segmented strip; the one playing fills as the voice goes */
+.pbp-steps {
+  justify-self: center;
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 10px 9px;
+  list-style: none;
+  max-width: 100%;
+  min-width: 0;
+  background: rgba(5, 10, 20, 0.86);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+}
+
+.pbp-steps__i {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 0;
+  max-width: 13rem;
+}
+
+.pbp-steps__t {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 200ms linear;
+}
+
+.pbp-steps__i.is-now .pbp-steps__t {
+  color: var(--ink);
+  font-weight: 750;
+}
+
+.pbp-steps__bar {
+  position: relative;
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(150, 190, 240, 0.14);
+  overflow: hidden;
+}
+
+.pbp-steps__bar i {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(0);
+  background: var(--hr-ok);
+  transition: transform 240ms linear;
+}
+
+.pbp-steps__i:first-child .pbp-steps__bar i {
+  background: var(--strain); /* the weak points */
+}
+
+.pbp-steps__i.is-done .pbp-steps__bar i {
+  transform: scaleX(1);
+}
+
+/* ---- the scoreboard */
+.pbp-score {
+  display: grid;
+  gap: 10px;
+  min-width: 13.5rem;
+  padding: 10px 14px 12px;
+  background: rgba(5, 10, 20, 0.9);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+}
+
+.pbp-score__block {
+  display: grid;
+  gap: 3px;
+}
+
+.pbp-score__k {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.pbp-score__v {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.pbp-score__n {
+  font-size: 2.1rem;
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 66%;
+  font-variant-numeric: tabular-nums;
+  color: var(--hr-ok);
+  animation: pbp-tick 220ms ease-out both;
+}
+
+.pbp-score__of {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pbp-score__money {
+  font-size: 1.2rem;
+  line-height: 1.1;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  animation: pbp-tick 220ms ease-out both;
+}
+
+/* a count that changed rolls in from just below (it carries the change; no pop) */
+@keyframes pbp-tick {
+  from {
+    opacity: 0.35;
+    transform: translateY(5px);
+  }
+}
+
+.pbp-score__meter {
+  display: flex;
+  gap: 2px;
+  margin-top: 5px;
+}
+
+.pbp-score__meter i {
+  flex: 1 1 0;
+  max-width: 14px;
+  height: 7px;
+  border-radius: 1px;
+  box-shadow: inset 0 0 0 1px rgba(150, 190, 240, 0.3);
+  transition: background-color 260ms ease;
+}
+
+.pbp-score__meter i.is-today {
+  background: var(--lit);
+  box-shadow: none;
+}
+
+.pbp-score__meter i.is-built {
+  background: var(--hr-ok);
+  box-shadow: none;
+}
+
+/* ---- the beat's card */
+.pbp-card,
+.pbp-final {
+  grid-row: 2;
+  grid-column: 1;
+  align-self: start;
+  justify-self: start;
+  width: min(22rem, 30vw);
+  padding: 14px 16px 15px;
+  background: rgba(5, 10, 20, 0.9);
+  border: 1px solid var(--glass-edge);
+  border-left: 3px solid var(--pbp-kind, var(--accent));
+  border-radius: var(--radius-lg);
+  animation: pbp-card-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.pbp-card--intro {
+  --pbp-kind: var(--strain);
+}
+
+.pbp-card--package,
+.pbp-card--close,
+.pbp-final {
+  --pbp-kind: var(--hr-ok);
+}
+
+.pbp-card--error {
+  --pbp-kind: var(--danger);
+}
+
+@keyframes pbp-card-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+.pbp-card__kicker {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: color-mix(in srgb, var(--pbp-kind, var(--accent)) 80%, var(--ink));
+}
+
+.pbp-card__title {
+  margin: 0;
+  font-size: clamp(1.45rem, 2.1vw, 2rem);
+  line-height: 1.04;
+  font-weight: 800;
+  font-stretch: 66%;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.pbp-card__sub {
+  margin: 8px 0 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.pbp-card__sub strong {
+  color: color-mix(in srgb, var(--strain) 80%, var(--ink));
+  font-weight: 700;
+}
+
+.pbp-card__stats {
+  display: grid;
+  gap: 3px;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--glass-edge);
+  font-size: 0.86rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.pbp-card__stats li:first-child {
+  font-weight: 700;
+}
+
+.pbp-card--package .pbp-card__stats li:first-child {
+  color: var(--hr-ok);
+}
+
+.pbp-card .btn {
+  margin-top: 12px;
+}
+
+.pbp-card--loading .pbp-card__title::after {
+  content: '';
+  display: block;
+  height: 2px;
+  margin-top: 12px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent) 0 0 / 40% 100% no-repeat;
+  animation: pbp-wait 1.4s linear infinite;
+}
+
+@keyframes pbp-wait {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+/* ---- the final frame: the whole plan green, the answer */
+.pbp-final {
+  grid-row: 3;
+  grid-column: 1;
+  align-self: end;
+  width: min(40rem, 46vw);
+  padding: 18px 20px 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.pbp-final .pbp-card__kicker {
+  margin: 0;
+}
+
+.pbp-final__main {
+  margin: 0;
+  font-size: clamp(1.5rem, 2.3vw, 2.25rem);
+  line-height: 1.05;
+  font-weight: 800;
+  font-stretch: 66%;
+}
+
+.pbp-final__sub {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.pbp-final__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.pbp.is-final .pbp__foot {
+  grid-row: 3;
+  justify-self: end;
+  align-self: end;
+  width: auto;
+}
+
+/* ---- the bottom: who grouped, the controls, the captions */
+.pbp__foot {
+  grid-row: 3;
+  grid-column: 1;
+  justify-self: center;
+  width: min(62rem, 100%);
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pbp-ctl {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.pbp-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+  background: rgba(5, 10, 20, 0.82);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+}
+
+.pbp-final .pbp-who {
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.pbp-who__checks {
+  position: relative;
+}
+
+.pbp-who__checks summary {
+  cursor: pointer;
+  color: var(--ink);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  list-style: none;
+}
+
+.pbp-who__checks summary::-webkit-details-marker {
+  display: none;
+}
+
+.pbp-who__checks ul {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: max-content;
+  max-width: min(26rem, 80vw);
+  max-height: min(60vh, 30rem);
+  overflow-y: auto;
+  margin: 0;
+  padding: 10px 12px;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--ink);
+}
+
+.pbp-who__checks li.is-ok span {
+  color: var(--hr-ok);
+}
+
+.pbp-who__checks li.is-bad span {
+  color: var(--strain);
+}
+
+/* the trace: why a check failed, the first draft sent back, which grouping is on screen */
+.pbp-who__why {
+  display: block;
+  margin: 1px 0 2px 1.1em;
+  font-style: normal;
+  font-size: 0.74rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.pbp-who__checks li.pbp-who__h {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--ink-2);
+}
+
+.pbp-who__checks li.pbp-who__h:first-child {
+  margin-top: 0;
+}
+
+.pbp-who__checks li.pbp-who__note {
+  font-size: 0.74rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* the caption bar, larger, in the flow of the bottom column (BuildCaption's own bar floats over the map) */
+.pbp .bn-cap {
+  position: relative;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  max-width: none;
+  margin: 0;
+  padding: 10px 16px 13px;
+  background: rgba(5, 10, 20, 0.92);
+}
+
+.pbp .bn-cap__text {
+  font-size: clamp(1.08rem, 1.45vw, 1.35rem);
+  line-height: 1.42;
+}
+
+.bn-cap--package .bn-cap__kicker {
+  color: var(--hr-ok);
+}
+
+.bn-cap--intro.bn-cap--pbp .bn-cap__kicker {
+  color: color-mix(in srgb, var(--strain) 85%, var(--ink));
+}
+
+.pbp-syn {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--ink-2);
+  opacity: 0.85;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ the map (PbpLayer.jsx) */
+.pbp-layer {
+  pointer-events: none;
+}
+
+.pbp-up {
+  fill: none;
+  stroke: var(--hr-ok);
+  stroke-linecap: round;
+}
+
+.pbp-up--past {
+  stroke-opacity: 0.55;
+}
+
+/* a line draws itself along its route (pathLength=1); `backwards` holds it hidden through its delay */
+.pbp-up--draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: pbp-draw 0.9s cubic-bezier(0.3, 0.6, 0.2, 1) backwards;
+}
+
+@keyframes pbp-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+.pbp-up__mark {
+  fill: var(--hr-ok);
+  stroke: var(--night);
+  stroke-width: 0.6px;
+  vector-effect: non-scaling-stroke;
+}
+
+.pbp-up__mark.is-past {
+  fill-opacity: 0.6;
+}
+
+/* in the package drawing now, a line's mark appears as the line reaches it */
+.pbp-up--draw + .pbp-up__mark {
+  animation: pbp-fade 0.45s ease-out 0.45s backwards;
+}
+
+/* the weak points: amber, breathing slowly (no glow); the package that raises one turns it green as it lands */
+.pbp-wp__line {
+  stroke: var(--strain);
+  stroke-linecap: round;
+  animation: pbp-breathe 2.6s ease-in-out infinite;
+}
+
+.pbp-wp__ring {
+  fill: color-mix(in srgb, var(--strain) 12%, transparent);
+  stroke: var(--strain);
+  animation: pbp-breathe 2.6s ease-in-out infinite;
+}
+
+.pbp-wp__core {
+  fill: var(--strain);
+}
+
+@keyframes pbp-breathe {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.pbp-wp.is-fixed .pbp-wp__line,
+.pbp-wp.is-fixing .pbp-wp__line {
+  stroke: var(--hr-ok);
+}
+
+.pbp-wp.is-fixed .pbp-wp__ring,
+.pbp-wp.is-fixing .pbp-wp__ring {
+  fill: color-mix(in srgb, var(--hr-ok) 12%, transparent);
+  stroke: var(--hr-ok);
+}
+
+.pbp-wp.is-fixed .pbp-wp__core,
+.pbp-wp.is-fixing .pbp-wp__core {
+  fill: var(--hr-ok);
+}
+
+.pbp-wp.is-fixed :is(.pbp-wp__line, .pbp-wp__ring) {
+  animation: none;
+  opacity: 0.75;
+}
+
+.pbp-wp.is-fixing .pbp-wp__line {
+  animation: pbp-fix-line 0.6s ease-out backwards;
+}
+
+.pbp-wp.is-fixing .pbp-wp__ring {
+  animation: pbp-fix-ring 0.6s ease-out backwards;
+}
+
+.pbp-wp.is-fixing .pbp-wp__core {
+  animation: pbp-fix-core 0.6s ease-out backwards;
+}
+
+@keyframes pbp-fix-line {
+  from {
+    stroke: var(--strain);
+  }
+}
+
+@keyframes pbp-fix-ring {
+  from {
+    stroke: var(--strain);
+    fill: color-mix(in srgb, var(--strain) 12%, transparent);
+  }
+}
+
+@keyframes pbp-fix-core {
+  from {
+    fill: var(--strain);
+  }
+}
+
+.pbp-wp__label,
+.pbp-name {
+  stroke: var(--night);
+  paint-order: stroke;
+  stroke-linejoin: round;
+  font-weight: 650;
+}
+
+.pbp-wp__label {
+  fill: color-mix(in srgb, var(--strain) 85%, var(--ink));
+  animation: pbp-fade 0.5s ease-out 0.9s backwards;
+}
+
+.pbp-wp__pct {
+  fill: var(--ink-2);
+  font-weight: 500;
+}
+
+.pbp-name {
+  fill: var(--ink);
+  animation: pbp-fade 0.3s ease-out;
+}
+
+/* the campuses: today's in light ink, the upgrades' in green; each lands once, a ring closing in on it */
+.pbp-camp__dot {
+  stroke: var(--night);
+}
+
+.pbp-camp--today .pbp-camp__dot {
+  fill: var(--ink);
+}
+
+.pbp-camp--built .pbp-camp__dot {
+  fill: var(--hr-ok);
+}
+
+.pbp-camp--built {
+  animation: pbp-fade 0.4s ease-out;
+}
+
+.pbp-camp__n {
+  fill: var(--night);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.pbp-camp__drop {
+  fill: none;
+  stroke: var(--hr-ok);
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pbp-drop 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes pbp-drop {
+  from {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1);
+    opacity: 0;
+  }
+}
+
+/* one cost tag per package, pinned at its upgrades */
+.pbp-tag {
+  animation: pbp-fade 0.4s ease-out backwards;
+}
+
+.pbp-tag__lead {
+  stroke: color-mix(in srgb, var(--hr-ok) 70%, transparent);
+  stroke-width: 1;
+}
+
+.pbp-tag__box {
+  fill: rgba(5, 10, 20, 0.92);
+  stroke: color-mix(in srgb, var(--hr-ok) 45%, transparent);
+  stroke-width: 1;
+}
+
+.pbp-tag.is-now .pbp-tag__box {
+  stroke: var(--hr-ok);
+}
+
+.pbp-tag__text {
+  fill: var(--hr-ok);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.pbp-tag.is-past {
+  opacity: 0.62;
+}
+
+/* paused: everything holds where it is */
+.pbp-layer.is-paused,
+.pbp-layer.is-paused * {
+  animation-play-state: paused !important;
+}
+
+/* reduced motion: each beat's finished frame */
+.pbp-layer.is-still,
+.pbp-layer.is-still *,
+.pbp.is-still,
+.pbp.is-still * {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pbp-layer,
+  .pbp-layer *,
+  .pbp,
+  .pbp *,
+  .st-head.is-away,
+  .st-rail.is-away,
+  .st-head.is-back,
+  .st-rail.is-back,
+  .mc.mc--unlock:has(> .pbp) > .map {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ------------------------------------------------------------------ phones */
+@media (max-width: 860px) {
+  .mc.mc--unlock:has(> .pbp) {
+    position: fixed;
+    inset: 0;
+    padding: 0;
+  }
+
+  /* under the top bar as it really is (PlayByPlay measures it: on a phone it wraps) */
+  .mc.mc--unlock:has(> .pbp) > .map,
+  .pbp {
+    top: var(--pbp-top, var(--appbar-h));
+  }
+
+  .mc.mc--unlock:has(> .pbp) > .map {
+    height: auto;
+  }
+
+  .pbp {
+    gap: 8px;
+    padding: 8px 8px 6px;
+  }
+
+  .pbp__top {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .pbp-back {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.82rem;
+  }
+
+  /* the scoreboard compact, on the first row beside Back */
+  .pbp-score {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    grid-template-columns: auto auto;
+    align-items: end;
+    gap: 12px;
+    min-width: 0;
+    padding: 6px 10px 7px;
+  }
+
+  .pbp-score__n {
+    font-size: 1.5rem;
+  }
+
+  .pbp-score__money {
+    font-size: 0.98rem;
+  }
+
+  .pbp-score__of,
+  .pbp-score__meter {
+    display: none;
+  }
+
+  /* the beats: one row under it, the current one's name only */
+  .pbp-steps {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    padding: 6px 8px 7px;
+    gap: 4px;
+  }
+
+  .pbp-steps__i {
+    max-width: none;
+  }
+
+  .pbp-steps__i:not(.is-now) .pbp-steps__t {
+    visibility: hidden;
+    height: 0.9rem;
+  }
+
+  .pbp-steps__i.is-now {
+    flex-grow: 3;
+  }
+
+  .pbp-card {
+    width: 100%;
+    padding: 8px 10px 9px;
+    justify-self: stretch;
+  }
+
+  .pbp-card__title {
+    font-size: 1.2rem;
+  }
+
+  /* the beat strip above already says where you are */
+  .pbp-card:not(.pbp-card--error, .pbp-card--loading) .pbp-card__kicker {
+    display: none;
+  }
+
+  .pbp-card__sub {
+    margin-top: 4px;
+    font-size: 0.8rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .pbp-card__stats {
+    display: none;
+  }
+
+  .pbp-final {
+    width: 100%;
+    justify-self: stretch;
+    padding: 12px 12px 10px;
+  }
+
+  .pbp-final__main {
+    font-size: 1.3rem;
+  }
+
+  .pbp-final__sub {
+    font-size: 0.8rem;
+  }
+
+  .pbp.is-final .pbp__foot {
+    display: none;
+  }
+
+  .pbp-ctl {
+    gap: 6px 8px;
+  }
+
+  .pbp-who {
+    font-size: 0.72rem;
+    padding: 4px 8px;
+  }
+
+  .pbp-who > span:not(.aib) {
+    display: none;
+  }
+
+  /* the checks' fold (the agent's trace) opens over the whole controls row, or the whole final card, so it stays on
+     the screen wherever its summary wrapped to */
+  .pbp-ctl,
+  .pbp-final {
+    position: relative;
+  }
+
+  .pbp-who,
+  .pbp-who__checks {
+    position: static;
+  }
+
+  .pbp-who__checks ul {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    max-height: min(55vh, 26rem);
+  }
+
+  .pbp .bn-cap {
+    padding: 7px 10px 9px;
+  }
+
+  .pbp .bn-cap__text {
+    font-size: 0.96rem;
+  }
+
+  .pbp-syn {
+    font-size: 0.62rem;
+  }
+}

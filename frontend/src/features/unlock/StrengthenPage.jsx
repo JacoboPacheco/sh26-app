@@ -8,6 +8,8 @@
 //   THE METER ..... one cell per campus: today's in light ink, the budget's in green, the rest outlined, the power
 //                   plants' reserve line, and why the search ends
 //   THE CONTROLS .. campus size, always on or flexible, the budget (every stop adds a campus), Watch it get built
+//                   (it leaves this dashboard for a full-screen play-by-play over the map: PlayByPlay.jsx; Esc or
+//                   Back to the plan returns here exactly as it was)
 //   THE MAP ....... the campuses numbered in order, the upgrades in green, what stops the next one in amber
 //   THE PLAN ...... campus by campus; a row opens its card, which hands the case to Watch it fail with and
 //                   without the upgrades
@@ -16,12 +18,12 @@
 //
 // Florida's 1,000 MW study is warmed at startup, so the page opens with answers and the build-up plays once by
 // itself; other states run on the button (LAZY), with the time it takes and a real progress view.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Button, ErrorBanner, Loading } from '../../ui'
 import AiBadge from '../ai/AiBadge'
-import { BuildCaption, useBuildNarration } from '../narrate'
+import { narrationBody, useBuildNarration } from '../narrate'
 import { money, moneyRange } from '../cost/money'
 import { budgetOf, targetOf } from './unlockStore'
 import { capStopIndex, capStops, capWithin, costAt, count, levelPhrase, ordinal, sizeLabel, stopText, stopsClause } from './capacity'
@@ -30,6 +32,7 @@ import CapacityCard from './CapacityCard'
 import CapacityMeter from './CapacityMeter'
 import CapacityPlan from './CapacityPlan'
 import GeminiChallenge from './GeminiChallenge'
+import PlayByPlay from './PlayByPlay'
 import StudyProgress from './StudyProgress'
 import { ttpPlan, useTimeToPower } from './timeToPower'
 import SureFold from './SureFold'
@@ -40,10 +43,11 @@ import {
   capBudgetOf,
   capNow,
   capTargetOf,
+  endPbp,
   gemNow,
   keyOf,
+  openPbp,
   openStudy,
-  playCap,
   reducedMotion,
   runStudy,
   select,
@@ -56,9 +60,7 @@ import {
   showBundle,
   showGemini,
   showCap,
-  stopCap,
   stopPlay,
-  talkCap,
   useUnlock,
 } from './unlockStore'
 import './unlock.css'
@@ -117,11 +119,11 @@ export default function StrengthenPage() {
     const st = gm?.steps[n - 1]
     if (st) flyTo(o, [[st.site.lon, st.site.lat]])
   }
+  // "Watch it get built": the dashboard steps away for the full-screen play-by-play (PlayByPlay below)
   const watch = () => {
-    if (gm) showGemini(false) // only when Gemini's plan is up: it resets the map to the answer (undoing a resume)
+    if (gm) showGemini(false) // only when Gemini's plan is up: the play-by-play builds the engine's plan
     select(null)
-    mapRef.current?.reset()
-    talkCap() // the narrated build-up (useBuildNarration below): "Keep building" resumes, else it starts over
+    openPbp()
   }
   const openSites = (start = 'plan') => {
     setSitesStart((s) => ({ view: start, key: s.key + 1 }))
@@ -159,33 +161,59 @@ export default function StrengthenPage() {
   const duke = r?.capacity?.sources?.find((x) => /Duke/.test(x.name))
   const summary = hasPlan ? meterSummary(m, r.mw, target, plantsN, plants?.reserve_pct) : ''
 
-  // "Watch it get built" plays the presenter: heard only when this viewer turned sound on (captions always), and the
-  // map follows the voice. The first build-up on open stays the silent timer (MUTED: nothing plays audio by itself).
-  // It plays only over the finished study on screen; stopCap() (every size, type, budget, view, state or load change,
-  // Gemini's plan, the Pause button, leaving the page) stops it. "Keep building" resumes the paused slide; "Watch it
-  // get built" starts over; a paused caption stays up only while the button offers to keep building.
-  const resumable = hasPlan && shown > m.today && shown < target
+  // The play-by-play's presenter: heard only when this viewer turned sound on (captions always), and the map follows
+  // the voice. The first build-up on open stays the silent timer on this dashboard (MUTED: nothing plays audio by
+  // itself). It plays only over the finished study on screen; stopCap() (every size, type, budget, view, state or load
+  // change, Gemini's plan, leaving the page) closes the play-by-play; its own Pause holds it, Play resumes the beat.
+  const nbMw = r?.mw ?? u.size
+  const nbMode = u.flex ? 'flexible' : 'firm'
   const nb = useBuildNarration({
     region,
-    mw: r?.mw ?? u.size,
+    mw: nbMw,
     loadFactor,
-    mode: u.flex ? 'flexible' : 'firm',
+    mode: nbMode,
     budget,
     lang: 'en',
-    playing: u.capTalk && hasPlan,
-    fromStart: !resumable,
+    playing: u.pbp && u.capTalk && hasPlan,
+    fromStart: u.pbpFresh,
     onStep: (n) => showCap(Math.max(m?.today ?? 0, n)),
     onDone: (why) => {
-      if (why === 'error' && hasPlan) playCap(true) // no script (e.g. the study was dropped): the silent build-up instead
-      else settleCap() // the last word: the budget's answer stands
+      if (why === 'end') endPbp() // the last word: the final frame (the whole plan, the answer)
     },
   })
-  const building = u.capTalk || u.capPlaying
+  const pbpBody = useMemo(() => narrationBody({ region, mw: nbMw, loadFactor, mode: nbMode, budget, lang: 'en' }), [region, nbMw, loadFactor, nbMode, budget])
+
+  // entering and leaving the play-by-play: the dashboard slides away first, then the map takes the page; coming back
+  // it slides in again and the button that opened it has the focus
+  const [phase, setPhase] = useState(u.pbp ? 'on' : null) // null | 'out' | 'on' | 'back'
+  const [pbpWas, setPbpWas] = useState(u.pbp)
+  if (pbpWas !== u.pbp) {
+    // the store opened or closed it: start the slide (adjusting state while rendering, React's pattern for this)
+    setPbpWas(u.pbp)
+    setPhase(u.pbp ? (still ? 'on' : 'out') : phase === 'on' || phase === 'out' ? (still ? null : 'back') : phase)
+  }
+  useEffect(() => {
+    if (phase !== 'out' && phase !== 'back') return undefined
+    const t = setTimeout(() => setPhase(phase === 'out' ? 'on' : null), phase === 'out' ? 260 : 420)
+    return () => clearTimeout(t)
+  }, [phase])
+  const watchRef = useRef(null)
+  // back from the play-by-play: the whole state in view, the focus on the button that opened it
+  const wasPbp = useRef(u.pbp)
+  useEffect(() => {
+    if (wasPbp.current && !u.pbp) {
+      mapRef.current?.reset()
+      watchRef.current?.querySelector('button')?.focus()
+    }
+    wasPbp.current = u.pbp
+  }, [u.pbp, mapRef])
+  const away = phase === 'out' || phase === 'on' ? ' is-away' : phase === 'back' ? ' is-back' : ''
+  const building = u.capPlaying
   const gemSummary = gm ? `Capacity meter showing Gemini’s plan, verified by the engine: ${fmt(gm.steps.length)} campuses at once for ${money(r.capacity.ai.cost.high)}.` : ''
 
   return (
     <>
-      <header className="st-head">
+      <header className={`st-head${away}`}>
         <Answer o={o} u={u} r={r} m={m} where={where} national={national} busy={busy} mine={mine} target={target} loadFactor={loadFactor} plantsN={plantsN} />
         {hasPlan && (
           <CapacityMeter
@@ -226,17 +254,19 @@ export default function StrengthenPage() {
               />
             )}
             {hasPlan && <CapBudget m={m} budget={budget} onChange={setCapBudget} />}
-            {/* with reduced motion the plan stands complete at once: there is no build-up to watch */}
-            {hasPlan && !still && (
-              <Button
-                variant={building ? 'secondary' : 'primary'}
-                onClick={building ? stopCap : watch}
-                disabled={target <= m.today}
-                title={target <= m.today ? 'Raise the budget: there is nothing to build yet' : undefined}
-              >
-                <span aria-hidden="true" className={`st-watch__icon${building ? ' is-pause' : ''}`} />
-                {building ? 'Pause' : resumable ? 'Keep building' : 'Watch it get built'}
-              </Button>
+            {/* the full-screen play-by-play (with reduced motion it steps beat by beat) */}
+            {hasPlan && (
+              <span className="st-watch" ref={watchRef}>
+                <Button
+                  variant="primary"
+                  onClick={watch}
+                  disabled={target <= m.today}
+                  title={target <= m.today ? 'Raise the budget: there is nothing to build yet' : building ? 'Watch it as a narrated play-by-play' : undefined}
+                >
+                  <span aria-hidden="true" className="st-watch__icon" />
+                  Watch it get built
+                </Button>
+              </span>
             )}
           </div>
         )}
@@ -262,14 +292,24 @@ export default function StrengthenPage() {
       </header>
 
       {m && view === 'capacity' && <MapKey gem={!!gm?.steps.some((st) => st.gem)} />}
-      {m && view === 'capacity' && !gm && (building || resumable) && <BuildCaption nb={nb} />}
+      {phase === 'on' && u.pbp && hasPlan && r && (
+        <PlayByPlay
+          o={o}
+          u={u}
+          m={m}
+          nb={nb}
+          body={pbpBody}
+          target={target}
+          answer={sentence(m, where, sizeLabel(r.mw), u.flex, target, loadFactor, plantsN, r.capacity.plants?.reserve_pct ?? 15)}
+        />
+      )}
 
       {r && view === 'capacity' && selN && !gm && <CapacityCard r={r} m={m} n={selN} flex={u.flex} target={target} onBudget={setCapBudget} tt={tt} />}
       {r && view === 'sites' && (
         <UpgradeCard r={r} selected={u.selected} bundle={u.bundle} target={targetOf(u)} budget={budgetOf(u)} onBudget={setBudget} onPickStep={pickStep} />
       )}
 
-      <section className="st-rail" aria-label="The plan">
+      <section className={`st-rail${away}`} aria-label="The plan">
         {national ? (
           <div className="st-note">
             <h2 className="st-h">Pick a state</h2>
@@ -363,11 +403,11 @@ function Answer({ o, u, r, m, where, national, busy, mine, target, loadFactor, p
     main = 'How many more AI data centers can a state’s grid carry at once?'
     sub = 'Pick a state: the engine connects one campus after another and finds the cheapest upgrades for the next one.'
   } else if (busy) {
-    main = `Studying how many ${size} AI data centers ${where}’s grid can carry at once…`
+    main = `Studying how many ${size} AI data centers ${where}’s grid model can carry at once…`
     sub = 'The map fills in as the engine tests each site.'
   } else if (mine && u.status === 'cta') {
     main = `${where} hasn’t been studied for ${size} AI data centers yet.`
-    sub = 'Run the study to see how many its grid can carry at once, and what it would take to carry more.'
+    sub = 'Run the study to see how many its grid model can carry at once, and what it would take to carry more.'
   } else if (mine && u.status === 'error') {
     main = `The study for ${where} didn’t finish.`
   } else if (!r) {
@@ -396,9 +436,10 @@ function Answer({ o, u, r, m, where, national, busy, mine, target, loadFactor, p
   )
 }
 
-// The answer in words. The money is transmission only (lines and transformers); when the power plants (with their
-// planning reserve kept) supply fewer campuses than the wires carry, the headline says so itself, so the two
-// numbers never read as rival answers.
+// The answer in words. The money is transmission only (lines and transformers). The lead is ONE count, today to
+// with the upgrades (REVIEW-1); the power plants' reserve line (fewer campuses than the wires carry) is the
+// sub-line's caveat and the meter's marked line, so the two numbers never read as rival answers. "Grid model":
+// every figure is from the synthetic model, not a utility's network.
 function sentence(m, where, size, flex, target, lf, plantsN, reservePct) {
   const kind = flex ? 'flexible ' : ''
   const dc = (n) => `${kind}AI data center${n === 1 ? '' : 's'}`
@@ -407,7 +448,7 @@ function sentence(m, where, size, flex, target, lf, plantsN, reservePct) {
   const level = levelPhrase(lf)
   const peak = Math.abs(lf - 1) < 0.005
   if (!N) {
-    const main = `${where}’s grid can’t carry one more ${size} ${dc(1)} ${level}.`
+    const main = `${where}’s grid model can’t carry one more ${size} ${dc(1)} ${level}.`
     const sub =
       m.stop === 'plants'
         ? 'The model’s power plants can’t supply one more at this load: that needs new generation, not wires. Try a smaller size.'
@@ -430,25 +471,20 @@ function sentence(m, where, size, flex, target, lf, plantsN, reservePct) {
     v = costAt(m, target).high
   }
   const short = plantsN != null && plantsN < n
-  const but = !short
-    ? ''
-    : plantsN === 0
-      ? `, but today’s power plants can’t supply ${n === 1 ? 'it' : 'any of them'}`
-      : `, but today’s power plants can supply only ${count(plantsN)}`
   const ups = `${money(v)} of transmission upgrades`
   let main
   let sub
   if (today === 0) {
-    main = `${where}’s grid can’t carry even one more ${size} ${dc(1)} ${level} without upgrades; with ${ups} it carries ${count(n)}${but}.`
+    main = `${where}’s grid model can’t carry even one more ${size} ${dc(1)} ${level} without upgrades; with ${ups} it carries ${count(n)}.`
     sub = `${cap1(stopsClause(m, 1))}.`
   } else if (target <= today) {
-    main = `${where}’s grid can carry ${count(today)} more ${size} ${dc(today)} at once today, with no upgrades${but}.`
+    main = `${where}’s grid model can carry ${count(today)} more ${size} ${dc(today)} at once today, with no upgrades.`
     const next = m.steps[today]
     sub = next ? `${cap1(stopsClause(m, today + 1))}; ${money(next.cum_cost.high)} of upgrades lets it in.` : `Then ${stopText(m.stop)}.`
     if (!peak) sub = `${cap1(level)}. ${sub}`
   } else {
-    main = `${where}’s grid can carry ${count(n)} more ${size} ${dc(n)} at once with ${ups}${but}.`
-    sub = `Today it has room for ${count(today)}; ${stopsClause(m, today + 1)}.`
+    main = `${where}’s grid model can carry ${count(n)} more ${size} ${dc(n)} at once with ${ups}. Today it carries ${count(today)}.`
+    sub = `${cap1(stopsClause(m, today + 1))}.`
     if (!peak) sub = `${cap1(level)}. ${sub}`
   }
   if (plantsN != null) {
@@ -465,7 +501,7 @@ function sentence(m, where, size, flex, target, lf, plantsN, reservePct) {
 function meterSummary(m, mw, target, plantsN, reservePct) {
   const N = m.steps.length
   const today = m.today
-  const parts = [`Capacity meter for ${sizeLabel(mw)} campuses connected at once: ${fmt(today)} fit today`]
+  const parts = [`Capacity meter for ${sizeLabel(mw)} campuses connected at once to the synthetic grid model: ${fmt(today)} fit today`]
   if (target > today) parts.push(`${fmt(target - today)} more with ${money(costAt(m, target).high)} of upgrades`)
   if (N > target) parts.push(`${fmt(N - target)} more possible with ${money(m.steps.at(-1).cum_cost.high)} in all`)
   if (plantsN != null) parts.push(`the power plants cover ${fmt(plantsN)} with a ${fmt(reservePct ?? 15)} % reserve kept`)

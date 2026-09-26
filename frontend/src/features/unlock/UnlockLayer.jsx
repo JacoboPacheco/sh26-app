@@ -1,6 +1,7 @@
 // FEATURE: Strengthen the grid, the map layer (owned by the unlock track): SVG inside the map camera.
 //
-// The capacity view (the page's answer: campuses connected at once) draws CapacityLayer. The site-by-site view,
+// The capacity view (the page's answer: campuses connected at once) draws CapacityLayer, or PbpLayer while "Watch it
+// get built" plays its full-screen play-by-play. The site-by-site view,
 // and a study still learning, draw this:
 // While mode === 'unlock' and a study for this region is on screen (or learning):
 //  - every simulated site as a small dot: pale where a campus of the study's size fits today, amber where
@@ -17,9 +18,10 @@ import { useMapView } from '../../GridMap'
 import { WIDTH, citiesFor, fmt } from '../../geo'
 import { useOverload } from '../../store'
 import CapacityLayer from './CapacityLayer'
+import PbpLayer from './PbpLayer'
 import { pickCampus } from './capacityPick'
 import './unlock.css'
-import { capNow, capTargetOf, compact, drawnUpgrades, gemNow, select, useUnlock } from './unlockStore'
+import { capNow, capTargetOf, compact, drawnUpgrades, gemNow, reducedMotion, select, useUnlock } from './unlockStore'
 
 const HALO_MIN = 6
 const HALO_MAX = 17
@@ -53,6 +55,8 @@ export default function UnlockLayer() {
   const labels = on && points && !cap ? placeLabels(points, k, project, grid, u.selected) : new Map()
   // Gemini's verified plan ("Show it" on the Strengthen page): its campuses and raises, its new sites outlined in blue
   const gem = cap ? gemNow(u) : null
+  // "Watch it get built": the play-by-play draws its own picture, beat by beat
+  if (cap && u.pbp) return <PbpLayer m={cap} u={u} grid={grid} reduced={reducedMotion()} />
   if (gem)
     return (
       <CapacityLayer

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import useNarration, { reducedMotion } from '../briefing/useNarration'
 import { getNarration } from './narrateApi'
 
-// The narrated build-up on Strengthen the grid: a presenter voice says what the map draws, campus by campus.
+// The narrated play-by-play on Strengthen the grid: a presenter voice says what the map draws, package by package
+// (backend/narrate.py groups the plan's upgrades into at most four packages; about a minute whatever the budget).
 //
 //   const nb = useBuildNarration({ region, mw, loadFactor, mode, budget, lang, playing, onStep, onDone })
 //
@@ -25,6 +26,20 @@ import { getNarration } from './narrateApi'
 // stale: the script held is for other props (the page stopped it on a change): the caption hides, and the next play
 //   fetches the new script and starts it from the intro. Unmounting drops a fetch still on its way (no late onDone).
 
+// The request body for a script (the server's cache and getNarration's key): the same order everywhere, so the
+// play-by-play's reduced-motion path (which steps through the beats without the engine) shares the hook's script.
+export function narrationBody({ region, mw, loadFactor = 1, mode = 'firm', budget = 0, ai = true, lang = 'en' }) {
+  return {
+    region,
+    mw: Number(mw) || 0,
+    load_factor: Number(loadFactor) || 1,
+    mode: mode === 'flexible' ? 'flexible' : 'firm',
+    budget: Math.max(0, Number(budget) || 0),
+    ai: !!ai,
+    lang: lang === 'es' ? 'es' : 'en',
+  }
+}
+
 export default function useBuildNarration({ region, mw, loadFactor = 1, mode = 'firm', budget = 0, lang = 'en', playing = false, fromStart = false, ai = true, onStep, onDone }) {
   const [script, setScript] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -33,10 +48,11 @@ export default function useBuildNarration({ region, mw, loadFactor = 1, mode = '
   const [heldFor, setHeldFor] = useState(null) // `${params}|${lang}` of the script held (state: the caption reads it)
   const [reduced] = useState(reducedMotion)
 
-  const body = useMemo(
-    () => ({ region, mw: Number(mw) || 0, load_factor: Number(loadFactor) || 1, mode: mode === 'flexible' ? 'flexible' : 'firm', budget: Math.max(0, Number(budget) || 0), ai: !!ai }),
-    [region, mw, loadFactor, mode, budget, ai],
-  )
+  const body = useMemo(() => {
+    const b = narrationBody({ region, mw, loadFactor, mode, budget, ai })
+    delete b.lang // the language joins the key at fetch time (a switch keeps the slide)
+    return b
+  }, [region, mw, loadFactor, mode, budget, ai])
   const pkey = JSON.stringify(body)
 
   const stepRef = useRef(onStep)
@@ -169,7 +185,7 @@ export default function useBuildNarration({ region, mw, loadFactor = 1, mode = '
       endedRef.current = false
       setEnded(false)
     }
-    load(key, { ...JSON.parse(pkey), lang }, keep ? narr.idx : 0)
+    load(key, { ...JSON.parse(pkey), lang: lang === 'es' ? 'es' : 'en' }, keep ? narr.idx : 0)
     // narr.idx is read at the moment of the switch on purpose (not a trigger)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, pkey, lang, script, load, stopVoice, play, restart, playingRef])

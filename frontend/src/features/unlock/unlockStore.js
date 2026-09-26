@@ -37,6 +37,11 @@ let state = {
   capShown: 0, // campuses on the map and lit in the meter (the build-up)
   capPlaying: false,
   capTalk: false, // the narrated build-up (features/narrate) is on: the presenter's voice moves capShown
+  pbp: false, // "Watch it get built": the full-screen play-by-play over the map is open (PlayByPlay.jsx)
+  pbpFresh: false, // ... and starts from its intro on the next play (false once paused: play resumes)
+  pbpEnd: false, // ... its closing has played: the final frame stands
+  pbpBeat: 0, // ... the beat on screen (the script's slide index), for the map layer
+  pbpScript: null, // ... the script it plays (packages, weak points), for the map layer
   budget: null, // dollars (high end) for the site-by-site plan; null = the study's default (budget.js)
   shown: 0, // site-by-site plan steps shown on the map and in its table
   playing: false,
@@ -347,22 +352,65 @@ export function playCap(fromStart = false) {
 export function stopCap() {
   clearTimeout(capTimer)
   capTimer = null
-  if (state.capPlaying || state.capTalk) set({ capPlaying: false, capTalk: false })
+  // every change that stops the build-up (size, type, budget, view, Gemini's plan, state, load level, leaving the
+  // page) also closes the play-by-play: it only ever shows the answer on screen
+  if (state.capPlaying || state.capTalk || state.pbp) set({ capPlaying: false, capTalk: false, pbp: false, pbpEnd: false })
 }
 
-// The narrated build-up (features/narrate): the presenter's voice moves the campuses instead of the timer.
-// talkCap() starts it (the page's hook plays while capTalk is on); showCap(n) is each step the voice reaches (the map,
-// meter and plan show the campus being built, as with the timer). stopCap() ends it like the timer, so every change
-// that stops the build-up (size, type, budget, view, Gemini's plan, state, load level, leaving the page) stops the
-// voice too.
-export function talkCap() {
-  clearTimeout(capTimer)
-  capTimer = null
-  set({ capTalk: true, capPlaying: false })
-}
-
+// The narrated play-by-play (features/narrate, PlayByPlay.jsx): the presenter's voice moves the campuses instead of
+// the timer while capTalk is on (openPbp / resumePbp below); showCap(n) is each step the voice reaches (the map and the
+// scoreboard show the campus being built). stopCap() ends it like the timer, so every change that stops the build-up
+// (size, type, budget, view, Gemini's plan, state, load level, leaving the page) stops the voice and closes the mode.
 export function showCap(n) {
   set((s) => ({ capShown: Math.max(0, n), capPlaying: s.capTalk }))
+}
+
+// ------------------------------------------------------------------ "Watch it get built": the play-by-play
+// openPbp() leaves the dashboard for the full-screen play-by-play (PlayByPlay.jsx): the map starts from today's
+// campuses and the presenter's voice (or the captions' timer) moves them; with reduced motion nothing plays by itself
+// and the viewer steps through the beats. holdPbp() pauses (the mode stays), resumePbp() plays on (or again, after
+// the end), endPbp() lands on the final frame (the budget's answer, all of it green), closePbp() goes back to the
+// dashboard exactly as it was (the answer standing). Any change that calls stopCap() closes it too.
+export function openPbp() {
+  clearTimeout(capTimer)
+  capTimer = null
+  set((s) => ({
+    pbp: true,
+    pbpFresh: true,
+    pbpEnd: false,
+    pbpBeat: 0,
+    pbpScript: null, // the last run's script must not flash on the map while the dashboard slides away
+    view: 'capacity',
+    selected: null,
+    bundle: null,
+    gemShow: false,
+    capPlaying: false,
+    capTalk: !reducedMotion(),
+    capShown: capNow(s)?.today ?? 0,
+  }))
+}
+
+export const holdPbp = () => set({ capTalk: false, pbpFresh: false })
+
+export function resumePbp() {
+  if (!state.pbp) return
+  const talk = !reducedMotion() // reduced motion: the viewer steps through the beats, nothing plays by itself
+  set((s) => (s.pbpEnd ? { capTalk: talk, pbpEnd: false, pbpFresh: true, capShown: capNow(s)?.today ?? 0 } : { capTalk: talk }))
+}
+
+export function endPbp() {
+  if (!state.pbp) return
+  set((s) => ({ capTalk: false, capPlaying: false, pbpEnd: true, capShown: capTargetOf(s) }))
+}
+
+export function closePbp() {
+  stopCap()
+  set((s) => ({ pbp: false, pbpEnd: false, pbpBeat: 0, pbpScript: null, capShown: capTargetOf(s) }))
+}
+
+// the beat on screen and the script it belongs to (the map layer draws from them)
+export function setPbpView(script, beat) {
+  if (state.pbpScript !== script || state.pbpBeat !== beat) set({ pbpScript: script, pbpBeat: beat })
 }
 
 // Leaving the page mid build-up: the answer stands complete for the next visit.
