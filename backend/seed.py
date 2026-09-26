@@ -61,37 +61,26 @@ def get_token() -> str:
     sys.exit(1)
 
 
-SEED_MARK = "(demo scenario)"
-# Sites must match backend/demo/expected_whatif.json; demo_path.py replays Fort Myers (the hero).
-SCENARIOS = (
-    {"name": "Fort Myers · 1,500 MW", "lat": 26.64, "lon": -81.87, "mw": 1500, "note": f"Southwest Florida {SEED_MARK}"},
-    {"name": "Orlando · 500 MW", "lat": 28.5384, "lon": -81.3789, "mw": 500, "note": f"Central Florida {SEED_MARK}"},
-    {"name": "Miami · 1,500 MW", "lat": 25.7617, "lon": -80.1918, "mw": 1500, "note": f"South Florida {SEED_MARK}"},
-)
+SEED_MARK = "(demo scenario)"  # marks the built-in examples (backend/scenarios.py)
+# The examples themselves live in backend/scenarios.py → examples(): the server owns them, so nobody
+# can edit or delete them through the API (403), and only the server can bring them back to canonical.
+# The hero, "Fort Myers · 1,500 MW", matches expected_whatif.json → hero; demo_path.py clicks it.
 
 
 def seed_project_data(token: str) -> None:
-    """Create the saved scenarios the demo needs, via the API. Idempotent: it lists first,
-    creates only what's missing, and removes its own stale rows (matched by SEED_MARK)
-    when a row here is renamed."""
-    status, existing = call("GET", "/api/scenarios", token=token)
+    """Write the Library's built-in examples into the demo account, via the API. Idempotent: the
+    server creates the missing ones, brings changed ones back to their canonical case (numbers
+    recomputed on the current engine), and removes retired ones (their versions are kept)."""
+    status, payload = call("POST", "/api/scenarios/examples", token=token)
     if status != 200:
-        print(f"could not list scenarios ({status} {existing}); not seeding blind")
+        print(f"could not write the example scenarios: {status} {payload}")
         sys.exit(1)
-    wanted = {s["name"] for s in SCENARIOS}
-    for sc in existing:
-        if SEED_MARK in (sc.get("note") or "") and sc["name"] not in wanted:
-            call("DELETE", f"/api/scenarios/{sc['id']}", token=token)
-            print(f"removed stale seed scenario {ascii(sc['name'])}")
-    have = {sc["name"] for sc in existing}
-    for sc in SCENARIOS:
-        if sc["name"] in have:
-            continue
-        status, payload = call("POST", "/api/scenarios", sc, token=token)
-        if status != 200:
-            print(f"could not create scenario {ascii(sc['name'])}: {status} {payload}")
-            sys.exit(1)
-        print(f"created scenario {ascii(sc['name'])}")
+    for verb in ("created", "updated", "removed"):
+        for name in payload.get(verb, []):
+            print(f"{verb} example {ascii(name)}")
+    for sc in payload["examples"]:
+        r = sc.get("result") or {}
+        print(f"  {ascii(sc['name'])}: {r.get('verdict')}, {r.get('people', 0):,} people without power (estimate), {r.get('steps', 0)} steps")
 
 
 if __name__ == "__main__":

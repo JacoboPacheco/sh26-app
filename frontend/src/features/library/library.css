@@ -1,0 +1,349 @@
+/* The Library (features/library): cards on a shelf, versions nested, the toolbar's Save and Share
+   popovers. Tokens from index.css only; color only where something went wrong. */
+
+.lib {
+  display: grid;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.lib-section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.lib-section__head {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.lib-section__head h2 {
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.lib-fine {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+.lib-shelf {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17.5rem), 1fr));
+  gap: var(--space-3);
+}
+
+.lib-shelf > li {
+  display: grid;
+  min-width: 0;
+}
+
+.lib-shelf--mine {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr));
+}
+
+/* ------------------------------------------------------------------ a card */
+.lib-card {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-top: 3px solid var(--glass-edge);
+  border-radius: var(--radius);
+}
+
+.lib-card--warn {
+  border-top-color: var(--strain);
+}
+
+.lib-card--bad {
+  border-top-color: var(--overload);
+}
+
+.lib-card__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.lib-where {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.lib-card__name {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.lib-sentence {
+  font-size: 0.875rem;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.lib-note {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+.lib-why {
+  font-size: 0.8125rem;
+  color: var(--ink);
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border);
+}
+
+/* verdict chip: the app shell's tones (holds / lines trip / people lose power) */
+.lib-verdict {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.5;
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--glass-edge);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.lib-verdict--ok {
+  color: var(--hr-ok);
+  border-color: color-mix(in srgb, var(--hr-ok) 40%, transparent);
+}
+
+.lib-verdict--warn {
+  color: var(--strain);
+  border-color: color-mix(in srgb, var(--strain) 40%, transparent);
+}
+
+.lib-verdict--bad {
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-color: color-mix(in srgb, var(--overload) 50%, transparent);
+}
+
+/* the three numbers */
+.lib-nums {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+}
+
+.lib-nums > div {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.lib-nums dt {
+  font-size: 0.6875rem;
+  color: var(--ink-2);
+  line-height: 1.25;
+}
+
+.lib-nums dd {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 800;
+  font-stretch: 80%;
+  line-height: 1.05;
+  color: var(--ink);
+}
+
+.lib-card--bad .lib-nums > div:first-child dd {
+  color: var(--warn-text);
+}
+
+/* actions */
+.lib-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.lib-actions .btn {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.lib-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.lib-check input {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+}
+
+.lib-actions .banner--error {
+  flex-basis: 100%;
+}
+
+/* versions nested under their original */
+.lib-versions {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--glass-edge);
+}
+
+.lib-versions__h {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.lib-versions__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.lib-version {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) 0 var(--space-2) var(--space-3);
+  border-left: 2px solid var(--glass-edge);
+  min-width: 0;
+}
+
+.lib-version__main {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.lib-version__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.lib-vnum {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-right: 0.2rem;
+}
+
+/* compare bar: stays in reach at the bottom of the page */
+.lib-compare {
+  position: sticky;
+  bottom: var(--space-3);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  z-index: 2;
+}
+
+/* ------------------------------------------------------------------ Save / Share popovers */
+.lib-pop {
+  position: relative;
+  display: inline-block;
+}
+
+.lib-pop__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(21rem, calc(100vw - 2 * var(--gutter)));
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  z-index: 40;
+  text-align: left;
+  font-weight: 400;
+}
+
+.lib-pop__title {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.lib-or {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  text-align: center;
+}
+
+.lib-linkbox {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.lib-linkbox input {
+  font-size: 0.8125rem;
+}
+
+.lib-a {
+  color: var(--current);
+  font-size: 0.875rem;
+}
+
+.lib-preview-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* a phone: the panel opens in place, under the button, instead of floating off the edge */
+@media (max-width: 600px) {
+  .lib-pop {
+    display: block;
+  }
+
+  .lib-pop__panel {
+    position: static;
+    margin-top: 6px;
+    width: min(21rem, calc(100vw - 2 * var(--gutter)));
+    box-shadow: none;
+  }
+
+  .lib-nums dd {
+    font-size: 1.2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lib-pop__panel {
+    transition: none;
+  }
+}
