@@ -499,3 +499,33 @@
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+
+/* ------------------------------------------------------------------ after the cascade: on to Strengthen (ImpactPanel) */
+.to-strengthen {
+  display: grid;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--hr-ok) 55%, transparent);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.to-strengthen:hover,
+.to-strengthen:focus-visible {
+  background: color-mix(in srgb, var(--hr-ok) 10%, transparent);
+}
+
+.to-strengthen__q {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.to-strengthen__a {
+  font-weight: 700;
+  color: var(--hr-ok);
+}

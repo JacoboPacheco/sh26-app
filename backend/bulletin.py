@@ -1817,8 +1817,54 @@ def s_recovery(w: Writer, lv: Level) -> dict:
     return out
 
 
+CAPACITY_MW = 1000.0  # the Strengthen page's default campus size
+CAPACITY_BUDGET = 50e6  # and its default budget: the most the grid carries within it
+
+
+def _capacity(w: Writer) -> dict | None:
+    """The state's answer from a finished Strengthen study (1 GW campuses at this load level), when one is cached
+    (unlock.py; Florida's is warmed at startup): campuses the grid carries at once today, and with the upgrades the
+    page's default budget buys. None when no study is cached (nothing is computed for the deck)."""
+    try:
+        import unlock
+
+        with unlock._cache_lock:
+            hit = unlock._cache.get((w.code, CAPACITY_MW, w.lf))
+    except Exception:  # noqa: BLE001 — the deck never depends on it
+        return None
+    firm = ((hit or {}).get("capacity") or {}).get("firm") or {}
+    steps = firm.get("steps") or []
+    if not steps:
+        return None
+    within = [st for st in steps if not st["free"] and st["cum_cost"]["high"] <= CAPACITY_BUDGET]
+    return {"today": int(firm.get("today") or 0), "n": within[-1]["n"] if within else None, "cost": within[-1]["cum_cost"]["high"] if within else None}
+
+
+def _capacity_say(w: Writer, cap: dict, lang: str) -> str:
+    en = lang == "en"
+    state = w.region_name if en else w.region_es
+    today = cap["today"]
+    if en:
+        s = f"Across {state}, the grid model carries {num(today, 'en')} more one-gigawatt data {'center' if today == 1 else 'centers'} at once today"
+    else:
+        s = f"En todo {state}, el modelo de la red soporta hoy {num(today, 'es')} {'centro' if today == 1 else 'centros'} de datos más de un gigavatio a la vez"
+    if cap["n"] and cap["n"] > today:
+        money, _ = usd_say(cap["cost"], lang)
+        s += (f"; with {money} of upgrades, {num(cap['n'], 'en')}. Strengthen the grid shows where." if en
+              else f"; con {money} en mejoras, {num(cap['n'], 'es')}. Reforzar la red muestra dónde.")
+    else:
+        s += "." if en else "."
+    return s
+
+
 def s_bottom(w: Writer, lv: Level) -> dict:
     out = {"kind": "bottom_line", "headline": {}, "lines": {}, "narr": {}}
+    cap = _capacity(w)
+    if cap:
+        w.add("strengthen.today", "Campuses of 1 GW the state's grid model carries at once today (Strengthen the grid)", cap["today"], "campuses")
+        if cap["n"]:
+            w.add("strengthen.with_budget", "Campuses of 1 GW it carries at once with the upgrades a $50 million budget buys", cap["n"], "campuses")
+            w.add("strengthen.cost", "What those upgrades cost (high end)", round(cap["cost"]), "USD")
     best = w.best
     ap = (best or {}).get("apply") if w.verdict in ("preventable", "partly") else None
     for lang in LANGS:
@@ -1858,9 +1904,11 @@ def s_bottom(w: Writer, lv: Level) -> dict:
                  else f"En resumen: en este escenario, {people_say(w.people, 'es')} se quedan sin luz.") if w.people else (
                 "Bottom line: every line holds in this scenario." if en else "En resumen: todas las líneas aguantan en este escenario.")
             h = "Bottom line" if en else "En resumen"
-        out["narr"][lang] = [_seg("presenter", s, suffix=CLOSE[lang])]
+        # the state's answer closes the story (CLAUDE.md -> Decisions -> PICKED BEFORE SLEEP: the deck ends on Strengthen)
+        more = _capacity_say(w, cap, lang) if cap else ""
+        out["narr"][lang] = [_seg("presenter", s, suffix=(more + " " if more else "") + CLOSE[lang])]
         out["headline"][lang] = h
-        out["lines"][lang] = ([("Apply the best fix and watch the map stay calm" if en else "Aplica la mejor solución y mira el mapa en calma")] if ap else [])
+        out["lines"][lang] = ([("Apply the best fix and watch the map stay calm" if en else "Aplica la mejor solución y mira el mapa en calma")] if ap else []) + ([more] if more else [])
     out["big"] = None
     out["cta"] = {"label": {"en": "Apply the best fix", "es": "Aplicar la mejor solución"}, "apply": ap} if ap else None
     site = w.site_pt()

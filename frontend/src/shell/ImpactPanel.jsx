@@ -55,6 +55,7 @@ export default function ImpactPanel() {
       {/* under the toll: how long the lights are out (and, before a run, what it would cost), then one click to present it */}
       {result && <OutageCost />}
       {result && <PresentDamage />}
+      {done && <ToStrengthen />}
       <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>
         <summary>More: incident briefing, cost breakdown, towns, map key</summary>
         {more && (
@@ -67,6 +68,20 @@ export default function ImpactPanel() {
         )}
       </details>
     </div>
+  )
+}
+
+// After the cascade: the other half of the story, one click away — how many campuses the state's grid carries at
+// once, and the cheapest upgrades for more (Strengthen the grid; CLAUDE.md -> Decisions -> PICKED BEFORE SLEEP).
+function ToStrengthen() {
+  const { grid, region, setMode } = useOverload()
+  if (region === 'US') return null
+  const state = grid?.meta?.region_name || 'this state'
+  return (
+    <button type="button" className="to-strengthen" onClick={() => setMode('unlock')}>
+      <span className="to-strengthen__q">How many can {state} take?</span>
+      <span className="to-strengthen__a">Strengthen the grid</span>
+    </button>
   )
 }
 
