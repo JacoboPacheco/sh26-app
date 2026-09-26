@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, ForeignKey, Integer, LargeBinary, String
+from sqlalchemy import JSON, Float, ForeignKey, Integer, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -24,16 +24,16 @@ class Upload(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
 
 
-class Item(Base):
-    # EXAMPLE table for items.py (template scaffolding — remove with it).
-    # The shape to copy: everything but the key fields is `X | None`, because a
-    # column added mid-event is created on startup as nullable and old rows get
-    # NULL there. Lists go in JSON (works on SQLite and Postgres); no Enum columns.
-    __tablename__ = "items"
+class Scenario(Base):
+    # A saved data-center drop (site + size) the demo can replay. Everything but the key
+    # fields is `X | None`: a column added mid-event arrives as NULL on old rows.
+    __tablename__ = "scenarios"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    title: Mapped[str] = mapped_column(String(120))
-    notes: Mapped[str | None] = mapped_column(String(2000), default="")
-    tags: Mapped[list | None] = mapped_column(JSON, default=list)
-    ai_fallback: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    name: Mapped[str] = mapped_column(String(80))
+    lat: Mapped[float] = mapped_column(Float)
+    lon: Mapped[float] = mapped_column(Float)
+    mw: Mapped[int] = mapped_column(Integer)
+    note: Mapped[str | None] = mapped_column(String(280), default="")
+    summary: Mapped[dict | None] = mapped_column(JSON, default=None)  # last what-if: overloads, headroom
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)

@@ -12,6 +12,7 @@ Usage:
 
 import base64
 import json
+import math
 import os
 import re
 import sys
@@ -19,6 +20,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from pathlib import Path
 
 # smallest possible valid PNG (1x1 transparent pixel)
 TINY_PNG = base64.b64decode(
@@ -223,53 +225,124 @@ check("ai ask requires auth", test_ai_ask_requires_auth)
 check("ai ask works, or says clearly it's not configured", test_ai_ask_path)
 
 
-# EXAMPLE feature (items.py) — every check acts as this run's own throwaway user and
-# deletes what it created, so it's safe against the deployed backend too.
+# Grid (grid.py) — public, read-only; checked against the committed expected what-if that
+# backend/demo/validate.py wrote. Nothing here creates data.
+EXPECTED = json.loads((Path(__file__).parent / "demo" / "expected_whatif.json").read_text(encoding="utf-8"))
+ORLANDO = {"lat": EXPECTED["lat"], "lon": EXPECTED["lon"], "mw": EXPECTED["mw"]}
+grid = {}
+
+
+def test_grid_loads():
+    g = request("GET", "/api/grid")
+    grid.update(g)
+    meta = g["meta"]
+    assert meta["synthetic"] is True, meta
+    assert meta["bus_count"] >= 1000 and meta["branch_count"] >= 1000, meta
+    assert len(g["branches"]) == meta["branch_count"], "branch list and count disagree"
+    bad = [s for s in g["subs"] if not (24.3 <= s["lat"] <= 31.1 and -87.7 <= s["lon"] <= -79.4)]
+    assert not bad, f"{len(bad)} substations outside Florida's box, e.g. {bad[0]}"
+    assert all(b["rate_mva"] > 0 for b in g["branches"]), "a branch has no rating"
+
+
+def test_whatif_matches_expected():
+    w = request("POST", "/api/grid/whatif", ORLANDO)
+    assert w["sub"] == EXPECTED["sub"], f"snapped to sub {w['sub']}, expected {EXPECTED['sub']}"
+    got = {o["id"] for o in w["overloaded"]}
+    assert got == set(EXPECTED["overloaded_ids"]), f"overloaded {sorted(got)} != expected {sorted(EXPECTED['overloaded_ids'])}"
+    assert abs(w["headroom_mw"] - EXPECTED["headroom_mw"]) <= 1, f"headroom {w['headroom_mw']} vs {EXPECTED['headroom_mw']}"
+    assert len(w["loading_pct"]) == len(grid["branches"]), "loading_pct not aligned with /api/grid branches"
+    grid["orlando_headroom"] = w["headroom_mw"]
+
+
+def test_whatif_validation():
+    request("POST", "/api/grid/whatif", {"lat": 40.7, "lon": -74.0, "mw": 500}, expect=422)  # New York
+    request("POST", "/api/grid/whatif", {**ORLANDO, "mw": 0}, expect=422)
+    request("POST", "/api/grid/whatif", {**ORLANDO, "mw": 9999}, expect=422)
+    request("POST", "/api/grid/whatif", {"lat": "x", "lon": -81, "mw": 500}, expect=422)
+
+
+def test_cascade_orlando():
+    c = request("POST", "/api/grid/cascade", ORLANDO)
+    assert c["outcome"] in ("settled", "islanded"), c["outcome"]
+    assert c["total_steps"] <= 30 and len(c["steps"]) <= 30, c["total_steps"]
+    total_load = sum(s["load_mw"] for s in grid["subs"])
+    assert all(s["lost_mw"] <= total_load for s in c["steps"]), "lost more load than Florida has"
+    homes = [s["homes"] for s in c["steps"]]
+    assert homes == sorted(homes), f"homes not monotone: {homes}"
+    assert c["total_steps"] == EXPECTED["cascade_steps"] and c["outcome"] == EXPECTED["cascade_outcome"], (
+        f"{c['total_steps']} steps -> {c['outcome']}, expected {EXPECTED['cascade_steps']} -> {EXPECTED['cascade_outcome']}"
+    )
+
+
+def test_headroom():
+    by_sub = request("GET", "/api/grid/headroom")["by_sub"]
+    assert len(by_sub) == len(grid["subs"]), f"{len(by_sub)} values for {len(grid['subs'])} substations"
+    assert all(math.isfinite(v) and v >= 0 for v in by_sub.values()), "a headroom value is negative or not finite"
+    orl = by_sub[str(EXPECTED["sub"])]
+    assert abs(orl - grid["orlando_headroom"]) <= 1, f"heatmap says {orl} MW, what-if says {grid['orlando_headroom']} MW"
+
+
+check("grid loads: synthetic, >=1000 buses and branches, inside Florida, rated", test_grid_loads)
+check("what-if on the Orlando site matches expected_whatif.json", test_whatif_matches_expected)
+check("what-if rejects a point outside Florida and a size of 0 or 9999 MW", test_whatif_validation)
+check("cascade on the Orlando site terminates, homes monotone, matches expected", test_cascade_orlando)
+check("headroom: one finite value per substation, agrees with the what-if", test_headroom)
+
+
+# Scenarios (scenarios.py) — every check acts as this run's own throwaway user and deletes
+# what it created, so it's safe against the deployed backend too.
 auth_headers = {}
-item = {}
+scenario = {}
 
 
-def test_items_require_auth():
-    request("GET", "/api/items", expect=401)
-    request("POST", "/api/items", {"title": "x"}, expect=401)
+def test_scenarios_require_auth():
+    request("GET", "/api/scenarios", expect=401)
+    request("POST", "/api/scenarios", {"name": "x", **ORLANDO}, expect=401)
 
 
-def test_item_create_and_list():
+def test_scenario_create_and_list():
     auth_headers["value"] = {"Authorization": f"Bearer {token['value']}"}
-    created = request("POST", "/api/items", {"title": "Smoke item", "notes": "made by smoke_test"}, headers=auth_headers["value"])
-    assert created["title"] == "Smoke item" and isinstance(created["tags"], list), created
-    assert isinstance(created["fallback"], bool), created
-    item["id"] = created["id"]
-    listed = request("GET", "/api/items", headers=auth_headers["value"])
-    assert any(it["id"] == item["id"] for it in listed), "created item missing from list"
+    created = request("POST", "/api/scenarios", {"name": "Smoke scenario", **ORLANDO}, headers=auth_headers["value"])
+    assert created["name"] == "Smoke scenario" and created["mw"] == ORLANDO["mw"], created
+    assert created["summary"]["overloaded"] == len(EXPECTED["overloaded_ids"]), created["summary"]
+    scenario["id"] = created["id"]
+    listed = request("GET", "/api/scenarios", headers=auth_headers["value"])
+    assert any(s["id"] == scenario["id"] for s in listed), "created scenario missing from list"
 
 
-def test_item_validation():
-    request("POST", "/api/items", {"title": ""}, headers=auth_headers["value"], expect=422)
-    request("POST", "/api/items", {"title": "   "}, headers=auth_headers["value"], expect=422)
-    request("POST", "/api/items", {"title": "x" * 121}, headers=auth_headers["value"], expect=422)
+def test_scenario_validation():
+    h = auth_headers["value"]
+    request("POST", "/api/scenarios", {"name": "", **ORLANDO}, headers=h, expect=422)
+    request("POST", "/api/scenarios", {"name": "   ", **ORLANDO}, headers=h, expect=422)
+    request("POST", "/api/scenarios", {"name": "x" * 81, **ORLANDO}, headers=h, expect=422)
+    request("POST", "/api/scenarios", {"name": "NYC", "lat": 40.7, "lon": -74.0, "mw": 500}, headers=h, expect=422)
+    request("POST", "/api/scenarios", {"name": "Too big", **ORLANDO, "mw": 9999}, headers=h, expect=422)
+    # malformed numbers are a 422, never a 500
+    request("POST", "/api/scenarios", {"name": "Huge", **ORLANDO, "mw": 10**400}, headers=h, expect=422)
+    request("POST", "/api/scenarios", {"name": "NaN", **ORLANDO, "mw": float("nan")}, headers=h, expect=422)
+    request("DELETE", f"/api/scenarios/{10**30}", headers=h, expect=422)
 
 
-def test_item_owner_only():
-    # a second throwaway user must not see or delete the first user's item
+def test_scenario_owner_only():
+    # a second throwaway user must not see or delete the first user's scenario
     other = request("POST", "/api/auth/signup", {"email": f"other-{email}", "password": "smoketest123"})
     other_headers = {"Authorization": f"Bearer {other['access_token']}"}
-    request("DELETE", f"/api/items/{item['id']}", headers=other_headers, expect=404)
-    assert not any(it["id"] == item["id"] for it in request("GET", "/api/items", headers=other_headers)), "leaked"
+    request("DELETE", f"/api/scenarios/{scenario['id']}", headers=other_headers, expect=404)
+    assert not any(s["id"] == scenario["id"] for s in request("GET", "/api/scenarios", headers=other_headers)), "leaked"
 
 
-def test_item_delete():
-    request("DELETE", f"/api/items/{item['id']}", headers=auth_headers["value"])
-    request("DELETE", f"/api/items/{item['id']}", headers=auth_headers["value"], expect=404)
-    listed = request("GET", "/api/items", headers=auth_headers["value"])
-    assert not any(it["id"] == item["id"] for it in listed), "deleted item still listed"
+def test_scenario_delete():
+    request("DELETE", f"/api/scenarios/{scenario['id']}", headers=auth_headers["value"])
+    request("DELETE", f"/api/scenarios/{scenario['id']}", headers=auth_headers["value"], expect=404)
+    listed = request("GET", "/api/scenarios", headers=auth_headers["value"])
+    assert not any(s["id"] == scenario["id"] for s in listed), "deleted scenario still listed"
 
 
-check("items require auth", test_items_require_auth)
-check("item create + list roundtrip", test_item_create_and_list)
-check("item validation rejects empty, blank, and oversized titles", test_item_validation)
-check("items are owner-only", test_item_owner_only)
-check("item delete works", test_item_delete)
+check("scenarios require auth", test_scenarios_require_auth)
+check("scenario create + list roundtrip", test_scenario_create_and_list)
+check("scenario validation rejects blank/long names, points outside Florida, bad sizes", test_scenario_validation)
+check("scenarios are owner-only", test_scenario_owner_only)
+check("scenario delete works", test_scenario_delete)
 
 if failures:
     print(f"\n{len(failures)} check(s) failed: {', '.join(failures)}")

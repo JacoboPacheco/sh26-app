@@ -282,16 +282,10 @@ class Grid:
         return self._headroom_bus
 
     def headroom_by_sub(self) -> dict[int, float]:
+        """MW each substation can take at the bus a dropped load connects to (connect_bus), so the
+        heatmap and a what-if at the same substation always agree."""
         hb = self.headroom_all()
-        sub_has_hv = np.zeros(len(self.sub_ids), dtype=bool)
-        np.logical_or.at(sub_has_hv, self.bus_sub_idx, self.bus_kv >= 100.0)
-        out: dict[int, float] = {}
-        for i in range(self.n):
-            if self.bus_kv[i] < 100.0 and sub_has_hv[self.bus_sub_idx[i]]:
-                continue  # a load connects at the HV bus; ignore LV terminal buses
-            sid = int(self.sub_ids[self.bus_sub_idx[i]])
-            out[sid] = min(out.get(sid, float("inf")), float(hb[i]))
-        return out
+        return {int(sid): float(min(hb[self.connect_bus(i)], 1e6)) for i, sid in enumerate(self.sub_ids)}
 
     def headroom_bus(self, bus: int) -> float:
         return float(min(self.headroom_for_buses(np.array([bus]))[0], 1e6))

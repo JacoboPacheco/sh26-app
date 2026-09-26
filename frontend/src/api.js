@@ -75,6 +75,17 @@ export async function signup(email, password) {
   return data
 }
 
+// The grid (public): the drawable network, a what-if drop, the cascade, the headroom heatmap.
+export const getGrid = () => api('/api/grid')
+export const whatIf = ({ lat, lon, mw }) => api('/api/grid/whatif', { method: 'POST', body: { lat, lon, mw } })
+export const runCascade = ({ lat, lon, mw }) => api('/api/grid/cascade', { method: 'POST', body: { lat, lon, mw } })
+export const getHeadroom = () => api('/api/grid/headroom')
+
+// Saved scenarios (the signed-in demo account's).
+export const listScenarios = () => api('/api/scenarios')
+export const saveScenario = (scenario) => api('/api/scenarios', { method: 'POST', body: scenario })
+export const deleteScenario = (id) => api(`/api/scenarios/${id}`, { method: 'DELETE' })
+
 // Ask the backend's LLM helper (needs GEMINI_API_KEY on the backend; 503 otherwise).
 export const ask = (prompt) => api('/api/ai/ask', { method: 'POST', body: { prompt } })
 

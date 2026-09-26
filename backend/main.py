@@ -11,7 +11,9 @@ from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
-load_dotenv()
+# explicit path: under --reload the worker can't locate its caller, so a bare load_dotenv()
+# searches the current directory and misses backend/.env when started from the repo root
+load_dotenv(Path(__file__).parent / ".env")
 
 # Mirror uvicorn's output (requests + tracebacks) to backend/server.log so it can be
 # read by tools even when the server runs in someone else's terminal window.
@@ -24,8 +26,9 @@ for _name in ("uvicorn", "uvicorn.access"):
     logging.getLogger(_name).addHandler(_log_file)
 
 import auth
-import items
+import grid
 import llm
+import scenarios
 import uploads
 from database import Base, add_missing_columns, engine
 from limiter import limiter
@@ -75,7 +78,8 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(uploads.router)
 app.include_router(llm.router)
-app.include_router(items.router)  # EXAMPLE feature — remove with items.py
+app.include_router(grid.router)
+app.include_router(scenarios.router)
 
 
 @app.get("/api/health")

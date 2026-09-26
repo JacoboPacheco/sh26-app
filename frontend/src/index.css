@@ -18,7 +18,23 @@
   --space-3: 1rem;
   --space-4: 1.5rem;
   --space-5: 2.5rem;
-  --max-w: 56rem;
+  --max-w: 90rem;
+  /* The map is dark in both themes (a grid glowing at night). */
+  --map-sea: #060a11;
+  --map-land: #0f1824;
+  --map-coast: #2b3d55;
+  --map-label: #8ea3bd;
+  --ln-calm: #2f86b8;
+  --ln-warm: #5cc8e0;
+  --ln-hot: #f5a524;
+  --ln-over: #ff4545;
+  --ln-tripped: #8a3a3a;
+  --sub-dot: #a8dcff;
+  --sub-dark: #000000;
+  --hr-ok: #37d67a;
+  --hr-mid: #f5c542;
+  --hr-low: #ff5a5a;
+  --site: #ffffff;
   font-family: var(--font);
   line-height: 1.5;
   color: var(--text);
@@ -257,4 +273,259 @@ a {
 .notes {
   margin: 0;
   white-space: pre-wrap;
+}
+
+/* App layout: map on the left, controls on the right; stacked on narrow screens */
+.app-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+/* the map stays in view while the controls scroll, so the cascade and the counter are seen together */
+.map-col {
+  position: sticky;
+  top: var(--space-3);
+}
+
+@media (max-width: 900px) {
+  .app-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .map-col {
+    position: static;
+  }
+}
+
+.side .card p {
+  margin: 0;
+}
+
+/* Map */
+.map {
+  position: relative;
+}
+
+.map-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: calc(100vh - 9rem);
+  border-radius: var(--radius);
+  background: var(--map-sea);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.map-tools {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+}
+
+.map-sea {
+  fill: var(--map-sea);
+}
+
+.map-land {
+  fill: var(--map-land);
+  stroke: var(--map-coast);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-lake {
+  fill: var(--map-sea);
+  stroke: var(--map-coast);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-keys {
+  fill: none;
+  stroke: var(--map-coast);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-city {
+  fill: var(--map-label);
+  font-family: var(--font);
+  pointer-events: none;
+}
+
+.ln {
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+}
+
+.kv-lo {
+  stroke-width: 0.8;
+}
+
+.kv-hi {
+  stroke-width: 1.6;
+}
+
+.ln--calm {
+  stroke: var(--ln-calm);
+  stroke-opacity: 0.55;
+}
+
+.ln--warm {
+  stroke: var(--ln-warm);
+  stroke-opacity: 0.8;
+}
+
+.ln--hot {
+  stroke: var(--ln-hot);
+  stroke-width: 2;
+}
+
+.ln--over {
+  stroke: var(--ln-over);
+  stroke-width: 3;
+}
+
+.ln--tripped {
+  stroke: var(--ln-tripped);
+  stroke-width: 2;
+  stroke-dasharray: 3 3;
+}
+
+.map-svg--headroom .ln {
+  stroke-opacity: 0.15;
+}
+
+.sub {
+  fill: var(--sub-dot);
+  fill-opacity: 0.55;
+}
+
+.sub--dark {
+  fill: var(--sub-dark);
+  fill-opacity: 1;
+  stroke: #555;
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.sub--hr-ok {
+  fill: var(--hr-ok);
+  fill-opacity: 0.95;
+}
+
+.sub--hr-mid {
+  fill: var(--hr-mid);
+  fill-opacity: 0.9;
+}
+
+.sub--hr-low {
+  fill: var(--hr-low);
+  fill-opacity: 0.75;
+}
+
+.site-dot {
+  fill: var(--site);
+}
+
+.site-ring {
+  fill: none;
+  stroke: var(--site);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: site-pulse 1.6s ease-out infinite;
+}
+
+@keyframes site-pulse {
+  from {
+    transform: scale(0.5);
+    opacity: 1;
+  }
+  to {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .site-ring {
+    animation: none;
+  }
+}
+
+/* Sidebar pieces */
+.dc-chip {
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  cursor: grab;
+}
+
+.chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chips > li {
+  display: flex;
+}
+
+.chips > li > .btn:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.chips > li > .btn:last-child {
+  border-radius: 0 var(--radius) var(--radius) 0;
+  border-left: 0;
+}
+
+.list--tight > li {
+  padding: var(--space-1) 0;
+  align-items: center;
+}
+
+.verdict--bad {
+  color: var(--danger);
+}
+
+.homes {
+  font-size: 1.125rem;
+}
+
+.legend ul {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.swatch {
+  display: inline-block;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  vertical-align: -0.05rem;
+}
+
+.swatch--ok {
+  background: var(--hr-ok);
+}
+
+.swatch--mid {
+  background: var(--hr-mid);
+}
+
+.swatch--low {
+  background: var(--hr-low);
 }

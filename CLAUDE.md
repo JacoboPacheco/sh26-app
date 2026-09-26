@@ -22,9 +22,9 @@ FastAPI (backend; SQLite locally, Postgres on Render), React + Vite (frontend), 
 
 ## Scope (hackathon-realistic)
 Must have (demo breaks without these — tick each in the commit that finishes it):
-- [ ] M1 — drop a load (or click a saved scenario), DC power flow, overloaded lines + site headroom; saved scenarios table seeded with "Orlando · 500 MW" and "Miami · 1,500 MW"
-- [ ] M2 — cascade: trip → re-solve → spread until settled/islanded, animated steps, homes-without-power estimate
-- [ ] M3 — headroom heatmap: MW each substation can take before the first overload
+- [x] M1 — drop a load (or click a saved scenario), DC power flow, overloaded lines + site headroom; saved scenarios table seeded with "Orlando · 500 MW" and "Miami · 1,500 MW"
+- [x] M2 — cascade: trip → re-solve → spread until settled/islanded, animated steps, homes-without-power estimate
+- [x] M3 — headroom heatmap: MW each substation can take before the first overload
 
 Nice to have (build top-down; cut bottom-up):
 - [ ] 1. HIFLD hospitals "on backup power" near dark substations
@@ -106,6 +106,10 @@ Prompts may arrive with "Budget right now: …". 5-hour past 85% or weekly past 
 - `git restore .` / `git checkout .` / `git reset --hard` are denied. To drop uncommitted work, ask me to rewind (Esc Esc) or run it myself.
 - Power flow memory: never build a dense PTDF or B′⁻¹ (~4k×4k floats and up; Render free tier is 512 MB). Factor once with `scipy.sparse.linalg.splu`, one solve per what-if, precompute only the per-bus headroom vector at startup.
 - The grid JSON is built offline by `backend/demo/build_grid.py` and committed; nothing downloads data at runtime. Credit Breakthrough Energy / Texas A&M (CC-BY 4.0) on screen.
+- The EXAMPLE feature was removed at milestone 1. Its AI-with-fallback route (for nice-to-have 3) is in git history: `git show 129ef83:backend/items.py` and `git show 129ef83:frontend/src/ItemsPanel.jsx`.
+- Every visitor shares the demo account: anything that signs in as it and deletes (a probe, a test, a judge) removes the seeded scenarios for everyone. The page hides × on seeded rows (`note` contains "(demo scenario)"); after any such test, rerun `backend/venv/Scripts/python backend/seed.py` (and `seed.py <render-url>` when deployed).
+- Headroom by substation is the headroom at its *connect bus* (`Grid.connect_bus`), not the minimum over its buses — so the heatmap always equals the what-if of a drop there (smoke-checked).
+- `backend/main.py` loads `backend/.env` by explicit path; a bare `load_dotenv()` misses it under `--reload` when started from the repo root.
 - [add project-specific gotchas here as you hit them]
 
 ## Decisions
@@ -121,11 +125,13 @@ People layer (confirmed 11:55 PM): homes-without-power counter is a must-have, l
 Hurricane trigger, click a line to trip it: nice-to-have 2 (confirmed 11:55 PM).
 Sponsors (user, 11:48 PM): claim nothing the demo doesn't honestly show; the Gemini explanation with fallback is the only extra; DigitalOcean not pursued (Render is the tested deploy path).
 Map: no map library — SVG with a simple projection over a committed Florida outline and ten city labels, offline-safe, dark. ASSUMED until the user sees it.
+ASSUMED (Sat 00:50): layout = map left (sticky, stays in view), controls right in order Data center → Saved scenarios (compact chips) → What happens → Headroom; stacks below 900 px. Seeded scenarios can't be deleted from the page. Coastline hand-simplified (Tampa Bay omitted) until the Census boundary is downloaded.
 
 ## Current status
-PHASE: 2 — spec done, skeleton not started
+PHASE: 2 — skeleton green (M1–M3 end to end), waiting on the human click-through
 deployed: no
-DO FIRST: the walking skeleton from SPEC.md (M1 → M2 → M3), copying the EXAMPLE feature's shape; `backend/powerflow.py` already does all the math — the routers only call `Grid.whatif / cascade / headroom_by_sub / drawable`.
-working: milestone 0 DONE Sat 00:10 (K+1:10) — `backend/demo/florida_grid.json` (peninsular Florida: 2,469 buses, 1,329 substations, 3,347 branches, 0.59 MB) built by `build_grid.py`; `validate.py` prints `MILESTONE 0: PASS` (DC flows vs dataset Pf correlation 1.000, base case calm at max 95 %, median headroom 216 MW, Orlando 500 MW → 7 lines over, headroom 217 MW, 3-step cascade). `backend/powerflow.py` passes `scratch/test_powerflow.py` (KCL, dense-solve agreement, headroom = bisection, cascade islands). Rebuild only with `build_grid.py --no-download` (raw CSVs cached in `backend/demo/raw/`, gitignored).
-in progress: nothing — skeleton not started. Acceptance for M1: SPEC.md → Must-have M1.
+WAITING ON YOU: click through the demo on localhost (milestone 1) — http://localhost:5173: "Orlando · 500 MW" → "Run the cascade" → "Where can 500 MW go?" (asked 00:55)
+working: walking skeleton green in `/check` Sat 00:52 (K+1:52) incl. `frontend/e2e/demo_path.py` (open → Orlando scenario → "over limit" → cascade → "Homes without power" → headroom legend). Backend: `grid.py` (GET /api/grid, POST whatif + cascade at 120/min, GET headroom), `scenarios.py` (per-user, owner-only, seeded Orlando + Miami). Frontend: `GridMap.jsx` (SVG, pan/zoom, click or drop to place), `Panels.jsx`, `App.jsx`. EXAMPLE feature removed. Milestone 0 (validation) PASS Sat 00:10; `validate.py` and `scratch/test_powerflow.py` still green.
+demo finding (Sat 00:55, needs a user decision): Orlando's cascade is small (3 steps, ~38k homes, 1 substation dark) and the same at any size; Fort Myers is calm at 500 MW and collapses at 1,500 MW (9 steps, ~1.05M homes, 49 substations dark); substation MIAMI 23 (25.757, −80.246) at 500 MW runs 25 steps, ~1.96M homes, 33 dark. Overloaded lines at full-state zoom are only a few px long — a zoom-to-site on drop would make the red visible.
+in progress: nothing. Next after the click-through: PHASE 3, the design direction (Decisions), deploy.
 [Line 1 is always `PHASE: n — reason`, line 2 `deployed: yes/no`; then, when they apply, one per line: `DO FIRST: …`, `BLOCKED: …`, `WAITING ON YOU: …`, `LATER: …` (Workflow and PLAYBOOK say when); then working / broken / in progress + its acceptance check.]

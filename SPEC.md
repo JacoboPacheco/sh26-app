@@ -22,11 +22,11 @@ A saved-scenario click reproduces step 2 exactly (same site, same MW); that is w
 
 ## Must-have features (each with its acceptance check)
 
-- [ ] **M1 — Drop a load, see the overloads.** Florida cut of the synthetic grid served by the backend; the frontend draws it; dragging the data-center card (or clicking a saved scenario) calls the what-if endpoint, which snaps to the nearest substation's highest-voltage bus, adds the load, re-solves a DC power flow, and returns every branch's loading, the overloaded branches, and the site's headroom in MW. Saved scenarios (table + endpoints, seeded with the two named above) so the demo and `demo_path.py` replay a known drop. The size slider (100–2,000 MW) is part of M1.
+- [x] **M1 — Drop a load, see the overloads.** Florida cut of the synthetic grid served by the backend; the frontend draws it; dragging the data-center card (or clicking a saved scenario) calls the what-if endpoint, which snaps to the nearest substation's highest-voltage bus, adds the load, re-solves a DC power flow, and returns every branch's loading, the overloaded branches, and the site's headroom in MW. Saved scenarios (table + endpoints, seeded with the two named above) so the demo and `demo_path.py` replay a known drop. The size slider (100–2,000 MW) is part of M1.
   Acceptance: `smoke_test.py` posts the seeded Orlando drop and gets the overloaded-branch set and headroom recorded in `backend/demo/expected_whatif.json` (regenerated only by `validate.py`); `demo_path.py` clicks "Orlando · 500 MW" and sees "over limit" in the panel.
-- [ ] **M2 — Cascade with the homes counter.** Endpoint that trips the most overloaded branch above 100 %, re-solves, repeats until no branch is over limit or 30 steps; islands with no generation go dark, islands with a deficit shed the deficit; each step returns tripped ids, newly dark substations, the branches above 80 % with loading, lost MW and estimated homes (lost MW × 700, labeled "estimate, ~1.4 kW per home"). Frontend animates the steps with a scrubber and the counter.
+- [x] **M2 — Cascade with the homes counter.** Endpoint that trips the most overloaded branch above 100 %, re-solves, repeats until no branch is over limit or 30 steps; islands with no generation go dark, islands with a deficit shed the deficit; each step returns tripped ids, newly dark substations, the branches above 80 % with loading, lost MW and estimated homes (lost MW × 700, labeled "estimate, ~1.4 kW per home"). Frontend animates the steps with a scrubber and the counter.
   Acceptance: smoke check that the seeded Orlando cascade terminates within 30 steps, lost MW never exceeds total Florida load, and homes are monotone non-decreasing; `demo_path.py` presses "Run the cascade" and sees "Homes without power".
-- [ ] **M3 — Headroom heatmap.** Endpoint returning, for every substation, the MW that can be added before the first branch reaches 100 %; computed once at startup (one sparse solve per bus, cached in memory), independent of the slider value (the slider only sets the color threshold). Frontend toggle recolors substations with a legend.
+- [x] **M3 — Headroom heatmap.** Endpoint returning, for every substation, the MW that can be added before the first branch reaches 100 %; computed once at startup (one sparse solve per bus, cached in memory), independent of the slider value (the slider only sets the color threshold). Frontend toggle recolors substations with a legend.
   Acceptance: smoke check that headroom returns one finite value ≥ 0 per substation and that the Orlando substation's value equals the what-if headroom within 1 MW; `demo_path.py` toggles it and sees the legend.
 
 The walking skeleton is M1 + M2 + M3 in their ugliest form on the UI kit's defaults (PLAYBOOK Phase 2). If it isn't green by K+10 the cut rule removes M3 first: it is step 4 of the script, furthest from the wow moment in step 3.
@@ -60,16 +60,16 @@ AC power flow, voltages, frequency or dynamics; real utility data, real-time dat
 ## Milestones
 
 - **Milestone 0 — validation gate, by 3:00 AM Sat (K+4). PASSED Sat 00:10 (K+1:10): correlation 1.000, 0 base-case overloads, 19 of 20 random 500 MW sites overload something; `expected_whatif.json` written for Orlando (7 branches, headroom 217 MW).** `backend/demo/build_grid.py` builds the JSON; `backend/demo/validate.py` prints: (a) the Pearson correlation between our DC base-case branch flows and the dataset's solved `Pf` on Florida branches, (b) the share of branches over 100 % in our base case, (c) the seeded Orlando drop's overloaded set and headroom, which it writes to `expected_whatif.json`. **Pass:** correlation ≥ 0.9, base-case overloads ≤ 2 % of branches, and a 500 MW drop somewhere in Florida produces at least one overload. **Fail at 3:00 AM:** rebuild with `interconnect == "Texas"` (an island by design, no boundary cut) and re-validate; if the DC power flow itself is untrustworthy, switch to the `RUNNER-UP` in CLAUDE.md → Decisions (Next Stop) via `/spec` again ("Restart on runner-up").
-- **Milestone 1 — walking skeleton, by K+10 (9:00 AM Sat):** M1–M3 ugly but end to end; `demo_path.py` green in `/check`; the template's EXAMPLE feature removed; the human clicked through on localhost. Then deploy (PLAYBOOK → Deploy) and, per Decisions, the design direction before more features.
+- **Milestone 1 — walking skeleton, by K+10 (9:00 AM Sat). Green in `/check` Sat 00:52 (K+1:52), including `demo_path.py`; EXAMPLE feature removed; waiting on the human's click-through.** M1–M3 ugly but end to end; `demo_path.py` green in `/check`; the template's EXAMPLE feature removed; the human clicked through on localhost. Then deploy (PLAYBOOK → Deploy) and, per Decisions, the design direction before more features.
 - **Phase 3:** nice-to-haves 1–2, then the Gemini extra, then 4–5.
 
 ## New endpoints and tables
 
-Endpoints (all JSON; POSTs rate-limited `60/minute`, never below 30 per CLAUDE.md):
+Endpoints (all JSON; what-if and cascade rate-limited `120/minute` — one sparse solve each, and the size slider re-fires the what-if; scenario POSTs `30/minute`; never below 30 per CLAUDE.md):
 - `GET /api/grid` — the drawable grid: substations `{id, name, lat, lon, load_mw, kv_max}`, branches `{id, from_sub, to_sub, kv, rate_mva, base_pct}`, `meta {source, license, synthetic: true, bus_count, branch_count}`. Public, cached in memory.
 - `POST /api/grid/whatif` `{lat, lon, mw}` → `{bus, sub_name, loading_pct: [per branch], overloaded: [{id, pct, from, to, kv}], headroom_mw}`. 422 with a clear message when the point is outside Florida's bounding box or `mw` is outside 1–5,000.
 - `POST /api/grid/cascade` `{lat, lon, mw}` → `{steps: [{n, tripped: [ids], dark_subs: [ids], hot: [{id, pct}], lost_mw, homes}], final_loading_pct: [...], outcome: "settled" | "islanded", total_steps}`.
-- `GET /api/grid/headroom` → `{by_sub: {sub_id: mw}}` (min over the substation's buses).
+- `GET /api/grid/headroom` → `{by_sub: {sub_id: mw}}` (the headroom at the substation's connect bus — the bus a drop there connects to — so it equals the what-if headroom; changed Sat 00:25 from "min over the substation's buses", which disagreed at 266 of 1,329 substations).
 - `GET /api/scenarios`, `POST /api/scenarios` `{name, lat, lon, mw}`, `DELETE /api/scenarios/{id}` — `Depends(get_current_user)`, owner-only 404 on delete, validation like `items.py`.
 - Nice-to-have 3 adds `POST /api/grid/explain`; nice-to-have 2 adds an optional `trip: [branch_id]` field to `cascade`.
 
@@ -92,7 +92,7 @@ Memory rule (Render free tier is 512 MB): never build a dense PTDF or B′⁻¹ 
 ## Verification
 
 `smoke_test.py` (runs in `/check` and against Render, as its own throwaway user, creating nothing a judge sees):
-- grid loads: ≥ 1,000 buses, ≥ 1,000 branches, every substation inside 24.3–31.1 N / −87.7 to −79.8 W, every branch rating > 0, `meta.synthetic` is true.
+- grid loads: ≥ 1,000 buses, ≥ 1,000 branches, every substation inside 24.3–31.1 N / −87.7 to −79.4 W (the dataset's offshore tie points reach −79.57), every branch rating > 0, `meta.synthetic` is true.
 - what-if on the committed Orlando site (`backend/demo/expected_whatif.json`: lat, lon, mw, expected overloaded ids, expected headroom) matches: same overloaded set, headroom within 1 MW.
 - what-if outside Florida → 422; `mw = 0` and `mw = 9999` → 422.
 - cascade on the Orlando site: terminates ≤ 30 steps, `lost_mw` ≤ total load, homes monotone, outcome is one of the two strings.
@@ -112,3 +112,4 @@ Latency ("within a second" for a drop, ~0.6 s per cascade step) and the validati
 - Resolved Sat 00:10: 644 branches the dataset marks "unlimited" (rating 0, mostly transformers) get max(kV-class default, base flow + 30 %) and carry `rate_est: true`; the base case is calm (max 95 % loading). The homes counter counts existing load only; the data center's own blackout is reported separately (`site_dark_mw`).
 - The exact homes-per-MW constant (700 is ~1.4 kW average household load); label it an estimate either way.
 - Whether the cascade should trip one line per step (better animation) or every line over 100 % (faster spread); start with one per step.
+- Measured Sat 00:55 (for the demo script, the user decides): Orlando's cascade is small (3 steps, ~38k homes, 1 substation dark) and identical at 500–5,000 MW because the site's own feeders trip first and island the data center; Fort Myers (26.64, −81.87) is calm at 500 MW and collapses at 1,500 MW (9 steps, ~1.05M homes, 49 substations dark) — a better step 5; substation MIAMI 23 (25.757, −80.246) at 500 MW runs 25 steps (~1.96M homes, 33 dark). 1,215 of 1,329 substations cascade at 500 MW; several Miami/Fort Lauderdale sites hit the 30-step cap.
