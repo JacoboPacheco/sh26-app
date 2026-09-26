@@ -116,6 +116,7 @@ Prompts may arrive with "Budget right now: …". 5-hour past 85% or weekly past 
 - `backend/main.py` loads `backend/.env` by explicit path; a bare `load_dotenv()` misses it under `--reload` when started from the repo root.
 - Rewriting Current status: replace from the `## Current status` HEADING near the end of this file to the end, never from the backticked mention inside Workflow's commit bullet (commit 7e48ba5 matched that mention and cut off Workflow, Budget, Gotchas and Decisions; restored Sat 03:00).
 - Scripted CLAUDE.md edits: assert the anchor exists and the edit landed (a patch at Sat 08:14 dropped the `## Current status` heading and three later decision inserts silently did nothing until Sat 08:55).
+- "Cannot read properties of null (reading 'useState')" on the demo copy (Sat 09:32): every vite shared one pre-bundle cache through the node_modules junction, and one server re-optimizing handed another a second React. The demo copy's local vite.config.js now sets `cacheDir: 'C:/dev/sh26-stable/.vite-cache'` (keep it when moving the demo; restart its vite with --force after a dependency change). Builders' vites still share the main cache: a crash in THEIR preview is this, not their code.
 - [add project-specific gotchas here as you hit them]
 
 ## Decisions
