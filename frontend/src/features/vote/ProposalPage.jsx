@@ -63,9 +63,15 @@ function WatchButton({ entry, sim }) {
   )
 }
 
+const cap = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t)
+
+// "approximate: Town of X" / "approximate. Reported site…" -> the part after the word (the sentence already says approximate)
+const placeBasis = (b) => String(b || '').replace(/^\s*approximate\b[\s:;,.-]*/i, '').trim()
+
 function Head({ d }) {
   const e = d.entry
-  const where = [e.city, e.county_text, e.state_name].filter(Boolean).join(', ')
+  const where = e.place_text || [e.city, e.county_text, e.state_name].filter(Boolean).join(', ')
+  const basis = placeBasis(e.location_basis)
   return (
     <header className="vote-head">
       <p className="vote-crumb">
@@ -75,7 +81,16 @@ function Head({ d }) {
         {e.name}
       </h1>
       <p className="vote-sub">
-        {e.company ? `${e.company} · ` : ''}
+        {e.company &&
+          (/^developer not confirmed/i.test(e.company) ? (
+            <>
+              <span className="vote-sub__k">Developer:</span> not confirmed in the sources ·{' '}
+            </>
+          ) : (
+            <>
+              <span className="vote-sub__k">Developer, as reported:</span> {e.company} ·{' '}
+            </>
+          ))}
         {where}
       </p>
       <dl className="vote-facts">
@@ -90,12 +105,12 @@ function Head({ d }) {
         {e.year && (
           <div>
             <dt>Timing, as reported</dt>
-            <dd>{e.year}</dd>
+            <dd>{cap(String(e.year))}</dd>
           </div>
         )}
         <div>
           <dt>Confidence in these facts</dt>
-          <dd>{e.confidence ? e.confidence[0].toUpperCase() + e.confidence.slice(1) : 'Unknown'}</dd>
+          <dd>{e.confidence ? cap(e.confidence) : 'Unknown'}</dd>
         </div>
       </dl>
       {e.mw_basis && <p className="vote-note">About the size, compiled from the sources: {e.mw_basis}</p>}
@@ -109,8 +124,7 @@ function Head({ d }) {
             </a>
           </span>
         ))}
-        {e.sources.length === 0 && 'no source link was kept for this entry'}. Location is approximate
-        {e.location_basis ? `: ${e.location_basis.replace(/^approximate:?\s*/i, '')}` : '.'}
+        {e.sources.length === 0 && 'no source link was kept for this entry'}. Location is approximate{basis ? `: ${basis}` : '.'}
       </p>
       <p className="vote-frame">
         Overload tests a campus of this reported size at this reported location on a <strong>synthetic</strong> grid model. It is not a prediction about the real project, its owners or its utility.
@@ -138,7 +152,7 @@ function Section({ id, title, children }) {
 }
 
 export default function ProposalPage({ id }) {
-  const { data: d, error, loading, retry } = useProposal(id)
+  const { data: d, error, loading, stalled, retry, recheck } = useProposal(id)
 
   // an id that is another listing of the same campus opens the listing that was kept
   useEffect(() => {
@@ -191,7 +205,7 @@ export default function ProposalPage({ id }) {
       </Section>
 
       <Section id="built" title="What would have to be built for this to be safe">
-        <Safe safe={safe} sim={sim} />
+        <Safe safe={safe} sim={sim} stalled={stalled} onRecheck={recheck} />
       </Section>
 
       <Section id="take" title="What it would take: the AI analyst">

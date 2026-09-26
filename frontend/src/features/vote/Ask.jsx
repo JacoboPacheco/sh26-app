@@ -85,6 +85,7 @@ function Link({ href, children }) {
 export function Speak({ entry, civic, state }) {
   const b = civic.decision_body
   const who = entry.county_text || 'the county'
+  const town = (entry.city || '').replace(/\s*\([^)]*\)\s*$/, '') // "Lockhart (Caldwell County)" -> "Lockhart"
   return (
     <div className="vote-speak">
       <div>
@@ -103,7 +104,7 @@ export function Speak({ entry, civic, state }) {
           </>
         ) : (
           <p className="vote-note">
-            Not researched yet for this proposal. To find it: ask the {who} clerk{entry.city ? ` (or the clerk in ${entry.city})` : ''} which board hears it, and for the meeting date, the agenda and how to sign up to speak.
+            Not researched yet for this proposal. To find it: ask the {who} clerk{town ? ` (or the clerk in ${town})` : ''} which board hears it, and for the meeting date, the agenda and how to sign up to speak.
           </p>
         )}
         {civic.municipality || civic.county ? (

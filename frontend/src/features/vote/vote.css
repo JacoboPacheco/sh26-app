@@ -245,6 +245,26 @@
   font-size: 1.02rem;
 }
 
+.vote-sub__k {
+  font-size: 0.8125rem;
+}
+
+/* a quiet text action inside a sentence ("Check for new plans") */
+.vote-linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.vote-linkbtn:hover {
+  color: var(--ink);
+}
+
 .vote-facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -344,9 +364,10 @@
   color: var(--ink-2);
 }
 
+/* two by two on a wide page (four figures never leave one alone on a row), one column on a phone */
 .vote-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: var(--space-5) var(--space-5);
 }
 
@@ -546,6 +567,8 @@
 .vote-questions summary {
   cursor: pointer;
   padding: 0.85rem 0;
+  margin-left: 1.1rem; /* the marker hangs outside, so a long question wraps under its own first word */
+  list-style-position: outside;
   font-weight: 600;
   line-height: 1.4;
 }
@@ -734,6 +757,21 @@
     color: #000 !important;
   }
 
+  /* with the app's dark color-scheme Chromium paints the page margins its dark canvas when backgrounds print */
+  html:has(body.vote-open) {
+    color-scheme: light !important;
+  }
+
+  /* features/site/site.css hides #root when printing (its report prints from an overlay); the brief lives in #root */
+  body.vote-open #root {
+    display: block !important;
+  }
+
+  body.vote-open .below-bar {
+    padding-top: 0 !important;
+  }
+
+  body.vote-open .appbar,
   body.vote-open .vote-top,
   body.vote-open .brief-bar,
   body.vote-open .vote-jumps {
@@ -748,33 +786,54 @@
     max-width: none;
   }
 
+  /* one Letter page: every size relative to the paper's 8pt, so no screen rem size makes a line taller */
   body.vote-open .brief-paper {
     padding: 0;
     max-width: none;
     border-radius: 0;
-    font-size: 8.4pt;
-    line-height: 1.26;
+    font-size: 8pt;
+    line-height: 1.18;
   }
 
   body.vote-open .brief-title {
-    font-size: 15pt;
+    font-size: 13.5pt;
+  }
+
+  body.vote-open .brief-sub {
+    font-size: 1.05em;
+  }
+
+  body.vote-open .brief-meta,
+  body.vote-open .brief-detail,
+  body.vote-open .brief-note {
+    font-size: 0.92em;
   }
 
   body.vote-open .brief-section {
-    margin-top: 0.45rem;
+    margin-top: 0.35rem;
+  }
+
+  body.vote-open .brief-section p {
+    margin-bottom: 0.15rem;
   }
 
   body.vote-open .brief-section li {
-    margin-bottom: 0.1rem;
+    margin-bottom: 0.05rem;
   }
 
   body.vote-open .brief-section h2 {
-    font-size: 10pt;
+    font-size: 9.5pt;
+    margin-bottom: 0.2rem;
   }
 
   body.vote-open .brief-sources li,
   body.vote-open .brief-disclaimer {
-    font-size: 7pt;
+    font-size: 6.5pt;
+  }
+
+  body.vote-open .brief-disclaimer {
+    margin-top: 0.5rem;
+    padding-top: 0.3rem;
   }
 
   body.vote-open .brief-sources ul,
@@ -820,6 +879,11 @@
 }
 .vote-memo__kicker {
   margin: 0;
+}
+.vote-memo__on {
+  margin: 0 0 calc(-1 * var(--space-2));
+  color: var(--ink-2);
+  font-size: 0.8125rem;
 }
 .vote-memo__head {
   margin: 0;

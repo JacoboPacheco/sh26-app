@@ -90,9 +90,11 @@ export function niceTicks(max, want = 4) {
 }
 
 // A GET the page reads once and keeps for the visit (population and energy never change while it is open)
+// (`retry` asks again after an error).
 const memo = new Map()
 export function useCached(path) {
   const [state, setState] = useState(() => ({ data: memo.get(path) || null, error: null }))
+  const [nonce, setNonce] = useState(0)
   useEffect(() => {
     if (memo.has(path)) return undefined
     let live = true
@@ -105,8 +107,12 @@ export function useCached(path) {
     return () => {
       live = false
     }
-  }, [path])
-  return state
+  }, [path, nonce])
+  const retry = () => {
+    setState({ data: null, error: null })
+    setNonce((n) => n + 1)
+  }
+  return { ...state, retry }
 }
 
 // A mark's radius in pixels: area follows the reported MW (with a floor so a small site is still a mark, and a

@@ -61,6 +61,14 @@
 .vw-tabs {
   display: flex;
   gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto; /* on a phone the four tabs scroll sideways instead of wrapping inside their pills */
+  scrollbar-width: none;
+}
+
+.vw-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .vw-tab {
@@ -70,6 +78,8 @@
   text-decoration: none;
   font-weight: 600;
   border: 1px solid transparent;
+  white-space: nowrap;
+  flex: none;
 }
 
 .vw-tab:hover {
@@ -476,6 +486,11 @@
 
 .vw-maplegend__size {
   gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.vw-maplegend__dot {
+  white-space: nowrap;
 }
 
 /* ------------------------------------------------------------------ cards and panels */
@@ -825,6 +840,21 @@
   white-space: nowrap;
 }
 
+@media (max-width: 560px) {
+  /* a narrow segment on a phone has no room for its name (the table under the bar names every fuel) */
+  .vw-share__seg--small > span {
+    display: none;
+  }
+
+  /* the fuel's name stays on one line; its note wraps under it, so the numbers stay in view */
+  .vw-table--mix td:first-child {
+    white-space: normal;
+  }
+  .vw-table--mix td:first-child > .vw-fine {
+    display: block;
+  }
+}
+
 .vw-fuels {
   list-style: none;
   margin: var(--space-2) 0;
@@ -949,6 +979,15 @@
   .vw-table--list td:nth-child(4) {
     display: none;
   }
+
+  /* the by-state table's headers wrap so all four columns fit the card */
+  .vw-table.vw-table--states th {
+    white-space: normal;
+  }
+  .vw-table.vw-table--states th,
+  .vw-table.vw-table--states td {
+    padding-inline: 0.3rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1017,5 +1056,37 @@
 @media (max-width: 860px) {
   .src__lic {
     white-space: normal;
+  }
+}
+
+/* on a phone each dataset is a short block (name, then its license and use, labelled) instead of a table
+   whose third column runs off the screen */
+@media (max-width: 640px) {
+  .src__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .src__table,
+  .src__table tbody,
+  .src__table tr,
+  .src__table td {
+    display: block;
+    width: auto;
+  }
+  .src__table tr {
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--glass-edge);
+  }
+  .src__table td {
+    padding: 0.15rem 0;
+    border: 0;
+  }
+  .src__table td[data-label]::before {
+    content: attr(data-label) ': ';
+    color: var(--ink-2);
+    font-weight: 600;
   }
 }

@@ -54,30 +54,37 @@ export function useRoute() {
 
 // ---------------------------------------------------------------- one proposal
 // While the AI step of the ranked plans is still running, ask again every few seconds (the engine's
-// answers are cached, so this is cheap) until it is done, at most 8 times.
+// answers are cached, so this is cheap) until it is done, at most 20 times (a minute). If it is still running
+// after that, `stalled` is true and `recheck()` asks again without clearing the page.
 const POLL_MS = 3000
-const POLL_MAX = 8
+const POLL_MAX = 20
 
 export function useProposal(id) {
-  const [state, setState] = useState({ id: null, data: null, error: null })
+  const [state, setState] = useState({ id: null, data: null, error: null, stalled: false })
   const [nonce, setNonce] = useState(0)
   const timer = useRef(0)
+  const soft = useRef(false) // the next load keeps what is on screen (a re-check, not a retry)
 
   useEffect(() => {
     let live = true
     let polls = 0
+    const keep = soft.current
+    soft.current = false
     const load = (first) => {
       getProposal(id)
         .then((data) => {
           if (!live) return
-          setState({ id, data, error: null })
-          if (data.safe?.agentic?.status === 'running' && polls < POLL_MAX) {
+          const running = data.safe?.agentic?.status === 'running'
+          setState({ id, data, error: null, stalled: running && polls >= POLL_MAX })
+          if (running && polls < POLL_MAX) {
             polls += 1
             timer.current = window.setTimeout(() => load(false), POLL_MS)
           }
         })
         .catch((error) => {
-          if (live && first) setState({ id, data: null, error })
+          if (!live) return
+          if (first && !keep) setState({ id, data: null, error, stalled: false })
+          else setState((s) => (s.id === id && s.data ? { ...s, stalled: true } : s)) // a poll failed: offer the re-check
         })
     }
     load(true)
@@ -88,9 +95,21 @@ export function useProposal(id) {
   }, [id, nonce])
 
   const retry = useCallback(() => {
-    setState({ id: null, data: null, error: null })
+    setState({ id: null, data: null, error: null, stalled: false })
+    setNonce((n) => n + 1)
+  }, [])
+  const recheck = useCallback(() => {
+    soft.current = true
+    setState((s) => ({ ...s, stalled: false }))
     setNonce((n) => n + 1)
   }, [])
   const current = state.id === id
-  return { data: current ? state.data : null, error: current ? state.error : null, loading: !current || (!state.data && !state.error), retry }
+  return {
+    data: current ? state.data : null,
+    error: current ? state.error : null,
+    loading: !current || (!state.data && !state.error),
+    stalled: current && state.stalled,
+    retry,
+    recheck,
+  }
 }

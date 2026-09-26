@@ -40,7 +40,7 @@ export default function ViewsPage() {
 
   useEffect(() => {
     const prev = document.title
-    document.title = 'Views: data centers, population, energy | Overload'
+    document.title = 'Data: data centers, population, energy | Overload'
     return () => {
       document.title = prev
     }
@@ -53,8 +53,8 @@ export default function ViewsPage() {
         <a className="vw-top__map" href="#/">
           <span aria-hidden="true">←</span> Overload map
         </a>
-        <span className="vw-top__name">Views</span>
-        <nav className="vw-tabs" aria-label="Views">
+        <span className="vw-top__name">Data</span>
+        <nav className="vw-tabs" aria-label="Data">
           {TABS.map((t) => (
             <a key={t.id} className="vw-tab" href={`#/views/${t.id}`} aria-current={t.id === tab ? 'page' : undefined}>
               {t.label}

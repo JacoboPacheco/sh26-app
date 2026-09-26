@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api'
-import { STATUS_LABEL, fmt, fmt1, mwText, stateHref, testHref } from './viewsKit'
+import MapLink from './MapLink'
+import { STATUS_LABEL, fmt, fmt1, mwText, testHref } from './viewsKit'
 
 // One data center's card: only sourced facts, each as reported (name, reported operator, place, reported MW,
 // status, source links). The test is a campus of that reported size at that point on a SYNTHETIC grid model,
@@ -16,6 +17,7 @@ const PRECISION = {
 
 export default function SiteCard({ id, onClose }) {
   const [got, setGot] = useState({ id: null, site: null, error: null }) // the last answer, and which site it was for
+  const [nonce, setNonce] = useState(0) // Retry after an error
 
   useEffect(() => {
     if (cache.has(id)) return undefined
@@ -29,7 +31,7 @@ export default function SiteCard({ id, onClose }) {
     return () => {
       live = false
     }
-  }, [id])
+  }, [id, nonce])
 
   const site = cache.get(id) || (got.id === id ? got.site : null)
   const error = got.id === id ? got.error : null
@@ -37,10 +39,24 @@ export default function SiteCard({ id, onClose }) {
   if (error) {
     return (
       <section className="vw-card" aria-label="Data center">
-        <p className="vw-error">Couldn&apos;t load this site: {error.message}</p>
-        <button type="button" className="vw-linkbtn" onClick={onClose}>
-          Close
-        </button>
+        <p className="vw-error" role="alert">
+          Couldn&apos;t load this site: {error.message}
+        </p>
+        <div className="row">
+          <button
+            type="button"
+            className="vw-linkbtn"
+            onClick={() => {
+              setGot({ id: null, site: null, error: null })
+              setNonce((n) => n + 1)
+            }}
+          >
+            Retry
+          </button>
+          <button type="button" className="vw-linkbtn" onClick={onClose}>
+            Close
+          </button>
+        </div>
       </section>
     )
   }
@@ -70,7 +86,7 @@ export default function SiteCard({ id, onClose }) {
           ×
         </button>
       </div>
-      <h3 className="vw-card__name">{site.name}</h3>
+      <h2 className="vw-card__name">{site.name}</h2>
       <dl className="vw-facts">
         <div>
           <dt>Operator, as reported</dt>
@@ -129,7 +145,7 @@ export default function SiteCard({ id, onClose }) {
       )}
       {!site.location_basis && site.precision && PRECISION[site.precision] && <p className="vw-fine">{PRECISION[site.precision]}</p>}
 
-      <h4 className="vw-h4">Sources, as reported by</h4>
+      <h3 className="vw-h4">Sources, as reported by</h3>
       {site.sources?.length ? (
         <ul className="vw-sources">
           {site.sources.map((s) => (
@@ -151,7 +167,7 @@ export default function SiteCard({ id, onClose }) {
       </p>
       {(epoch.length > 0 || atlas.length > 0) && (
         <div className="vw-also">
-          <h4 className="vw-h4">Also listed by another source</h4>
+          <h3 className="vw-h4">Also listed by another source</h3>
           <ul>
             {epoch.map((a) => (
               <li key={a.name + a.mw}>
@@ -167,18 +183,23 @@ export default function SiteCard({ id, onClose }) {
 
       <div className="vw-card__actions">
         {href ? (
-          <a className="btn" href={href}>
+          <MapLink className="btn" site={site}>
             Test it on the grid
-          </a>
+          </MapLink>
         ) : (
           <p className="vw-fine">
             {site.has_model ? 'This site has no reported size, so there is nothing to test yet.' : `${site.state_name || 'This place'} has no grid model in Overload (the synthetic models cover the lower 48).`}
           </p>
         )}
-        {site.has_model && (
-          <a className="vw-link" href={stateHref(site.state)}>
-            Open {site.state_name}&apos;s grid model
+        {site.origin === 'curated' && (
+          <a className="vw-link" href={`#/vote/${encodeURIComponent(site.id)}`}>
+            Its page in Proposed data centers
           </a>
+        )}
+        {site.has_model && (
+          <MapLink className="vw-link" state={site.state}>
+            Open {site.state_name}&apos;s grid model
+          </MapLink>
         )}
       </div>
       <p className="vw-fine">

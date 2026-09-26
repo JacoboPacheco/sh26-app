@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { EmptyState, ErrorBanner, Field, Loading } from '../../ui'
-import { proposalHref, searchHash, searchProposals } from './voteApi'
+import { parseRoute, proposalHref, searchHash, searchProposals } from './voteApi'
 
 // The start of "Before the vote": find a real proposed data center (or a place), then open its page.
 
 function Row({ p }) {
-  const where = [p.city, p.county_text, p.state_name].filter(Boolean).join(', ')
+  const where = p.place_text || [p.city, p.county_text, p.state_name].filter(Boolean).join(', ')
   return (
     <li>
       <a className="vote-row" href={proposalHref(p.id)}>
@@ -65,6 +65,19 @@ export default function SearchHome({ initialQ, initialState }) {
     if (window.location.hash !== h) window.history.replaceState(null, '', h)
   }, [q, state])
 
+  // a link to another search while this one is open (the Proposed data centers tab, Back) changes the search too;
+  // typing only replaces the address, which fires no hashchange
+  useEffect(() => {
+    const f = () => {
+      const r = parseRoute(window.location.hash)
+      if (r.page !== 'home') return
+      setQ(r.q)
+      setState(r.state)
+    }
+    window.addEventListener('hashchange', f)
+    return () => window.removeEventListener('hashchange', f)
+  }, [])
+
   const rows = res?.proposals || []
   const featured = !q.trim() && !state ? rows.filter((r) => r.featured) : []
   const rest = !q.trim() && !state ? rows.filter((r) => !r.featured) : rows
@@ -92,12 +105,12 @@ export default function SearchHome({ initialQ, initialState }) {
         />
       </form>
 
-      {res && (
+      {res && (state || res.states.length > 0) && (
         <div className="vote-states" role="group" aria-label="Browse by state">
           <span className="vote-states__label">By state</span>
           {state && (
-            <button type="button" className="vote-chip vote-chip--on" aria-pressed="true" onClick={() => setState('')}>
-              {stateName} ✕
+            <button type="button" className="vote-chip vote-chip--on" aria-pressed="true" aria-label={`${stateName}: show every state`} onClick={() => setState('')}>
+              {stateName} <span aria-hidden="true">✕</span>
             </button>
           )}
           {!state &&

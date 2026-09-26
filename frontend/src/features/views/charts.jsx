@@ -62,10 +62,11 @@ export function RankedBars({ rows, fmtValue, selectedKey, onSelect, ariaLabel, u
     <div className="vw-chart" ref={boxRef}>
       {width > 0 && (
         <svg width={width} height={H} role="img" aria-label={ariaLabel} onPointerLeave={hide}>
-          {ticks.map((t) => (
+          {ticks.map((t, i) => (
             <g key={t}>
               <line x1={barX + sx(t)} x2={barX + sx(t)} y1={top} y2={top + rows.length * rowH} className="vw-grid" />
-              <text x={barX + sx(t)} y={H - 6} textAnchor="middle" className="vw-axis">
+              {/* the last label ends at the axis end, so a long one ("100 GW") is never cut by the chart's edge */}
+              <text x={barX + sx(t) + (i === ticks.length - 1 && i > 0 ? 4 : 0)} y={H - 6} textAnchor={i === ticks.length - 1 && i > 0 ? 'end' : 'middle'} className="vw-axis">
                 {fmtValue(t, true)}
               </text>
             </g>
@@ -151,10 +152,11 @@ export function StackedBars({ rows, fmtValue, selectedKey, onSelect, ariaLabel, 
     <div className="vw-chart" ref={boxRef}>
       {width > 0 && (
         <svg width={width} height={H} role="img" aria-label={ariaLabel} onPointerLeave={hide}>
-          {ticks.map((t) => (
+          {ticks.map((t, i) => (
             <g key={t}>
               <line x1={barX + sx(t)} x2={barX + sx(t)} y1={top} y2={top + rows.length * rowH} className="vw-grid" />
-              <text x={barX + sx(t)} y={H - 6} textAnchor="middle" className="vw-axis">
+              {/* the last label ends at the axis end, so a long one ("100 GW") is never cut by the chart's edge */}
+              <text x={barX + sx(t) + (i === ticks.length - 1 && i > 0 ? 4 : 0)} y={H - 6} textAnchor={i === ticks.length - 1 && i > 0 ? 'end' : 'middle'} className="vw-axis">
                 {fmtValue(t, true)}
               </text>
             </g>
@@ -222,7 +224,7 @@ export function ShareBar({ parts, ariaLabel }) {
       {parts.map((p) => {
         const pct = (100 * p.value) / total
         return (
-          <span key={p.id} className="vw-share__seg" style={{ width: `${pct}%`, background: p.color }} title={`${p.label}: ${Math.round(pct * 10) / 10}%`}>
+          <span key={p.id} className={pct < 15 ? 'vw-share__seg vw-share__seg--small' : 'vw-share__seg'} style={{ width: `${pct}%`, background: p.color }} title={`${p.label}: ${Math.round(pct * 10) / 10}%`}>
             {pct >= 7 ? <span>{p.label}</span> : null}
           </span>
         )

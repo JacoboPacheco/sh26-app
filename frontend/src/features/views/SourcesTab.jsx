@@ -64,8 +64,10 @@ export default function SourcesTab() {
                     </>
                   )}
                 </td>
-                <td className="src__lic">{d.license}</td>
-                <td>{d.used_for}</td>
+                <td className="src__lic" data-label="License">
+                  {d.license}
+                </td>
+                <td data-label="Used for">{d.used_for}</td>
               </tr>
             ))}
           </tbody>

@@ -53,7 +53,7 @@ export default function Simulation({ sim, mw }) {
           <dd>{fmt(sim.room_mw)} MW</dd>
         </div>
         <div>
-          <dt>Lines over their limit</dt>
+          <dt>Lines and transformers over their limit</dt>
           <dd>{sim.overloaded}</dd>
         </div>
         <div>
@@ -71,7 +71,7 @@ export default function Simulation({ sim, mw }) {
       {sim.lines?.length > 0 && (
         <details className="vote-how">
           <summary>
-            The {Math.min(sim.lines.length, 8)} most overloaded lines on the model ({fmt(mw)} MW)
+            {sim.lines.length === 1 ? 'The overloaded line on the model' : `The ${Math.min(sim.lines.length, 8)} most overloaded lines and transformers on the model`} ({fmt(sim.tested_mw || mw)} MW)
           </summary>
           <ul className="vote-plain">
             {sim.lines.map((l, i) => (
@@ -83,7 +83,7 @@ export default function Simulation({ sim, mw }) {
         </details>
       )}
       <p className="vote-note vote-note__frame">
-        {sim.note} Model: {sim.region_name} ({sim.interconnect} interconnection). People without power = load lost × the state&apos;s residents per MW of model load, an estimate.
+        {sim.note} Model: {sim.region_name}; interconnection: {sim.interconnect}. People without power = load lost × the state&apos;s residents per MW of model load, an estimate.
       </p>
     </div>
   )

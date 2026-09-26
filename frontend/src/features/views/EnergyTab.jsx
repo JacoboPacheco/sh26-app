@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
+import { ErrorBanner, Loading } from '../../ui'
 import { ChartTable, Legend, ShareBar, StackedBars, Swatch } from './charts'
 import { FUELS, groupFuels } from './fuels'
-import { compact, fmt, fmt1, mwText, stateHref, useCached } from './viewsKit'
+import MapLink from './MapLink'
+import { compact, fmt, fmt1, mwText, useCached } from './viewsKit'
 
 // Energy: each state model's load against the generation capacity it holds, by fuel, and the national mix.
 // Everything is the SYNTHETIC test system (Breakthrough Energy / Texas A&M): capacity is what is installed in
@@ -10,7 +12,7 @@ import { compact, fmt, fmt1, mwText, stateHref, useCached } from './viewsKit'
 const OTHER_NOTE = 'oil, geothermal and unclassified plants'
 
 export default function EnergyTab() {
-  const { data, error } = useCached('/api/views/energy')
+  const { data, error, retry } = useCached('/api/views/energy')
   const [mode, setMode] = useState('mw')
   const [all, setAll] = useState(false)
   const [asTable, setAsTable] = useState(false)
@@ -51,17 +53,18 @@ export default function EnergyTab() {
   const shown = all ? rows : rows.slice(0, 15)
   const sel = data?.states.find((s) => s.code === selected)
 
-  if (error) return <p className="vw-error">Couldn&apos;t load the energy view: {error.message}</p>
-  if (!data) return <p className="muted">Loading…</p>
+  if (error) return <ErrorBanner error={{ message: `Couldn't load the energy view: ${error.message}` }} onRetry={retry} />
+  if (!data) return <Loading label="Loading the energy view…" />
 
   const n = data.national
-  const fmtAxis = mode === 'pct' ? (v) => `${fmt(v)}%` : (v, axis) => (axis ? compact(v) : mwText(v))
+  // the axis in GW (20 GW, not 20k), the tooltips in MW or GW as the size needs
+  const fmtAxis = mode === 'pct' ? (v) => `${fmt(v)}%` : (v, axis) => (axis ? (v ? `${compact(v / 1000)} GW` : '0') : mwText(v))
   const selGroups = sel ? groupFuels(sel.by_fuel) : null
 
   return (
     <div className="vw-energy">
       <div className="vw-lead">
-        <h2 className="vw-h2">Load and generation in the grid models</h2>
+        <h1 className="vw-h2">Load and generation in the grid models</h1>
         <p>
           Each state model has a base load and a set of plants. The bars show the generation capacity installed in the model, by fuel; the tick marks the model&apos;s base load. Capacity is not output, and the models are a
           synthetic test system, not the real grid.
@@ -69,7 +72,7 @@ export default function EnergyTab() {
       </div>
 
       <section className="vw-panel" aria-label="National generation capacity by fuel">
-        <h3 className="vw-h3">All 48 models together</h3>
+        <h2 className="vw-h3">All 48 models together</h2>
         <p className="vw-fine">
           {mwText(n.capacity_mw)} of generation capacity in {fmt(n.plants)} plants, against {mwText(n.load_mw)} of base load.
         </p>
@@ -125,7 +128,7 @@ export default function EnergyTab() {
       </div>
 
       <section className="vw-panel" aria-label="Load and generation capacity by state">
-        <h3 className="vw-h3">{mode === 'pct' ? 'Generation capacity as a share of each model’s base load' : 'Base load and generation capacity by state'}</h3>
+        <h2 className="vw-h3">{mode === 'pct' ? 'Generation capacity as a share of each model’s base load' : 'Base load and generation capacity by state'}</h2>
         <p className="vw-fine">States are ordered by base load{mode === 'pct' ? '; the tick is 100% of base load, so a bar past the tick has capacity to spare' : ''}. Click a state for its fuels.</p>
         {asTable ? (
           <ChartTable
@@ -159,7 +162,7 @@ export default function EnergyTab() {
       {sel && selGroups && (
         <section className="vw-panel vw-panel--sel" aria-label={`${sel.name} fuels`}>
           <div className="vw-card__head">
-            <h3 className="vw-h3">{sel.name}</h3>
+            <h2 className="vw-h3">{sel.name}</h2>
             <button type="button" className="vw-iconbtn" aria-label="Clear the selected state" onClick={() => setSelected(null)}>
               ×
             </button>
@@ -178,9 +181,9 @@ export default function EnergyTab() {
             ))}
           </ul>
           <p className="row">
-            <a className="vw-link" href={stateHref(sel.code)}>
+            <MapLink className="vw-link" state={sel.code}>
               Open {sel.name}&apos;s grid model
-            </a>
+            </MapLink>
           </p>
         </section>
       )}

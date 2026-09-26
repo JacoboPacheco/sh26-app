@@ -72,11 +72,11 @@ export default function Money({ cost, sim }) {
         )}
         {tested && u && (
           <Tile
-            label="Upgrades to keep every line within its limit"
+            label={u.label || 'Upgrades to keep every line within its limit'}
             big={u.big}
             range={u.range}
             none="None needed on the model"
-            meaning={u.high > 0 ? `${u.count} lines and transformers raised above their limits.` : 'No line goes over its limit at this size.'}
+            meaning={u.meaning || (u.high > 0 ? `${u.count} ${u.count === 1 ? 'line or transformer' : 'lines and transformers'} given a higher limit on the model.` : 'No line goes over its limit at this size.')}
           />
         )}
         {bill && <Tile label="The campus’s own power bill, per year" big={bill.big} range={bill.range} meaning="What the campus itself would pay for electricity, not the community." />}

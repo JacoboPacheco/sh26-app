@@ -816,6 +816,7 @@
     },
     {
       "id": "crusoe-cheyenne",
+      "duplicate_of": "tallgrass-cheyenne",
       "name": "Crusoe / Tallgrass \"Project Jade\" (Cheyenne)",
       "company": "Crusoe with Tallgrass (tenant undisclosed; reports speculated OpenAI/Stargate, later Google)",
       "city": "Cheyenne (south of)",

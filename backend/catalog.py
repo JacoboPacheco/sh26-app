@@ -18,7 +18,8 @@ grid model", and every people number is an estimate (grid.people_fields).
 Cleaning at read time (the file itself belongs to the research workflow): entries without an id get
 a slug; likely duplicates (the research merged overlapping lists) are folded into the first entry
 (`duplicate_of`, sources merged) and left out of the totals; source links other than http(s) are
-dropped; speculation about undisclosed tenants is cut from the company line.
+dropped; speculation about undisclosed tenants is cut from the company line and from the size and
+place notes (`_clean_basis`); an entry the file marks `duplicate_of` folds into that entry.
 """
 
 from __future__ import annotations
@@ -103,12 +104,52 @@ def _clean_company(text: str) -> str:
     return re.sub(r"\s{2,}", " ", out).strip(" ;,")
 
 
+# The size and place notes get the same rule: a company named beside "not confirmed" (or "links … to", "speculated")
+# is an unconfirmed tenant, so that clause is cut, and so is "…, where Google is building" on a load the sources don't
+# tie to Google. A company that is the entry's own (named in its name or company line) stays.
+_TENANTS = re.compile(
+    r"\b(Anthropic|OpenAI|Stargate|Google|Alphabet|Microsoft|Meta|Facebook|Amazon|AWS|xAI|Oracle|Apple|Nvidia|NVIDIA|CoreWeave|Fluidstack|Nebius|Tesla|IBM)\b"
+)
+_DOUBT = re.compile(r"not (?:been )?confirmed|unconfirmed|neither was confirmed|not disclosed|undisclosed|specul|rumou?r|allegedly|do(?:es)? not tie|\blinks?\b.{0,80}\bto\b", re.I)
+_WHERE_BUILDING = re.compile(r",?\s*where ([A-Z][\w&.'-]*(?: [A-Z][\w&.'-]*)*) (?:is|are) (?:building|developing|planning|expanding)\b[^.;]*")
+_LOW_CONF = re.compile(r"^\s*LOW CONFIDENCE(?: ON ([A-Z]+))?\s*:\s*")
+
+
+def _clean_basis(text: str, own: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    mine = set(_TENANTS.findall(own or ""))
+
+    def other(t: str) -> bool:
+        return any(n not in mine for n in _TENANTS.findall(t))
+
+    m = _LOW_CONF.match(raw)
+    if m:  # the entry's confidence field already says low; keep only what the flag was about
+        rest = raw[m.end() :]
+        raw = ("Attribution is uncertain. " if (m.group(1) or "").upper() == "ATTRIBUTION" else "") + rest[:1].upper() + rest[1:]
+    raw = _WHERE_BUILDING.sub(lambda w: "" if other(w.group(1)) else w.group(0), raw)
+    kept = []
+    for sentence in re.split(r"(?<=[.!?])\s+", raw):
+        if not (_DOUBT.search(sentence) and other(sentence)):
+            kept.append(sentence)
+            continue
+        parts = re.split(r"(, and |; )", sentence.rstrip("."))
+        clauses = [p for p in parts[0::2]]
+        good = [c for c in clauses if not (other(c) and (_DOUBT.search(c) or len(clauses) == 1))]
+        if good and len(good) < len(clauses):
+            s = "; ".join(g.strip() for g in good)
+            kept.append(s[:1].upper() + s[1:] + ".")
+    return re.sub(r"\s{2,}", " ", " ".join(kept)).strip()
+
+
 def _sources(raw) -> list[dict]:
-    out = []
+    out, seen = [], set()
     for s in raw or []:
         url = str((s or {}).get("url") or "").strip()
-        if not re.match(r"^https?://", url, re.I):
-            continue  # only real web links are rendered as links
+        if not re.match(r"^https?://", url, re.I) or url in seen:
+            continue  # only real web links are rendered as links, each once
+        seen.add(url)
         out.append({"title": str(s.get("title") or url)[:300], "url": url, "supports": str(s.get("supports") or "")[:400]})
     return out
 
@@ -175,9 +216,9 @@ def _normalize(doc: dict) -> dict:
             "state_name": REGIONS[state]["name"] if state in REGIONS else state,
             "lat": _num(raw.get("lat")),
             "lon": _num(raw.get("lon")),
-            "location_basis": str(raw.get("location_basis") or "").strip(),
+            "location_basis": _clean_basis(raw.get("location_basis"), f"{name} {_clean_company(company)}"),
             "mw": round(mw) if mw and mw > 0 else None,
-            "mw_basis": str(raw.get("mw_basis") or "").strip(),
+            "mw_basis": _clean_basis(raw.get("mw_basis"), f"{name} {_clean_company(company)}"),
             "status": str(raw.get("status") or "").strip().lower() or "unknown",
             "year": str(raw.get("year") or "").strip(),
             "ai": bool(raw.get("ai")),
@@ -186,12 +227,24 @@ def _normalize(doc: dict) -> dict:
             "sources": _sources(raw.get("sources")),
             "duplicate_of": None,
             "also_listed_as": [],
+            "_listed_dup": _slug(str(raw.get("duplicate_of") or "").strip()) if raw.get("duplicate_of") else None,
         }
         if e["lat"] is not None and e["lon"] is not None and not (-90 <= e["lat"] <= 90 and -180 <= e["lon"] <= 180):
             e["lat"] = e["lon"] = None
         entries[eid] = e
 
-    # fold likely duplicates into one entry: the better-sourced one stays, the other points at it
+    def fold(keep: dict, drop: dict) -> None:
+        drop["duplicate_of"] = keep["id"]
+        keep["also_listed_as"].append({"id": drop["id"], "name": drop["name"], "company": drop["company"]})
+        seen = {s["url"] for s in keep["sources"]}
+        keep["sources"] += [s for s in drop["sources"] if s["url"] not in seen]
+
+    # a duplicate the file names itself (an older listing of a project that was re-reported at another size) folds first
+    for e in entries.values():
+        target = entries.get(e.pop("_listed_dup") or "")
+        if target is not None and target is not e and not target["duplicate_of"] and not e["duplicate_of"]:
+            fold(target, e)
+    # then fold likely duplicates into one entry: the better-sourced one stays, the other points at it
     items = list(entries.values())
     for i, a in enumerate(items):
         if a["duplicate_of"]:
@@ -202,10 +255,7 @@ def _normalize(doc: dict) -> dict:
             keep, drop = a, b
             if (_CONF.get(b["confidence"], 0), len(b["sources"])) > (_CONF.get(a["confidence"], 0), len(a["sources"])):
                 keep, drop = b, a
-            drop["duplicate_of"] = keep["id"]
-            keep["also_listed_as"].append({"id": drop["id"], "name": drop["name"], "company": drop["company"]})
-            seen = {s["url"] for s in keep["sources"]}
-            keep["sources"] += [s for s in drop["sources"] if s["url"] not in seen]
+            fold(keep, drop)
             if keep is b:
                 break  # a is now a duplicate itself
     for e in entries.values():

@@ -58,7 +58,7 @@ DATASETS = [
         "name": "Compute Atlas (Kubiak, E.), U.S. data center sites",
         "license": "CC BY 4.0 (doi 10.5281/zenodo.22284476)",
         "url": "https://www.compute-atlas.com",
-        "used_for": "The Data page's map and list of U.S. data center sites, merged with the catalog below (a site two sources list appears once).",
+        "used_for": "The Data page's map and list of U.S. data center sites, merged with the catalog below (a site listed by two sources appears once).",
     },
     {
         "id": "epoch",

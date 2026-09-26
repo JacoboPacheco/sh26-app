@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
+import { ErrorBanner, Loading } from '../../ui'
 import { ChartTable, RankedBars } from './charts'
-import { compact, fmt, fmt1, mwText, stateHref, useCached } from './viewsKit'
+import MapLink from './MapLink'
+import { compact, fmt, fmt1, mwText, useCached } from './viewsKit'
 
 // Population: how many residents each state's grid model stands for, and the ratio behind every "people without
 // power" estimate in Overload (a state's residents divided by its model's base load). The last two measures set
@@ -42,7 +44,7 @@ const METRICS = [
 ]
 
 export default function PopulationTab() {
-  const { data, error } = useCached('/api/views/population')
+  const { data, error, retry } = useCached('/api/views/population')
   const [metricId, setMetricId] = useState('population')
   const [all, setAll] = useState(false)
   const [asTable, setAsTable] = useState(false)
@@ -69,13 +71,13 @@ export default function PopulationTab() {
   const shownRows = all ? rows : rows.slice(0, 15)
   const sel = data?.states.find((r) => r.code === selected)
 
-  if (error) return <p className="vw-error">Couldn&apos;t load the population view: {error.message}</p>
-  if (!data) return <p className="muted">Loading…</p>
+  if (error) return <ErrorBanner error={{ message: `Couldn't load the population view: ${error.message}` }} onRetry={retry} />
+  if (!data) return <Loading label="Loading the population view…" />
 
   return (
     <div className="vw-pop">
       <div className="vw-lead">
-        <h2 className="vw-h2">Who lives behind each grid model</h2>
+        <h1 className="vw-h2">Who lives behind each grid model</h1>
         <p>
           Overload turns megawatts lost in a cascade into an estimate of people without power by dividing a state&apos;s residents by its model&apos;s base load. These charts show that ratio and the residents behind it.
         </p>
@@ -113,7 +115,7 @@ export default function PopulationTab() {
       </div>
 
       <section className="vw-panel" aria-label={metric.label}>
-        <h3 className="vw-h3">{metric.label}</h3>
+        <h2 className="vw-h3">{metric.label}</h2>
         <p className="vw-fine">{metric.about(data)}</p>
         {asTable ? (
           <ChartTable
@@ -146,7 +148,7 @@ export default function PopulationTab() {
       {sel && (
         <section className="vw-panel vw-panel--sel" aria-label={`${sel.name} in numbers`}>
           <div className="vw-card__head">
-            <h3 className="vw-h3">{sel.name}</h3>
+            <h2 className="vw-h3">{sel.name}</h2>
             <button type="button" className="vw-iconbtn" aria-label="Clear the selected state" onClick={() => setSelected(null)}>
               ×
             </button>
@@ -175,9 +177,9 @@ export default function PopulationTab() {
             <a className="vw-link" href={`#/views/datacenters?state=${sel.code}`}>
               See {sel.name}&apos;s data centers
             </a>
-            <a className="vw-link" href={stateHref(sel.code)}>
+            <MapLink className="vw-link" state={sel.code}>
               Open {sel.name}&apos;s grid model
-            </a>
+            </MapLink>
           </p>
         </section>
       )}

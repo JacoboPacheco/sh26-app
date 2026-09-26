@@ -5,8 +5,24 @@ import AiBadge from '../ai/AiBadge'
 // "What would have to be built for this to be safe": the engine's ranked plans for the reported size, each
 // re-run by the engine before it is listed. GREEN marks a plan that holds. Costs are estimates.
 
+// "…and verified 2; one is listed above." (the ones that held but cost more than a listed plan are not added)
+function verdictLine(verified, added) {
+  if (verified === 0) return 'none held.'
+  if (added === 0) return `verified ${verified}. None beat the plans already listed.`
+  if (added === verified) return `verified ${verified}: ${verified === 1 ? 'it is' : 'all are'} listed above.`
+  return `verified ${verified}; ${added === 1 ? 'one is' : `${added} are`} listed above.`
+}
+
+function shareText(p) {
+  if (p.family === 'onsite' && p.onsite_mw != null)
+    return `Keeps the full planned size: ${fmt(p.onsite_mw)} MW generated on site, ${fmt(p.grid_mw ?? p.kept_mw)} MW from the grid`
+  if (p.family === 'flexible' && p.kept_mw != null) return `Full size most of the year; down to ${fmt(p.kept_mw)} MW at the peak hour`
+  if (p.full_size) return p.family === 'move' ? 'Keeps the full planned size, at another site on the model' : 'Keeps the full planned size'
+  return `Keeps ${fmt(p.kept_mw)} MW (${fmt(p.kept_pct)}% of the planned size)`
+}
+
 function Plan({ p, open }) {
-  const share = p.full_size ? 'Keeps the full planned size' : `Keeps ${fmt(p.kept_mw)} MW (${fmt(p.kept_pct)}% of the planned size)`
+  const share = shareText(p)
   return (
     <li className="vote-plan">
       <details open={open}>
@@ -33,7 +49,7 @@ function Plan({ p, open }) {
   )
 }
 
-export default function Safe({ safe, sim }) {
+export default function Safe({ safe, sim, stalled, onRecheck }) {
   if (!safe) return null
   if (safe.status === 'unavailable')
     return <p className="vote-note">Not worked out for this proposal. {safe.reason}</p>
@@ -52,15 +68,21 @@ export default function Safe({ safe, sim }) {
         </ol>
       )}
       <p className="vote-note vote-agnote" role="status" aria-live="polite">
-        {running ? (
+        {running && stalled ? (
+          <>
+            <AiBadge by="gemini">working</AiBadge> Gemini is still proposing plans; the plans above are already verified.{' '}
+            <button type="button" className="vote-linkbtn" onClick={onRecheck}>
+              Check for new plans
+            </button>
+          </>
+        ) : running ? (
           <>
             <AiBadge by="gemini">working</AiBadge> Gemini is proposing more plans; the engine re-runs each one before it is added here…
           </>
         ) : ag?.status === 'done' && ag.asked > 0 ? (
           <>
-            <AiBadge by="gemini" verified /> Gemini proposed {ag.asked} {ag.asked === 1 ? 'plan' : 'plans'} in {ag.rounds || 1} {ag.rounds === 1 ? 'round' : 'rounds'}; the engine re-ran
-            each one{ag.rounds > 1 ? ', sent back what still failed,' : ''} and verified {ag.verified}.{' '}
-            {ag.added > 0 ? `${ag.added} ${ag.added === 1 ? 'is' : 'are'} listed above.` : 'None beat the plans already listed.'}
+            <AiBadge by="gemini" verified /> Gemini proposed {ag.asked} {ag.asked === 1 ? 'plan' : 'plans'} in {ag.rounds || 1} {(ag.rounds || 1) === 1 ? 'round' : 'rounds'}; the engine re-ran
+            each one{ag.rounds > 1 ? ', sent back what still failed,' : ''} and {verdictLine(ag.verified || 0, ag.added || 0)}
           </>
         ) : ag?.status === 'done' && safe.solutions.length > 0 ? (
           <>
@@ -85,9 +107,9 @@ export default function Safe({ safe, sim }) {
           className="vote-agt"
         />
       )}
-      {safe.status === 'solutions' && sim?.tested && safe.solutions[0]?.full_size && (
+      {safe.status === 'solutions' && sim?.tested && (safe.solutions[0]?.grid_here ?? false) && (
         <p className="vote-note">
-          The first plan builds the campus at its full reported size. Who pays for the grid work is the question a filed tariff answers (the second question below).
+          The first plan builds the campus at its full reported size at this site. Who pays for the grid work is the question a filed tariff answers (the second question below).
         </p>
       )}
       <p className="vote-note vote-note__frame">{safe.note}</p>

@@ -132,6 +132,13 @@ def _county(name: str) -> str:
     return name if re.search(r"\b(county|parish|borough|city|municipio)\b", name, re.I) else f"{name} County"
 
 
+def _place(city: str, county_text: str, state_name: str) -> str:
+    """'Lockhart (Caldwell County), Texas', not 'Lockhart (Caldwell County), Caldwell County, Texas'."""
+    core = re.sub(r"\s+(county|parish|borough)$", "", county_text or "", flags=re.I).strip().lower()
+    county = "" if core and core in (city or "").lower() else county_text
+    return ", ".join(x for x in (city, county, state_name) if x)
+
+
 def _approx(n: float) -> str:
     """'about 11,700': three significant figures, so an estimate never claims more precision than it has."""
     n = float(n)
@@ -291,6 +298,7 @@ def _row(e: dict) -> dict:
         "city": e["city"],
         "county": e["county"],
         "county_text": _county(e["county"]),
+        "place_text": _place(e["city"], _county(e["county"]), e["state_name"]),
         "state": e["state"],
         "state_name": e["state_name"],
         "mw": e["mw"],
@@ -369,17 +377,18 @@ def _flex_text(t: dict, room: str) -> str:
 
 
 def _firm_text(t: dict) -> str:
+    """Firm service on the model, worded so it reads the same under its "Firm service" heading on the page and in the brief."""
     m = t["firm"]
     if t["overloaded"] == 0:
-        return "Nothing goes over its limit, so firm service changes nothing here."
+        return "Nothing goes over its limit on the model, so firm service changes nothing here."
     if m.get("firm_held"):
         if m["people"] > 0:
-            return f"The grid operator keeps the campus on and cuts other customers instead: {_approx(m['people'])} people lose power (estimate)."
-        return "The grid operator can keep the campus on, and no other customers lose power on the model."
+            return f"On the model the grid operator keeps the campus on and cuts other customers instead: {_approx(m['people'])} people lose power (estimate)."
+        return "On the model the grid operator can keep the campus on, and no other customers lose power."
     if m.get("firm_held") is False:
-        s = "Firm service cannot hold it here: no nearby cut relieves the lines that feed the campus enough, so it is cut off as well"
+        s = "On the model the campus cannot be kept on here: no nearby cut relieves the lines that feed it enough, so it is cut off as well"
         return s + (f", with {_approx(m['people'])} people without power (estimate)." if m["people"] > 0 else ".")
-    return "Firm service was not tested for this case."
+    return "Not tested for this case."
 
 
 def _round_people_text(text: str | None) -> str | None:
@@ -403,7 +412,8 @@ def _simulation(e: dict) -> dict:
     if t["verdict"] == "fits":
         headline = f"On the model this size fits here: there is room for {room} MW before any line goes over its limit."
     elif t["verdict"] == "overloads":
-        headline = f"On the model this size goes past the site's room of {room} MW and pushes {t['over_text']} over their limits, but no other customers lose power."
+        over = "over its limit" if t["overloaded"] == 1 else "over their limits"
+        headline = f"On the model this size goes past the site's room of {room} MW and pushes {t['over_text']} {over}, but no other customers lose power."
     else:
         headline = (
             f"On the model the site has room for {room} MW; at {_n(t['tested_mw'])} MW the cascade leaves {_approx(f['people'])} people without power (estimate)."
@@ -436,7 +446,7 @@ def _simulation(e: dict) -> dict:
         },
         "firm": {
             "label": "Firm service",
-            "meaning": "The grid operator keeps the campus on and cuts other customers instead.",
+            "meaning": "The grid operator tries to keep the campus on by cutting other customers instead.",
             "people": m["people"],
             "people_text": _approx(m["people"]) if m["people"] else "no one",
             "held": m.get("firm_held"),
@@ -484,7 +494,8 @@ def _cost(e: dict, sim: dict) -> dict | None:
     blackout = _line(by, "blackout")
     blackout.update({"hours": c["hours_out"], "outage_label": h["outage_label"], "people": h["people"], "people_text": _approx(h["people"]) if h["people"] else "no one", "mwh": by["blackout"]["mwh"]})
     upgrades = _line(by, "upgrades")
-    upgrades.update({"count": up["count"], "prevents": up["prevents"], "calm": up["calm"], "added_mva": up["added_mva"], "people_after": up["people_after"]})
+    upgrades.update({"count": up["count"], "prevents": up["prevents"], "calm": up["calm"], "remaining": up.get("remaining") or 0, "added_mva": up["added_mva"], "people_after": up["people_after"]})
+    upgrades["label"], upgrades["meaning"] = _upgrade_words(upgrades)
     who_pays = _line(by, "who_pays")
     who_pays.update({"households": who["households"], "households_text": _hh(who["households"]), "per": "month", "big": _money(who["high"]) if who["high"] > 0 else None})
     spread = []
@@ -503,6 +514,25 @@ def _cost(e: dict, sim: dict) -> dict | None:
         "notes": c["notes"],
         "note": "Every figure is an estimate on a synthetic model, with its formula and assumption shown; the big figure is the high end of the range.",
     }
+
+
+def _upgrade_words(u: dict) -> tuple[str, str]:
+    """(label, one-line meaning) for the upgrade estimate, true to what the Fix it search reached: every overload
+    cleared (calm) and the blackout prevented (prevents), or not."""
+    if u["high"] <= 0:
+        return "Upgrades to keep every line within its limit", "No line goes over its limit at this size."
+    n = u["count"]
+    raised = f"{n} {'line or transformer' if n == 1 else 'lines and transformers'} given a higher limit on the model"
+    if u["calm"] and u["prevents"]:
+        return "Upgrades to keep every line within its limit", f"{raised}, so none is overloaded."
+    left = u.get("remaining") or 0
+    parts = [raised + ("" if u["calm"] else (f", and {left} still over {'its' if left == 1 else 'their'} limit when the search stopped" if left else ", and some still over their limit when the search stopped"))]
+    if not u["prevents"]:
+        parts.append(f"the cascade still leaves {_approx(u['people_after'])} people without power (estimate)" if u.get("people_after") else "the cascade still ends in a blackout")
+    else:
+        parts.append("with them the cascade darkens no one")
+    label = "Upgrades against the overloads" + ("" if u["prevents"] else " (not enough on their own)")
+    return label, "; ".join(parts) + "."
 
 
 def _bill_only(e: dict) -> dict | None:
@@ -557,11 +587,13 @@ def _solution_lines(fx: dict) -> list[str]:
         d = fx.get("detail") or {}
         town = ((d.get("sites") or [{}])[0].get("town")) or d.get("town")
         if town:
-            lines = [f"On the model, the same size fits at a substation near {town}"]
+            # the search starts from the state's roomiest substations, so a closer one may fit too (the AI analyst checks nearby)
+            lines = [f"On the model, the same size fits at a substation near {town}, one of the state's roomiest; a closer site may also fit"]
     return lines[:8]
 
 
-def _safe_block(rep: dict | None, sim: dict, reason: str | None = None) -> dict:
+def _safe_block(rep: dict | None, sim: dict, reason: str | None = None, money: dict | None = None) -> dict:
+    """The ranked plans for the page. `money` is the cost block (its upgrade estimate is named when no upgrade plan holds)."""
     if rep is None:
         return {"status": "unavailable", "reason": reason or "Not worked out for this case.", "solutions": [], "agentic": None, "note": FRAME}
     fixes = rep.get("fixes") or []
@@ -581,7 +613,10 @@ def _safe_block(rep: dict | None, sim: dict, reason: str | None = None) -> dict:
                 "action": fx.get("action"),
                 "kept_mw": fx.get("kept_mw"),
                 "kept_pct": fx.get("kept_pct"),
-                "full_size": bool(fx.get("kept_pct") is not None and fx["kept_pct"] >= 99.5),
+                # on-site generation keeps the whole campus: kept_mw is what the grid still supplies
+                "full_size": bool(fx.get("family") == "onsite" or (fx.get("kept_pct") is not None and fx["kept_pct"] >= 99.5)),
+                "onsite_mw": d.get("onsite_mw") if fx.get("family") == "onsite" else None,
+                "grid_mw": d.get("net_mw") if fx.get("family") == "onsite" else None,
                 "steps": _solution_lines(fx),
                 "cost": {"low": cost["low"], "high": cost["high"], "range": _range(cost["low"], cost["high"]), "big": _money(cost["high"]), "parts": cost["lines"]} if cost else None,
                 "by": fx.get("by") or "engine",
@@ -593,12 +628,28 @@ def _safe_block(rep: dict | None, sim: dict, reason: str | None = None) -> dict:
     ag = rep.get("agentic")
     agentic = _agentic(ag)
     if out:
-        full = [s for s in out if s["full_size"]]
-        headline = (
-            f"To build the full {_n(sim.get('tested_mw') or 0)} MW here, the model needs the upgrades below; each plan was re-run by the engine and holds."
-            if full
-            else "The engine found smaller plans that hold; none keeps the full size."
-        )
+        mw = _n(sim.get("tested_mw") or 0)
+        for s in out:
+            s["grid_here"] = s["full_size"] and s["family"] in GRID_HERE
+        if any(s["grid_here"] for s in out):
+            headline = f"To build the full {mw} MW here, the model needs grid upgrades. Each plan below was re-run by the engine and holds."
+        else:
+            up = (money or {}).get("upgrades") or {}
+            left = up.get("remaining") or 0
+            if up.get("high", 0) > 0 and not up.get("prevents"):
+                after = f"leaves {_approx(up['people_after'])} people without power" if up.get("people_after") else "ends in a blackout"
+                first = f"Raising the overloaded lines ({up['range']}, estimated above) is not enough here: with them the cascade still {after} on the model."
+            elif up.get("high", 0) > 0 and not up.get("calm"):
+                over = f"{left} {'line or transformer' if left == 1 else 'lines and transformers'}" if left else "some lines"
+                first = f"The upgrade estimate above ({up['range']}) still leaves {over} over the limit when its search stops, so it is not a plan that holds the full {mw} MW here."
+            else:
+                first = f"The engine found no grid upgrade on the model that holds the full {mw} MW at this site."
+            fams = {s["family"] for s in out}
+            ways = [w for f, w in (("move", "build the same size at another site"), ("onsite", "add on-site generation"), ("flexible", "cut back at the peak hour")) if f in fams]
+            if any(not s["full_size"] and s["family"] not in ("onsite", "flexible") for s in out):
+                ways.append("build smaller")
+            tail = (", ".join(ways[:-1]) + " or " + ways[-1]) if len(ways) > 1 else (ways[0] if ways else "hold another way")
+            headline = f"{first} The plans below {tail}; each was re-run by the engine and holds."
         status = "solutions"
     elif sim.get("verdict") == "fits":
         headline = f"On the model nothing needs building for this size: it fits with room for {_n(sim.get('room_mw') or 0)} MW. A real interconnection study is the utility's, not this model's."
@@ -616,6 +667,7 @@ def _safe_block(rep: dict | None, sim: dict, reason: str | None = None) -> dict:
 
 
 AGENT_KEYS = ("status", "asked", "verified", "added", "rounds", "calls", "ms", "model")
+GRID_HERE = ("upgrade", "agentic")  # plans that build the campus at this site by strengthening the grid
 
 
 def _agentic(ag) -> dict | None:
@@ -654,6 +706,7 @@ def _entry(e: dict) -> dict:
     out = {k: e.get(k) for k in keep}
     out["status_text"] = STATUS_TEXT.get(e["status"], (e["status"] or "unknown").capitalize())
     out["county_text"] = _county(e["county"])
+    out["place_text"] = _place(e["city"], out["county_text"], e["state_name"])
     srcs, seen = [], {}
     for x in e.get("sources") or []:
         o = _outlet(x["url"])
@@ -712,7 +765,7 @@ def _parts(e: dict, cat_mtime: float) -> dict:
 
 # ------------------------------------------------------------------------------------ the brief
 def _where_line(entry: dict) -> str:
-    return ", ".join(x for x in (entry["city"], entry["county_text"], entry["state_name"]) if x)
+    return entry.get("place_text") or _place(entry["city"], entry["county_text"], entry["state_name"])
 
 
 def _speak_items(entry: dict, civ: dict, st: dict) -> list[dict]:
@@ -726,7 +779,8 @@ def _speak_items(entry: dict, civ: dict, st: dict) -> list[dict]:
             items.append({"text": f"How to comment: {b['how_to_comment']}"})
     else:
         who = entry["county_text"] or "the county"
-        items.append({"text": f"Local decision body: not researched yet. Ask the {who} clerk (or the city clerk in {entry['city'] or 'the city'}) which board hears this proposal, and for the date and agenda."})
+        town = re.sub(r"\s*\([^)]*\)\s*$", "", entry["city"] or "") or "the city"  # "Lockhart (Caldwell County)" -> "Lockhart"
+        items.append({"text": f"Local decision body: not researched yet. Ask the {who} clerk (or the city clerk in {town}) which board hears this proposal, and for the date and agenda."})
     if civ["utility"]:
         items.append({"text": f"Utility named in the sources: {civ['utility']['name']}", "url": civ["utility"]["source"]})
     for c in civ["cases"]:
@@ -752,7 +806,10 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
     facts.append({"text": f"Status, as reported: {entry['status_text']}"})
     if entry["year"]:
         facts.append({"text": f"Timing, as reported: {entry['year']}"})
-    facts.append({"text": f"Developer or applicant, as reported: {entry['company']}" if entry["company"] else "Developer: not found in the sources"})
+    if re.match(r"developer not confirmed", entry["company"] or "", re.I):
+        facts.append({"text": "Developer: not confirmed in the sources"})
+    else:
+        facts.append({"text": f"Developer or applicant, as reported: {entry['company']}" if entry["company"] else "Developer: not found in the sources"})
     facts.append({"text": f"Place: {where} (location approximate)"})
     facts.append({"text": f"Confidence in these facts: {(entry['confidence'] or 'unknown').capitalize()}. Check them against the sources listed below."})
     sections.append({"heading": "The proposal, as reported", "items": facts})
@@ -783,7 +840,16 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
         if b:
             items.append({"text": f"A blackout, if it happened: {b['range']} ({b['outage_label']} without power, estimate)" if b["high"] > 0 else "A blackout: none on the model at this size"})
         if up:
-            items.append({"text": f"Upgrades to keep every line within its limit: {up['range']}" if up["high"] > 0 else "Upgrades: none needed on the model at this size"})
+            if up["high"] > 0:
+                text = f"{up.get('label') or 'Upgrades'}: {up['range']}"
+                if not up.get("prevents", True):
+                    text += f"; with them the cascade still leaves {_approx(up['people_after'])} people without power on the model" if up.get("people_after") else "; with them the cascade still ends in a blackout on the model"
+                elif not up.get("calm", True):
+                    left = up.get("remaining") or 0
+                    text += f"; {left} {'line or transformer' if left == 1 else 'lines and transformers'} still over the limit when the search stops" if left else "; some lines still over the limit when the search stops"
+                items.append({"text": text})
+            else:
+                items.append({"text": "Upgrades: none needed on the model at this size"})
         if bill:
             items.append({"text": f"The campus's own power bill: {bill['range']} a year"})
         if who:
@@ -799,11 +865,16 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
     if safe["status"] in ("solutions", "not_needed"):
         items = []
         for s in safe["solutions"][:3]:
-            line = s["title"] + (f" ({_n(s['kept_mw'])} MW)" if s["kept_mw"] and not s["full_size"] else "")
+            if s["family"] == "flexible" and s["kept_mw"]:
+                line = f"{s['title']} (to {_n(s['kept_mw'])} MW)"
+            else:
+                line = s["title"] + (f" ({_n(s['kept_mw'])} MW)" if s["kept_mw"] and not s["full_size"] else "")
             if s["cost"]:
                 line += f": {s['cost']['range']}"
             items.append({"text": line, "detail": s["steps"][0] if s["steps"] else None})
-        sections.append({"heading": "What would have to be built for this to be safe (simulated)", "paragraphs": [safe["headline"]] if not items else None, "items": items or None})
+        # the headline carries the caveat when no plan strengthens the grid here, so it reaches paper too
+        caveat = not items or not any(s.get("grid_here") for s in safe["solutions"])
+        sections.append({"heading": "What would have to be built for this to be safe (simulated)", "paragraphs": [safe["headline"]] if caveat else None, "items": items or None})
 
     sections.append({"heading": "Questions to ask before approving", "items": [{"text": q["question"]} for q in qs]})
     sections.append({"heading": "Where to speak", "items": _speak_items(entry, civ, st)})
@@ -837,7 +908,7 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
 
 # ------------------------------------------------------------------------------------ the proposal
 def _assemble(parts: dict, rep: dict | None, reason: str | None) -> dict:
-    safe = _safe_block(rep, parts["simulation"], reason)
+    safe = _safe_block(rep, parts["simulation"], reason, parts["cost"])
     qs = questions()
     return {
         "entry": parts["entry"],

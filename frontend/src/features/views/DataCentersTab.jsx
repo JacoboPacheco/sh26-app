@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../../api'
-import { Field } from '../../ui'
+import { ErrorBanner, Field } from '../../ui'
 import { Swatch } from './charts'
 import SiteCard from './SiteCard'
 import UsMap, { MapLegend } from './UsMap'
-import { DEFAULT_STATUSES, STATUS_LABEL, STATUS_ORDER, fmt, fmt1, mwText, stateHref } from './viewsKit'
+import MapLink from './MapLink'
+import { DEFAULT_STATUSES, STATUS_LABEL, STATUS_ORDER, fmt, fmt1, mwText } from './viewsKit'
 
 // Data centers: where the reported sites are, filterable by state, company, status and size. The totals are
 // the sites' reported MW (as reported, per source) and, as a scale only, the share of each state model's load.
@@ -32,6 +33,13 @@ const parseHashFilters = () => {
   }
 }
 
+// Company chips read in one unit: 9,617 MW sits beside 10 GW as 9.6 GW
+const chipMw = (mw) => (mw >= 1000 ? `${fmt1(mw / 1000)} GW` : `${fmt(mw)} MW`)
+
+// D.C., the territories and sites with no state are counted with the states
+const NOT_STATES = new Set(['DC', 'PR', 'GU', 'VI', 'MP', 'AS'])
+const placesWord = (codes, n) => (n === 1 ? 'state' : codes.some((c) => NOT_STATES.has(c)) ? 'states and territories' : 'states')
+
 function buildQuery(f, q) {
   const p = new URLSearchParams()
   f.states.forEach((s) => p.append('state', s))
@@ -53,12 +61,31 @@ export default function DataCentersTab({ initialSite }) {
   const [selectedId, setSelectedId] = useState(initialSite || null)
   const [companyText, setCompanyText] = useState('')
   const [shown, setShown] = useState(12)
+  const [nonce, setNonce] = useState(0) // Retry after an error
   const seq = useRef(0)
 
   useEffect(() => {
     const t = window.setTimeout(() => setQNow(f.q), 260)
     return () => window.clearTimeout(t)
   }, [f.q])
+
+  // A link into this tab while it is already open (Population's "See Florida's data centers", a shared
+  // #/views/datacenters?site=… link) applies its filters and site too; mounting read them once already.
+  useEffect(() => {
+    const on = () => {
+      const m = window.location.hash.match(/^#\/views\/datacenters\?(.*)/)
+      if (!m) return
+      const next = parseHashFilters()
+      if (next.states.length || next.companies.length || next.q) {
+        setF(next)
+        setQNow(next.q)
+      }
+      const site = new URLSearchParams(m[1]).get('site')
+      if (site) setSelectedId(site)
+    }
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
 
   const query = buildQuery(f, qNow)
   useEffect(() => {
@@ -75,7 +102,7 @@ export default function DataCentersTab({ initialSite }) {
         setError(e)
         setDoneQuery(query)
       })
-  }, [query])
+  }, [query, nonce])
   const loading = doneQuery !== query
 
   const set = (patch) => setF((cur) => ({ ...cur, ...patch }))
@@ -186,7 +213,7 @@ export default function DataCentersTab({ initialSite }) {
               return (
                 <button key={c.company} type="button" className={on ? 'vw-chip vw-chip--on' : 'vw-chip'} aria-pressed={on} onClick={() => toggle('companies', c.company)}>
                   {c.company}
-                  <span className="vw-chip__n">{mwText(c.mw)}</span>
+                  <span className="vw-chip__n">{chipMw(c.mw)}</span>
                 </button>
               )
             })}
@@ -218,11 +245,7 @@ export default function DataCentersTab({ initialSite }) {
         )}
       </div>
 
-      {error && (
-        <p className="vw-error" role="alert">
-          Couldn&apos;t load the data centers: {error.message}
-        </p>
-      )}
+      <ErrorBanner error={error && { message: `Couldn't load the data centers: ${error.message}` }} onRetry={() => setNonce((n) => n + 1)} />
 
       <div className="vw-dc__grid">
         <div className="vw-dc__main">
@@ -243,7 +266,7 @@ export default function DataCentersTab({ initialSite }) {
           </p>
 
           <section aria-label="Largest sites in this selection" className="vw-list">
-            <h3 className="vw-h3">Largest in this selection</h3>
+            <h2 className="vw-h3">Largest in this selection</h2>
             {sites.length === 0 && !loading ? (
               <p className="muted">No sites match these filters.</p>
             ) : (
@@ -299,7 +322,7 @@ export default function DataCentersTab({ initialSite }) {
                   {mwText(totals.mw)} <span className="vw-big__u">reported</span>
                 </p>
                 <p className="vw-fine">
-                  {fmt(totals.sites)} sites · {fmt(totals.companies)} companies · {fmt(totals.states)} states{sizedNote}
+                  {fmt(totals.sites)} sites · {fmt(totals.companies)} companies · {fmt(totals.states)} {placesWord(totals.by_state.map((s) => s.state), totals.states)}{sizedNote}
                 </p>
                 <ul className="vw-status">
                   {totals.by_status.map((s) => (
@@ -353,9 +376,9 @@ export default function DataCentersTab({ initialSite }) {
                       <td className="num">{fmt(s.mw)}</td>
                       <td className="num">
                         {s.share_pct != null ? (
-                          <a href={stateHref(s.state)} title={`Open ${s.name}'s grid model (${fmt(s.model_load_mw)} MW base load)`}>
+                          <MapLink state={s.state} title={`Open ${s.name}'s grid model (${fmt(s.model_load_mw)} MW base load)`}>
                             {fmt1(s.share_pct)}%
-                          </a>
+                          </MapLink>
                         ) : (
                           <span className="muted" title="No grid model for this state">
                             no model
@@ -367,7 +390,11 @@ export default function DataCentersTab({ initialSite }) {
                 </tbody>
               </table>
               </div>
-              {totals.by_state.length > 10 && <p className="vw-fine">The 10 largest of {fmt(totals.by_state.length)} states.</p>}
+              {totals.states > 10 && (
+                <p className="vw-fine">
+                  The 10 largest of {fmt(totals.states)} {placesWord(totals.by_state.map((s) => s.state), totals.states)}.
+                </p>
+              )}
               <p className="vw-fine">A share above 100% only means the reported MW is larger than that model&apos;s base load; the models hold no real campus, so this is a scale, not an effect.</p>
             </section>
           )}
