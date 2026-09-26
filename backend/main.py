@@ -32,6 +32,7 @@ import briefing
 import bulletin
 import catalog
 import costs
+import danger
 import fixit
 import forecast
 import grid
@@ -119,6 +120,7 @@ app.include_router(voice.router)
 app.include_router(plants.router)
 app.include_router(ask.router)
 app.include_router(gridlock.router)
+app.include_router(danger.router)
 
 
 @app.get("/api/health")
