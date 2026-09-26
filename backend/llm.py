@@ -307,11 +307,11 @@ SURFACES = [
     {"id": "unlock", "name": "Strengthen the grid", "gemini": "Proposes bundles of upgrades from the weak points found by simulation.",
      "check": "The engine re-scans every site with the bundle added; the unlocked MW is measured, not claimed.", "fallback": "Cheapest-first ranking"},
     {"id": "cost", "name": "Cost estimate", "gemini": "Estimates each cost line from the case facts, with the assumption shown.",
-     "check": "Ranges are clamped to the formula's bounds.", "fallback": "Formula estimate"},
+     "check": "An answer far outside the formula's range is rejected, and that line repeats the formula.", "fallback": "Formula estimate"},
     {"id": "ask", "name": "Ask about this case", "gemini": "Chooses which computed facts answer a question and words the answer.",
      "check": "Only facts from the case's fact sheet may be cited; other numbers are rejected.", "fallback": "Rule-based answers"},
-    {"id": "planner", "name": "Planner", "gemini": "Chooses the next what-if to run toward a goal.",
-     "check": "Every step is an engine run; the plan is what the engine measured.", "fallback": "Greedy search"},
+    {"id": "planner", "name": "Siting planner", "gemini": "Chooses each next step of a siting plan (a headroom lookup, a what-if, a fix).",
+     "check": "Every step runs on the engine, and the finished plan is re-checked: no line over its limit, nobody without power.", "fallback": "Greedy planner"},
 ]
 
 

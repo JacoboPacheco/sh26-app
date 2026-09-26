@@ -1,0 +1,130 @@
+/* The AI label and the "How AI is used" panel: quiet, plain text, no outlines around numbers. */
+.aib {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  color: var(--ink-2);
+  font-size: 0.74rem;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.aib__dot {
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.aib--engine .aib__dot {
+  background: var(--lit);
+}
+.aib--fallback {
+  color: var(--strain);
+}
+.aib--fallback .aib__dot {
+  background: var(--strain);
+}
+.aib__check {
+  color: var(--hr-ok);
+}
+
+.aihow__open {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.aihow__open:hover,
+.aihow__open:focus-visible {
+  color: var(--ink);
+}
+.aihow {
+  width: min(680px, calc(100vw - 2 * var(--gutter)));
+  max-height: calc(100vh - 2 * var(--gutter));
+  padding: 0;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+}
+.aihow::backdrop {
+  background: rgba(2, 5, 10, 0.72);
+}
+.aihow__body {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  overflow: auto;
+  max-height: calc(100vh - 2 * var(--gutter));
+}
+.aihow__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.aihow__head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.aihow__x {
+  appearance: none;
+  background: none;
+  border: 0;
+  color: var(--ink-2);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.aihow__rule {
+  margin: 0;
+  color: var(--ink);
+}
+.aihow__list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.aihow__list li {
+  display: grid;
+  gap: 0.15rem;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--glass-edge);
+  font-size: 0.88rem;
+  color: var(--ink-2);
+}
+.aihow__list em {
+  font-style: normal;
+  color: var(--ink);
+}
+.aihow__list strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+.aihow__served {
+  color: var(--hr-ok);
+  font-size: 0.8rem;
+}
+.aihow__foot {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.8rem;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .aihow[open] {
+    animation: aihow-in 0.16s ease-out;
+  }
+  @keyframes aihow-in {
+    from {
+      opacity: 0;
+    }
+  }
+}
