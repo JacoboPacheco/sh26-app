@@ -32,6 +32,11 @@ services:
         sync: false
       - key: ELEVENLABS_API_KEY
         sync: false
+      # the Gemini key is on the paid tier (Sat 09:30): a higher whole-app cap, the stronger model for agent steps
+      - key: AI_DAILY_LIMIT
+        value: "1500/day"
+      - key: GEMINI_AGENT_MODEL
+        value: "gemini-3.5-flash"
       # The free tier gets a fraction of one CPU: no background warm-ups at startup there (each is computed
       # on first use instead). Measured locally Sat 08:50: peak memory 236 MB through every heavy path.
       - key: DANGER_WARM
