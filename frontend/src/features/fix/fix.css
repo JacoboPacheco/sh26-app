@@ -1,0 +1,324 @@
+/* Fix it + best sites (owned by the fix track). Tokens only (index.css); the green is --hr-ok, the
+   heatmap's "takes it" color, so a fixed line and a good site read as the same good news. */
+
+/* ------------------------------------------------------------------ panel */
+.fix {
+  gap: var(--space-4);
+}
+
+.fix-sec {
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.fix-sec + .fix-sec {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--glass-edge);
+}
+
+.fix-head {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.fix-case {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.fix-result {
+  gap: var(--space-2);
+}
+
+.fix-total {
+  display: grid;
+  gap: 0.1rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--glass-edge);
+  border-left: 3px solid var(--hr-ok);
+  border-radius: var(--radius);
+  background: var(--glass-hi);
+}
+
+.fix-total__n {
+  font-size: 1.75rem;
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 68%;
+  color: var(--hr-ok);
+}
+
+.fix-total__label {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.fix-total--done {
+  box-shadow: 0 0 0 1px var(--hr-ok) inset;
+}
+
+.fix-ups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+}
+
+.fix-up {
+  display: grid;
+  gap: 0.15rem;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--glass-edge);
+}
+
+.fix-up__name {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.fix-up__name > span:first-child {
+  overflow-wrap: anywhere;
+}
+
+.fix-up__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  justify-content: space-between;
+  color: var(--ink-2);
+}
+
+.fix-up__meta strong {
+  color: var(--ink);
+}
+
+.fix-up__pct {
+  white-space: nowrap;
+}
+
+.fix-pct--over {
+  color: var(--overload);
+  font-weight: 600;
+}
+
+.fix-pct--ok {
+  color: var(--hr-ok);
+  font-weight: 600;
+}
+
+.fix-warn {
+  font-size: 0.8125rem;
+  color: var(--warn-text);
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+.fix-note {
+  font-size: 0.8125rem;
+}
+
+.fix-link {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--current);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* the reminder other panels show while upgrades are in the case (UpgradesNote.jsx) */
+.fix-upnote {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.fix-upnote__dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--hr-ok);
+}
+
+/* ranked sites: a ranking is a sequence, so the numbers carry meaning */
+.fix-sites {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.fix-site {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 0.3rem 0.4rem;
+  border-radius: var(--radius);
+  font-size: 0.8125rem;
+}
+
+.fix-site:hover,
+.fix-site:focus-within {
+  background: var(--glass-hi);
+}
+
+.fix-site__rank {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--hr-ok);
+  color: var(--night);
+  font-weight: 800;
+  font-size: 0.75rem;
+}
+
+.fix-sites--closest .fix-site__rank {
+  background: var(--hr-mid);
+}
+
+.fix-site__text {
+  display: grid;
+  min-width: 0;
+}
+
+.fix-site__text strong {
+  font-size: 0.875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fix-site__up {
+  color: var(--hr-mid);
+  font-weight: 600;
+}
+
+.fix-site .btn {
+  font-size: 0.8125rem;
+  padding: 0.3rem 0.6rem;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ map layer */
+.fix-layer {
+  pointer-events: none;
+}
+
+.fix-up-line {
+  fill: none;
+  stroke: var(--hr-ok);
+  stroke-width: 4;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 5px var(--hr-ok));
+}
+
+.fix-up-line--proposed {
+  stroke-width: 3;
+  stroke-dasharray: 7 6;
+  filter: none;
+  animation: fix-march 0.9s linear infinite;
+}
+
+@keyframes fix-march {
+  to {
+    stroke-dashoffset: -13;
+  }
+}
+
+.fix-up-label {
+  fill: var(--hr-ok);
+  stroke: var(--night);
+  paint-order: stroke;
+  stroke-linejoin: round;
+  font-family: var(--font);
+  font-weight: 700;
+}
+
+.fix-pin__dot {
+  fill: var(--hr-ok);
+  stroke: var(--night);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.fix-pin__stem {
+  stroke: var(--hr-ok);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.fix-pin__foot {
+  fill: var(--hr-ok);
+}
+
+.fix-pin__n {
+  fill: var(--night);
+  font-family: var(--font);
+  font-weight: 800;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.fix-pin__ring {
+  fill: none;
+  stroke: var(--hr-ok);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: fix-ping 2.2s ease-out infinite;
+}
+
+.fix-pin--hover .fix-pin__dot {
+  stroke: var(--ink);
+  stroke-width: 2.5;
+}
+
+.fix-pin--hover .fix-pin__ring {
+  stroke-width: 3;
+}
+
+.fix-pins--closest .fix-pin__dot,
+.fix-pins--closest .fix-pin__foot {
+  fill: var(--hr-mid);
+}
+
+.fix-pins--closest .fix-pin__stem,
+.fix-pins--closest .fix-pin__ring {
+  stroke: var(--hr-mid);
+}
+
+@keyframes fix-ping {
+  from {
+    transform: scale(0.4);
+    opacity: 0.9;
+  }
+  to {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fix-up-line--proposed,
+  .fix-pin__ring {
+    animation: none;
+  }
+}
