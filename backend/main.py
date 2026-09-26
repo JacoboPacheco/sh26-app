@@ -27,6 +27,8 @@ for _name in ("uvicorn", "uvicorn.access"):
 
 import auth
 import bulletin
+import catalog
+import costs
 import fixit
 import forecast
 import grid
@@ -92,6 +94,8 @@ app.include_router(bulletin.router)
 app.include_router(towns.router)
 app.include_router(forecast.router)
 app.include_router(planner.router)
+app.include_router(catalog.router)
+app.include_router(costs.router)
 
 
 @app.get("/api/health")

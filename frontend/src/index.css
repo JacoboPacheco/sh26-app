@@ -501,6 +501,23 @@ a {
   cursor: default;
 }
 
+/* #/preview/<feature>: a feature's own Preview.jsx over the live map (for building and checking) */
+.preview-host {
+  top: 80px;
+  left: calc(var(--left-w) + var(--gutter) * 2);
+  right: calc(var(--right-w) + var(--gutter) * 2);
+  bottom: 120px;
+  overflow: auto;
+  padding: var(--space-4);
+  z-index: 5;
+}
+
+.preview-host__bar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
 /* ------------------------------------------------------------------ campus panel */
 .dc-chip {
   display: grid;

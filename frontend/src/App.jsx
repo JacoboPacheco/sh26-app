@@ -14,8 +14,24 @@ import ImpactPanel from './shell/ImpactPanel'
 import ScenarioBar from './shell/ScenarioBar'
 import Timeline from './shell/Timeline'
 import { OverloadProvider, useOverload } from './store'
+import { useEffect, useState } from 'react'
 import { ErrorBanner, Loading } from './ui'
 import useAuth from './useAuth'
+
+// Feature previews: each feature folder may have a Preview.jsx; #/preview/<folder> shows it over the
+// live map inside the real app state. How a feature is built and checked before it is mounted.
+const PREVIEWS = import.meta.glob('./features/*/Preview.jsx', { eager: true })
+
+function usePreviewName() {
+  const read = () => window.location.hash.match(/^#\/preview\/([\w-]+)/)?.[1] || null
+  const [name, setName] = useState(read)
+  useEffect(() => {
+    const on = () => setName(read())
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
+  return name
+}
 
 const MODES = [
   { id: 'campus', label: 'Data center', Panel: CampusPanel },
@@ -113,7 +129,23 @@ function MissionControl({ user }) {
         </span>
       </p>
       <Intro />
+      <PreviewHost />
     </div>
+  )
+}
+
+function PreviewHost() {
+  const name = usePreviewName()
+  if (!name) return null
+  const Preview = PREVIEWS[`./features/${name}/Preview.jsx`]?.default
+  return (
+    <section className="preview-host glass" aria-label={`Preview of ${name}`}>
+      <div className="preview-host__bar">
+        <strong>Preview: {name}</strong>
+        <a href="#/">Close</a>
+      </div>
+      {Preview ? <Preview /> : <p className="muted">No features/{name}/Preview.jsx yet.</p>}
+    </section>
   )
 }
 
