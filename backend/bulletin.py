@@ -1034,7 +1034,7 @@ def s_cost(w: Writer, lv: Level) -> dict:
             lines.append((f"Campus power bill: {usd_show(c['campus_bill_usd_per_year'])} a year (estimate)" if en
                           else f"Factura del campus: {usd_show(c['campus_bill_usd_per_year'])} al año (estimación)"))
         if c.get("who_pays") and en:
-            lines.append(f"Who pays: {c['who_pays']}"[:LINE_MAX])
+            lines.append(f"Who pays (estimate): {c['who_pays']}"[:LINE_MAX])
         out["lines"][lang] = lines[:3]
     v = c.get("blackout_usd") or c.get("upgrade_usd") or 0
     out["big"] = {"value": v, "display": {"en": usd_show(v), "es": usd_show(v)},
@@ -1345,14 +1345,15 @@ def s_no_fix(w: Writer, lv: Level) -> dict:
                 s = s.replace("quedan aisladas", "quedan aislados")
             segs.append(_seg("analyst", s + "."))
         out["narr"][lang] = segs
-        out["headline"][lang] = (f"No fix exists for about {people_round(n, 'en')} people" if en
-                                 else f"No hay solución para unas {people_round(n, 'es')} personas" if n < 999_500
-                                 else f"No hay solución para unos {people_round(n, 'es')} de personas")
+        out["headline"][lang] = (f"No fix exists for about {people_round(n, 'en')} people (estimate)" if en
+                                 else f"No hay solución para unas {people_round(n, 'es')} personas (estimación)" if n < 999_500
+                                 else f"No hay solución para unos {people_round(n, 'es')} de personas (estimación)")
         lines = [((f"Tried: {fams}" if en else f"Probamos: {fams}") if fams else ("Every fix family tried" if en else "Probamos todas las soluciones"))[:LINE_MAX]]
         if phys:
             lines.append((f"Cut off by the damage: {phys:,} (estimate)" if en else f"Aislados por el daño: {phys:,} (estimación)"))
         if casc is not None and phys:
-            lines.append((f"Cascade: {casc:,} · data center: {camp or 0:,}" if en else f"Cascada: {casc:,} · centro de datos: {camp or 0:,}"))
+            lines.append((f"Cascade: {casc:,} · data center: {camp or 0:,} (estimates)" if en
+                          else f"Cascada: {casc:,} · centro de datos: {camp or 0:,} (estimaciones)"))
         out["lines"][lang] = lines[:3]
     out["big"] = {"value": n, "display": {"en": f"~{people_round(n, 'en')}", "es": f"~{people_round(n, 'es')}"},
                   "label": {"en": "people no fix can reach (estimate)", "es": "personas que ninguna solución alcanza (estimación)"},
@@ -1414,14 +1415,14 @@ def s_recovery(w: Writer, lv: Level) -> dict:
             items.append(cue("wave", wv.get("n", i + 1)) + s)
         out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang]))] + ([_seg("analyst", " ".join(items))] if items else [])
         first = waves[0] if waves else {}
-        out["headline"][lang] = ((f"The first {first.get('_count', 0)} repairs bring back {people_noun(first.get('people_back') or 0, 'en')}" if en
-                                  else f"Las primeras {first.get('_count', 0)} reparaciones devuelven la luz a {people_noun(first.get('people_back') or 0, 'es')}")
+        out["headline"][lang] = ((f"The first {first.get('_count', 0)} repairs bring back {people_noun(first.get('people_back') or 0, 'en')} (estimate)" if en
+                                  else f"Las primeras {first.get('_count', 0)} reparaciones devuelven la luz a {people_noun(first.get('people_back') or 0, 'es')} (estimación)")
                                  if first else ("Rebuild order" if en else "Orden de reconstrucción"))
         lines = []
         for wv in waves[:3]:
             km = f" · {wv['_km']:,.0f} km" if wv.get("_km") else ""
-            lines.append((f"Wave {wv.get('n')}: {wv['_count']} lines{km} · {int(wv.get('people_back') or 0):,} back" if en
-                          else f"Ola {wv.get('n')}: {wv['_count']} líneas{km} · {int(wv.get('people_back') or 0):,} con luz")[:LINE_MAX])
+            lines.append((f"Wave {wv.get('n')}: {wv['_count']} lines{km} · {int(wv.get('people_back') or 0):,} back (estimate)" if en
+                          else f"Ola {wv.get('n')}: {wv['_count']} líneas{km} · {int(wv.get('people_back') or 0):,} con luz (estimación)")[:LINE_MAX])
         if not lp and lines:
             lines[-1] = (lines[-1] + (" (line limits not applied)" if en else " (sin límites de línea)"))[:LINE_MAX]
         out["lines"][lang] = lines
@@ -1755,6 +1756,8 @@ Rules:
   megawatts"; Spanish "unas 784 mil", "1500 megavatios"). Never compute a new number: no sums, differences, ratios,
   percentages, comparisons ("three times", "half") of your own.
 - Write step numbers and small counts as words ("nine steps", "nueve pasos").
+- Keep every place and line name exactly as the DATA writes it, in both languages: never translate a name
+  (Naples stays Naples, not Nápoles; Key West stays Key West).
 - Never write "MW" or "%": say "megawatts" / "megavatios" and "percent" / "por ciento".
 - Never name a real utility, company, agency, or storm. No dates, years, clock times or durations unless the DATA
   gives one. No advice to the public. Never sound like an emergency alert.
@@ -1903,6 +1906,10 @@ def ai_data(w: Writer, sid: str) -> dict:
         rc = r.get("root_cause") or {}
         line = rc.get("line") or {}
         d["cause"] = rc.get("cause")
+        if rc.get("cause") == "storm":
+            d["conclusion"] = "the storm's damage caused it, not the data center" + (
+                "; without the data center the same people lose power" if w.sites else "")
+            return d
         if line.get("id") is not None:
             d["first_line_to_fail"] = {lang: w.line_label(line.get("id"), lang, fallback=line.get("label")) for lang in LANGS}
         if rc.get("pct_with") is not None:
@@ -1931,8 +1938,9 @@ def ai_data(w: Writer, sid: str) -> dict:
         d["only_rebuilding_brings_them_back"] = bool(w.storm)
     elif sid == "recovery":
         rec = r.get("recovery") or {}
-        d["repair_order_matters"] = True
-        d["line_limits_applied"] = rec.get("method") == "lp"
+        d["repair_order_matters"] = "fixing the right lines first brings the most people back per repair"
+        d["how_the_order_was_checked"] = ("with each line's limit applied (verified)" if rec.get("method") == "lp"
+                                          else "connections only: line limits were NOT applied, say so")
         hard = [x for x in (rec.get("hardening") or []) if isinstance(x, dict)]
         if hard:
             d["hardening"] = {"lines": num(hard[0].get("k") or 0), "people_kept_on": _both(lambda lang: people_say(hard[0].get("people_kept_on") or 0, lang))}
@@ -1962,7 +1970,8 @@ def _prompt(w: Writer, slots: list[dict]) -> str:
     for sid, langs in by_id.items():
         lines.append(f"- id: {sid}")
         lines.append(f"  PURPOSE: {AI_PURPOSE.get(sid, sid)}")
-        lines.append(f"  max_chars: " + ", ".join(f"{lang} {langs[lang]['max']}" for lang in LANGS if lang in langs))
+        # the model runs long: it is asked for ~80 % of the real limit, which validate_ai enforces
+        lines.append("  max_chars: " + ", ".join(f"{lang} {int(langs[lang]['max'] * 0.8)}" for lang in LANGS if lang in langs))
         lines.append("  DATA: " + json.dumps(ai_data(w, sid), ensure_ascii=False))
     lines.append("")
     lines.append('Write every slide now, as JSON {"slides": {"<id>": {"en": "...", "es": "..."}}}.')
@@ -1977,6 +1986,12 @@ _NUMWORDS = {
               "diecinueve veinte treinta cuarenta cincuenta sesenta setenta ochenta noventa cien ciento cientos "
               "doble duplica triple triplica mitad tercio tercios veces docena docenas".split()),
 }
+
+
+# Spanish exonyms of Florida (and other) places named in the synthetic models: the names must stay as written
+TRANSLATED_NAMES = {"es": ("Nápoles", "Napoles", "Cayo Hueso", "San Agustín", "Fuerte Myers", "Fuerte Lauderdale",
+                           "San Petersburgo", "Nueva Orleans", "Palma de ", "Ciudad de Panamá", "Ciudad de Panama"),
+                    "en": ()}
 
 
 def _number_words(text: str, lang: str) -> set[str]:
@@ -2011,6 +2026,9 @@ def validate_ai(w: Writer, sid: str, lang: str, text: str, limit: int, template:
     known = _number_words(template or "", lang) | _number_words(json.dumps(ai_data(w, sid), ensure_ascii=False), lang)
     known |= {words(int(x), lang) for x in re.findall(r"\b\d{1,2}\b", (template or "") + json.dumps(ai_data(w, sid)))}
     known |= {words(int(x), lang, fem=True) for x in re.findall(r"\b\d{1,2}\b", (template or "") + json.dumps(ai_data(w, sid)))}
+    for name in TRANSLATED_NAMES.get(lang, ()):
+        if name.lower() in low:
+            return False, f"a translated place name: {name}", 0
     extra_words = _number_words(text, lang) - known
     if extra_words:
         return False, f"a spelled number or ratio not in the template: {sorted(extra_words)}", 0
