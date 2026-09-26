@@ -1,0 +1,5 @@
+# OFFLINE build dependencies for the Build plans pipeline (backend/demo/gridlock/build.py).
+# Not needed at runtime: the API only reads the committed data/*.json. Do not add these to backend/requirements.txt.
+#   backend/venv/Scripts/pip install -r backend/demo/gridlock/requirements-build.txt
+pdfplumber==0.11.10
+pdfminer.six==20260107
