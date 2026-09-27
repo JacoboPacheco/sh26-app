@@ -116,6 +116,8 @@ def test_frontend_points_at_this_backend():
     html = fetch_text(ORIGIN + "/")
     scripts = re.findall(r'<script[^>]+src="([^"]+\.js)"', html)
     assert scripts, f"no <script> tags found at {ORIGIN} — is that the frontend?"
+    # the code-split build keeps the API base in a shared chunk (api-*.js) that index.html only preloads
+    scripts += re.findall(r'<link[^>]*rel="modulepreload"[^>]*href="([^"]+\.js)"', html)
     bundle = "".join(fetch_text(urllib.parse.urljoin(ORIGIN + "/", s)) for s in scripts)
     if "VITE_API_URL is not set" in bundle and BASE not in bundle:
         raise AssertionError(f"the frontend at {ORIGIN} was built WITHOUT VITE_API_URL — set it in Vercel to {BASE} and redeploy")
