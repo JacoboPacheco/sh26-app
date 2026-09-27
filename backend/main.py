@@ -2,6 +2,7 @@ import logging
 import logging.handlers
 import os
 import re
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -109,6 +110,28 @@ async def reject_oversized_uploads(request: Request, call_next):
         declared = request.headers.get("content-length", "")
         if declared.isdigit() and int(declared) > uploads.MAX_UPLOAD_BYTES + 4096:
             return JSONResponse({"detail": "File too large (max 5MB)"}, status_code=413)
+    return await call_next(request)
+
+
+# /api/grid/headroom builds a whole model per load level, and grid.py is fingerprinted (a change
+# there means a rebake), so its per-visitor limit lives here: 120 a minute, like the cascade's.
+_HEADROOM_LIMIT = 120
+_headroom_hits: dict[str, list[float]] = {}
+
+
+@app.middleware("http")
+async def limit_headroom(request: Request, call_next):
+    if request.url.path == "/api/grid/headroom":
+        now = time.monotonic()
+        ip = request.client.host if request.client else "?"
+        hits = [t for t in _headroom_hits.get(ip, ()) if now - t < 60]
+        if len(hits) >= _HEADROOM_LIMIT:
+            return JSONResponse({"detail": "Too many requests — wait a minute and try again"}, status_code=429)
+        hits.append(now)
+        _headroom_hits[ip] = hits
+        if len(_headroom_hits) > 5000:  # forget visitors idle for a minute
+            for k in [k for k, v in _headroom_hits.items() if not v or now - v[-1] >= 60]:
+                del _headroom_hits[k]
     return await call_next(request)
 
 

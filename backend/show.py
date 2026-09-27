@@ -830,8 +830,8 @@ def build_collapse(code: str, lang: str) -> Board:
         else:
             kept = float(fix.get("kept_mw") or 0)
             B.f("kept_mw", kept, "MW", mw_text(kept, lang))
-            say = (T(lang, f"The fix: curtail the campuses to {mw_text(kept, lang)} at the peak, full power the rest of the time.",
-                     f"La solución: reducir los campus a {mw_text(kept, lang)} en el pico, y potencia completa el resto del tiempo.")
+            say = (T(lang, f"The fix: the campuses step down to {mw_text(kept, lang)} whenever the grid is as busy as this, and run at full power the rest of the time.",
+                     f"La solución: los campus bajan a {mw_text(kept, lang)} cuando la red está tan cargada como ahora, y funcionan a plena potencia el resto del tiempo.")
                    if fix["family"] == "flexible" else
                    T(lang, f"The fix: build them smaller, {mw_text(kept, lang)} in total.", f"La solución: construirlos más pequeños, {mw_text(kept, lang)} en total."))
             say_f = ["kept_mw"]

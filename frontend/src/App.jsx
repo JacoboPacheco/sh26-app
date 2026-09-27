@@ -33,8 +33,11 @@ import useAuth from './useAuth'
 
 // Feature previews: each feature folder may have a Preview.jsx; #/preview/<folder> shows it over the
 // live map inside the real app state. How a feature is built and checked before it is mounted.
-// Loaded lazily, so a half-written feature only breaks its own preview, never the main app.
-const PREVIEWS = Object.fromEntries(Object.entries(import.meta.glob('./features/*/Preview.jsx')).map(([path, load]) => [path, lazy(load)]))
+// Loaded lazily, so a half-written feature only breaks its own preview, never the main app. Dev only:
+// the deployed build has no #/preview pages (REVIEW-1).
+const PREVIEWS = import.meta.env.DEV
+  ? Object.fromEntries(Object.entries(import.meta.glob('./features/*/Preview.jsx')).map(([path, load]) => [path, lazy(load)]))
+  : {}
 // The old #/next… application shell (features/app/) is retired: its addresses go to the map (REVIEW-1 #8:
 // it showed different numbers for the same case). The files stay for history.
 // Build plans (Sperry GridLock): a full page with its own map at #/plans
@@ -278,7 +281,7 @@ function MissionControl() {
 
 function PreviewHost() {
   const name = usePreviewName()
-  if (!name) return null
+  if (!name || !import.meta.env.DEV) return null
   const Preview = PREVIEWS[`./features/${name}/Preview.jsx`]
   return (
     <section className="preview-host glass" aria-label={`Preview of ${name}`}>
