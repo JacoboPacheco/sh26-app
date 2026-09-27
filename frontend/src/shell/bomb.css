@@ -530,6 +530,24 @@
   color: var(--hr-ok);
 }
 
+/* riding along under "Fix it in Strengthen" instead of a second full-width card: one line, no border/fill */
+.to-strengthen--compact {
+  padding: 0.15rem 0.8rem 0.4rem;
+  border: none;
+  background: none;
+}
+
+.to-strengthen--compact:hover,
+.to-strengthen--compact:focus-visible {
+  background: none;
+  text-decoration: underline;
+}
+
+.to-strengthen--compact .to-strengthen__a {
+  font-weight: 600;
+  font-size: 0.8125rem;
+}
+
 /* ------------------------------------------------------------------ before anything is dropped (ImpactPanel) */
 .start-here {
   display: grid;

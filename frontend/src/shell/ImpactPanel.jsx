@@ -1,5 +1,4 @@
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import Bulletin from '../features/bulletin/Bulletin'
 import MapLegend from '../features/flow/MapLegend'
 import PresentDamage from '../features/briefing/PresentDamage'
 import CostCard from '../features/cost/CostCard'
@@ -11,7 +10,6 @@ import HowWeKnow from '../features/evidence/HowWeKnow'
 import ActiveFix from '../features/fix/ActiveFix'
 import { FlipOffer, FlipResult } from '../features/fix/Flip'
 import { flipSide, plantsOut, useFixFollowsCase, useFlip } from '../features/fix/flipCase'
-import TownsFeed from '../features/impact/TownsFeed'
 import OperatorCard from '../features/operator/OperatorCard'
 import FullSolutionButton from '../features/unlock/FullSolutionButton'
 import { useSteadyLossRate } from '../features/cost/steady'
@@ -90,20 +88,21 @@ export default function ImpactPanel() {
       {over && <FullSolutionButton label="Fix it in Strengthen" hint={FIX_HINT} />}
       {result && <PresentDamage />}
       {done && !calm && !fixed && <FullSolutionButton label="Fix it in Strengthen" hint={FIX_HINT} />}
-      {(done || (fixed && settled)) && <ToStrengthen />}
+      {/* ONE door to Strengthen, not two: right after "Fix it in Strengthen" (this incident's own fix) the statewide
+          question rides along as a small link, not a second full-width green card; on its own (no fix button above,
+          e.g. calm or already applied) it stays the full button */}
+      {(done || (fixed && settled)) && <ToStrengthen compact={done && !calm && !fixed} />}
       {/* the same campus under three service rules: who is cut first (features/darkfirst); below the flip, the
           presentation and the hand-off, so the fix stays in view when the cascade ends */}
       {done && !calm && !fixed && <DarkFirst />}
       {done && !calm && !fixed && <OperatorCard />}
       {result && !live && <HowWeKnow body={caseBody} applied={fixed} figures={done && !fixed ? ['people_hit', 'cost', 'outage_hours'] : []} cascade={cascade} />}
       <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>
-        <summary>More: {every ? 'every step, ' : ''}incident briefing, cost breakdown, towns, map key</summary>
+        <summary>More: {every ? 'every step, ' : ''}cost breakdown, map key</summary>
         {more && (
           <div className="stack more__body">
             {every && <StepFeed all />}
-            <Bulletin />
             {result && <CostCard bare />}
-            <TownsFeed />
             <MapLegend />
           </div>
         )}
@@ -133,10 +132,19 @@ function StartHere() {
 
 // After the cascade: the other half of the story, one click away — how many campuses the state's grid carries at
 // once, and the cheapest upgrades for more (Strengthen the grid; CLAUDE.md -> Decisions -> PICKED BEFORE SLEEP).
-function ToStrengthen() {
+// `compact`: "Fix it in Strengthen" is already on screen for this same incident, so this rides along as one small
+// link instead of a second full-width green card (the two used to sit stacked and near-identical).
+function ToStrengthen({ compact = false }) {
   const { grid, region, setMode } = useOverload()
   if (region === 'US') return null
   const state = grid?.meta?.region_name || 'this state'
+  if (compact) {
+    return (
+      <button type="button" className="to-strengthen to-strengthen--compact" onClick={() => setMode('unlock')}>
+        <span className="to-strengthen__a">How many can {state} take? Strengthen the grid</span>
+      </button>
+    )
+  }
   return (
     <button type="button" className="to-strengthen" onClick={() => setMode('unlock')}>
       <span className="to-strengthen__q">How many can {state} take?</span>
