@@ -31,6 +31,8 @@ const live = {
   negotiateLive: (id, { window_months, lang = 'en' } = {}) => api(`/api/negotiate/${encodeURIComponent(id)}/live?${q({ window_months, lang })}`),
   // the coordination calendar: every compared project's build window + each flagged pair's shared window
   calendar: (params) => api(`/api/gridlock/calendar?${q(params)}`),
+  // what changed since DESC's last filing: its 2026-2030 list against the 2024-2028 one, row by row with both pages
+  changes: () => api('/api/gridlock/changes'),
 }
 
 // A download the browser saves itself (a plain link): /api/gridlock/<path> at the settings on screen, e.g.

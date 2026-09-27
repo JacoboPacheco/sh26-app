@@ -174,6 +174,28 @@ def main():
             r, _, code = call("GET", f"/api/harden/jobs/{r['job']}")
         note(f"harden: hero storm ${budget / 1e6:.0f}M", ((r or {}).get("result") or {}).get("by") or f"HTTP {code}", time.time() - t0 + dt)
 
+    # Build together, Sperry's table: the top 12 pairs of the current ranking (DESC 2026-2030 x Georgia Power) with
+    # everything a pair's sheet asks for: the plain and Gemini drafts, the two agents' negotiation, and the drafts on the
+    # negotiated terms (the sheet uses them once the agents agree). Negotiations and drafts are cached in memory: rerun
+    # after a backend restart. Paced under the routes' 30/minute limit.
+    opp, _, code = call("GET", "/api/gridlock/opportunities?limit=12")
+    top = [o.get("id") for o in ((opp or {}).get("opportunities") or []) if o.get("id")]
+    for k, oid in enumerate(top, 1):
+        for q in ("lang=en&ai=false", "lang=en&ai=true") + (("lang=es&ai=true",) if k == 1 else ()):
+            d, dt, code = call("GET", f"/api/agreement/{oid}?{q}")
+            note(f"pair {k} draft {q.replace('&', ' ')}", ((d or {}).get("by") or "?") if code == 200 else f"HTTP {code}", dt)
+            time.sleep(2.1)
+        n, dt, code = call("POST", f"/api/negotiate/{oid}?lang=en&ai=true", {}, timeout=200)
+        out = (n or {}).get("outcome") or {}
+        note(f"pair {k} negotiation", (f"{(n or {}).get('by')} " + ("nothing to negotiate" if out.get("nothing") else "agreed" if out.get("agreed") else "no deal"))
+             if code == 200 else f"HTTP {code}", dt)
+        time.sleep(2.1)
+        if code == 200 and out.get("agreed") and out.get("verified"):
+            for q in ("lang=en&ai=false&negotiated=en", "lang=en&ai=true&negotiated=en"):
+                d, dt, code = call("GET", f"/api/agreement/{oid}?{q}")
+                note(f"pair {k} draft on the agreed terms", ((d or {}).get("by") or "?") if code == 200 else f"HTTP {code}", dt)
+                time.sleep(2.1)
+
     st, _, _ = call("GET", "/api/ai/status")
     print(f"\nDone: {len(rows)} steps. AI used today {st and st.get('used_today')}/{st and st.get('cap')}; cached answers {st and st.get('cached_answers')}; models out today {st and st.get('models_out_today')}")
 

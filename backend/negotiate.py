@@ -797,12 +797,32 @@ def _outcome(g: _Game, case: dict, lang: str, stop: str | None) -> dict:
     }
 
 
+def _nothing_outcome(case: dict, lang: str) -> dict:
+    """A pair whose estimate has no item: the only things this distance could share (crews mobilized once, one laydown
+    yard) need the two build windows to share months, and these don't, so there are no terms to negotiate."""
+    left = [it["label"] for it in case["est"].get("left_out") or []]
+    what = ", ".join(ag._lc(x) for x in left) or _L(lang, "what could be shared", "lo que podría compartirse")
+    return {
+        "agreed": False,
+        "verified": False,
+        "nothing": True,
+        "terms": None,
+        "last_verified": None,
+        "reason": _L(lang, f"Nothing to negotiate: at this distance, {what} would need the two build windows to share months, and they don't.",
+                     f"Nada que negociar: a esta distancia, {what} necesitaría que las dos ventanas de obra compartieran meses, y no los comparten."),
+        "next": _L(lang, "Compare detailed schedules first: a shared window would make one mobilization possible.",
+                   "Primero, comparar los calendarios detallados: una ventana compartida permitiría una sola movilización."),
+    }
+
+
 async def _negotiate(case: dict, lang: str, ai: bool, key: tuple | None = None) -> tuple[dict, bool]:
     """(response, cacheable)."""
     t0 = time.perf_counter()
     calls, failure, stop, discarded = 0, None, None, 0
     model, models = None, []
-    if ai:
+    if not case["items"]:  # nothing in the estimate applies to this pair: no agent is asked (see _nothing_outcome)
+        g, by = _Game(case, lang), "none"
+    elif ai:
         live: dict = {}
         if key is not None:
             _live[key] = live
@@ -841,7 +861,7 @@ async def _negotiate(case: dict, lang: str, ai: bool, key: tuple | None = None) 
             "why_none": _why_none(case, lang),
         },
         "turns": g.turns,
-        "outcome": _outcome(g, case, lang, stop),
+        "outcome": _nothing_outcome(case, lang) if by == "none" else _outcome(g, case, lang, stop),
         "by": by,
         "fallback_reason": failure,
         "gemini_turns_discarded": discarded,

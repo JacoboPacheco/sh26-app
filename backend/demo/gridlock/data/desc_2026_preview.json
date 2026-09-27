@@ -1,12 +1,12 @@
 {
- "built_at": "2026-09-26T20:48:22Z",
- "_about": "A preview, computed in memory: the cross-state pairs the 2026-2030 DESC list would make with the Georgia filings, with the app's own overlap code (backend/gridlock.py, imported unchanged). The app still ranks the 2024-2028 list; nothing here is live. Pairs are places the utilities could coordinate, as filed, never a statement that they are or aren't coordinating.",
+ "built_at": "2026-09-27T00:12:22Z",
+ "_about": "A preview, computed in memory: the cross-state pairs the 2026-2030 DESC list would make with the Georgia filings, with the app's own overlap code (backend/gridlock.py, imported unchanged), each list ranked alone. The app ranks the 2026-2030 list as DESC's current plan, with the 2024-2028 projects it no longer carries marked (gridlock._merge_current); this preview compares the two lists alone. Pairs are places the utilities could coordinate, as filed, never a statement that they are or aren't coordinating.",
  "today": "2026-09-26",
  "today_note": "the date the shared build windows are measured against (still ahead / open now / ended); a run on another day recomputes those counts, and --today YYYY-MM-DD reproduces this file",
  "engine": {
   "module": "backend/gridlock.py",
-  "sha256": "ca28055f6cafd3290a198b08478b4de99f0b671828d5c83c4c46148ea9123208",
-  "max_km": 40.0,
+  "sha256": "b35424be58bac1763e31f5e2cd62897b3cd054065fcf021f890802391e87cbdf",
+  "max_km": 40.2336,
   "window_months": 24,
   "method": "closest",
   "a": [
@@ -125,51 +125,18 @@
    "ahead": "future",
    "rank_with_2024_2028": null,
    "reasons": [
-    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2027 — 1 year 7 months apart",
+    "Same station: As filed, both projects work at McIntosh: DESC's in service Dec 2028, Georgia Power's Jun 2027",
     "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
     "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
     "Centers 5.94 mi apart (Sperry's center method)",
     "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
     "Location confidence low: DESC-6888 is low, GA-20065 is medium (placed from name matches, check before relying on it)",
-    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
+    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; within its group, same-station pairs are listed first, then by score"
    ]
   },
   {
    "rank": 2,
-   "class": "Same station",
-   "tier": "Must coordinate",
-   "score": 40.0,
-   "desc": {
-    "id": "DESC-6888",
-    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
-    "in_service": "2028-12-31",
-    "page_2026_2030": 41,
-    "change_since_2024_2028": "new"
-   },
-   "georgia": {
-    "id": "GA-20277",
-    "utility": "Georgia Power",
-    "name": "SAV: MCINTOSH - PURRYSBURG 230KV REACTORS",
-    "in_service": "2026-06-01",
-    "page": 180
-   },
-   "distance_km": 0.0,
-   "shared_station": "McIntosh",
-   "same_window": false,
-   "ahead": "future",
-   "rank_with_2024_2028": null,
-   "reasons": [
-    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2026 — 2 years 7 months apart",
-    "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
-    "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
-    "Centers 4.21 mi apart (Sperry's center method)",
-    "Build windows don't overlap: 7 months apart; in service 944 days apart",
-    "Location confidence low: DESC-6888 is low, GA-20277 is medium (placed from name matches, check before relying on it)",
-    "Score 40 = distance 1.00 (closest points) x timeline 0.8 x location 0.5; same-station pairs are listed before every distance tier, then by score"
-   ]
-  },
-  {
-   "rank": 3,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 37.5,
@@ -198,11 +165,12 @@
     "Build windows overlap by 7 months (Jun 2029 to Dec 2029); still ahead; in service 1,248 days apart",
     "Both are 115 kV line work (x1.1)",
     "Location confidence medium: DESC-6809T is medium, GA-20793 is high (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 37.5 = distance 0.43 (closest points) x timeline 1 x location 0.8 x same kV 1.1"
    ]
   },
   {
-   "rank": 4,
+   "rank": 3,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 31.7,
@@ -224,50 +192,18 @@
    "shared_station": null,
    "same_window": true,
    "ahead": "future",
-   "rank_with_2024_2028": 3,
+   "rank_with_2024_2028": 1,
    "reasons": [
     "Closest points 14.81 km (9.20 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
     "Centers 9.20 mi apart (Sperry's center method)",
     "Build windows overlap by 12 months (Jan 2027 to Dec 2027); still ahead; in service 883 days apart",
     "Location confidence medium: DESC-6810O is medium, GA-21116 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 31.7 = distance 0.40 (closest points) x timeline 1 x location 0.8"
    ]
   },
   {
-   "rank": 5,
-   "class": "Share crews and equipment",
-   "tier": "Share crews and equipment",
-   "score": 30.0,
-   "desc": {
-    "id": "DESC-6809T",
-    "name": "Stevens Creek - Graniteville 115 kV: Rebuild",
-    "in_service": "2029-12-31",
-    "page_2026_2030": 49,
-    "change_since_2024_2028": "new"
-   },
-   "georgia": {
-    "id": "GA-20794",
-    "utility": "Georgia Power",
-    "name": "EVANS PRIMARY - THURMOND DAM (USA) #6 115KV REBUILD",
-    "in_service": "2033-06-01",
-    "page": 189
-   },
-   "distance_km": 11.059,
-   "shared_station": null,
-   "same_window": false,
-   "ahead": "future",
-   "rank_with_2024_2028": null,
-   "reasons": [
-    "Closest points 11.06 km (6.87 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
-    "Centers 14.78 mi apart (Sperry's center method)",
-    "Build windows don't overlap: 5 months apart; in service 1,248 days apart",
-    "Both are 115 kV line work (x1.1)",
-    "Location confidence medium: DESC-6809T is medium, GA-20794 is high (placed from name matches, check before relying on it)",
-    "Score 30 = distance 0.43 (closest points) x timeline 0.8 x location 0.8 x same kV 1.1"
-   ]
-  },
-  {
-   "rank": 6,
+   "rank": 4,
    "class": "Share site logistics",
    "tier": "Share site logistics",
    "score": 28.6,
@@ -289,17 +225,18 @@
    "shared_station": null,
    "same_window": true,
    "ahead": "open",
-   "rank_with_2024_2028": 10,
+   "rank_with_2024_2028": 13,
    "reasons": [
     "Closest points 4.88 km (3.03 mi) apart: share site logistics, close enough to share laydown yards and deliveries",
     "Centers 7.40 mi apart (Sperry's center method)",
     "Build windows overlap by 18 months (Jun 2025 to Dec 2026); open now, about 2 months left; in service 182 days apart",
     "Location confidence low: DESC-06367DG is low, GA-20065 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 28.6 = distance 0.57 (closest points) x timeline 1 x location 0.5"
    ]
   },
   {
-   "rank": 7,
+   "rank": 5,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 23.9,
@@ -327,11 +264,12 @@
     "Centers 17.92 mi apart (Sperry's center method)",
     "Build windows overlap by 4.0 years (Jan 2026 to Dec 2029); open now, about 39 months left; in service 152 days apart",
     "Location confidence medium: DESC-6809T is medium, GA-21116 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 23.9 = distance 0.30 (closest points) x timeline 1 x location 0.8"
    ]
   },
   {
-   "rank": 8,
+   "rank": 6,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 22.4,
@@ -353,18 +291,19 @@
    "shared_station": null,
    "same_window": true,
    "ahead": "open",
-   "rank_with_2024_2028": 6,
+   "rank_with_2024_2028": 9,
    "reasons": [
     "Closest points 13.55 km (8.42 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
     "Centers 9.60 mi apart (Sperry's center method)",
     "Build windows overlap by 19 months (Jun 2025 to Dec 2026); open now, about 3 months left; in service 152 days apart",
     "Both are 115 kV line work (x1.1)",
     "Location confidence low: DESC-0139MN is low, GA-20065 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 22.4 = distance 0.41 (closest points) x timeline 1 x location 0.5 x same kV 1.1"
    ]
   },
   {
-   "rank": 9,
+   "rank": 7,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 21.0,
@@ -392,11 +331,12 @@
     "Centers 10.88 mi apart (Sperry's center method)",
     "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
     "Location confidence low: DESC-6888 is low, GA-20785 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 21 = distance 0.42 (closest points) x timeline 1 x location 0.5"
    ]
   },
   {
-   "rank": 10,
+   "rank": 8,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 20.0,
@@ -418,18 +358,19 @@
    "shared_station": null,
    "same_window": true,
    "ahead": "open",
-   "rank_with_2024_2028": 23,
+   "rank_with_2024_2028": 24,
    "reasons": [
     "Closest points 19.13 km (11.89 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
     "Centers 12.62 mi apart (Sperry's center method)",
     "Build windows overlap by 2.0 years (Dec 2024 to Dec 2026); open now, about 3 months left; in service 152 days apart",
     "Both are 115 kV line work (x1.1)",
     "Location confidence low: DESC-0139MN is low, GA-20785 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 20 = distance 0.36 (closest points) x timeline 1 x location 0.5 x same kV 1.1"
    ]
   },
   {
-   "rank": 11,
+   "rank": 9,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 19.8,
@@ -451,45 +392,114 @@
    "shared_station": null,
    "same_window": true,
    "ahead": "open",
-   "rank_with_2024_2028": 25,
+   "rank_with_2024_2028": 26,
    "reasons": [
     "Closest points 14.81 km (9.20 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
     "Centers 11.81 mi apart (Sperry's center method)",
     "Build windows overlap by 2.0 years (Dec 2024 to Dec 2026); open now, about 2 months left; in service 182 days apart",
     "Location confidence low: DESC-06367DG is low, GA-20785 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 19.8 = distance 0.40 (closest points) x timeline 1 x location 0.5"
+   ]
+  },
+  {
+   "rank": 10,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 18.7,
+   "desc": {
+    "id": "DESC-6809T",
+    "name": "Stevens Creek - Graniteville 115 kV: Rebuild",
+    "in_service": "2029-12-31",
+    "page_2026_2030": 49,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-14222",
+    "utility": "Georgia Power",
+    "name": "THOMSON PRIMARY 230/115KV SECOND TRANSFORMER",
+    "in_service": "2033-06-01",
+    "page": 189
+   },
+   "distance_km": 35.744,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "open",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 35.74 km (22.21 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 29.20 mi apart (Sperry's center method)",
+    "Build windows overlap by 4.0 years (Jan 2026 to Dec 2029); open now, about 39 months left; in service 1,248 days apart",
+    "Location confidence medium: DESC-6809T is medium, GA-14222 is high (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
+    "Score 18.7 = distance 0.23 (closest points) x timeline 1 x location 0.8"
+   ]
+  },
+  {
+   "rank": 11,
+   "class": "Share crews and equipment",
+   "tier": "Share crews and equipment",
+   "score": 14.8,
+   "desc": {
+    "id": "DESC-6888",
+    "name": "Okatie – McIntosh 115kV Tie: Add Series Reactor",
+    "in_service": "2028-12-31",
+    "page_2026_2030": 41,
+    "change_since_2024_2028": "new"
+   },
+   "georgia": {
+    "id": "GA-20783",
+    "utility": "Georgia Power",
+    "name": "SAV: COLEMAN - DEAN FOREST 115KV LINE REBUILD",
+    "in_service": "2028-06-01",
+    "page": 184
+   },
+   "distance_km": 27.609,
+   "shared_station": null,
+   "same_window": true,
+   "ahead": "future",
+   "rank_with_2024_2028": null,
+   "reasons": [
+    "Closest points 27.61 km (17.16 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 18.14 mi apart (Sperry's center method)",
+    "Build windows overlap by 17 months (Jan 2027 to Jun 2028); still ahead; in service 213 days apart",
+    "Location confidence low: DESC-6888 is low, GA-20783 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
+    "Score 14.8 = distance 0.30 (closest points) x timeline 1 x location 0.5"
    ]
   },
   {
    "rank": 12,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
-   "score": 19.0,
+   "score": 14.8,
    "desc": {
-    "id": "DESC-6852",
-    "name": "Urquhart – Toolebeck 115kV line: Rebuild",
-    "in_service": "2026-08-12",
-    "page_2026_2030": 7,
-    "change_since_2024_2028": "carried over: cost changed"
+    "id": "DESC-0139MN",
+    "name": "Okatie 230-115kV Substation, Jasper – Yemassee 230kV #1 Fold-in",
+    "in_service": "2026-12-31",
+    "page_2026_2030": 11,
+    "change_since_2024_2028": "carried over: in_service, cost changed"
    },
    "georgia": {
-    "id": "GA-21116",
+    "id": "GA-20783",
     "utility": "Georgia Power",
-    "name": "GOSHEN AREA STRATEGIC SOLUTION",
-    "in_service": "2030-06-01",
-    "page": 187
+    "name": "SAV: COLEMAN - DEAN FOREST 115KV LINE REBUILD",
+    "in_service": "2028-06-01",
+    "page": 184
    },
-   "distance_km": 14.81,
+   "distance_km": 31.079,
    "shared_station": null,
    "same_window": true,
-   "ahead": "past",
-   "rank_with_2024_2028": 5,
+   "ahead": "open",
+   "rank_with_2024_2028": 27,
    "reasons": [
-    "Closest points 14.81 km (9.20 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
-    "Centers 16.38 mi apart (Sperry's center method)",
-    "Build windows overlap by 14 months (Jun 2025 to Aug 2026); as filed, that shared window ended before today (x0.6); in service 1,389 days apart",
-    "Location confidence medium: DESC-6852 is medium, GA-21116 is medium (placed from name matches, check before relying on it)",
-    "Score 19 = distance 0.40 (closest points) x timeline 0.6 x location 0.8"
+    "Closest points 31.08 km (19.31 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
+    "Centers 19.38 mi apart (Sperry's center method)",
+    "Build windows overlap by 19 months (Jun 2025 to Dec 2026); open now, about 3 months left; in service 518 days apart",
+    "Both are 115 kV line work (x1.1)",
+    "Location confidence low: DESC-0139MN is low, GA-20783 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
+    "Score 14.8 = distance 0.27 (closest points) x timeline 1 x location 0.5 x same kV 1.1"
    ]
   }
  ],
@@ -519,17 +529,18 @@
    "ahead": "future",
    "rank_with_2024_2028": null,
    "reasons": [
-    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2027 — 1 year 7 months apart",
+    "Same station: As filed, both projects work at McIntosh: DESC's in service Dec 2028, Georgia Power's Jun 2027",
     "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
     "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
     "Centers 5.94 mi apart (Sperry's center method)",
     "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
     "Location confidence low: DESC-6888 is low, GA-20065 is medium (placed from name matches, check before relying on it)",
-    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
+    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; within its group, same-station pairs are listed first, then by score"
    ]
   },
   {
-   "rank": 2,
+   "rank": 39,
    "class": "Same station",
    "tier": "Must coordinate",
    "score": 40.0,
@@ -553,13 +564,14 @@
    "ahead": "future",
    "rank_with_2024_2028": null,
    "reasons": [
-    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2026 — 2 years 7 months apart",
+    "Same station: As filed, both projects work at McIntosh: DESC's in service Dec 2028, Georgia Power's Jun 2026",
     "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
     "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
     "Centers 4.21 mi apart (Sperry's center method)",
     "Build windows don't overlap: 7 months apart; in service 944 days apart",
     "Location confidence low: DESC-6888 is low, GA-20277 is medium (placed from name matches, check before relying on it)",
-    "Score 40 = distance 1.00 (closest points) x timeline 0.8 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+    "Listed under 'Time passed, as filed': the months they shared have passed, or one project's build window is already over",
+    "Score 40 = distance 1.00 (closest points) x timeline 0.8 x location 0.5; within its group, same-station pairs are listed first, then by score"
    ]
   }
  ],
@@ -589,17 +601,18 @@
    "ahead": "future",
    "rank_with_2024_2028": null,
    "reasons": [
-    "Same station: As filed, both projects work at McIntosh: DESC's in service in 2028, Georgia Power's in 2027 — 1 year 7 months apart",
+    "Same station: As filed, both projects work at McIntosh: DESC's in service Dec 2028, Georgia Power's Jun 2027",
     "Same OpenStreetMap substation: DESC's 'McIntosh' and Georgia Power's 'McIntosh' both resolve to McIntosh Substation (way 121624352)",
     "Closest points 0.00 km (0.00 mi) apart: must coordinate, the projects meet or cross, so outage timing and crossing structures need one plan",
     "Centers 5.94 mi apart (Sperry's center method)",
     "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
     "Location confidence low: DESC-6888 is low, GA-20065 is medium (placed from name matches, check before relying on it)",
-    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; same-station pairs are listed before every distance tier, then by score"
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
+    "Score 50 = distance 1.00 (closest points) x timeline 1 x location 0.5; within its group, same-station pairs are listed first, then by score"
    ]
   },
   {
-   "rank": 3,
+   "rank": 2,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 37.5,
@@ -628,11 +641,12 @@
     "Build windows overlap by 7 months (Jun 2029 to Dec 2029); still ahead; in service 1,248 days apart",
     "Both are 115 kV line work (x1.1)",
     "Location confidence medium: DESC-6809T is medium, GA-20793 is high (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 37.5 = distance 0.43 (closest points) x timeline 1 x location 0.8 x same kV 1.1"
    ]
   },
   {
-   "rank": 4,
+   "rank": 3,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 31.7,
@@ -654,17 +668,18 @@
    "shared_station": null,
    "same_window": true,
    "ahead": "future",
-   "rank_with_2024_2028": 3,
+   "rank_with_2024_2028": 1,
    "reasons": [
     "Closest points 14.81 km (9.20 mi) apart: share crews and equipment, close enough to share line crews and heavy equipment",
     "Centers 9.20 mi apart (Sperry's center method)",
     "Build windows overlap by 12 months (Jan 2027 to Dec 2027); still ahead; in service 883 days apart",
     "Location confidence medium: DESC-6810O is medium, GA-21116 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 31.7 = distance 0.40 (closest points) x timeline 1 x location 0.8"
    ]
   },
   {
-   "rank": 9,
+   "rank": 7,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 21.0,
@@ -692,11 +707,12 @@
     "Centers 10.88 mi apart (Sperry's center method)",
     "Build windows overlap by 5 months (Jan 2027 to Jun 2027); still ahead; in service 579 days apart",
     "Location confidence low: DESC-6888 is low, GA-20785 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 21 = distance 0.42 (closest points) x timeline 1 x location 0.5"
    ]
   },
   {
-   "rank": 17,
+   "rank": 11,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 14.8,
@@ -724,11 +740,12 @@
     "Centers 18.14 mi apart (Sperry's center method)",
     "Build windows overlap by 17 months (Jan 2027 to Jun 2028); still ahead; in service 213 days apart",
     "Location confidence low: DESC-6888 is low, GA-20783 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 14.8 = distance 0.30 (closest points) x timeline 1 x location 0.5"
    ]
   },
   {
-   "rank": 23,
+   "rank": 15,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 14.0,
@@ -756,11 +773,12 @@
     "Centers 21.68 mi apart (Sperry's center method)",
     "Build windows overlap by 2.0 years (Jan 2027 to Dec 2028); still ahead; in service 152 days apart",
     "Location confidence low: DESC-6888 is low, GA-21023 is high (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 14 = distance 0.28 (closest points) x timeline 1 x location 0.5"
    ]
   },
   {
-   "rank": 27,
+   "rank": 18,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 12.4,
@@ -788,11 +806,12 @@
     "Centers 21.50 mi apart (Sperry's center method)",
     "Build windows overlap by 2.0 years (Jan 2027 to Dec 2028); still ahead; in service 152 days apart",
     "Location confidence low: DESC-6888 is low, GA-21006 is high (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 12.4 = distance 0.25 (closest points) x timeline 1 x location 0.5"
    ]
   },
   {
-   "rank": 35,
+   "rank": 20,
    "class": "Share crews and equipment",
    "tier": "Share crews and equipment",
    "score": 12.0,
@@ -820,6 +839,7 @@
     "Centers 22.15 mi apart (Sperry's center method)",
     "Build windows overlap by 17 months (Jan 2027 to Jun 2028); still ahead; in service 213 days apart",
     "Location confidence low: DESC-6888 is low, GA-20407 is medium (placed from name matches, check before relying on it)",
+    "Listed under 'Building in the same months': both build windows share months that are still ahead or open now",
     "Score 12 = distance 0.24 (closest points) x timeline 1 x location 0.5"
    ]
   }

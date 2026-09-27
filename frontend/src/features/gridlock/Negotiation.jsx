@@ -54,6 +54,10 @@ const T = {
     plainWhy: 'Plain version: A opens, B counters, they settle on the filed-length split.',
     retried: 'fast model',
     how: 'How the check works',
+    nothingH: 'Nothing to negotiate yet',
+    nothing: (what) =>
+      `At this distance, what the two projects could share (${what}) needs their build windows to share months, and they don't. The agents would have no terms to trade.`,
+    nothingNext: 'A shared window would make one mobilization possible: comparing detailed schedules comes first.',
     terms: { window: 'Window', scope: 'Share', split: 'Split' },
     ranIn: { en: 'Negotiated in English; the agents\' words are shown as written.', es: 'Negotiated in Spanish; the agents\' words are shown as written.' },
   },
@@ -92,6 +96,10 @@ const T = {
     plainWhy: 'Versión simple: A abre, B contrapropone y acuerdan el reparto por longitud publicada.',
     retried: 'modelo rápido',
     how: 'Cómo funciona la comprobación',
+    nothingH: 'Aún no hay nada que negociar',
+    nothing: (what) =>
+      `A esta distancia, lo que los dos proyectos podrían compartir (${what}) necesita que sus ventanas de obra compartan meses, y no los comparten. Los agentes no tendrían términos que intercambiar.`,
+    nothingNext: 'Una ventana compartida permitiría una sola movilización: primero hay que comparar los calendarios detallados.',
     terms: { window: 'Ventana', scope: 'Compartir', split: 'Reparto' },
     ranIn: { en: 'Negociado en inglés; se muestra lo que escribieron los agentes.', es: 'Negociado en español; se muestra lo que escribieron los agentes.' },
   },
@@ -123,7 +131,7 @@ function changedKeys(turns, i) {
   return new Set()
 }
 
-export default function Negotiation({ client, draftId, months, lang = 'en', parties, names, used, onUse, onStatus }) {
+export default function Negotiation({ client, draftId, months, lang = 'en', parties, names, used, onUse, onAgreed, onStatus, nothing }) {
   const t = T[lang] || T.en
   const reduced = useReduced()
   const [run, setRun] = useState({ phase: 'idle' })
@@ -179,11 +187,17 @@ export default function Negotiation({ client, draftId, months, lang = 'en', part
   const finished = !!data && n >= turns.length
   const outcome = data?.outcome
 
-  // the sheet's stepper shows where the negotiation stands
+  // the sheet's stepper shows where the negotiation stands (and which terms "Use these terms" would apply)
   const phase = run.phase === 'done' && !finished ? 'running' : run.phase
+  const agreedKey = data && outcome?.agreed && outcome?.verified ? (data.by === 'gemini' ? data.lang : 'plain') : null
   useEffect(() => {
-    onStatus?.({ phase, agreed: !!outcome?.agreed, round: outcome?.round ?? null })
-  }, [onStatus, phase, outcome?.agreed, outcome?.round])
+    onStatus?.({ phase, agreed: !!outcome?.agreed, round: outcome?.round ?? null, verified: !!outcome?.verified, key: agreedKey })
+  }, [onStatus, phase, outcome?.agreed, outcome?.round, outcome?.verified, agreedKey])
+  // agreed and verified: the draft takes these terms by itself once the replay has shown them (the sheet skips it when
+  // the viewer chose the draft's own terms for this pair)
+  useEffect(() => {
+    if (finished && agreedKey) onAgreed?.(agreedKey)
+  }, [finished, agreedKey, onAgreed])
 
   // who each agent reads for: the run's agents, else the draft's parties, else the utilities the sheet knows (so a
   // draft that failed to load never leaves "A's agent")
@@ -224,6 +238,19 @@ export default function Negotiation({ client, draftId, months, lang = 'en', part
       })}
     </div>
   )
+
+  // nothing in the estimate applies to this pair (no shared build window at a distance where only crews could be
+  // shared): no agent is asked; the reason, in words
+  if (nothing && run.phase === 'idle') {
+    const what = (nothing.left_out || []).map((x) => x.label.toLowerCase()).join(', ') || (lang === 'es' ? 'cuadrillas y equipos' : 'crews and equipment')
+    return (
+      <div className="gl-neg gl-neg--nothing" role="status">
+        <h4>{t.nothingH}</h4>
+        <p>{t.nothing(what)}</p>
+        <p className="gl-fine">{t.nothingNext}</p>
+      </div>
+    )
+  }
 
   if (run.phase === 'idle') {
     return (

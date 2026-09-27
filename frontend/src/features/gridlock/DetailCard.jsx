@@ -151,6 +151,8 @@ export function ProjectCard({ sel, onBack, onClose, backLabel, autoFocus = false
           )}
         </p>
         {src?.file && <p className="gl-fine">{src.file}</p>}
+        {p.edition_note && <p className="gl-fine">{p.edition_note}.</p>}
+        {src?.public_note && <p className="gl-fine">{src.public_note}</p>}
         {p.provenance?.text ? (
           <pre className="gl-raw" aria-label="Raw text as extracted">
             {p.provenance.text}

@@ -59,6 +59,22 @@ export function fmtDistance(km, mi) {
   return `${fmtKm(km)} (${fmtMi(mi ?? km / KM_PER_MI)})`
 }
 
+// The distance limit in words, as the engine words it (gridlock.limit_text): whole miles read "25 mi (40.2 km)",
+// anything else "30 km (18.6 mi)"; never a raw float like 14.484096000000001
+export function limitText(maxKm) {
+  if (maxKm == null) return '–'
+  const mi = maxKm / KM_PER_MI
+  if (Math.abs(mi - Math.round(mi)) < 1e-9) return `${Math.round(mi)} mi (${maxKm.toFixed(1)} km)`
+  return `${Number(maxKm.toFixed(3))} km (${mi.toFixed(1)} mi)`
+}
+
+// The limit in miles alone, for the list's head: whole miles as "9 mi" (the Filters slider moves in whole miles), else
+// one decimal
+export function limitMi(maxKm) {
+  const mi = maxKm / KM_PER_MI
+  return Math.abs(mi - Math.round(mi)) < 1e-9 ? `${Math.round(mi)} mi` : `${mi.toFixed(1)} mi`
+}
+
 // The distance the chosen method measures: the engine always sends the closest-points distance as
 // distance_km, and Sperry's centre-to-centre distance separately as center_distance_km / _mi.
 export function pairDistance(o, method) {
@@ -245,51 +261,28 @@ function yearsMonths(months, lang) {
   const ms = m ? (es ? `${m} mes${m === 1 ? '' : 'es'}` : `${m} month${m === 1 ? '' : 's'}`) : ''
   return [ys, ms].filter(Boolean).join(es ? ' y ' : ' ')
 }
-// {lead, rest}: "As filed, both projects work at Thurmond Dam" + ": in service 2024 (DESC) and 2033 (Georgia Power), 8 years 5
-// months apart". The gap is the IN-SERVICE dates' (said so in the words), never to be read against the list's "build
-// windows 4.4 years apart" (the build windows' gap): both are true, and each sentence names which one it measures.
+// {lead, rest}: "As filed, both projects work at Thurmond Dam" + ": in service Dec 2024 (DESC) and Jun 2033 (Georgia Power)".
+// The in-service DATES only, never a second gap: the pair's one time gap is its build windows' (the list, the sheet's
+// "Shared build window" and the score all use that one), so "8 years 5 months apart" here would read as a contradiction.
 export function stationSentence(o, lang = 'en') {
   const s = o?.shared_station
   if (!s) return null
-  const ya = s.a_in_service?.slice(0, 4)
-  const yb = s.b_in_service?.slice(0, 4)
+  const ma = s.a_in_service?.slice(0, 7)
+  const mb = s.b_in_service?.slice(0, 7)
   const ua = utilityShort(o.a_utility)
   const ub = utilityShort(o.b_utility)
   if (lang === 'es') {
-    // every case the engine has: years apart, the same month, under a month, a missing date
-    let rest = ''
-    if (ya && yb && s.months_apart) {
-      const gap = yearsMonths(s.months_apart, 'es')
-      rest = ya === yb ? `: ambos entran en servicio en ${ya}, con ${gap} de diferencia` : `: entran en servicio en ${ya} (${ua}) y en ${yb} (${ub}), con ${gap} de diferencia`
-    } else if (ya && yb) {
-      const ma = s.a_in_service.slice(0, 7)
-      const mb = s.b_in_service.slice(0, 7)
-      rest =
-        ma === mb
-          ? `: ambos entran en servicio en ${fmtDate(ma, 'es')}`
-          : `: entran en servicio con menos de un mes de diferencia (${fmtDate(ma, 'es')} y ${fmtDate(mb, 'es')})`
-    } else if (ya || yb) {
-      rest = `: el de ${ya ? ua : ub} entra en servicio en ${ya || yb}; el documento de ${ya ? ub : ua} no da fecha de entrada en servicio`
-    } else {
-      rest = '; ningún documento da fecha de entrada en servicio'
-    }
+    let rest
+    if (ma && mb) rest = ma === mb ? `: ambos entran en servicio en ${fmtDate(ma, 'es')}` : `: entran en servicio en ${fmtDate(ma, 'es')} (${ua}) y ${fmtDate(mb, 'es')} (${ub})`
+    else if (ma || mb) rest = `: el de ${ma ? ua : ub} entra en servicio en ${fmtDate(ma || mb, 'es')}; el documento de ${ma ? ub : ua} no da fecha de entrada en servicio`
+    else rest = '; ningún documento da fecha de entrada en servicio'
     return { lead: `Según lo publicado, ambos proyectos trabajan en ${s.name}`, rest }
   }
-  const head = `As filed, both projects work at ${s.name}`
   let rest
-  if (ya && yb && s.months_apart) {
-    const gap = yearsMonths(s.months_apart, 'en')
-    rest = ya === yb ? `: both in service in ${ya}, ${gap} apart` : `: in service ${ya} (${ua}) and ${yb} (${ub}), ${gap} apart`
-  } else if (ya && yb) {
-    const ma = s.a_in_service.slice(0, 7)
-    const mb = s.b_in_service.slice(0, 7)
-    rest = ma === mb ? `: both in service ${fmtDate(ma)}` : `: in service less than a month apart (${fmtDate(ma)} and ${fmtDate(mb)})`
-  } else if (ya || yb) {
-    rest = `: in service ${ya || yb} (${ya ? ua : ub}); ${ya ? ub : ua}'s filing gives no in-service date`
-  } else {
-    rest = '; neither filing gives an in-service date'
-  }
-  return { lead: head, rest }
+  if (ma && mb) rest = ma === mb ? `: both in service ${fmtDate(ma)}` : `: in service ${fmtDate(ma)} (${ua}) and ${fmtDate(mb)} (${ub})`
+  else if (ma || mb) rest = `: in service ${fmtDate(ma || mb)} (${ma ? ua : ub}); ${ma ? ub : ua}'s filing gives no in-service date`
+  else rest = '; neither filing gives an in-service date'
+  return { lead: `As filed, both projects work at ${s.name}`, rest }
 }
 export const stationGap = (o, lang = 'en') => (o?.shared_station?.months_apart ? yearsMonths(o.shared_station.months_apart, lang) : null)
 

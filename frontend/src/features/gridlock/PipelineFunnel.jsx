@@ -3,7 +3,7 @@ import { Button, ErrorBanner, Loading } from '../../ui'
 import { CheckIcon } from './DetailCard'
 import { useGridlock } from './context'
 import { Quarantine } from './PipelinePanel'
-import { KM_PER_MI, displayName, fmtInt, toneOf, utilityShort } from './format'
+import { displayName, fmtInt, limitMi, toneOf, utilityShort } from './format'
 
 // The pipeline where the judge looks: one quiet line under the page intro, every number counted by the engine
 // (/api/gridlock/summary funnel; the pair counts from /overlaps at the current settings). Each node is a control:
@@ -18,7 +18,6 @@ export default function PipelineFunnel() {
   const ovReady = g.ov.status === 'ready' || g.ov.status === 'refreshing'
   const top = ovReady ? g.overlaps.find((o) => o.rank === 1) || g.overlaps[0] : null
   const c = ovReady ? g.ov.compared : null
-  const mi = g.params.max_km / KM_PER_MI
   const sides = c ? `${fmtInt(c.a_projects)} DESC × ${fmtInt(c.b_projects)} ${sideB(g.pairs)} projects` : null
   // from "passed" to "pairs": the projects that passed but sit out of this comparison (utilities switched off in the
   // settings, or never placed on the map), so 194 = 43 + 104 + 47 reads on the page, not only in a tooltip
@@ -89,7 +88,7 @@ export default function PipelineFunnel() {
       id: 'flagged',
       n: ovReady ? fmtInt(g.ov.flagged) : '…',
       label: 'flagged',
-      title: ovReady ? `${fmtInt(g.ov.flagged)} pairs within ${mi.toFixed(mi < 10 ? 1 : 0)} mi, ranked: the list below` : 'Ranking…',
+      title: ovReady ? `${fmtInt(g.ov.flagged)} pairs within ${limitMi(g.params.max_km)}, ranked: the list below` : 'Ranking…',
       onClick: toList,
     },
     {
@@ -138,21 +137,27 @@ export default function PipelineFunnel() {
           </Fragment>
         ))}
       </ol>
-      {c && c.disjoint && (
-        <p className="gl-funnel__note">
-          {fmtInt(g.ov.total_pairs)} = {sides}
-          {offText && (
-            <>
-              ; {offText}{' '}
-              <button type="button" className="gl-funnel__notelink" onClick={toFilters}>
-                in Filters
-              </button>
-            </>
-          )}
-          {unplacedText && <>; {unplacedText}</>}.
-        </p>
-      )}
     </nav>
+  )
+}
+
+// How the pair count adds up (5,408 = 52 DESC x 104 Georgia Power projects; the others switched off): inside Filters, where
+// the settings that decide it are
+export function PairsNote() {
+  const g = useGridlock()
+  const ovReady = g.ov.status === 'ready' || g.ov.status === 'refreshing'
+  const c = ovReady ? g.ov.compared : null
+  if (!c || !c.disjoint) return null
+  const sides = `${fmtInt(c.a_projects)} DESC × ${fmtInt(c.b_projects)} ${sideB(g.pairs)} projects`
+  const off = (c.not_compared || []).filter((x) => x.projects > 0)
+  const unplaced = c.unplaced || 0
+  const offText = offLine(off, unplaced)
+  return (
+    <p className="gl-fine gl-pairsnote">
+      {fmtInt(g.ov.total_pairs)} pairs compared = {sides}
+      {offText ? `; ${offText} below` : ''}
+      {unplaced > 0 ? `; ${fmtInt(unplaced)} that passed weren't placed on the map` : ''}.
+    </p>
   )
 }
 
@@ -221,6 +226,26 @@ function tolText(tol) {
   return [mi, days].filter(Boolean).join(' and ')
 }
 
+// Their sheet against DESC's current list, as two separate counts: the DESC projects the 2026-2030 list no longer
+// carries (and the pairs they are in), and the pairs whose build windows have passed as filed (either side's)
+function EditionNote({ f, n }) {
+  const early = f.desc_only_in_earlier_list || 0
+  const ofDesc = early + (f.desc_in_current_list || 0)
+  const inPairs = f.pairs_with_earlier_only_desc
+  return (
+    <p className="gl-fine">
+      Their sheet is built from DESC&apos;s 2024–2028 list. {fmtInt(early)} of their {fmtInt(ofDesc)} DESC projects aren&apos;t in the 2026–2030
+      list (due in service before 2026, as filed){inPairs != null ? `; they are in ${fmtInt(inPairs)} of their ${n} pairs` : ''}.{' '}
+      {f.passed != null && (
+        <>
+          Separately, the time has passed, as filed, for {fmtInt(f.passed)} of their {n} pairs (the months they shared are over, or one
+          project&apos;s build window already is); the ranking leads with pairs still to be built.
+        </>
+      )}
+    </p>
+  )
+}
+
 export function SperryView() {
   const g = useGridlock()
   const s = g.sperry
@@ -267,6 +292,7 @@ export function SperryView() {
             . Their {rows.length} stay marked where they rank.
           </p>
         )}
+        {d.found_in_filings?.desc_only_in_earlier_list > 0 && <EditionNote f={d.found_in_filings} n={rows.length} />}
       </div>
       <ol className="gl-sperrymode__rows" aria-label="Their pairs, their numbers against ours">
         {rows.map((r) => {

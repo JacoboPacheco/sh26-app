@@ -17,6 +17,9 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 GEORGIA = {"GPC", "GTC", "MEAG", "DU"}
+SPERRY_KM = 25 * 1.609344  # their cutoff, 25 mi exactly
+# the list's groups, in order (backend/gridlock.py GROUPS): what can still be built together first
+GROUP_ORDER = {"together": 0, "apart": 1, "unknown": 2, "passed": 3}
 # Sperry Tech's Projects_Overlaps.xlsx (their worked example), read from their file: the export must start with exactly these
 SPERRY_PROJECT_COLS = [
     "project_id", "utility", "state", "project_name", "name_a", "lat_a", "lon_a", "name_b", "lat_b", "lon_b",
@@ -191,14 +194,26 @@ def register(ctx):
     def overlaps_default():
         o = ctx.request("GET", "/api/gridlock/overlaps")
         prm = o["params"]
-        assert prm["max_km"] == 40 and prm["method"] == "closest", prm
+        assert abs(prm["max_km"] - SPERRY_KM) < 1e-9 and prm["method"] == "closest", prm
+        assert o["limit_text"] == "25 mi (40.2 km)", o["limit_text"]
         rows = o["overlaps"]
         assert rows, "no overlaps at the default parameters"
         assert o["flagged"] >= len(rows) and o["total_pairs"] >= o["flagged"], (o["total_pairs"], o["flagged"], len(rows))
         assert [r["rank"] for r in rows] == list(range(1, len(rows) + 1)), "ranks are not 1..n"
-        # same-station pairs first (a class above every distance tier), then by score
-        order = [(0 if r.get("shared_station") else 1, -r["score"]) for r in rows]
-        assert order == sorted(order), "not ranked same station first, then by score"
+        # the group first (building in the same months, at different times, unknown, passed), then same station, then score
+        order = [(GROUP_ORDER[r["group"]], 0 if r.get("shared_station") else 1, -r["score"]) for r in rows]
+        assert order == sorted(order), "not ranked by group, then same station, then score"
+        assert [x["id"] for x in o["groups"]] == list(GROUP_ORDER), o["groups"]
+        assert sum(x["count"] for x in o["groups"]) == len(rows) and all(x["label"] and x["what"] for x in o["groups"]), o["groups"]
+        for r in rows:  # a group is the pair's timeline, said once
+            if r["group"] == "together":
+                assert r["same_window"] and r["ahead"] in ("future", "open"), (r["id"], r["same_window"], r["ahead"])
+            elif r["same_window"]:
+                assert r["group"] == "passed" and r["ahead"] == "past", (r["id"], r["group"], r["ahead"])
+            assert r["group_label"] and any(r["group_label"] in x for x in r["reasons"]), (r["id"], r["group_label"])
+        # forward-looking: a pair whose shared build window is still ahead or open now leads
+        if any(r["group"] == "together" for r in rows):
+            assert rows[0]["group"] == "together", rows[0]["id"]
         projects = state["projects"]
         for r in rows:
             pa, pb = projects[r["a"]], projects[r["b"]]
@@ -231,8 +246,10 @@ def register(ctx):
         ss = [r for r in rows if r.get("shared_station")]
         assert ss, "no same-station pair at the defaults (DESC's Thurmond tie x Georgia Power's Evans Primary - Thurmond Dam)"
         assert o["same_station"]["count"] == len(ss) and o["same_station"]["label"] == "Same station", o["same_station"]
-        others = [r["rank"] for r in rows if not r.get("shared_station")]
-        assert not others or max(r["rank"] for r in ss) < min(others), "a same-station pair ranks below a distance-tier pair"
+        for grp in GROUP_ORDER:  # within each group, same-station pairs before every distance-tier pair
+            mine = [r["rank"] for r in ss if r["group"] == grp]
+            others = [r["rank"] for r in rows if not r.get("shared_station") and r["group"] == grp]
+            assert not mine or not others or max(mine) < min(others), f"{grp}: a same-station pair ranks below a distance-tier pair"
         thurmond = [r for r in ss if "THURMOND" in r["shared_station"]["name"].upper()]
         assert thurmond and any(projects[r["a"]]["utility"] == "DESC" and projects[r["b"]]["utility"] == "GPC" for r in thurmond), (
             f"Thurmond Dam isn't a DESC x Georgia Power same-station pair: {[r['id'] for r in ss]}"
@@ -337,6 +354,11 @@ def register(ctx):
         top = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")
         tagged = {r["sperry"] for r in top["overlaps"] if r.get("sperry")}
         assert tagged == {r["overlap_id"] for r in s["rows"]}, f"tagged overlaps: {sorted(tagged)}"
+        # the page states "DESC projects no longer listed" (and the pairs they're in) apart from "time passed": they differ
+        # (a pair can have passed on the Georgia side while its DESC project is still in the current list)
+        n = f["pairs_with_earlier_only_desc"]
+        assert 0 <= n <= 6 and 0 <= f["passed"] <= 6, f
+        assert (f["desc_only_in_earlier_list"] > 0) == (n > 0), f
 
     def window_setting_matters():
         # projects without a filed start date take their build window from window_months, so it must
@@ -416,7 +438,7 @@ def register(ctx):
             assert d is None or isinstance(d, float), f"{row[0]}: in_service_date is not a date cell ({d!r})"
         ho = o[0]
         for row in o[1:]:
-            assert isinstance(row[ho.index("distance_mi")], float) and row[ho.index("distance_mi")] <= 40 / 1.609344 + 0.01, row[:3]
+            assert isinstance(row[ho.index("distance_mi")], float) and row[ho.index("distance_mi")] <= 25 + 0.005, row[:3]
             # shared_window describes a SHARED build period only: a pair whose windows never overlap has none
             shared, months = row[ho.index("shared_window")], row[ho.index("windows_overlap_months")]
             if months is None:
@@ -472,8 +494,8 @@ def register(ctx):
         groups = f["set_aside_by_check"]
         assert (not quarantine) or groups, "records set aside but no reasons grouped"
         members = set()
-        for grp in groups:
-            hit = {q["id"] for q in quarantine if any(str(r).startswith(f"{grp['check']}:") for r in q["reasons"])}
+        for grp in groups:  # by record (two records can share an id: that is what the id checks catch)
+            hit = {k for k, q in enumerate(quarantine) if any(str(r).startswith(f"{grp['check']}:") for r in q["reasons"])}
             assert len(hit) == grp["records"], f"{grp['id']}: {grp['records']} records, {len(hit)} reasons start with {grp['check']!r}"
             assert grp["label"], grp
             members |= hit
@@ -622,8 +644,8 @@ def register(ctx):
                 if s["gap_from"]:
                     first, second = projects[s["first"]], projects[s["b"] if s["first"] == s["a"] else s["a"]]
                     assert (s["gap_from"], s["gap_to"]) == (first["end"], second["start"]) and s["gap_from"] <= s["gap_to"], s
-            if not q:  # Sperry's OVL_1 (Thurmond Dam, rank 1) has no shared window at the defaults: the calendar still names it
-                assert any(s["sperry"] == "OVL_1" and s["station"] == "Thurmond Dam" and s["rank"] == 1 for s in cal["stations"]), cal["stations"]
+            if not q:  # Sperry's OVL_1 (Thurmond Dam) has no shared window at the defaults: the calendar still names it
+                assert any(s["sperry"] == "OVL_1" and s["station"] == "Thurmond Dam" for s in cal["stations"]), cal["stations"]
         # a pair's windows are the ones its trace reports (the ranking's own timeline)
         cal = ctx.request("GET", "/api/gridlock/calendar")
         w = cal["shared"][0]
@@ -723,11 +745,88 @@ def register(ctx):
         rows = list(csv.reader(io.StringIO(body.decode("utf-8-sig"))))
         assert rows[0] == h and len(rows) == len(c), (rows[0][:4], len(rows), len(c))
 
+    def desc_current_list():
+        # DESC's 2026-2030 filing is its current list; the 2024-2028 projects it no longer carries stay, marked; a project
+        # in both lists is read from the 2026-2030 one; Georgia's public-disclosure copy says what that means
+        s = ctx.request("GET", "/api/gridlock/summary")
+        ed = s["edition"]
+        assert ed and ed["desc_current"] == "2026-2030" and ed["desc_earlier"] == "2024-2028", ed
+        src = {x["id"]: x for x in s["sources"]}
+        assert src["desc_2026"]["role"] == "current" and src["desc"]["role"] == "earlier", [(k, v.get("role")) for k, v in src.items()]
+        assert "public" in src["ga_irp"]["public_note"].lower() and "CEII" in src["ga_irp"]["public_note"], src["ga_irp"].get("public_note")
+        assert "never inferred" in src["ga_irp"]["public_note"], src["ga_irp"]["public_note"]
+        assert s["limit"]["text"] == "25 mi (40.2 km)" and abs(s["limit"]["max_km"] - SPERRY_KM) < 1e-9, s["limit"]
+        p = ctx.request("GET", "/api/gridlock/projects")
+        desc = [x for x in p["projects"] + p["quarantine"] if x["utility"] == "DESC"]
+        eds = {x.get("edition") for x in desc}
+        assert eds == {"2026-2030", "2024-2028"}, eds
+        new = [x for x in desc if x["edition"] == "2026-2030"]
+        old = [x for x in desc if x["edition"] == "2024-2028"]
+        assert len(new) == ed["new_list"]["read"] and len(old) == ed["earlier_kept"]["read"], (len(new), len(old), ed)
+        assert all((x.get("provenance") or {}).get("source") == "desc_2026" for x in new), "a 2026-2030 record from another source"
+        assert all((x.get("provenance") or {}).get("source") == "desc" and x.get("edition_note") for x in old), "a 2024-2028 record unmarked"
+        placed = {x["id"] for x in p["projects"]}
+        assert not ({x["id"] for x in old} & {x["id"] for x in new}), "a project read from both lists"
+        assert "DESC-6810A" in placed and state["projects"]["DESC-6810A"]["edition"] == "2024-2028", "Sperry's Thurmond tie isn't kept, marked"
+        # the list looks forward: pairs whose shared build window is still ahead
+        o = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")
+        ahead = [r for r in o["overlaps"] if r["same_window"] and r["ahead"] == "future"]
+        assert len(ahead) >= 5, f"only {len(ahead)} pairs with a shared window still ahead"
+        top = o["overlaps"][0]
+        assert state["projects"][top["a"]]["edition"] == "2026-2030" and top["ahead"] in ("future", "open"), (top["id"], top["ahead"])
+        thurmond = [r for r in o["overlaps"] if r.get("sperry") == "OVL_1"]
+        assert thurmond and thurmond[0]["group"] == "passed" and thurmond[0]["rank"] > 1, [(r["rank"], r["group"]) for r in thurmond]
+
+    def changes_route():
+        # What changed since DESC's last filing: every project of both lists, both pages linked, and what it does to the list
+        c = ctx.request("GET", "/api/gridlock/changes")
+        n = c["counts"]
+        assert n["carried_over"] + n["dropped"] == n["old_projects"] and n["carried_over"] + n["new"] == n["new_projects"], n
+        rows = c["rows"]
+        assert len(rows) == n["carried_over"] + n["dropped"] + n["new"], len(rows)
+        kinds = {k: [r for r in rows if r["change"] == k] for k in ("carried_over", "dropped", "new")}
+        assert len(kinds["carried_over"]) == n["carried_over"] and len(kinds["new"]) == n["new"], {k: len(v) for k, v in kinds.items()}
+        assert sum(1 for r in kinds["carried_over"] if "later" in r["tags"]) == n["later"], n["later"]
+        for r in rows:
+            for side in ("old", "new"):
+                if r[side]:
+                    assert r[side]["url"].startswith("https://www.scrtp.com/") and f"#page={r[side]['page']}" in r[side]["url"], r[side]
+            assert (r["old"] is None) == (r["change"] == "new") and (r["new"] is None) == (r["change"] == "dropped"), r["change"]
+            if r["on_map"]:
+                assert r["id"] in state["projects"], r["id"]
+        cmp = c["comparison"]
+        assert cmp["with_2026_2030"]["together"] > cmp["with_2024_2028"]["together"], cmp
+        assert cmp["limit"] == "25 mi (40.2 km)", cmp["limit"]
+
+    def one_savings_figure():
+        # savings that need both crews in the field at once are counted only when the build windows share months: a pair
+        # with no shared window never shows them (they are listed as left out, with why)
+        o = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")["overlaps"]
+        apart = [r for r in o if r["same_window"] is False][:6]
+        together = [r for r in o if r["same_window"]][:3]
+        assert apart and together, (len(apart), len(together))
+        for r in apart:
+            e = ctx.request("GET", f"/api/gridlock/estimate/{r['id']}")
+            assert not [it for it in e["items"] if it.get("needs") == "same build window"], (r["id"], [it["id"] for it in e["items"]])
+            assert any(x["id"] == "mobilization" for x in e["left_out"]), (r["id"], e["left_out"])
+            assert e["total_low"] == sum(it["low"] for it in e["items"] if it["unit"] == "USD"), r["id"]
+        for r in together:
+            e = ctx.request("GET", f"/api/gridlock/estimate/{r['id']}")
+            assert any(it["id"] == "mobilization" for it in e["items"]) and not e["left_out"], (r["id"], e["left_out"])
+
     ctx.check("gridlock: summary has sources, DESC + Georgia counts, and the pipeline report", summary_shape)
     ctx.check("gridlock: projects cover DESC and a Georgia utility, placed inside SC/GA, quarantine has reasons", projects_both_sides)
-    ctx.check("gridlock: default overlaps are ranked cross-utility pairs with tiers matching their distances", overlaps_default)
+    ctx.check("gridlock: default overlaps (within 25 mi exactly) are ranked cross-utility pairs, grouped (building in the same "
+              "months first), with tiers matching their distances", overlaps_default)
     ctx.check("gridlock: the Thurmond Dam pair (one OSM substation in both filings) is flagged same station, ranked above every "
-              "distance-tier pair, its reason giving both in-service years as filed", same_station)
+              "distance-tier pair of its group, its reason giving both in-service dates as filed", same_station)
+    ctx.check("gridlock: DESC's 2026-2030 list is ranked as its current plan (the 2024-2028 projects it no longer carries kept, "
+              "marked; none read twice); Georgia's public-disclosure note; a still-ahead pair leads, Thurmond (OVL_1) lower down",
+              desc_current_list)
+    ctx.check("gridlock: what changed since DESC's last filing adds up (carried over / dropped / new, both pages linked) and "
+              "the newer list has more pairs building in the same months", changes_route)
+    ctx.check("gridlock: a pair with no shared build window never counts crews mobilized once or a shared yard (left out, "
+              "with why); a pair with one does", one_savings_figure)
     ctx.check("gridlock: center method stays under 25 mi; a tighter threshold stays tighter", overlaps_center_method)
     ctx.check("gridlock: bad max_km / window / method / utilities / limits are 422s", param_validation)
     ctx.check("gridlock: opportunities inline both projects and say what they could share", opportunities)

@@ -8,6 +8,8 @@ import { downloadUrl } from './gridlockApi'
 import { ProjectCard } from './DetailCard'
 import Negotiation from './Negotiation'
 import TraceDrawer from './TraceDrawer'
+import Gloss from './Gloss'
+import { GLOSS } from './glossary'
 import {
   SAME_STATION,
   TIER_LABEL_ES,
@@ -78,6 +80,15 @@ const S = {
     noShared: 'No shared months',
     savings: 'Could save',
     rough: 'rough estimate',
+    nothing: 'Nothing estimated',
+    ifAhead: 'Only if both still have work ahead:',
+    agreedOf: (n, m, all) => `The ${n} of ${m} items the agents agreed; ${all} for everything this distance allows`,
+    nothingWhy: 'What this distance could share needs the two build windows to share months:',
+    leftOut: (label, why) => `${label}: left out, ${why}`,
+    before: 'Before negotiation: the draft proposes its own starting terms.',
+    beforeRun: 'Let the two agents negotiate them',
+    beforeAgreed: 'The agents agreed other terms in step 2.',
+    useTerms: 'Use these terms',
     how: 'How the savings are estimated',
     assumptions: 'Assumptions',
     sources: 'Sources',
@@ -98,6 +109,8 @@ const S = {
       aiPending: 'Plain draft; Gemini wording it',
       negotiated: 'Uses the agreed terms',
       ready: 'Ready to print',
+      before: 'Before negotiation',
+      nothing: 'Nothing to negotiate',
     },
   },
   es: {
@@ -140,6 +153,15 @@ const S = {
     noShared: 'Sin meses en común',
     savings: 'Podría ahorrar',
     rough: 'estimación aproximada',
+    nothing: 'Nada estimado',
+    ifAhead: 'Solo si a ambos les queda obra:',
+    agreedOf: (n, m, all) => `Las ${n} de ${m} partidas que acordaron los agentes; ${all} para todo lo que permite esta distancia`,
+    nothingWhy: 'Lo que esta distancia permite compartir necesita que las dos ventanas de obra compartan meses:',
+    leftOut: (label, why) => `${label}: se deja fuera, ${why === 'needs the two build windows to share months' ? 'necesita que las dos ventanas de obra compartan meses' : why}`,
+    before: 'Antes de negociar: el borrador propone sus propios términos iniciales.',
+    beforeRun: 'Que los negocien los dos agentes',
+    beforeAgreed: 'Los agentes acordaron otros términos en el paso 2.',
+    useTerms: 'Usar estos términos',
     how: 'Cómo se estima el ahorro',
     assumptions: 'Supuestos',
     sources: 'Fuentes',
@@ -160,6 +182,8 @@ const S = {
       aiPending: 'Borrador simple; Gemini redactando',
       negotiated: 'Usa los términos acordados',
       ready: 'Listo para imprimir',
+      before: 'Antes de negociar',
+      nothing: 'Nada que negociar',
     },
   },
 }
@@ -205,7 +229,7 @@ export default function PairSheet() {
   // the draft's versions: the plain one (step 1 reads the overlap from it), the negotiated plain one once terms are
   // applied, and Gemini's wording of whichever is current
   const caseKey = `${draft.id}@${months}`
-  const [negSel, setNegSel] = useState({ for: null, key: null })
+  const [negSel, setNegSel] = useState({ for: null, key: null, dropped: false })
   const negKey = negSel.for === caseKey ? negSel.key : null
   const base = useAgreement(client, draft.id, { months, lang, ai: false, tries })
   const negPlain = useAgreement(client, negKey ? draft.id : null, { months, lang, ai: false, negotiated: negKey, tries })
@@ -348,8 +372,14 @@ export default function PairSheet() {
   const applyTerms = useCallback(
     (k) => {
       jumpToDraft.current = !!k
-      setNegSel({ for: caseKey, key: k })
+      setNegSel({ for: caseKey, key: k, dropped: !k })
     },
+    [caseKey],
+  )
+  // once the two agents agree (verified), the draft takes their terms by itself, so the page never shows two splits or
+  // two savings figures for one pair; unless the viewer chose the draft's own terms for this pair
+  const autoTerms = useCallback(
+    (k) => setNegSel((cur) => (cur.for === caseKey && (cur.dropped || cur.key) ? cur : { for: caseKey, key: k, dropped: false })),
     [caseKey],
   )
   useEffect(() => {
@@ -395,18 +425,21 @@ export default function PairSheet() {
           : s.touching
         : s.apart(`${fmtMi(d.mi)} (${fmtKm(d.km)})`)
   const when = whenOf(o, lang)
+  const nothing = base.status === 'ready' && !(base.data?.draft?.savings?.items || []).length
   const status = [
     when.short,
-    neg.phase === 'idle'
-      ? s.st.idle
-      : neg.phase === 'running'
-        ? s.st.running
-        : neg.phase === 'error'
-          ? s.st.error
-          : neg.agreed
-            ? s.st.agreed(neg.round)
-            : s.st.none,
-    !doc ? s.st.draft : aiPending ? s.st.aiPending : doc.draft?.negotiated ? s.st.negotiated : s.st.ready,
+    nothing
+      ? s.st.nothing
+      : neg.phase === 'idle'
+        ? s.st.idle
+        : neg.phase === 'running'
+          ? s.st.running
+          : neg.phase === 'error'
+            ? s.st.error
+            : neg.agreed
+              ? s.st.agreed(neg.round)
+              : s.st.none,
+    !doc ? s.st.draft : aiPending ? s.st.aiPending : doc.draft?.negotiated ? s.st.negotiated : nothing ? s.st.ready : s.st.before,
   ]
 
   return (
@@ -498,6 +531,7 @@ export default function PairSheet() {
             <OverlapStep
               o={o}
               base={base}
+              agreed={doc?.draft?.negotiated ? doc.draft.savings : null}
               s={s}
               lang={lang}
               listed={listed}
@@ -518,7 +552,9 @@ export default function PairSheet() {
                 names={{ a: { short: aShort, code: a?.utility }, b: { short: bShort, code: b?.utility } }}
                 used={negKey}
                 onUse={applyTerms}
+                onAgreed={autoTerms}
                 onStatus={setNeg}
+                nothing={nothing ? base.data?.draft?.savings : null}
               />
             )}
           </Step>
@@ -529,6 +565,25 @@ export default function PairSheet() {
           >
             {!doc && !failed && <Loading label={s.drafting} />}
             {failed && <ErrorBanner error={plain.error} onRetry={() => setTries((n) => n + 1)} />}
+            {doc && !doc.draft?.negotiated && !nothing && (
+              <p className="gl-prenote" role="note">
+                <span>{s.before}</span>
+                {neg.agreed && neg.key && neg.verified ? (
+                  <>
+                    <span className="gl-fine">{s.beforeAgreed}</span>
+                    <button type="button" className="gl-link" onClick={() => applyTerms(neg.key)}>
+                      {s.useTerms}
+                    </button>
+                  </>
+                ) : (
+                  neg.phase === 'idle' && (
+                    <button type="button" className="gl-link" onClick={() => goTo(2)}>
+                      {s.beforeRun}
+                    </button>
+                  )
+                )}
+              </p>
+            )}
             {doc && (
               <div className="gl-desk">
                 <Paper doc={doc} t={t} onDropNeg={() => applyTerms(null)} />
@@ -578,7 +633,7 @@ function Step({ n, title, aside, children }) {
 
 // Step 1: both projects as filed, side by side with the distance between them; the shared window against today;
 // what building together could save and why; the ranking's reasons folded away.
-function OverlapStep({ o, base, s, lang, listed, onOpenProject, onTrace, onRetry }) {
+function OverlapStep({ o, base, agreed, s, lang, listed, onOpenProject, onTrace, onRetry }) {
   const g = useGridlock()
   if (base.status === 'loading') return <Loading label={s.loading} />
   if (base.status === 'error') return <ErrorBanner error={base.error} onRetry={onRetry} />
@@ -623,7 +678,7 @@ function OverlapStep({ o, base, s, lang, listed, onOpenProject, onTrace, onRetry
 
       <dl className="gl-ovfacts">
         <div>
-          <dt>{s.distance}</dt>
+          <dt>{lang === 'es' || !station ? s.distance : <Gloss tip={GLOSS.station}>{s.distance}</Gloss>}</dt>
           <dd className="gl-ovfacts__big">
             {station ? SAME_STATION[lang].label : d.km == null ? '–' : d.km < 0.05 ? (o.crosses ? s.crossing : s.touching) : fmtMi(d.mi)}
           </dd>
@@ -638,7 +693,7 @@ function OverlapStep({ o, base, s, lang, listed, onOpenProject, onTrace, onRetry
           </dd>
         </div>
         <div>
-          <dt>{s.shared}</dt>
+          <dt>{lang === 'es' ? s.shared : <Gloss tip={GLOSS.window}>{s.shared}</Gloss>}</dt>
           <dd className="gl-ovfacts__big">{jw.overlap && jw.start ? `${fmtMonth(jw.start, lang)} – ${fmtMonth(jw.end, lang)}` : s.noShared}</dd>
           <dd>
             {when.months ? `${when.months}, ` : ''}
@@ -647,8 +702,26 @@ function OverlapStep({ o, base, s, lang, listed, onOpenProject, onTrace, onRetry
         </div>
         <div>
           <dt>{s.savings}</dt>
-          <dd className="gl-ovfacts__big gl-ovfacts__save">{fmtRange(sv.low, sv.high, sv.unit)}</dd>
-          <dd>{shareLabels.length ? shareLabels.join('; ') : s.rough}</dd>
+          {/* one figure per pair: once the agents agree (step 2), the agreed items' figure, the one the draft uses */}
+          {shareLabels.length && agreed && (agreed.items || []).length < shareLabels.length ? (
+            <>
+              <dd className="gl-ovfacts__big gl-ovfacts__save">{fmtRange(agreed.low, agreed.high, agreed.unit)}</dd>
+              <dd>{s.agreedOf(agreed.items.length, shareLabels.length, fmtRange(sv.low, sv.high, sv.unit))}</dd>
+            </>
+          ) : shareLabels.length ? (
+            <>
+              <dd className="gl-ovfacts__big gl-ovfacts__save">{fmtRange(sv.low, sv.high, sv.unit)}</dd>
+              {/* the time has passed, as filed (a shared window that ended, or one project already built) */}
+              <dd>{o.group === 'passed' ? `${s.ifAhead} ${shareLabels.join('; ')}` : shareLabels.join('; ')}</dd>
+            </>
+          ) : (
+            <>
+              <dd className="gl-ovfacts__big gl-ovfacts__none">{s.nothing}</dd>
+              <dd>
+                {s.nothingWhy} {(sv.left_out || []).map((x) => x.label.toLowerCase()).join(', ')}
+              </dd>
+            </>
+          )}
         </div>
       </dl>
 
@@ -692,6 +765,13 @@ function OverlapStep({ o, base, s, lang, listed, onOpenProject, onTrace, onRetry
             )
           })}
         </ul>
+        {(sv.left_out || []).length > 0 && shareLabels.length > 0 && (
+          <ul className="gl-leftout">
+            {sv.left_out.map((x) => (
+              <li key={x.id}>{s.leftOut(x.label, x.why)}</li>
+            ))}
+          </ul>
+        )}
         {sv.assumptions?.length > 0 && (
           <>
             <h5>{s.assumptions}</h5>
@@ -720,6 +800,8 @@ function OverlapStep({ o, base, s, lang, listed, onOpenProject, onTrace, onRetry
 }
 
 function ProjectBox({ p, s, lang, onOpen }) {
+  const g = useGridlock()
+  const rec = g.byId[p.id]
   const w = p.window || p.build_window_filed
   const work = [p.kv?.length ? `${p.kv.join(' / ')} kV` : null, kindText(p, lang), p.miles ? `${p.miles} mi` : null].filter(Boolean).join(', ')
   return (
@@ -731,6 +813,10 @@ function ProjectBox({ p, s, lang, onOpen }) {
       <h4 className="gl-pbox__name">
         {displayName(p.name) || p.display_name} <span className="gl-pbox__id">{p.id}</span>
       </h4>
+      {rec?.edition === '2024-2028' && lang !== 'es' && <span className="gl-pbox__ed">{rec.edition_note}</span>}
+      {rec?.edition === '2024-2028' && lang === 'es' && (
+        <span className="gl-pbox__ed">Solo en la lista 2024–2028 de DESC: la lista 2026–2030 ya no lo incluye</span>
+      )}
       <dl className="gl-pbox__facts">
         {work && (
           <div>

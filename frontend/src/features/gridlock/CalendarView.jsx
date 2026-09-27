@@ -176,16 +176,23 @@ function buildLayout(data, scope, order) {
   y += GAP_H
   items.push({ kind: 'band', key: 'band', y, h: BAND_H, count: shared.length, live, stations: stations.length })
   y += BAND_H
-  stations.forEach((s, k) => {
-    items.push({ kind: 'station', key: `s-${s.id}`, y, h: STATION_H, s, i: k })
+  // forward-looking: the shared windows still ahead or open now first, then the same-station pairs with no shared
+  // window, then the windows that passed as filed (kept for the record)
+  const ahead = shared.filter((w) => w.ahead !== 'past')
+  const passed = shared.filter((w) => w.ahead === 'past')
+  let k = 0
+  const addShared = (w) => {
+    items.push({ kind: 'shared', key: `w-${w.id}`, y, h: SHARED_H, w, i: k++ })
+    pos[w.id] = y
+    y += SHARED_H
+  }
+  ahead.forEach(addShared)
+  stations.forEach((s) => {
+    items.push({ kind: 'station', key: `s-${s.id}`, y, h: STATION_H, s, i: k++ })
     pos[s.id] = y
     y += STATION_H
   })
-  shared.forEach((w, k) => {
-    items.push({ kind: 'shared', key: `w-${w.id}`, y, h: SHARED_H, w, i: k + stations.length })
-    pos[w.id] = y
-    y += SHARED_H
-  })
+  passed.forEach(addShared)
   if (!shared.length) {
     items.push({ kind: 'none', key: 'none', y, h: SHARED_H })
     y += SHARED_H
@@ -202,9 +209,13 @@ export default function CalendarView() {
   const width = useWidth(root)
   const [scope, setScope] = useState('pairs')
   const [order, setOrder] = useState('date')
-  const [zoom, setZoom] = useState(null) // {from, to} years; null = the whole span
+  // {from, to} years; null = the whole span; 'auto' (the start) = from last year on, so the calendar looks forward
+  const [zoomSet, setZoom] = useState('auto')
   const data = cal.data
   const full = data?.range
+  const thisYear = data ? year(data.today) : null
+  const zoom =
+    zoomSet === 'auto' ? (full && thisYear && thisYear - 1 > full.from && thisYear <= full.to ? { from: thisYear - 1, to: full.to } : null) : zoomSet
   const from = Math.max(full?.from ?? 0, zoom?.from ?? full?.from ?? 0)
   const to = Math.max(from, Math.min(full?.to ?? 0, zoom?.to ?? full?.to ?? 0))
   const layout = useMemo(() => (data ? buildLayout(data, scope, order) : null), [data, scope, order])

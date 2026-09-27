@@ -507,7 +507,7 @@ def _preview(G, kept_2026: list[dict], links: dict, today: date) -> dict:
 
     def run(path: Path) -> tuple[list[dict], dict, list[dict]]:
         G.PROJECTS_FILE = path
-        st = G._load()
+        st = G._load(G.AS_FILED)  # each list alone, as given (the app's own view merges them: gridlock._merge_current)
         return G._compute(st, prm)["overlaps"], st, G._compute(st, prm_app)["overlaps"]
 
     def counts(rows: list[dict], st: dict) -> dict:
@@ -554,9 +554,10 @@ def _preview(G, kept_2026: list[dict], links: dict, today: date) -> dict:
     new_keys = {((links.get(r["a"]) or {}).get("old_id") or r["a"], r["b"]) for r in new_rows}
     return {
         "_about": ("A preview, computed in memory: the cross-state pairs the 2026-2030 DESC list would make with the Georgia filings, "
-                   "with the app's own overlap code (backend/gridlock.py, imported unchanged). The app still ranks the 2024-2028 "
-                   "list; nothing here is live. Pairs are places the utilities could coordinate, as filed, never a statement "
-                   "that they are or aren't coordinating."),
+                   "with the app's own overlap code (backend/gridlock.py, imported unchanged), each list ranked alone. The app "
+                   "ranks the 2026-2030 list as DESC's current plan, with the 2024-2028 projects it no longer carries marked "
+                   "(gridlock._merge_current); this preview compares the two lists alone. Pairs are places the utilities could "
+                   "coordinate, as filed, never a statement that they are or aren't coordinating."),
         "today": today.isoformat(),
         "today_note": ("the date the shared build windows are measured against (still ahead / open now / ended); a run on another "
                        "day recomputes those counts, and --today YYYY-MM-DD reproduces this file"),

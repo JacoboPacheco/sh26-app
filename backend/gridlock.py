@@ -22,6 +22,11 @@ data/projects.json and data/basemap.json from the public filings; this module lo
   GET /api/gridlock/export.csv            one of those tables as CSV (?table=projects|overlaps|set_aside|calendar)
   GET /api/gridlock/export.geojson        every validated project as a GeoJSON feature
   GET /api/gridlock/fault-test            the fault-injection report (demo/gridlock/faults.py): bad records caught, by check
+  GET /api/gridlock/changes               what changed since DESC's last filing (2026-2030 vs 2024-2028), both pages per row
+
+DESC's CURRENT list is its 2026-2030 filing (see _merge_current): the ranking reads it, with the 2024-2028 projects it no
+longer carries kept and marked; _load(AS_FILED) is projects.json exactly as the build wrote it. The list is grouped so what
+can still be built together comes first (GROUPS, rank_key); the default cutoff is Sperry's 25 mi exactly (40.2336 km).
 
 Until projects.json exists (the pipeline runs separately), every endpoint works from Sperry's
 worked example (demo/gridlock/sperry_example.json) and says so (`fallback: true`).
@@ -87,6 +92,12 @@ DATA_DIR = Path(os.getenv("GRIDLOCK_DATA_DIR") or HERE / "data")  # override onl
 PROJECTS_FILE = DATA_DIR / "projects.json"
 BASEMAP_FILE = DATA_DIR / "basemap.json"
 SPERRY_FILE = HERE / "sperry_example.json"
+# DESC's next edition (2026-2030), read, checked and located by demo/gridlock/diff_filings.py, and its comparison with the
+# 2024-2028 list: the app ranks the 2026-2030 list as DESC's CURRENT plan (see _merge_current)
+DESC_CURRENT_FILE = DATA_DIR / "desc_2026_2030.json"
+DESC_CHANGES_FILE = DATA_DIR / "desc_changes.json"
+CURRENT = "current"  # _load(): Georgia + DESC 2026-2030 + the 2024-2028 projects the new list no longer carries
+AS_FILED = "as_filed"  # _load(): projects.json exactly as the build wrote it (DESC 2024-2028 + Georgia)
 
 R_KM = 6371.0088  # mean Earth radius
 R_MI = 3958.8  # the radius that reproduces Sperry's sheet (their distances to 0.01 mi)
@@ -120,7 +131,17 @@ SHARE_LINE = {
     "crews": "Line crews and heavy equipment, mobilized once",
 }
 
-MAX_KM_DEFAULT, MAX_KM_CAP = 40.0, 50.0
+# Sperry's cutoff is 25 miles: exactly 40.2336 km (not the 40 km that used to stand in for it, 24.85 mi)
+SPERRY_MI = 25
+MAX_KM_DEFAULT, MAX_KM_CAP = SPERRY_MI * KM_PER_MI, 50.0
+
+
+def limit_text(max_km: float) -> str:
+    """The distance limit in words: Sperry's '25 mi (40.2 km)', else '30 km (18.6 mi)'."""
+    mi = max_km / KM_PER_MI
+    if abs(mi - round(mi)) < 1e-9:
+        return f"{round(mi)} mi ({max_km:.1f} km)"
+    return f"{max_km:g} km ({mi:.1f} mi)"
 WINDOW_DEFAULT, WINDOW_MAX = 24, 120
 OVERLAP_LIMIT_DEFAULT, OVERLAP_LIMIT_MAX = 500, 2000
 OPP_LIMIT_DEFAULT, OPP_LIMIT_MAX = 10, 50
@@ -146,7 +167,8 @@ _STATION_GENERIC = sorted(
 )
 
 _lock = threading.Lock()
-_current: dict = {"key": None}  # replaced whole on reload, so a request mid-reload keeps a consistent view
+# {edition: state}, each replaced whole on reload, so a request mid-reload keeps a consistent view
+_states: dict = {}
 
 
 # ----------------------------------------------------------------------------- dates
@@ -355,15 +377,195 @@ def _sperry_pairs(doc: dict, example: dict, fallback: bool) -> dict:
     return out
 
 
-def _load() -> dict:
-    """The current data, reloaded whenever projects.json (or the fallback) changes on disk."""
-    key = (_file_key(PROJECTS_FILE), _file_key(BASEMAP_FILE), _file_key(SPERRY_FILE))
-    global _current
-    if _current.get("key") == key:
-        return _current
+# ----------------------------------------------------------------------------- DESC's current list (2026-2030)
+#
+# DESC published its 2026-2030 list after the 2024-2028 one Sperry's starter package (and their worked example) is built
+# from. demo/gridlock/diff_filings.py reads it with the build's own code (extract, normalize, locate from the cached OSM,
+# the checks, 3 more rules) and links it to the older list (desc_changes.json: carried over, dropped, new). The app ranks
+# DESC's CURRENT plan: every 2026-2030 record (kept or set aside, as its checks decided), and, from the 2024-2028 list,
+# only the projects the new list no longer carries (12, 11 of them in service before 2026 as filed; Sperry's example is
+# built from four of them), each marked with its edition. A project in both lists is read from the 2026-2030 one only.
+# Georgia's records are the build's, unchanged. The build's projects.json is never rewritten here.
+
+EDITION_NEW, EDITION_OLD = "2026-2030", "2024-2028"
+SOURCE_SHORT = {
+    "desc_2026": "DESC 2026–2030 project list",
+    "desc": "DESC 2024–2028 project list",
+    "ga_irp": "Georgia Power 2025 IRP, Vol. 3 (public disclosure)",
+    "sperry_example": "Sperry's worked example",
+}
+GA_PUBLIC_NOTE = (
+    "The public-disclosure copy filed with the Georgia PSC: every page carries a CEII banner because it is the public version "
+    "of a CEII document. Only its unredacted fields are used; redacted fields (such as costs) are left blank, never inferred, "
+    "and no CEII-marked content is used."
+)
+
+
+def _page_of(r: dict):
+    return (r.get("provenance") or {}).get("page")
+
+
+def _merge_current(doc: dict, cur: dict, changes: dict) -> dict:
+    """projects.json + the 2026-2030 edition -> DESC's current list with Georgia (see the section comment)."""
+    by_new, by_old = {}, {}
+    for r in changes.get("rows") or []:
+        if isinstance(r.get("new"), dict):
+            by_new[r["new"].get("page")] = r
+        if isinstance(r.get("old"), dict):
+            by_old[r["old"].get("page")] = r
+
+    def is_old_desc(r):
+        return (r.get("provenance") or {}).get("source") == "desc"
+
+    def tag_old(r):
+        row = by_old.get(_page_of(r)) or {}
+        before = bool(row.get("in_service_before_the_new_list"))
+        return {
+            **r,
+            "edition": EDITION_OLD,
+            "edition_note": "In DESC's 2024–2028 list only; the 2026–2030 list no longer carries it"
+            + ("; its in-service date, as filed, was before 2026" if before else ""),
+        }
+
+    def tag_new(r):
+        row = by_new.get(_page_of(r)) or {}
+        change = None
+        if row.get("change") == "carried_over":
+            old = row.get("old") or {}
+            ins, cost = row.get("in_service") or {}, row.get("cost") or {}
+            change = {
+                "kind": "carried_over",
+                "linked_by": row.get("linked_by"),
+                "old_page": old.get("page"),
+                "old_project_id": old.get("project_id"),
+                "old_name": old.get("name"),
+                "in_service": {k: ins.get(k) for k in ("old_raw", "new_raw", "changed", "months", "direction")} if ins else None,
+                "cost": {k: cost.get(k) for k in ("old", "new", "changed", "delta", "pct", "direction")} if cost else None,
+            }
+            note = f"In DESC's 2026–2030 list; also in its 2024–2028 list (p. {old.get('page')})"
+            if ins.get("changed") and ins.get("old_raw"):
+                note += f", which gave the in-service date as {ins.get('old_raw')}"
+        elif row.get("change") == "new":
+            change = {"kind": "new"}
+            note = "New in DESC's 2026–2030 list (not in the 2024–2028 list)"
+        else:
+            note = "In DESC's 2026–2030 list"
+        return {**r, "edition": EDITION_NEW, "edition_note": note, "edition_change": change}
+
+    dropped_pages = {p for p, r in by_old.items() if r.get("change") == "dropped"}
+    new_p = [tag_new(p) for p in cur.get("projects") or [] if isinstance(p, dict)]
+    new_q = [tag_new(q) for q in cur.get("set_aside") or [] if isinstance(q, dict)]
+    taken = {r.get("id") for r in new_p + new_q}
+    old_p = [tag_old(p) for p in doc.get("projects") or [] if is_old_desc(p) and _page_of(p) in dropped_pages and p.get("id") not in taken]
+    old_q = [tag_old(q) for q in doc.get("quarantine") or [] if is_old_desc(q) and _page_of(q) in dropped_pages and q.get("id") not in taken]
+    ga_p = [p for p in doc.get("projects") or [] if not is_old_desc(p)]
+    ga_q = [q for q in doc.get("quarantine") or [] if not is_old_desc(q)]
+    projects, quarantine = new_p + old_p + ga_p, new_q + old_q + ga_q
+
+    src_new = {**(cur.get("source") or {}), "id": "desc_2026"}
+    by_sid = {s.get("id"): s for s in doc.get("sources") or [] if isinstance(s, dict)}
+    sources = [
+        {**src_new, "short_title": SOURCE_SHORT["desc_2026"], "role": "current",
+         "role_text": f"DESC's current list: {len(new_p) + len(new_q)} projects read, {len(new_p)} passed the checks"},
+        {**by_sid.get("ga_irp", {}), "short_title": SOURCE_SHORT["ga_irp"], "role": "current", "public_note": GA_PUBLIC_NOTE,
+         "role_text": "Georgia Power and the other Georgia ITS sponsors"},
+        {**by_sid.get("desc", {}), "short_title": SOURCE_SHORT["desc"], "role": "earlier",
+         "role_text": (f"DESC's earlier list: only the {len(old_p) + len(old_q)} projects the 2026–2030 list no longer carries "
+                       "are compared (Sperry's worked example is built from this edition)")},
+    ]
+    counts = changes.get("counts") or {}
+    edition = {
+        "desc_current": EDITION_NEW,
+        "desc_earlier": EDITION_OLD,
+        "new_list": {"read": len(new_p) + len(new_q), "passed": len(new_p), "set_aside": len(new_q)},
+        "earlier_kept": {"read": len(old_p) + len(old_q), "passed": len(old_p), "set_aside": len(old_q)},
+        "carried_over": counts.get("carried_over"),
+        "dropped": counts.get("dropped"),
+        "new": counts.get("new"),
+        "rule": ("DESC's current list is its 2026–2030 filing; the 2024–2028 projects it no longer carries stay in the comparison, "
+                 "marked, and a project in both lists is read from the 2026–2030 one"),
+    }
+    out = {**doc, "projects": projects, "quarantine": quarantine, "sources": sources, "edition": edition}
+    out["report"] = _merged_report(doc.get("report") or {}, cur, projects, quarantine, len(old_p) + len(old_q), edition)
+    return out
+
+
+def _merged_report(rep: dict, cur: dict, projects: list, quarantine: list, n_old: int, edition: dict) -> dict:
+    """The build's report re-counted over the records the app compares (every number from those records), with the
+    2026-2030 edition's own extraction stage; the build's Sperry reproduction, sources and self-test are kept."""
+    rep = dict(rep)
+    records = projects + quarantine
+    x = cur.get("extraction") or {}
+    sr = x.get("second_reader") or {}
+    manual = (cur.get("manual_spot_check") or {}).get("pages") or []
+    by_id = {s.get("id"): s for s in rep.get("stages") or [] if isinstance(s, dict)}
+    located = sum(1 for r in records if any(isinstance(e, dict) and e.get("lat") is not None for e in r.get("endpoints") or []))
+    warned = sum(1 for p in projects if any(isinstance(c, dict) and c.get("status") == "warn" for c in p.get("checks") or []))
+    old_x = (rep.get("extraction") or {})
+    rules = (cur.get("checks") or {}).get("rules") or []
+    stages = []
+    if "selftest" in by_id:
+        stages.append(by_id["selftest"])
+    stages.append({
+        "id": "extract_desc_2026", "label": "DESC 2026–2030: one project per page", "in": x.get("pages"), "out": x.get("projects"),
+        "note": (f"{x.get('parsed_cleanly')} pages parsed cleanly, {len(x.get('anomalies') or [])} data anomalies recorded; a second PDF reader "
+                 f"found {sr.get('all_found')} of {sr.get('pages_checked')}; {sum(1 for m in manual if m.get('same'))} of {len(manual)} "
+                 "pages read by eye match"),
+    })
+    if "extract_ga" in by_id:
+        stages.append(by_id["extract_ga"])
+    stages.append({
+        "id": "extract_desc", "label": "DESC 2024–2028: the projects the 2026–2030 list no longer carries",
+        "in": old_x.get("desc_projects") or old_x.get("desc_pages"), "out": n_old,
+        "note": (f"{edition.get('carried_over')} are also in the 2026–2030 list and are read from there; the {n_old} it no longer "
+                 "carries stay, marked, so finished work and Sperry's worked example remain comparable"),
+    })
+    stages.append({"id": "normalize", "label": "dates, kV, kind, endpoint names, build windows", "in": len(records), "out": len(records),
+                   "note": "the same code for all three lists"})
+    stages.append({"id": "locate", "label": "OSM name match -> Nominatim for leftovers", "in": len(records), "out": located,
+                   "note": (by_id.get("locate") or {}).get("note")})
+    stages.append({"id": "checks", "label": f"{len(rules) or 16} named rules", "in": len(records), "out": len(projects),
+                   "note": f"{len(quarantine)} set aside with reasons, {warned} kept with warnings"})
+    rep["stages"] = stages
+    # every check counted over these records (each carries its own results); the 3 rules added for the 2026-2030 edition
+    # were also run over the 2024-2028 and Georgia records by diff_filings.py, which recorded who failed or warned
+    extra = (cur.get("checks") or {}).get("new_rules_on_2024_2028_and_georgia") or {}
+    labels = {c.get("id"): c for c in (rep.get("checks") or []) if isinstance(c, dict)}
+    out = []
+    for rule in rules or list(labels.values()):
+        rid = rule.get("id")
+        n = {"pass": 0, "warn": 0, "fail": 0}
+        for r in records:
+            st = next((c.get("status") for c in r.get("checks") or [] if isinstance(c, dict) and c.get("id") == rid), None)
+            if st is None and rid in extra:
+                e = extra[rid]
+                st = "fail" if r.get("id") in (e.get("failed") or []) else "warn" if r.get("id") in (e.get("warned") or []) else "pass"
+            if st in n:
+                n[st] += 1
+        out.append({"id": rid, "label": rule.get("label") or labels.get(rid, {}).get("label") or rid,
+                    "blocking": bool(rule.get("blocking", labels.get(rid, {}).get("blocking"))),
+                    "passed": n["pass"], "warned": n["warn"], "failed": n["fail"],
+                    "new_for_2026_2030": bool(rule.get("new_for_this_filing"))})
+    rep["checks"] = out
+    rep["extraction"] = {**old_x, "desc_2026_pages": x.get("pages"), "desc_2026_projects": x.get("projects"),
+                         "desc_2026_anomalies": len(x.get("anomalies") or []), "desc_2026_second_reader": sr}
+    rep["coverage"] = None  # per utility: /summary counts (from the same records)
+    return rep
+
+
+def _load(edition: str = CURRENT) -> dict:
+    """The data for `edition` (CURRENT: DESC's 2026-2030 list with Georgia, see _merge_current; AS_FILED: projects.json
+    as the build wrote it), reloaded whenever one of its files changes on disk."""
+    merge = edition == CURRENT
+    key = (_file_key(PROJECTS_FILE), _file_key(BASEMAP_FILE), _file_key(SPERRY_FILE),
+           _file_key(DESC_CURRENT_FILE) if merge else None, _file_key(DESC_CHANGES_FILE) if merge else None)
+    have = _states.get(edition)
+    if have is not None and have.get("key") == key:
+        return have
     with _lock:
-        if _current.get("key") == key:
-            return _current
+        have = _states.get(edition)
+        if have is not None and have.get("key") == key:
+            return have
         fallback_reason = None
         doc = None
         if key[0] is not None:
@@ -394,6 +596,13 @@ def _load() -> dict:
                 "quarantine": [],
                 "report": None,
             }
+        elif merge and key[3] is not None and key[4] is not None:
+            try:
+                cur, changes = _read_json(DESC_CURRENT_FILE), _read_json(DESC_CHANGES_FILE)
+                if isinstance(cur, dict) and isinstance(cur.get("projects"), list) and isinstance(changes, dict):
+                    doc = _merge_current(doc, cur, changes)
+            except (OSError, ValueError):
+                pass  # the build's list alone (it says so: no `edition` in the summary)
         projects = [p for p in doc["projects"] if isinstance(p, dict) and p.get("id") and p.get("utility")]
         quarantine = [q for q in (doc.get("quarantine") or []) if isinstance(q, dict)]
 
@@ -431,9 +640,10 @@ def _load() -> dict:
             "line": np.array([p.get("kind") in LINE_KINDS for p in placed], dtype=bool),
             "cache": {},
             "basemap": None,
+            "edition": edition,
         }
-        _current = new_state
-        return _current
+        _states[edition] = new_state
+        return new_state
 
 
 # ----------------------------------------------------------------------------- geometry
@@ -723,16 +933,12 @@ def _shared_station_record(pa: dict, pb: dict, hits: list[dict]) -> dict:
     da, db = _date(pa.get("in_service")), _date(pb.get("in_service"))
     months = _months_apart(da, db) if da and db else None
     if da and db:
-        if months == 0:
-            when = (
-                f"both in service {da:%b %Y}"
-                if (da.year, da.month) == (db.year, db.month)
-                else f"in service less than a month apart ({da:%b %Y} and {db:%b %Y})"
-            )
-        elif da.year == db.year:
-            when = f"both in service in {da.year}, {_years_months(months)} apart"
+        # the in-service DATES only: the pair's one time gap is its build windows' (the list, the sheet and the score
+        # all use that one), so a second 'N years apart' here would read as a contradiction
+        if (da.year, da.month) == (db.year, db.month):
+            when = f"both in service {da:%b %Y}"
         else:
-            when = f"{ua}'s in service in {da.year}, {ub}'s in {db.year} — {_years_months(months)} apart"
+            when = f"{ua}'s in service {da:%b %Y}, {ub}'s {db:%b %Y}"
         reason = f"As filed, both projects work at {name}: {when}"
     else:
         known = [f"{u}'s in service in {d.year}" for u, d in ((ua, da), (ub, db)) if d]
@@ -835,6 +1041,17 @@ def _window(p: dict, months: int):
 
 PASSED_FACTOR = 0.6  # a shared build window that ended before today, as filed: still worth a check, ranked below live ones
 
+# The list's groups, in order: what a planner can still act on comes first (the score orders pairs inside a group).
+# together: the two build windows share months still ahead or open now; apart: both projects are still to be built, in
+# windows that share no months; unknown: a filing gives no date; passed: the months they shared have passed, or one
+# project's build window is already over, as filed (nothing left to build together, as filed).
+GROUPS = {
+    "together": (0, "Building in the same months", "both build windows share months that are still ahead or open now"),
+    "apart": (1, "Building at different times", "both projects are still to be built, in build windows that share no months"),
+    "unknown": (2, "Timing unknown", "at least one filing gives no in-service date"),
+    "passed": (3, "Time passed, as filed", "the months they shared have passed, or one project's build window is already over"),
+}
+
 
 def _today() -> date:
     return date.today()
@@ -857,6 +1074,7 @@ def _timeline(pa: dict, pb: dict, months: int):
             "reason": "Timeline unknown: at least one project has no in-service date in its filing",
             "windows": [wa, wb],
             "ahead": None,
+            "group": "unknown",
         }
     overlap = (min(wa[1], wb[1]) - max(wa[0], wb[0])).days
     if overlap > 0:
@@ -886,6 +1104,10 @@ def _timeline(pa: dict, pb: dict, months: int):
         if ahead == "past":
             factor = round(factor * PASSED_FACTOR, 3)
             reason += f"; as filed, both windows ended before today (x{PASSED_FACTOR:g})"
+    if overlap > 0:
+        group = "passed" if ahead == "past" else "together"
+    else:
+        group = "passed" if min(wa[1], wb[1]) < _today() else "apart"
     if gap_days is not None:
         reason += f"; in service {gap_days:,} days apart"
     return {
@@ -897,6 +1119,7 @@ def _timeline(pa: dict, pb: dict, months: int):
         "reason": reason,
         "windows": [wa, wb],
         "ahead": ahead,  # the shared window (or both windows) against today: future, open or past
+        "group": group,  # the list's group (GROUPS): together, apart or passed
     }
 
 
@@ -966,10 +1189,12 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
     sperry = st["sperry_pairs"].get(frozenset((pa["id"], pb["id"])))
     if sperry:
         reasons.append(f"One of the six overlaps in Sperry's worked example ({sperry}), found here from the raw filings")
+    g_rank, g_label, g_what = GROUPS[tl["group"]]
+    reasons.append(f"Listed under '{g_label}': {g_what}")
     reasons.append(
         f"Score {score:g} = distance {df:.2f} ({'closest points' if method == 'closest' else 'centers'})"
         f" x timeline {tl['factor']:g} x location {cf:g}" + (f" x same kV {SAME_KV_BONUS:g}" if kf > 1 else "")
-        + ("; same-station pairs are listed before every distance tier, then by score" if station else "")
+        + ("; within its group, same-station pairs are listed first, then by score" if station else "")
     )
     cls = SAME_STATION if station else (tier, label, what)
     return {
@@ -996,6 +1221,9 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
         "window_gap_days": tl["window_gap_days"],
         "same_window": tl["same_window"],
         "ahead": tl["ahead"],
+        # the list's group: together (a shared build window still ahead or open now), apart, unknown, passed (GROUPS)
+        "group": tl["group"],
+        "group_label": g_label,
         "score": score,
         "score_parts": {"distance": round(df, 3), "timeline": tl["factor"], "location": cf, "same_kv": kf, "same_station": bool(station)},
         "share": _share_line(tier, tl),
@@ -1042,8 +1270,9 @@ def _params(max_km: float, window_months: int, method: str, a: str, b: str) -> d
 
 
 def rank_key(r: dict):
-    """The default order: same-station pairs before every distance tier, then score, then distance."""
-    return (0 if r.get("shared_station") else 1, -r["score"], r["distance_km"], r["id"])
+    """The default order: the group first (what can still be built together, then what could be aligned, then what has
+    passed, as filed: GROUPS), then same-station pairs before every distance tier, then score, then distance."""
+    return (GROUPS.get(r.get("group"), GROUPS["unknown"])[0], 0 if r.get("shared_station") else 1, -r["score"], r["distance_km"], r["id"])
 
 
 def _compute(st: dict, prm: dict) -> dict:
@@ -1280,39 +1509,44 @@ def _estimate(st: dict, i: int, j: int, months: int) -> dict:
         items.append({"id": iid, "label": label, "low": min(lo, hi), "high": max(lo, hi), "unit": unit, "basis": basis, "source": SOURCES[src]["title"], "needs": needs})
         used.add(src)
 
-    # crews: one mobilization instead of two
+    # Savings that need both crews in the field at once (one mobilization, one laydown yard) are counted only when the
+    # build windows share months: with no shared window there is nothing to mobilize together, so they are left out
+    # (listed in `left_out` with the reason) rather than shown as a $0-to-something range
+    left_out = []
     ma, mb = _mobilization(pa), _mobilization(pb)
     small = ma if ma[1] <= mb[1] else mb
-    lo, hi = 0.5 * small[0], small[1]
-    if not aligned:
-        lo = 0.0
-    item(
-        "mobilization",
-        "Crews and equipment mobilized once",
-        lo,
-        hi,
-        "USD",
-        f"Half to all of the smaller project's mobilization/demobilization ({small[2]}: MISO 2018 unit cost x {ESCALATE_2018})"
-        + ("" if aligned else "; low end $0 because the build windows don't overlap"),
-        "miso18",
-        needs="same build window",
-    )
-
-    if "site" in tiers_on:
-        y_lo = YARD_ACRES[0] * YARD_PREP_PER_ACRE[0]
-        y_hi = YARD_ACRES[1] * YARD_PREP_PER_ACRE[1]
+    if aligned:
         item(
-            "laydown_yard",
-            "One laydown yard instead of two",
-            0.0 if not aligned else y_lo,
-            y_hi,
+            "mobilization",
+            "Crews and equipment mobilized once",
+            0.5 * small[0],
+            small[1],
             "USD",
-            f"A {YARD_ACRES[0]}-{YARD_ACRES[1]} acre staging yard not built twice: clearing + gravel at "
-            f"${YARD_PREP_PER_ACRE[0]:,}-${YARD_PREP_PER_ACRE[1]:,} per acre (MISO unit costs; yard sizes from SCE's West of Devers PEA, which also plans to reuse yards other projects vacate)",
-            "sce_wod",
+            f"Half to all of the smaller project's mobilization/demobilization ({small[2]}: MISO 2018 unit cost x {ESCALATE_2018})",
+            "miso18",
             needs="same build window",
         )
-        used.add("miso18")
+    else:
+        left_out.append({"id": "mobilization", "label": "Crews and equipment mobilized once", "why": "needs the two build windows to share months"})
+
+    if "site" in tiers_on:
+        if aligned:
+            y_lo = YARD_ACRES[0] * YARD_PREP_PER_ACRE[0]
+            y_hi = YARD_ACRES[1] * YARD_PREP_PER_ACRE[1]
+            item(
+                "laydown_yard",
+                "One laydown yard instead of two",
+                y_lo,
+                y_hi,
+                "USD",
+                f"A {YARD_ACRES[0]}-{YARD_ACRES[1]} acre staging yard not built twice: clearing + gravel at "
+                f"${YARD_PREP_PER_ACRE[0]:,}-${YARD_PREP_PER_ACRE[1]:,} per acre (MISO unit costs; yard sizes from SCE's West of Devers PEA, which also plans to reuse yards other projects vacate)",
+                "sce_wod",
+                needs="same build window",
+            )
+            used.add("miso18")
+        else:
+            left_out.append({"id": "laydown_yard", "label": "One laydown yard instead of two", "why": "needs the two build windows to share months"})
 
     shared_km = 0.0
     if "row" in tiers_on:
@@ -1400,7 +1634,7 @@ def _estimate(st: dict, i: int, j: int, months: int) -> dict:
         "MISO's unit costs are a public national yardstick; Georgia and South Carolina are outside MISO, so local costs differ.",
         f"MISO 2018 unit costs are scaled by {ESCALATE_2018}, how much the guide's own like-for-like costs (forested clearing, wetland matting, mitigation credits) rose by MTEP24.",
         f"Land: USDA's 2026 average pasture value (GA ${PASTURE_2026['GA']:,}, SC ${PASTURE_2026['SC']:,} per acre) at the low end, MISO's cropland multiple (3x pasture) at the high end.",
-        "Savings that need both crews in the field at once (mobilization, laydown yard) start at $0 when the build windows don't overlap.",
+        "Savings that need both crews in the field at once (mobilization, laydown yard) are left out when the build windows share no months.",
         "Georgia's project costs are redacted in the public filing; the project scale shown for them uses MISO exploratory costs per mile.",
         "A planning-level range, not a bid and not a statement about what either utility plans to do.",
     ]
@@ -1423,6 +1657,7 @@ def _estimate(st: dict, i: int, j: int, months: int) -> dict:
         "same_window": tl["same_window"],
         "label": "Rough estimate",
         "items": items,
+        "left_out": left_out,
         "total_low": sum(it["low"] for it in usd),
         "total_high": sum(it["high"] for it in usd),
         "unit": "USD",
@@ -1581,11 +1816,123 @@ def summary():
         "fallback": st["fallback"],
         "fallback_reason": st["fallback_reason"],
         "sources": doc.get("sources") or [],
+        # DESC's current list (2026-2030) and what stays from the 2024-2028 one (None: the build's list alone)
+        "edition": doc.get("edition"),
+        "limit": {"max_km": MAX_KM_DEFAULT, "mi": SPERRY_MI, "text": limit_text(MAX_KM_DEFAULT)},
         "counts": _counts(st),
         "compared_projects": len(st["placed"]),
         "funnel": _funnel(st, report),
         "report": report,
         "rebuild_command": "backend/venv/Scripts/python backend/demo/gridlock/build.py",
+        "rebuild_commands": [
+            "backend/venv/Scripts/python backend/demo/gridlock/build.py",
+            "backend/venv/Scripts/python backend/demo/gridlock/diff_filings.py",
+        ],
+    }
+
+
+@router.get("/api/gridlock/changes")
+def changes():
+    """What changed since DESC's last filing: its 2026-2030 list against the 2024-2028 one (desc_changes.json, written by
+    demo/gridlock/diff_filings.py), each row with both PDF pages, plus where the current comparison stands against the
+    earlier list's (the same engine, the default settings: DESC x Georgia Power within 25 mi)."""
+    st = _load()
+    try:
+        ch = _read_json(DESC_CHANGES_FILE)
+    except (OSError, ValueError):
+        raise HTTPException(status_code=404, detail="The 2026-2030 comparison hasn't been built (demo/gridlock/diff_filings.py)")
+    return _json_bytes(st, "changes_bytes", lambda: _changes_payload(st, ch))
+
+
+def _pdf_page(url: str | None, page) -> str | None:
+    if url and page and re.search(r"\.pdf($|[?#])", url, re.I):
+        return f"{url}#page={page}"
+    return url
+
+
+def _changes_payload(st: dict, ch: dict) -> dict:
+    srcs = {s.get("years"): s for s in ch.get("sources") or [] if isinstance(s, dict)}
+    old_src, new_src = srcs.get(EDITION_OLD) or {}, srcs.get(EDITION_NEW) or {}
+    placed = {p["id"] for p in st["placed"]}
+    by_page = {}
+    for r in st["projects"] + st["quarantine"]:
+        prov = r.get("provenance") or {}
+        by_page[(prov.get("source"), prov.get("page"))] = r
+    rows = []
+    for r in ch.get("rows") or []:
+        old, new = r.get("old") or None, r.get("new") or None
+        rec = by_page.get(("desc_2026", new.get("page"))) if new else by_page.get(("desc", old.get("page"))) if old else None
+        ins, cost = r.get("in_service") or {}, r.get("cost") or {}
+        kind = r.get("change")
+        tags = []
+        if kind == "carried_over":
+            if ins.get("changed"):
+                tags.append("later" if ins.get("direction") == "later" else "earlier" if ins.get("direction") == "earlier" else "date")
+            if cost.get("changed"):
+                tags.append("cost_higher" if cost.get("direction") == "higher" else "cost_lower")
+            if not tags:
+                tags.append("same")
+        rows.append({
+            "change": kind,
+            "tags": tags,
+            "linked_by": r.get("linked_by"),
+            "name": (new or old or {}).get("name"),
+            "old": ({"page": old.get("page"), "project_id": old.get("project_id"), "name": old.get("name"),
+                     "in_service_raw": ins.get("old_raw") or old.get("in_service_raw"), "cost": cost.get("old") or old.get("cost_total"),
+                     "url": _pdf_page(old_src.get("url"), old.get("page"))} if old else None),
+            "new": ({"page": new.get("page"), "project_id": new.get("project_id"), "name": new.get("name"),
+                     "in_service_raw": ins.get("new_raw"), "cost": cost.get("new"), "url": _pdf_page(new_src.get("url"), new.get("page")),
+                     "kept": bool((new.get("checks") or {}).get("kept", True)), "reasons": (new.get("checks") or {}).get("reasons") or []}
+                    if new else None),
+            "in_service": {k: ins.get(k) for k in ("changed", "months", "direction", "note")} if ins else None,
+            "cost": {k: cost.get(k) for k in ("changed", "delta", "pct", "direction")} if cost else None,
+            "before_the_new_list": r.get("in_service_before_the_new_list"),
+            "summary": r.get("summary"),
+            # the record the app compares for this row (None when it was set aside or superseded) and whether it is on the map
+            "id": rec.get("id") if rec else None,
+            "on_map": bool(rec and rec.get("id") in placed),
+        })
+    order = {"carried_over": 0, "new": 1, "dropped": 2}
+    rows.sort(key=lambda x: (order.get(x["change"], 9), -((x["in_service"] or {}).get("months") or 0), x["name"] or ""))
+    c = ch.get("counts") or {}
+    # the comparison, now and with the earlier list (same engine, default settings)
+    prm = _params(MAX_KM_DEFAULT, WINDOW_DEFAULT, "closest", "DESC", "GPC")
+    now_rows = _compute(st, prm)["overlaps"]
+    was = _load(AS_FILED)
+    was_rows = _compute(was, prm)["overlaps"] if not was["fallback"] else []
+
+    def tally(rows_):
+        return {
+            "flagged": len(rows_),
+            "together": sum(1 for x in rows_ if x["group"] == "together"),
+            "still_ahead": sum(1 for x in rows_ if x["same_window"] and x["ahead"] == "future"),
+            "open_now": sum(1 for x in rows_ if x["same_window"] and x["ahead"] == "open"),
+            "passed": sum(1 for x in rows_ if x["group"] == "passed"),
+        }
+
+    return {
+        "about": ch.get("_about"),
+        "command": ch.get("command"),
+        "sources": [{"years": s.get("years"), "title": s.get("title"), "url": s.get("url")} for s in (old_src, new_src) if s],
+        "method": ch.get("method"),
+        "counts": {
+            "old_projects": c.get("old_projects"),
+            "new_projects": c.get("new_projects"),
+            "carried_over": c.get("carried_over"),
+            "later": c.get("new_in_service_date_later"),
+            "earlier": c.get("new_in_service_date_earlier"),
+            "cost_higher": c.get("new_cost_higher"),
+            "cost_lower": c.get("new_cost_lower"),
+            "unchanged": c.get("carried_over_same_date_and_cost"),
+            "dropped": c.get("dropped"),
+            "dropped_due_before_the_new_list": c.get("dropped_due_before_the_new_list"),
+            "new": c.get("new"),
+            "total_cost_old_list": c.get("total_cost_old_list"),
+            "total_cost_new_list": c.get("total_cost_new_list"),
+        },
+        "comparison": {"today": _today().isoformat(), "limit": limit_text(prm["max_km"]), "with_2026_2030": tally(now_rows),
+                       "with_2024_2028": tally(was_rows)},
+        "rows": rows,
     }
 
 
@@ -1698,8 +2045,15 @@ def overlaps(
             "id": SAME_STATION[0], "label": SAME_STATION[1], "what": SAME_STATION[2],
             "count": sum(1 for r in rows if r["shared_station"]),
             "stations": sorted({r["shared_station"]["name"] for r in rows if r["shared_station"]}),
-            "rule": "listed before every distance tier, then by score",
+            "rule": "within each group, listed before every distance tier, then by score",
         },
+        # the list's groups in order (rank_key): what can still be built together first
+        "groups": [
+            {"id": gid, "label": g[1], "what": g[2], "count": sum(1 for r in rows if r["group"] == gid)}
+            for gid, g in sorted(GROUPS.items(), key=lambda kv: kv[1][0])
+        ],
+        "rank_rule": RANK_RULE,
+        "limit_text": limit_text(prm["max_km"]),
         "window_rule": (
             f"A project's build window is the one its filing supports (a filed start date, or DESC's yearly spending); "
             f"for the {n_assumed} of {len(in_play)} projects here without one, the {window_months} months before in-service"
@@ -1766,20 +2120,32 @@ def sperry_check_route():
         )
     # their ten projects and the record each became in the full filings (the pipeline's own match, by title and place)
     theirs = {p["project_id"]: p for p in st["example"]["projects"]}
-    out["projects"] = [
-        {
+    out["projects"] = []
+    for sid, p in theirs.items():
+        ours = st["sperry_ids"].get(sid) if st["sperry_ids"].get(sid) in st["by_id"] else None
+        rec = st["by_id"].get(ours) if ours else None
+        out["projects"].append({
             "sperry_id": sid,
-            "our_id": st["sperry_ids"].get(sid) if st["sperry_ids"].get(sid) in st["by_id"] else None,
+            "our_id": ours,
             "utility": NAME_TO_CODE.get(str(p.get("utility", "")).lower(), p.get("utility")),
             "name": p.get("project_name"),
-        }
-        for sid, p in theirs.items()
-    ]
+            # which DESC list the record the app compares comes from (None: Georgia)
+            "edition": rec.get("edition") if rec else None,
+        })
+    desc = [p for p in out["projects"] if p["utility"] == "DESC" and p["our_id"]]
+    earlier_only = {p["sperry_id"] for p in desc if p["edition"] == EDITION_OLD}
     out["found_in_filings"] = {
         "flagged": sum(1 for r in out["rows"] if r["ours"] and r["ours"].get("rank")),
         "of": len(out["rows"]),
-        "settings": f"closest points within {MAX_KM_DEFAULT:g} km, DESC x Georgia Power",
+        "settings": f"closest points within {limit_text(MAX_KM_DEFAULT)}, DESC x Georgia Power",
         "projects_matched": sum(1 for p in out["projects"] if p["our_id"]),
+        # their sheet is built from DESC's 2024-2028 list: how many of their DESC projects the 2026-2030 list still carries
+        "desc_in_current_list": sum(1 for p in desc if p["edition"] == EDITION_NEW),
+        "desc_only_in_earlier_list": len(earlier_only),
+        # their pairs with one of those DESC projects in them (a separate count from "passed": a pair can have passed
+        # because the Georgia project's window has ended while its DESC project is still in the current list)
+        "pairs_with_earlier_only_desc": sum(1 for r in out["rows"] if r["a"] in earlier_only or r["b"] in earlier_only),
+        "passed": sum(1 for r in out["rows"] if r["ours"] and (r["ours"].get("overlap") or {}).get("group") == "passed"),
     }
     return _fast_json(_finite(out))
 
@@ -1803,10 +2169,14 @@ TIMELINE_RULE = (
 )
 LOCATION_RULE = "The weaker of the two projects' location confidence: high 1, medium 0.8, low 0.5"
 KV_RULE = f"Times {SAME_KV_BONUS:g} when both are line work at the same kV class, else times 1"
-RANK_RULE = "Pairs whose filings work at the same substation are listed first, then every pair by score, then by distance"
+RANK_RULE = (
+    "Pairs whose build windows share months still ahead or open now come first, then pairs still to be built at different "
+    "times, then pairs whose time has passed as filed; within each group, pairs whose filings work at the same substation "
+    "first, then by score, then by distance"
+)
 TRACE_NOTE = (
     "The source PDFs are public filings and are not in this repository; this trace shows exactly what the committed data "
-    "(backend/demo/gridlock/data/projects.json) holds. The SHA-256 is the one the pipeline recorded when it read each PDF: "
+    "(backend/demo/gridlock/data/projects.json and desc_2026_2030.json) holds. The SHA-256 is the one the pipeline recorded when it read each PDF: "
     "download the filing from its link and compare to confirm it is the same file."
 )
 # the parsed fields of a row, in reading order, with their labels (values shown as stored)
@@ -2606,12 +2976,14 @@ SPERRY_OVERLAP_COLS = [
     "utility_b", "project_id_b", "project_name_b",
 ]
 EXPORT_DISCLAIMER = (
-    "Generated from public filings (DESC 2024-2028 list; Georgia 2025 IRP Vol. 3 public disclosure); "
+    "Generated from public filings (DESC 2026-2030 list, and the 2024-2028 projects it no longer carries; Georgia 2025 IRP "
+    "Vol. 3 public disclosure, unredacted fields only); "
     "locations approximate where marked; not an official utility record."
 )
 OSM_ATTRIBUTION = "Locations: (c) OpenStreetMap contributors, ODbL 1.0 (openstreetmap.org/copyright), via Overpass and Nominatim."
 # the file names in Sperry's package ("Project Listings"), so a reader can open their own copy at the cited page
 PDF_NAMES = {
+    "desc_2026": "2026-2030-2million-and-above-project-descriptions.pdf",
     "desc": "2024-2028-2million-and-above-project-descriptions.pdf",
     "ga_irp": "2025 IRP Volume 3 PUBLIC DISCLOSURE.pdf",
     "sperry_example": "Projects_Overlaps.xlsx",
@@ -2849,8 +3221,8 @@ def _settings_line(prm: dict) -> str:
         return " + ".join(UTILITIES[c][0] for c in codes)
 
     how = "closest points" if prm["method"] == "closest" else "centers (Sperry's method)"
-    return (f"{names(prm['a'])} x {names(prm['b'])}; an overlap is a pair whose {how} are within {prm['max_km']:g} km "
-            f"({prm['max_km'] / KM_PER_MI:.1f} mi); build windows as filed, else {prm['window_months']} months before in-service")
+    return (f"{names(prm['a'])} x {names(prm['b'])}; an overlap is a pair whose {how} are within {limit_text(prm['max_km'])}; "
+            f"build windows as filed, else {prm['window_months']} months before in-service")
 
 
 def _about_rows(st: dict, prm: dict, t: dict) -> list[tuple[str, str]]:
@@ -3158,7 +3530,8 @@ def build_geojson(st: dict, prm: dict) -> dict:
 
 
 def _export_name(prm: dict, ext: str, table: str | None = None) -> str:
-    who = f"{'-'.join(prm['a'])}_{'-'.join(prm['b'])}_{prm['max_km']:g}km" + ("" if prm["method"] == "closest" else "_centers")
+    lim = f"{SPERRY_MI}mi" if abs(prm["max_km"] - MAX_KM_DEFAULT) < 1e-9 else f"{prm['max_km']:g}km"
+    who = f"{'-'.join(prm['a'])}_{'-'.join(prm['b'])}_{lim}" + ("" if prm["method"] == "closest" else "_centers")
     return f"Projects_Overlaps_Overload_{who}.{ext}" if table is None else f"Overload_{table}_{who}.{ext}"
 
 

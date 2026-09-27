@@ -1,19 +1,49 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GridlockContext } from './context'
 import { connect } from './gridlockApi'
-import { boundsOf, nearDuplicates, projectPoints } from './format'
+import { KM_PER_MI, boundsOf, limitText, nearDuplicates, projectPoints } from './format'
 
 // State shared by the Build plans sidebar, the map and the detail card: the engine's data, the
 // comparison settings, and what is selected / hovered. Everything is computed by the backend
 // (/api/gridlock/*); this only fetches, merges the per-pair answers and remembers the selection.
 
+// Sperry's cutoff: 25 miles exactly (40.2336 km); the Filters slider moves in whole miles
+export const SPERRY_KM = 25 * KM_PER_MI
 const DEFAULT_PARAMS = {
-  max_km: 40,
+  max_km: SPERRY_KM,
   window_months: 24,
   method: 'closest',
   utilities: { DESC: true, GPC: true, GTC: false, MEAG: false, DU: false },
 }
 const GEORGIA = ['GPC', 'GTC', 'MEAG', 'DU']
+
+// Deep links (Back works): #/plans (the ranked pairs), #/plans/calendar, #/plans/pipeline, #/plans/example (Sperry's
+// worked example), #/plans/changes (what changed since DESC's last filing), #/plans/projects, #/plans/setaside and
+// #/plans/pair/<overlap id> (a pair's sheet). The rail's views and the open pair write the address (pushState); the
+// browser's Back/Forward and a pasted link read it.
+const TAB_ROUTES = { pipeline: 'pipeline', sperry: 'example', changes: 'changes', projects: 'projects', setaside: 'setaside' }
+const ROUTE_TABS = Object.fromEntries(Object.entries(TAB_ROUTES).map(([k, v]) => [v, k]))
+function readRoute() {
+  const m = (window.location.hash || '').match(/^#\/plans(?:\/([^?]*))?/)
+  if (!m) return null
+  const rest = (m[1] || '').replace(/\/+$/, '')
+  if (rest.startsWith('pair/')) {
+    let id = rest.slice(5)
+    try {
+      id = decodeURIComponent(id)
+    } catch {
+      /* keep it as typed */
+    }
+    return { tab: 'opportunities', pair: id || null, list: null }
+  }
+  if (rest === 'calendar') return { tab: 'opportunities', pair: null, list: 'calendar' }
+  return { tab: ROUTE_TABS[rest] || 'opportunities', pair: null, list: rest === '' ? 'list' : null }
+}
+function routeOf(tab, pairId, listView) {
+  if (pairId) return `#/plans/pair/${encodeURIComponent(pairId).replace(/%7E/gi, '~')}`
+  if (TAB_ROUTES[tab]) return `#/plans/${TAB_ROUTES[tab]}`
+  return listView === 'calendar' ? '#/plans/calendar' : '#/plans'
+}
 
 export function GridlockProvider({ children }) {
   const [conn, setConn] = useState({ status: 'loading' })
@@ -26,7 +56,7 @@ export function GridlockProvider({ children }) {
   const [hover, setHover] = useState(null) // {kind: 'overlap' | 'project', id}
   // the rail's view: 'opportunities' (the ranked pairs), 'pipeline', 'projects', 'setaside' (the records the checks kept
   // out) or 'sperry' (Sperry's worked example alone, the start of the story)
-  const [tab, setTabState] = useState('opportunities')
+  const [tab, setTabState] = useState(() => readRoute()?.tab || 'opportunities')
   const [tierFilter, setTierFilter] = useState(null) // show only one distance tier in the list (Filters)
   const [filtersOpen, setFiltersOpen] = useState(false)
   // the pipeline section to bring into view when the pipeline opens from the funnel (an element id)
@@ -138,6 +168,8 @@ export function GridlockProvider({ children }) {
           by_tier: r?.by_tier || null,
           window_assumed: r?.window_assumed || null,
           compared: r?.compared || null,
+          // the limit these counts were measured at, in the engine's words ("25 mi (40.2 km)")
+          limit_text: r?.limit_text || limitText(max_km),
         })
       },
       (error) => id === reqId.current && setOv({ status: 'error', error }),
@@ -157,7 +189,7 @@ export function GridlockProvider({ children }) {
     [pairs.length, params.max_km, params.window_months, params.method, others],
   )
   // the pairs as a ranked list (the default) or as the coordination calendar (the rail widens for its timeline)
-  const [listView, setListViewState] = useState('list')
+  const [listView, setListViewState] = useState(() => (readRoute()?.list === 'calendar' ? 'calendar' : 'list'))
   const setListView = useCallback((v) => {
     setHover(null)
     setListViewState(v)
@@ -194,15 +226,20 @@ export function GridlockProvider({ children }) {
   // `cover`: how many px of the map's right side the sheet covers (0 when closed or full screen).
   const [draft, setDraft] = useState(null)
   const [cover, setCover] = useState(0)
+  // a pair named by the address (a pasted link, Back/Forward) that is still being found; opening or closing a pair
+  // yourself settles it (a lookup that answers later never overrides your click)
+  const [wantPair, setWantPair] = useState(() => readRoute()?.pair || null)
   const openDraft = useCallback((o) => {
     // a pair drawn with a label of its own (Sperry's OVL number at the start) opens as the engine ranked it
     const pair = o.mapRank != null ? { ...o, mapRank: undefined, displayRank: o.rank } : o
     setHover(null)
+    setWantPair(null)
     setSel({ kind: 'overlap', id: pair.id, overlap: pair })
     setDraft((cur) => (cur?.id === pair.id ? cur : { id: pair.id, overlap: pair }))
   }, [])
   const openOverlap = openDraft
   const closeDraft = useCallback(() => {
+    setWantPair(null)
     setDraft(null)
     setSel(null)
   }, [])
@@ -250,18 +287,146 @@ export function GridlockProvider({ children }) {
   // leaving their example any way ("Expand", "‹ Pairs", the rail's footer) returns the camera to both states, unless a
   // pair's sheet is open (it keeps its own framing)
   const wasSperry = useRef(false)
+  const homeRef = useRef(() => mapApi.current?.fit())
   const draftOpen = draft != null
   useEffect(() => {
     const left = wasSperry.current && !sperryView
     wasSperry.current = sperryView
     if (!left || draftOpen) return undefined
-    const t = setTimeout(() => mapApi.current?.fit(), 60)
+    const t = setTimeout(() => homeRef.current(), 60)
     return () => clearTimeout(t)
   }, [sperryView, draftOpen])
   const expandSperry = useCallback(() => {
     setSperryMarks(true)
     setTab('opportunities')
   }, [setTab])
+
+  // What changed since DESC's last filing (the 2026-2030 list against 2024-2028): fetched when its view opens
+  const [changes, setChanges] = useState({ status: 'idle' })
+  const loadChanges = useCallback(() => {
+    if (!client) return
+    setChanges({ status: 'loading' })
+    client.changes().then(
+      (data) => setChanges({ status: 'ready', data }),
+      (error) => setChanges({ status: 'error', error }),
+    )
+  }, [client])
+  useEffect(() => {
+    if (tab === 'changes' && changes.status === 'idle' && client) {
+      const t = setTimeout(loadChanges, 0)
+      return () => clearTimeout(t)
+    }
+    return undefined
+  }, [tab, changes.status, client, loadChanges])
+
+  // --- the address: the view and the open pair (see TAB_ROUTES) ---
+  // a pair named by the address opens once the ranked list has it; a pair outside the current filters is looked up in
+  // the widest comparison (DESC x every Georgia sponsor, 50 km) so a shared link always opens (wantPair: above)
+  const draftId = draft?.id || null
+  useEffect(() => {
+    const apply = () => {
+      const r = readRoute()
+      if (!r) return
+      setHover(null)
+      setTabState(r.tab)
+      if (r.list) setListViewState(r.list)
+      if (r.pair) setWantPair(r.pair)
+      else {
+        setWantPair(null)
+        setDraft(null)
+        setSel((cur) => (cur?.kind === 'overlap' ? null : cur))
+      }
+    }
+    window.addEventListener('popstate', apply)
+    window.addEventListener('hashchange', apply)
+    return () => {
+      window.removeEventListener('popstate', apply)
+      window.removeEventListener('hashchange', apply)
+    }
+  }, [])
+  // Pairs found outside the list, kept by id and window setting (the overlap, or null: not a pair within 50 km), so
+  // Back/Forward to one opens it again at once; `asking`: the lookups in flight. A lookup is never cancelled by a re-render
+  // (it once was, and the address then stayed stuck on that pair for the rest of the visit); when it answers, the
+  // effect below runs again (lookTick) and opens it only if the address still names it.
+  const found = useRef(new Map())
+  const asking = useRef(new Set())
+  const failed = useRef(new Set())
+  const [lookTick, setLookTick] = useState(0)
+  useEffect(() => {
+    if (!wantPair || !client || ov.status === 'loading') return undefined
+    const settle = (fn) => {
+      const t = setTimeout(() => {
+        fn?.()
+        setWantPair(null)
+      }, 0)
+      return () => clearTimeout(t)
+    }
+    if (draftId === wantPair) return settle(null) // already open
+    const hit = (ov.overlaps || []).find((o) => o.id === wantPair)
+    if (hit) return settle(() => openDraft(hit))
+    const key = `${wantPair}|${params.window_months}`
+    if (found.current.has(key)) {
+      const o = found.current.get(key)
+      return settle(() => (o ? openDraft(o) : window.history.replaceState(null, '', '#/plans')))
+    }
+    if (failed.current.has(key)) {
+      return settle(() => {
+        failed.current.delete(key)
+        window.history.replaceState(null, '', '#/plans')
+      })
+    }
+    if (ov.status !== 'ready' || asking.current.has(key)) return undefined
+    const id = wantPair
+    asking.current.add(key)
+    client.overlaps({ max_km: 50, window_months: params.window_months, method: 'closest', a: 'DESC', b: GEORGIA.join(','), limit: 2000 }).then(
+      (r) => {
+        const o = (r?.overlaps || []).find((x) => x.id === id)
+        found.current.set(key, o ? { ...o, displayRank: undefined, rank: undefined } : null)
+        asking.current.delete(key)
+        setLookTick((n) => n + 1)
+      },
+      () => {
+        // the lookup failed: give up on this address (a later Back/Forward to it asks again)
+        asking.current.delete(key)
+        if (readRoute()?.pair === id) failed.current.add(key)
+        setLookTick((n) => n + 1)
+      },
+    )
+    return undefined
+  }, [wantPair, draftId, client, ov, openDraft, params.window_months, lookTick])
+  // the view and the open pair write the address (a new history entry, so Back returns to where you were); nothing
+  // is written while a pair named by the address is still being found
+  useEffect(() => {
+    if (wantPair) return
+    const want = routeOf(tab, draftId, listView)
+    if (readRoute() && window.location.hash !== want) window.history.pushState(null, '', want)
+  }, [tab, draftId, listView, wantPair])
+
+  // --- the landing camera: the corridor where the flagged pairs are (the Savannah River, from Augusta to the coast),
+  // padded so both states still show; "Fit both states" shows all of both
+  const corridor = useMemo(() => {
+    const pts = (ov.overlaps || []).flatMap((o) => (o.closest_points || []).map(([lat, lon]) => [lon, lat]))
+    const b = boundsOf(pts)
+    if (!b) return null
+    const dx = Math.max(0.6, (b[2] - b[0]) * 0.35)
+    const dy = Math.max(0.45, (b[3] - b[1]) * 0.3)
+    return [b[0] - dx, b[1] - dy, b[2] + dx, b[3] + dy]
+  }, [ov.overlaps])
+  const home = useCallback(() => {
+    if (corridor) mapApi.current?.flyTo(corridor, { card: false })
+    else mapApi.current?.fit()
+  }, [corridor])
+  const landed = useRef(false)
+  useEffect(() => {
+    if (landed.current || !corridor || draftId || wantPair || tab === 'sperry') return undefined
+    landed.current = true
+    const t = setTimeout(() => mapApi.current?.flyTo(corridor, { card: false, instant: true }), 80)
+    return () => clearTimeout(t)
+  }, [corridor, draftId, wantPair, tab])
+
+  useEffect(() => {
+    homeRef.current = home
+  }, [home])
 
   const value = {
     conn,
@@ -285,12 +450,13 @@ export function GridlockProvider({ children }) {
     setParams,
     toggleUtility,
     resetParams: () => setParamsState(DEFAULT_PARAMS),
+    sperryKm: SPERRY_KM,
     pairs,
     engineParams,
     listView,
     setListView,
     // the calendar is showing (the pairs view, not one of the rail's sub views): the page widens the rail
-    calendarOn: listView === 'calendar' && !['pipeline', 'projects', 'setaside', 'sperry'].includes(tab),
+    calendarOn: listView === 'calendar' && !['pipeline', 'projects', 'setaside', 'sperry', 'changes'].includes(tab),
     ov,
     overlaps,
     loadOverlaps,
@@ -323,6 +489,10 @@ export function GridlockProvider({ children }) {
     setSperryMarks,
     mapApi,
     registerMap,
+    changes,
+    loadChanges,
+    home,
+    corridor,
   }
   return <GridlockContext.Provider value={value}>{children}</GridlockContext.Provider>
 }

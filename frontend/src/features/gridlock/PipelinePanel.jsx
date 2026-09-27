@@ -4,7 +4,7 @@ import { CheckIcon } from './DetailCard'
 import { useGridlock } from './context'
 import PipelineProof from './PipelineProof'
 import ReaderProof from './ReaderProof'
-import { fmtBuiltAt, fmtInt, sourceLink, toneOf, utilityName } from './format'
+import { fmtBuiltAt, fmtInt, limitText, sourceLink, toneOf, utilityName } from './format'
 import './gridlock.css'
 
 const DEFAULT_COMMAND = 'backend/venv/Scripts/python backend/demo/gridlock/build.py'
@@ -31,8 +31,9 @@ export default function PipelinePanel() {
   return (
     <div className="gl-pipe">
       <p className="gl-lede">
-        Two PDFs in, a ranked list out. Every record keeps its page and raw text, every location its OpenStreetMap feature and a
-        confidence, and records that fail a check are set aside with the reason instead of dropped.
+        The public filings in, a ranked list out: DESC&apos;s current 2026–2030 list, Georgia&apos;s ITS plan, and DESC&apos;s 2024–2028
+        list for the projects the newer one no longer carries. Every record keeps its page and raw text, every location its OpenStreetMap
+        feature and a confidence, and records that fail a check are set aside with the reason instead of dropped.
       </p>
       <SperryCheck />
       <Stages report={report} />
@@ -186,7 +187,7 @@ function Stages({ report }) {
   }
   if (g.ov.status === 'ready' || g.ov.status === 'refreshing') {
     stages.push({ id: 'compare', label: 'cross-state pairs, current settings', out: g.ov.total_pairs, live: true })
-    stages.push({ id: 'flag', label: `within ${g.params.max_km} km`, in: g.ov.total_pairs, out: g.ov.flagged, live: true })
+    stages.push({ id: 'flag', label: `within ${g.ov.limit_text || limitText(g.params.max_km)}`, in: g.ov.total_pairs, out: g.ov.flagged, live: true })
   }
   if (!stages.length) return <EmptyState title="No stage report in this build" />
   return (
@@ -297,6 +298,7 @@ function Checks({ checks }) {
                 <span>
                   {c.label || c.id}
                   {c.blocking && <span className="gl-block">blocking</span>}
+                  {c.new_for_2026_2030 && <span className="gl-block gl-block--new">added for the 2026–2030 list</span>}
                 </span>
                 <span className="gl-checks__n">
                   <span>{fmtInt(c.passed || 0)} passed</span>
@@ -377,7 +379,7 @@ export function Quarantine({ check = null, heading = true, pageSize = 8 }) {
               const src = sources.find((s) => s.id === r.provenance?.source || s.file === r.provenance?.source)
               const link = sourceLink(src, r.provenance?.page)
               return (
-                <li key={r.id || i}>
+                <li key={`${r.id}-${r.provenance?.source}-${r.provenance?.page}-${i}`}>
                   <details className="gl-q">
                     <summary>
                       <span className={`gl-swatch gl-swatch--${toneOf(r.utility)}`} aria-hidden="true" />
@@ -477,7 +479,7 @@ function Sources({ context }) {
 function Rebuild({ report }) {
   const g = useGridlock()
   const [copied, setCopied] = useState(false)
-  const cmd = g.summary?.rebuild_command || report.command || DEFAULT_COMMAND
+  const cmd = (g.summary?.rebuild_commands || []).join(' && ') || g.summary?.rebuild_command || report.command || DEFAULT_COMMAND
   const copy = () => {
     navigator.clipboard?.writeText(cmd).then(
       () => {
@@ -491,8 +493,8 @@ function Rebuild({ report }) {
     <section className="gl-sec" aria-labelledby="gl-rebuild-h">
       <h3 id="gl-rebuild-h">Rebuild</h3>
       <p className="gl-fine">
-        {g.summary?.built_at ? `Built ${fmtBuiltAt(g.summary.built_at)}. ` : ''}One command re-reads both PDFs, re-runs every check and
-        reports what changed:
+        {g.summary?.built_at ? `Built ${fmtBuiltAt(g.summary.built_at)}. ` : ''}The build re-reads the filings, re-runs every check and
+        reports what changed; the second command reads DESC&apos;s 2026–2030 list and compares it with 2024–2028:
       </p>
       <div className="gl-cmd">
         <code>{cmd}</code>

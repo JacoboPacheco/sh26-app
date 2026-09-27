@@ -55,6 +55,16 @@ function normBbox(b) {
   if (v[0] > -30 && v[1] < -30) v = [v[1], v[0], v[3], v[2]] // lat-first
   return [Math.min(v[0], v[2]), Math.min(v[1], v[3]), Math.max(v[0], v[2]), Math.max(v[1], v[3])]
 }
+// where a badge's list of pairs goes: below the badge (its text baseline at y; the pill spans y-10..y+4) when there is
+// room, else on the side with more room, anchored to the badge so a shorter list stays next to it; capped at 360 px
+function popPlace(cluster, h) {
+  const want = Math.min(360, 44 + cluster.ids.length * 58)
+  const below = h - 16 - (cluster.y + 10)
+  const above = cluster.y - 14 - 8
+  if (below >= want || below >= above) return { top: cluster.y + 10, maxHeight: Math.max(120, Math.min(want, below)) }
+  return { bottom: h - (cluster.y - 14), maxHeight: Math.min(want, above) }
+}
+
 function kvOf(l) {
   const raw = l?.kv ?? l?.voltage ?? l?.properties?.kv ?? l?.properties?.voltage
   const nums = String(raw ?? '')
@@ -92,6 +102,15 @@ export default function PlansMap() {
   const userMoved = useRef(false)
   const anim = useRef(0)
   const [tip, setTip] = useState(null)
+  // several top-ten pairs meeting at one place share one badge ("1 +3"); hovering (or tapping) it lists them
+  const [cluster, setCluster] = useState(null) // {x, y, ids}: screen px
+  const clusterTimer = useRef(0)
+  const keepCluster = () => clearTimeout(clusterTimer.current)
+  const dropCluster = () => {
+    clearTimeout(clusterTimer.current)
+    clusterTimer.current = setTimeout(() => setCluster(null), 220)
+  }
+  useEffect(() => () => clearTimeout(clusterTimer.current), [])
 
   // --- projection ---
   // until the pipeline writes basemap.json the engine sends no outlines: draw the static Census ones
@@ -184,7 +203,7 @@ export default function PlansMap() {
   )
 
   const flyTo = useCallback(
-    (b, { card = false } = {}) => {
+    (b, { card = false, instant = false } = {}) => {
       if (!b || !size.w) return
       userMoved.current = true
       const [x0, y0] = proj.w(b[0], b[3])
@@ -198,9 +217,13 @@ export default function PlansMap() {
       const k = Math.min(lim.max, Math.max(lim.min, Math.min(aw / bw, ah / bh)))
       const cx = (x0 + x1) / 2
       const cy = (y0 + y1) / 2
-      animateTo({ k, x: p.l + aw / 2 - cx * k, y: p.t + ah / 2 - cy * k })
+      const target = { k, x: p.l + aw / 2 - cx * k, y: p.t + ah / 2 - cy * k }
+      if (instant) {
+        cancelAnimationFrame(anim.current)
+        commit(target)
+      } else animateTo(target)
     },
-    [proj, size, insets, limits, animateTo],
+    [proj, size, insets, limits, animateTo, commit],
   )
 
   // pan (same zoom) only if the bounds are outside the visible part of the map
@@ -305,6 +328,7 @@ export default function PlansMap() {
     d.moved = true
     userMoved.current = true
     setTip(null)
+    setCluster(null)
     commit({ k: d.view.k, x: d.view.x + cx - sx, y: d.view.y + cy - sy })
   }
   const onPointerUp = (e) => {
@@ -332,6 +356,7 @@ export default function PlansMap() {
     } else if (e.key === '+' || e.key === '=') zoomAt(1.5, size.w / 2, size.h / 2, true)
     else if (e.key === '-' || e.key === '_') zoomAt(1 / 1.5, size.w / 2, size.h / 2, true)
     else if (e.key === '0') fit()
+    else if (e.key === 'Escape' && cluster) setCluster(null)
     else if (e.key === 'Escape' && !g.draft) g.close()
   }
 
@@ -405,6 +430,8 @@ export default function PlansMap() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onClickCapture={onClickCapture}
+        // a click (or tap) anywhere else on the map closes a badge's list (the badge's own click doesn't reach here)
+        onClick={() => cluster && setCluster(null)}
         onKeyDown={onKeyDown}
       >
         <defs>
@@ -460,10 +487,48 @@ export default function PlansMap() {
                 ))}
               </g>
             )}
-            {/* the top ten's ranks above every line and mark (with a dark halo), so none hides under a project */}
+            {/* the top ten's ranks above every line and mark (with a dark halo), so none hides under a project; pairs that
+                meet at one place share one badge ("1 +3") that lists them on hover */}
             <g className={`gl-ranks${focus ? ' gl-has-focus' : ''}`} aria-hidden="true">
               {[...rankSpots].map(([id, spot]) =>
-                focus?.overlap === id ? null : (
+                spot.ids ? (
+                  <g
+                    key={id}
+                    className={`gl-cluster${cluster?.key === id ? ' is-open' : ''}`}
+                    onPointerEnter={() => {
+                      keepCluster()
+                      setTip(null)
+                      setCluster({ key: id, ids: spot.ids, x: spot.x + (view?.x || 0), y: spot.y + (view?.y || 0) })
+                    }}
+                    // a touch sends pointerleave right after the tap: only a mouse leaving closes the list (a tap
+                    // elsewhere on the map closes it on touch)
+                    onPointerLeave={(e) => e.pointerType === 'mouse' && dropCluster()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      keepCluster()
+                      setCluster({ key: id, ids: spot.ids, x: spot.x + (view?.x || 0), y: spot.y + (view?.y || 0) })
+                    }}
+                  >
+                    <rect
+                      className="gl-cluster__pill"
+                      x={(spot.end ? spot.x - spot.w : spot.x) / k}
+                      y={(spot.y - 10) / k}
+                      width={spot.w / k}
+                      height={14 / k}
+                      rx={7 / k}
+                      strokeWidth={1 / k}
+                    />
+                    <text
+                      className="gl-cluster__text"
+                      x={(spot.end ? spot.x - spot.w / 2 : spot.x + spot.w / 2) / k}
+                      y={spot.y / k}
+                      fontSize={10 / k}
+                      textAnchor="middle"
+                    >
+                      {spot.text}
+                    </text>
+                  </g>
+                ) : focus?.overlap === id ? null : (
                   <text
                     key={id}
                     className="gl-ring__rank"
@@ -490,6 +555,44 @@ export default function PlansMap() {
           {tip.content}
         </div>
       )}
+      {cluster && (
+        <div
+          className="gl-cluster-pop"
+          style={{
+            left: Math.max(8, Math.min(cluster.x - 16, size.w - (cover > 0 ? cover : 0) - 300)),
+            // below the badge when it fits, else above it; never over it (a tap's click then landed on the list and
+            // opened a pair). Past the room it has, the list scrolls.
+            ...popPlace(cluster, size.h),
+          }}
+          onPointerEnter={keepCluster}
+          onPointerLeave={(e) => e.pointerType === 'mouse' && dropCluster()}
+        >
+          <p className="gl-cluster-pop__h">{cluster.ids.length} top pairs meet here</p>
+          <ul>
+            {cluster.ids.map((id) => {
+              const o = overlaps.find((x) => x.id === id)
+              if (!o) return null
+              return (
+                <li key={id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCluster(null)
+                      openOverlap(o)
+                    }}
+                    onFocus={keepCluster}
+                  >
+                    <strong>#{rankOf(o)}</strong>
+                    <span>
+                      {displayName(byId[o.a]?.name)} <span aria-hidden="true">×</span> {displayName(byId[o.b]?.name)}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="gl-zoom" role="group" aria-label="Zoom">
         <button type="button" onClick={() => zoomAt(1.6, (size.w - cover) / 2, size.h / 2, true)} aria-label="Zoom in" title="Zoom in">
@@ -511,6 +614,7 @@ export default function PlansMap() {
 
       <div className="gl-mapfoot">
         <MapKey />
+        <LegendChip />
         <p className="gl-attrib">
           Outlines: U.S. Census Bureau. Lines and substations: ©{' '}
           <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
@@ -740,7 +844,31 @@ function placeRanks(overlaps, proj, k, keepSperry = false) {
   })
   const marks = top.map(({ pair: [[x1, y1], [x2, y2]] }) => [((x1 + x2) / 2) * k, ((y1 + y2) / 2) * k])
   const placed = [] // {box, spot}
+  // marks within a few px of each other at this zoom are one place: one badge for all of them, best rank first
+  const CLUSTER_PX = 15
+  const groups = []
+  top.forEach((x, i) => {
+    const near = groups.find((gr) => gr.members.some((j) => Math.hypot(marks[j][0] - marks[i][0], marks[j][1] - marks[i][1]) < CLUSTER_PX))
+    if (near) near.members.push(i)
+    else groups.push({ members: [i] })
+  })
+  const lead = new Map(groups.filter((gr) => gr.members.length > 1).map((gr) => [gr.members[0], gr.members]))
+  const inCluster = new Set(groups.filter((gr) => gr.members.length > 1).flatMap((gr) => gr.members.slice(1)))
   top.forEach(({ o, rank }, i) => {
+    if (inCluster.has(i)) return
+    const members = lead.get(i)
+    if (members) {
+      const cx = members.reduce((t, j) => t + marks[j][0], 0) / members.length
+      const cy = members.reduce((t, j) => t + marks[j][1], 0) / members.length
+      const text = `${rank} +${members.length - 1}`
+      const w = text.length * 6.2 + 10
+      const at = ([dx, dy, end]) => [end ? cx + dx - w : cx + dx, cy + dy - 10, end ? cx + dx : cx + dx + w, cy + dy + 4]
+      const pick = RANK_SPOTS.find((c) => !placed.some((p) => hits(at(c), p.box)) && !cities.some((cb) => hits(at(c), cb))) || RANK_SPOTS[0]
+      const spot = { x: cx + pick[0], y: cy + pick[1], end: pick[2], text, w, ids: members.map((j) => top[j].o.id) }
+      out.set(o.id, spot)
+      placed.push({ box: at(pick), spot })
+      return
+    }
     const [mx, my] = marks[i]
     const w = String(rank).length * 6.2 + 1
     const boxAt = ([dx, dy, end]) => [end ? mx + dx - w : mx + dx, my + dy - 8, end ? mx + dx : mx + dx + w, my + dy + 2]
@@ -908,6 +1036,27 @@ function OverlapTip({ o, byId, method }) {
   )
 }
 
+// The two utilities' colors, always in view beside the map key (the key itself opens for the rest).
+function LegendChip() {
+  const g = useGridlock()
+  const georgia = ['GPC', 'GTC', 'MEAG', 'DU'].filter((u) => g.params.utilities[u])
+  return (
+    <p className="gl-legendchip" aria-label="Colors on the map">
+      {g.params.utilities.DESC && (
+        <span>
+          <span className="gl-swatch gl-swatch--desc" aria-hidden="true" /> DESC (SC)
+        </span>
+      )}
+      {georgia.length > 0 && (
+        <span>
+          <span className={`gl-swatch gl-swatch--${georgia.includes('GPC') ? 'gpc' : 'ga'}`} aria-hidden="true" />{' '}
+          {georgia.length === 1 ? utilityShort(georgia[0]) : 'Georgia sponsors'} (GA)
+        </span>
+      )}
+    </p>
+  )
+}
+
 // The map key: a small chip, closed by default, that opens upward over the map's lower left.
 function MapKey() {
   const g = useGridlock()
@@ -938,13 +1087,13 @@ function MapKey() {
           <svg width="26" height="14" aria-hidden="true">
             <circle cx="13" cy="7" r="3.4" className="gl-legend__mark" />
           </svg>
-          A pair that could build together (brighter is closer; the top ten carry their rank)
+          A pair that could build together (brighter is closer; the top ten carry their rank, a badge like &ldquo;1 +3&rdquo; where several meet)
         </li>
         <li>
           <svg width="26" height="14" aria-hidden="true">
             <rect x="9.4" y="3.4" width="7.2" height="7.2" className="gl-legend__mark" />
           </svg>
-          A substation both filings work at (listed first)
+          A substation both filings work at (listed first in its group)
         </li>
         <li>
           <LegendLine tone="osm" /> Existing lines, 115 kV and up

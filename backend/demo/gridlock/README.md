@@ -5,7 +5,9 @@ Unlike the rest of Overload (a synthetic grid model), this module uses real publ
 
 - **Dominion Energy South Carolina (DESC)**: *Planned Transmission Projects $2M and above, 2024–2028*, published on SCRTP.
   Its next edition, *2026–2030* (54 pages), is read, checked, located and compared with it by `diff_filings.py`
-  ([What changed since the last filing](#what-changed-since-the-last-filing-desc-20262030)); the app still ranks the 2024–2028 list.
+  ([What changed since the last filing](#what-changed-since-the-last-filing-desc-20262030)). The app ranks it as DESC's
+  CURRENT list ([The current list in the app](#the-current-list-in-the-app)); the 2024–2028 projects it no longer carries stay
+  in the comparison, marked, and Sperry's worked example (built from 2024–2028) is still reproduced 6 of 6.
 - **Georgia Power and the other Georgia ITS sponsors (GTC, MEAG Power, Dalton Utilities)**: Table 2 and the project detail pages
   of the *2025 IRP Technical Appendix Volume 3 (Transmission Plan)*, the redacted **public-disclosure** version filed with the
   Georgia PSC (Docket 56002). Every page carries a CEII banner because it is the public copy of a CEII document. The pipeline reads
@@ -14,7 +16,8 @@ Unlike the rest of Overload (a synthetic grid model), this module uses real publ
 
 Output (committed): `data/projects.json` (projects, quarantine, report) and `data/basemap.json` (SC + GA outlines, OSM lines ≥ 115 kV).
 The API in `backend/gridlock.py` serves these files. Nothing is fetched at runtime. The 2026–2030 stage adds
-`data/desc_2026_2030.json`, `data/desc_changes.json` and `data/desc_2026_preview.json` (not served yet).
+`data/desc_2026_2030.json` and `data/desc_changes.json` (both served: the ranking reads the first, `GET /api/gridlock/changes`
+the second) and `data/desc_2026_preview.json` (a report: each list ranked alone).
 
 ## Run it
 
@@ -163,8 +166,8 @@ date and the SHA-256 of `backend/gridlock.py`, so a run on a later day (without 
 `desc_2026_preview.json` only. `desc_2026_2030.json` and `desc_changes.json` don't depend on either.
 
 DESC's next edition, *Planned Transmission Projects $2M and above, 2026–2030* (SCRTP, 54 pages, SHA-256 `e98bfeb8…`), goes
-through the same stages as the build and is then compared with the 2024–2028 edition. It never writes `data/projects.json`:
-the app, Sperry's worked example and the Sperry comparison stay pinned to 2024–2028 until the integration step below.
+through the same stages as the build and is then compared with the 2024–2028 edition. It never writes `data/projects.json`;
+the app merges the two at load time (see [The current list in the app](#the-current-list-in-the-app)).
 
 1. **extract** (`extract_desc.filing_doc`). The same page parser. The yearly columns come from each page's header row, so
    2026–2030 needs no new layout. Three printed forms are new:
@@ -240,10 +243,30 @@ the app, Sperry's worked example and the Sperry comparison stay pinned to 2024�
    230 kV reactors.
 
 **Ids.** A 2026–2030 record gets the build's id (`DESC-` + its printed id). A carried-over project therefore keeps its
-2024–2028 id, and both records printed as `6809 M` are `DESC-6809M` (both are set aside for it). Give one edition a prefix
-before the two are ever served side by side.
+2024–2028 id, and both records printed as `6809 M` are `DESC-6809M` (both are set aside for it). The app never serves the two
+editions of one project side by side (below), so no id is read twice.
 
-**Integration step (not done here).** Move `FILING_RULES` into `RULES`, teach `build.DESC_PAIR` the "Tap from X to Y" form
+### The current list in the app
+
+`backend/gridlock.py` (`_merge_current`, at load time, whenever either file changes) ranks DESC's CURRENT plan:
+
+- every 2026–2030 record, kept (40) or set aside (14) as its checks decided, each marked `edition: "2026-2030"` with a note
+  (new in this list, or also in 2024–2028 with the earlier in-service date);
+- from 2024–2028, only the 12 projects the new list no longer carries (`dropped` in `desc_changes.json`; 11 were due in service
+  before 2026), marked `edition: "2024-2028"`. They keep finished work and Sperry's worked example comparable (four of their five
+  DESC projects are among them); a project in both lists is read from the 2026–2030 one only;
+- Georgia's records unchanged.
+
+The report is re-counted over those 274 rows (3 filings, 203 passed, 71 set aside; the 19 checks, the 3 new ones also run over
+the 2024–2028 and Georgia records by this script). `_load("as_filed")` still gives `projects.json` exactly as the build wrote it
+(this script's preview uses it). The list is grouped so what can still be built together comes first: pairs whose build windows
+share months still ahead or open now, then pairs still to be built at different times, then pairs whose time has passed as
+filed; same station first within a group, then the score (unchanged). Measured 2026-09-26, DESC × Georgia Power within 25 mi
+(40.2336 km): 78 pairs, 21 building in the same months (8 still ahead, 13 open now), against 71 and 1 with the 2024–2028
+list alone. Pair 1 is the new Okatie – McIntosh series reactor (p41) with Georgia Power's Goshen – McIntosh rebuild, same
+station, shared window Jan–Jun 2027; Sperry's OVL_1 (Thurmond Dam) sits with the pairs whose time has passed.
+
+**Integration step (the pipeline part, not done here).** Move `FILING_RULES` into `RULES`, teach `build.DESC_PAIR` the "Tap from X to Y" form
 (Riverport), and rerun `build.py` and `faults.py`. The rules part was measured in a scratch copy with all 19 rules:
 - The build keeps the same 194 records and sets aside the same 58. The 16 existing checks give the same counts, the three
   new ones pass all 252 records, confidences are unchanged, and Sperry's example is still reproduced (6 of 6).
