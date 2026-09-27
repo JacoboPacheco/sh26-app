@@ -921,7 +921,7 @@ def _prompt(run: Run) -> str:
     base = prep.base
     return "\n".join([
         f"{st['label']} is a hypothetical hurricane on the synthetic model of Florida's grid. Its reach knocks out {len(prep.trip)} lines.",
-        f"Without hardening, {base['people_out']:,} people are still without power when the grid settles (an estimate) after {base['steps']} cascade steps.",
+        f"Without hardening, an estimated {base['people_out']:,} people are still without power when the grid settles after {base['steps']} cascade steps.",
         f"Your budget: {_money(run.budget)} ({_m(run.budget)} in $ million).",
         "Goal: choose the lines to harden, within the budget, that keep the most people's power on through the storm and its cascade.",
         "Tips: lines in series protect nothing until every line on that path is kept; 'alone' shows what one line does by itself; "
@@ -1065,7 +1065,7 @@ async def plan(run: Run) -> dict:
     prep, budget = run.prep, run.budget
     st, base = prep.storm, prep.base
     run.add(actor="engine", kind="case", tone="info",
-            title=f"{st['label']} knocks out {_plural(len(prep.trip), 'line', 'lines')}; without hardening {base['people_out']:,} people are still without power when the grid settles (estimate)",
+            title=f"{st['label']} knocks out {_plural(len(prep.trip), 'line', 'lines')}; without hardening an estimated {base['people_out']:,} people are still without power when the grid settles",
             detail=f"Budget {_money(budget)}. A hypothetical storm on the synthetic model of Florida's grid.")
     run.progress = {"phase": "singles", "done": prep.singles_n, "total": len(prep.trip)}
 

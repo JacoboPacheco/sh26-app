@@ -739,7 +739,7 @@ def _prompt(rep: dict, c, cands: list[dict], have: list[str], feedback: str = ""
     )
     return (
         f"A {total:,.0f} MW data center at {where} makes the synthetic grid model cascade: {rep['event']['steps']} steps, "
-        f"about {rep['event']['people']:,} people without power (estimate). Propose {PLANS_ASKED} DIFFERENT plans that let it be built at its full size (or very nearly) "
+        f"an estimated {rep['event']['people']:,} people without power. Propose {PLANS_ASKED} DIFFERENT plans that let it be built at its full size (or very nearly) "
         "by strengthening the grid. The engine re-runs every plan, so name changes precisely.\n\n"
         f"Lines you may re-rate (id: name, voltage, rating now):\n{lines}\n\n"
         f"Rules: use only these line ids. A new rating must be higher than the rating now and at most {MAX_RERATE:g} times it. "
@@ -880,7 +880,7 @@ def _check(c, J, plan: tuple, base_ups: dict) -> tuple[dict | None, str, dict]:
                 over.append(f"{int(g.br_ids[i])}: {b._line(g, int(i))['label']} at {st.loading_pct[i]:.0f}% of {rate[i]:.0f} MVA (it carries {st.loading_pct[i] * rate[i] / 100:,.0f} MVA)")
                 seen["over"].append({"id": int(g.br_ids[i]), "pct": round(float(st.loading_pct[i]), 1), "mva": round(float(rate[i]))})
             seen["over_count"] = int(len(hot))
-        fb = f"Plan '{name}' did NOT hold: after {oc['steps']} cascade steps {oc['people']:,} people (estimate) were still without power."
+        fb = f"Plan '{name}' did NOT hold: after {oc['steps']} cascade steps an estimated {oc['people']:,} people were still without power."
         if over:
             fb += " Lines still over their limit: " + "; ".join(over) + "."
         seen["ms"] = round((time.perf_counter() - t0) * 1000)
@@ -932,7 +932,7 @@ def _people_say(n: int, lang: str) -> str:
     n = int(n)
     if n <= 0:
         return "nobody without power" if lang == "en" else "nadie sin luz"
-    return f"about {n:,} people without power (estimate)" if lang == "en" else f"unas {n:,} personas sin luz (estimación)".replace(",", ".")
+    return f"an estimated {n:,} people without power" if lang == "en" else f"un estimado de {n:,} personas sin luz".replace(",", ".")
 
 
 def _steps(n: int, lang: str) -> str:

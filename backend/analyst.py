@@ -437,7 +437,7 @@ def summarize(tool: str, r: dict) -> tuple[str, str]:
             return s, "holds"
         cc = r["cascade"]
         s = f"{_n(r['mw'])} MW{when}: {r['lines_over_limit']} {'line' if r['lines_over_limit'] == 1 else 'lines'} over the limit (room is {_n(r['room_mw'])} MW)"
-        s += f"; the cascade leaves about {_approx(cc['people_without_power'])} people without power (estimate)." if cc["people_without_power"] else "; nobody loses power in the cascade."
+        s += f"; the cascade leaves an estimated {_approx(cc['people_without_power'])} people without power." if cc["people_without_power"] else "; nobody loses power in the cascade."
         return s, "over"
     if tool == "site_report_nearby":
         b = r.get("best") or {}
@@ -472,8 +472,8 @@ def summarize(tool: str, r: dict) -> tuple[str, str]:
         return s + ".", "holds"
     if tool == "service":
         f, m = r["flexible"], r["firm"]
-        who = lambda k: "nobody" if not k else f"about {_approx(k)} people"  # noqa: E731
-        return (f"Flexible: {who(f['people_without_power'])} without power (estimate)"
+        who = lambda k: "nobody" if not k else f"an estimated {_approx(k)} people"  # noqa: E731
+        return (f"Flexible: {who(f['people_without_power'])} without power"
                 + (", campus cut off" if f["campus_cut_off"] else "")
                 + f". Firm: {who(m['people_without_power'])}" + (" (campus kept on)." if m["campus_kept_on"] else " (the campus is cut off anyway).")), "info"
     return "Done.", "info"
@@ -648,7 +648,7 @@ def plain_memo(c: _Case, results: list[dict]) -> dict:
         right = here["right_size_mw"] if here else room
         secs["fits_here"] = (f"On the model the substation this site connects to ({c.sub_name}) has room for about {_n(right)} MW before a line overloads. "
                              f"At the full {mw} MW, {w['lines_over_limit']} {'line goes' if w['lines_over_limit'] == 1 else 'lines go'} over the limit"
-                             + (f" and the cascade leaves about {_approx(w['cascade']['people_without_power'])} people without power (estimate)." if w["cascade"]["people_without_power"] else "."))
+                             + (f" and the cascade leaves an estimated {_approx(w['cascade']['people_without_power'])} people without power." if w["cascade"]["people_without_power"] else "."))
     if ways:
         vw = ways["verified_ways"]
         if ways["verdict"] == "nothing_happened" or (w and w["fits"]):
@@ -679,11 +679,11 @@ def plain_memo(c: _Case, results: list[dict]) -> dict:
         if svc and not w["fits"]:
             fl, fm = svc["flexible"]["people_without_power"], svc["firm"]["people_without_power"]
             if fl == fm:
-                secs["strain"] += f" Firm service changes nothing here: about {_approx(fl)} people lose power either way (estimate)."
+                secs["strain"] += f" Firm service changes nothing here: an estimated {_approx(fl)} people lose power either way."
             elif svc["firm"]["campus_kept_on"]:
-                secs["strain"] += f" On firm service the campus stays on and about {_approx(fm)} people lose power instead of about {_approx(fl)} (estimates)."
+                secs["strain"] += f" On firm service the campus stays on and an estimated {_approx(fm)} people lose power instead of {_approx(fl)}."
             else:
-                secs["strain"] += f" On firm service the campus is cut off too, and about {_approx(fm)} people lose power (estimate)."
+                secs["strain"] += f" On firm service the campus is cut off too, and an estimated {_approx(fm)} people lose power."
     if w and w["fits"]:
         head = f"On the model a {mw} MW campus fits here as it is."
     elif ways and ways["verified_ways"]:
