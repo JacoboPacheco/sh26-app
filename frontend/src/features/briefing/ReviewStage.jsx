@@ -68,7 +68,7 @@ const AI_HOLD_MS = 1500 // autoplay waits up to this long for Gemini's deck when
 // camera stay out of their way)
 const OWN_PICTURE = new Set(['toll', 'areas', 'cause', 'fix', 'bottom_line', 'event', 'hospitals', 'cost', 'no_fix'])
 const OWN_CAMERA = new Set(['toll', 'areas', 'fix', 'bottom_line', 'event', 'hospitals', 'cost', 'no_fix'])
-export default function ReviewStage({ body, onClose, autoPlay = false, short: startShort = false, startView = 'slides', startAsk = null, allowFixture = false, loadReplay = false }) {
+export default function ReviewStage({ body, onClose, autoPlay = false, startView = 'slides', startAsk = null, allowFixture = false, loadReplay = false }) {
   const o = useOverload()
   const [lang, setLang] = useState('en')
   const [cc, setCc] = useState(true)
@@ -111,8 +111,10 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     } else if (aiDeck?.slides?.length && frozen.current.gemini !== aiDeck) frozen.current = { ...swapUnplayed(frozen.current, aiDeck, played.current), gemini: aiDeck }
     return mergeSolutions(frozen.current, merged?.deck)
   }, [baseDeck, aiDeck, report, merged])
-  // the short version (the presentation: the toll, the plays, the pause, the solutions, the bottom line) is the same deck, fewer slides
-  const [short, setShort] = useState(startShort)
+  // the short version (the presentation: the toll, the plays, the pause, the solutions, the bottom line) is the same
+  // deck, fewer slides — the only version now (user, Sun 04:34: "remove the full option"); a case with no short list
+  // still falls back to its full deck below, it just isn't a viewer-facing choice any more.
+  const short = true
   const canShort = !!fullDeck?.short?.length && fullDeck.short.length < fullDeck.slides.length
   const textDeck = useMemo(
     () => (short && canShort ? { ...fullDeck, slides: fullDeck.slides.filter((s) => fullDeck.short.includes(s.id)) } : fullDeck),
@@ -670,16 +672,6 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
                 </button>
               ))}
             </div>
-            {canShort && (
-              <div className="rs-seg" role="group" aria-label={P[lang].version}>
-                <button type="button" className="rs-seg__btn" aria-pressed={short} onClick={() => setShort(true)} title={t.shortHint}>
-                  {P[lang].shortV}
-                </button>
-                <button type="button" className="rs-seg__btn" aria-pressed={!short} onClick={() => setShort(false)}>
-                  {P[lang].full}
-                </button>
-              </div>
-            )}
           </div>
           <button type="button" className="rs-opts__more" aria-expanded={optsOpen} aria-controls="rs-opts-more" onClick={() => setOptsOpen((v) => !v)}>
             {optsOpen ? P[lang].fewerOptions : P[lang].moreOptions}
