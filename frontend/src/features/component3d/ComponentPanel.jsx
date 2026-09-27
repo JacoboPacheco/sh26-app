@@ -72,6 +72,24 @@ export default function ComponentPanel() {
  * `scope` = the page's mode: a stopped view is dropped when the mode changes (the left column shows
  * another tool). `covered` = something covers the page: the loop stops (the review fades the panel).
  */
+const FULL_H = 250 // px the float needs in full (the drawing, the name, the loading, why and the small print)
+const COMPACT_H = 128 // ... compact: the drawing, the name and the loading
+
+// on the map (the float dock): the drawing is cleared, not painted on a panel, and solid faces use the map's own dark
+function floatPal(dock) {
+  const pal = readPalette()
+  if (dock !== 'float') return pal
+  const night = (() => {
+    try {
+      return getComputedStyle(document.documentElement).getPropertyValue('--night').trim()
+    } catch {
+      return ''
+    }
+  })()
+  const m = night.match(/^#([0-9a-f]{6})$/i)
+  return { ...pal, clear: true, bg: m ? [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16)) : pal.bg }
+}
+
 export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock = 'float', scope = null, covered = false }) {
   const reduced = useReducedMotion()
   const [hidden, setHidden] = useState(readHidden)
@@ -134,7 +152,7 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
     const cv = canvasRef.current
     if (!cv) return undefined
     const ctx = cv.getContext('2d')
-    const pal = readPalette()
+    const pal = floatPal(dock)
     let raf = 0
     let shownI = -1
     const latch = new Map() // shot index -> the time its trip was first drawn
@@ -195,7 +213,7 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [live, hidden, covered, fx, shots, reduced, cascade])
+  }, [live, hidden, covered, fx, shots, reduced, cascade, dock])
 
   // stopped: that element, drawn once (and again when the panel's size changes): the loop's last frame
   // when it shows the same element in the same state (so it looks frozen), else a still of it
@@ -203,7 +221,7 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
     if (!visible || !stopEl) return undefined
     const cv = canvasRef.current
     if (!cv) return undefined
-    const pal = readPalette()
+    const pal = floatPal(dock)
     const f = frameRef.current
     const same = !!f && f.key === stopEl.key && (stopPre ? f.u < 0 : f.u >= 0)
     const [u, A, tSec] = same ? [f.u, f.A, f.tSec] : [stopPre ? PRE_U : POST_U, 0, 0]
@@ -216,31 +234,30 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(draw) : null
     ro?.observe(cv)
     return () => ro?.disconnect()
-  }, [visible, stopEl, stopPre])
+  }, [visible, stopEl, stopPre, dock])
 
-  // where it floats: over the lower part of the left column, its bottom on the column's own bottom
-  // (just above the timeline), the column's width (measured; phones dock it in the page flow, in CSS).
-  // Measured again when a cover lifts: the presentation moves the page up while it is open.
+  // where it floats (user, Sat 20:01: "hide it into the bottom right or blend it in instead of making a separate
+  // window"): in the results column's lane, under the results, its bottom just above the timeline. Full when the
+  // lane has room, compact (the drawing, the name and the loading) when less, and not shown when the results
+  // reach down to the timeline: it never goes over the map's middle, where the cascade plays. Phones dock it in
+  // the page flow (CSS).
   const [pos, setPos] = useState(null)
   useLayoutEffect(() => {
     if (dock !== 'float' || !visible) return undefined
     const place = () => {
       if (window.innerWidth <= 860) return setPos(null)
       const vh = window.innerHeight
-      const colEl = document.querySelector('.mc-left')
-      const col = colEl?.getBoundingClientRect()
       const foot = document.querySelector('.mc-bottom')?.getBoundingClientRect()
       const floor = foot && foot.height ? foot.top - 12 : vh - 140
-      if (col && col.width) {
-        const maxH = parseFloat(window.getComputedStyle(colEl).maxHeight)
-        const colBottom = Number.isFinite(maxH) ? col.top + maxH : col.bottom
-        return setPos({ left: Math.round(col.left), bottom: Math.round(vh - Math.min(floor, colBottom)), width: Math.round(col.width) })
-      }
-      setPos({ left: 16, bottom: Math.round(vh - floor), width: 320 })
+      const col = document.querySelector('.mc-right')?.getBoundingClientRect()
+      if (!col || !col.width) return setPos({ mode: 'none' })
+      const room = floor - col.bottom - 12
+      const mode = room >= FULL_H ? 'full' : room >= COMPACT_H ? 'compact' : 'none'
+      setPos({ left: Math.round(col.left), bottom: Math.round(vh - floor), width: Math.round(col.width), mode })
     }
     place()
     window.addEventListener('resize', place)
-    const watch = ['.mc-bottom', '.mc-left'].map((s) => document.querySelector(s)).filter(Boolean)
+    const watch = ['.mc-bottom', '.mc-right'].map((q) => document.querySelector(q)).filter(Boolean)
     const ro = watch.length && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(place) : null
     watch.forEach((e) => ro?.observe(e))
     return () => {
@@ -250,6 +267,7 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
   }, [dock, visible, covered])
 
   if (!visible) return null
+  if (dock === 'float' && pos?.mode === 'none') return null
   const el = view.el
   const close = () => {
     writeHidden()
@@ -262,7 +280,7 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
       figRef={figRef}
       tagRef={tagRef}
       onClose={close}
-      className={`c3d c3d--${dock}${ended ? ' c3d--ending' : ''}`}
+      className={`c3d c3d--${dock}${ended ? ' c3d--ending' : ''}${pos?.mode === 'compact' ? ' c3d--compact' : ''}`}
       style={dock === 'float' && pos ? { left: pos.left, bottom: pos.bottom, width: pos.width } : undefined}
       reviewHide={dock === 'float'}
     />

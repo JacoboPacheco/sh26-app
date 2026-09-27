@@ -14,13 +14,60 @@
   animation: c3d-in 220ms ease-out both;
 }
 
-/* placed by ComponentPanel (measured against .mc-left and .mc-bottom); this is the first frame's guess */
+/* placed by ComponentPanel (measured against .mc-right and .mc-bottom); this is the first frame's guess.
+   On the map it is not a window (user, Sat 20:01): no surface, border or shadow; the drawing fades out at
+   its edges into the map and the words carry the map labels' soft dark shadow. */
 .c3d--float {
   position: fixed;
-  left: var(--gutter);
-  width: var(--left-w);
+  right: var(--gutter);
+  width: var(--right-w);
   bottom: 128px;
   z-index: 4;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  pointer-events: none;
+  /* no edge: the map just darkens a little behind the words and the drawing, fading out all round */
+  background: radial-gradient(75% 70% at 50% 60%, color-mix(in srgb, var(--night) 82%, transparent) 40%, transparent 100%);
+}
+.c3d--float.c3d--compact .c3d__canvas {
+  height: 72px;
+}
+.c3d--float.c3d--compact .c3d__body {
+  min-height: 0;
+}
+.c3d--float.c3d--compact .c3d__why,
+.c3d--float.c3d--compact .c3d__fine {
+  display: none;
+}
+.c3d--float a,
+.c3d--float button {
+  pointer-events: auto;
+}
+.c3d--float .c3d__canvas {
+  height: 124px;
+  -webkit-mask-image: radial-gradient(115% 100% at 50% 50%, #000 50%, transparent 88%);
+  mask-image: radial-gradient(115% 100% at 50% 50%, #000 50%, transparent 88%);
+}
+.c3d--float .c3d__kind,
+.c3d--float .c3d__body {
+  text-shadow:
+    0 1px 8px var(--night),
+    0 0 2px var(--night);
+}
+.c3d--float .c3d__body {
+  border-top: 0;
+  padding: 2px 4px 0;
+}
+.c3d--float .c3d__kind {
+  left: 4px;
+}
+.c3d--float .c3d__close {
+  opacity: 0.6;
+}
+.c3d--float .c3d__close:hover {
+  opacity: 1;
 }
 
 .c3d--inline {
@@ -108,7 +155,7 @@
 
 /* one height for every element (with or without the 2003 line), so the panel's top edge holds still */
 .c3d--float .c3d__body {
-  min-height: 134px;
+  min-height: 118px;
 }
 
 .c3d__name {

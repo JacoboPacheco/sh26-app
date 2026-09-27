@@ -661,8 +661,12 @@ export function drawScene(ctx, W, H, dpr, el, u, A, tSec, { alpha = 1, pal } = {
   const st = stateAt(el, u, A)
   ctx.setTransform(1, 0, 0, 1, 0, 0)
   ctx.globalAlpha = 1
-  ctx.fillStyle = css(P.bg, 1)
-  ctx.fillRect(0, 0, W, H)
+  // on the map (the float dock) the drawing sits straight on the map: no panel color behind it
+  if (P.clear) ctx.clearRect(0, 0, W, H)
+  else {
+    ctx.fillStyle = css(P.bg, 1)
+    ctx.fillRect(0, 0, W, H)
+  }
   ctx.globalAlpha = alpha
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
