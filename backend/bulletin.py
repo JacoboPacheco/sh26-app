@@ -116,6 +116,19 @@ def level_at(lf: float, lang: str) -> str:
     return f"at {p} percent of the summer peak load" if lang == "en" else f"al {p} por ciento de la carga pico de verano"
 
 
+# the same levels on screen, as the presentation's map pins and cards name them (showText.js atLevel): "at 3 AM"
+LEVEL_SHOW = {0.62: ("at 3 AM", "a las 3 AM"), 0.82: ("at 9 AM", "a las 9 AM"), 1.0: ("at the 4 PM peak", "en el pico de las 4 PM"),
+              1.04: ("in a heat wave", "en una ola de calor"), 1.08: ("at the height of a heat wave", "en el pico de una ola de calor")}
+
+
+def level_show(lf: float, lang: str) -> str:
+    """A load level on screen, in the pins' words ('at 3 AM'); any other level as level_at says it."""
+    for k, v in LEVEL_SHOW.items():
+        if abs(float(lf) - k) < 0.005:
+            return v[0 if lang == "en" else 1]
+    return level_at(lf, lang)
+
+
 def _flex_steps(fx: dict) -> list[tuple[float, float]]:
     """(load level, MW it runs at) for each level the engine checked where the flexible campus runs below full size."""
     out = [(float(x["level"]), float(x.get("runs_mw") or 0)) for x in ((fx.get("detail") or {}).get("levels") or [])
@@ -166,6 +179,9 @@ class DeckIn(CaseIn):
     budget_ms: int = 1800
     ai: bool = True  # false: templates only, instantly (the stage opens on this, then swaps in the AI deck)
     length: Literal["full", "short"] = "full"
+    # false: don't start the AI proposer for this case yet (a prefetch outside Florida after a cascade nobody may present:
+    # the stage's own requests start it on the click). Never part of the report's key.
+    propose: bool = True
 
 
 def _nothing_happened(body: CaseIn) -> bool:
@@ -1001,16 +1017,42 @@ def s_event(w: Writer, lv: Level) -> dict:
     return out
 
 
-def _step_sentence(w: Writer, st: dict, lang: str, seen: set | None = None) -> str:
-    """One step, read aloud. `seen`: areas already said to lose power in this chain (never said twice)."""
+# REVIEW-1 (c): a DC re-solve after the grid splits can put a line at 1,344 % of its rating, an artefact, not a reading.
+# Above PCT_FAR the words say "far past its limit"; the raw value rides along as a `raw` cue, which the transcript prints.
+PCT_FAR = 300.0
+
+
+def pct_at(p, lang: str) -> str:
+    """' at 289 percent' / ' al 289 por ciento'; above PCT_FAR ' far past its limit' / ' muy por encima de su límite'
+    with the raw value as a cue (the transcript keeps it)."""
+    if p is None:
+        return ""
+    p = float(p)
+    if p > PCT_FAR:
+        return (" far past its limit" if lang == "en" else " muy por encima de su límite") + cue("raw", int(round(p)))
+    return f" at {pct_say(p, lang)}" if lang == "en" else f" al {pct_say(p, lang)}"
+
+
+def pct_show(p) -> str:
+    """A loading on a slide line: '289%'; above PCT_FAR 'far past its limit' (the transcript keeps the value)."""
+    return "" if p is None else ("far past its limit" if float(p) > PCT_FAR else f"{round(float(p))}%")
+
+
+def _step_sentence(w: Writer, st: dict, lang: str, seen: set | None = None, toll: tuple[int, bool] | None = None) -> str:
+    """One step, read aloud. `seen`: areas already said to lose power in this chain (never said twice). `toll`:
+    (people hit by this play, first play) — a big play says who it hit ('hitting about 503,000 more people')."""
     en = lang == "en"
     n = int(st["n"])
     seen = set() if seen is None else seen
     dark = [d["area"] for d in (st.get("newly_dark") or []) if d.get("people", 0) >= 1000 and d["area"] not in seen][:1]
     seen.update(dark)
     tail = ""
+    if toll and toll[0] >= 1000:
+        ppl = people_say(toll[0], lang)
+        tail = (f", hitting {ppl}" if toll[1] else f", hitting {ppl.replace(' people', ' more people')}") if en else (
+            f", afecta a {ppl}" if toll[1] else f", afecta a {ppl} más")
     if dark:
-        tail = f", and {dark[0]} loses power" if en else f", y {dark[0]} se queda sin luz"
+        tail += (f", and {dark[0]} loses power" if en else (f" y {dark[0]} se queda sin luz" if tail else f", y {dark[0]} se queda sin luz"))
     if n == 0:
         k = st.get("storm_lines") or w.storm  # the engine: {count, listed}; a list or a count also works
         k = k.get("count") or w.storm if isinstance(k, dict) else (len(k) if isinstance(k, list) else int(k or 0))
@@ -1035,10 +1077,7 @@ def _step_sentence(w: Writer, st: dict, lang: str, seen: set | None = None) -> s
     if more:
         label += (f" and {words(more, 'en')} more {'line' if more == 1 else 'lines'}" if en
                   else f" y {words(more, 'es', fem=True)} {'línea' if more == 1 else 'líneas'} más")
-    pct = ln.get("pct_before")
-    at = ""
-    if pct is not None:
-        at = f" at {pct_say(pct, lang)}" if en else f" al {pct_say(pct, lang)}"
+    at = pct_at(ln.get("pct_before"), lang)
     verb = ("trip" if more else "trips") if en else ("se disparan" if more else "se dispara")
     return cue("step", n) + head + f"{label} {verb}{at}{tail}."
 
@@ -1065,39 +1104,181 @@ def _group_sentence(w: Writer, group: list[dict], lang: str, after: bool = True,
     return spread(s, "step", list(range(a, b + 1)))
 
 
-def _plays(w: Writer) -> list[dict]:
-    """The cascade as plays for the play-by-play: one per failure, with what it is, how hard it was pushed, and who it hit."""
+# PLAYS, SUMMARIZED (user, Sat 20:29: "summarize the big ones, not EVERY SINGLE EVENT, then just SUMMARIZE THE REST"):
+# the play-by-play names only the big plays — the first failure, the two that hit the most people and the one that cut
+# the most load (where the grid splits): about three, at most four — each with its line and its toll, then one line for
+# the rest. The map still replays every step; the step counter and the scoreboard keep the totals.
+BIG_PLAYS, BIG_PLAYS_MAX = 3, 4
+BIG_SHARE = 0.02  # a play that hits less than this share of everyone hit is not big by people (the first always is)
+BIG_MW_SHARE = 0.05  # nor by load unless it cuts at least this share of the load lost
+
+
+def _is_xf(w: Writer, bid) -> bool:
+    i = w.g.br_index.get(int(bid)) if bid is not None else None
+    return i is not None and int(w.g.bus_sub_idx[w.g.f[i]]) == int(w.g.bus_sub_idx[w.g.t[i]])
+
+
+def _chain_rows(w: Writer) -> tuple[list[dict], int]:
+    """The cascade's steps after any storm damage, with what each added: people hit (the running total's growth), load
+    lost, substations dark, lines and transformers tripped. And the people the storm itself hit (step 0)."""
+    steps = (w.r.get("replay") or {}).get("steps") or []
+    tl = {int(r.get("n", 0)): r for r in w.timeline if isinstance(r, dict)}
+    s0 = next((st for st in steps if int(st.get("n") or 0) == 0), None)
+    base = int((s0 or {}).get("people_hit") or 0)
+    prev_hit, prev_mw = base, float(((tl.get(0) or {}).get("lost_mw_cum")) or (s0 or {}).get("lost_mw") or 0.0)
+    rows = []
+    for st in steps:
+        n = int(st.get("n") or 0)
+        if n <= 0:
+            continue
+        hit = int(st.get("people_hit") or 0)
+        t = tl.get(n) or {}
+        mw = float(t["lost_mw_cum"]) if t.get("lost_mw_cum") is not None else float(st.get("lost_mw") or 0.0)
+        tr = [int(b) for b in (st.get("tripped") or [])]
+        xf = sum(1 for b in tr if _is_xf(w, b))
+        rows.append({"n": n, "delta": max(hit - prev_hit, 0), "dmw": mw - prev_mw, "dark": len(st.get("dark_subs") or []),
+                     "lines": len(tr) - xf, "transformers": xf, "action": st.get("action"), "hit": hit})
+        prev_hit, prev_mw = max(prev_hit, hit), max(prev_mw, mw)
+    return rows, base
+
+
+def big_play_ns(rows: list[dict], storm: bool = False) -> list[int]:
+    """The step numbers of the big plays, in order: all of them when there are few; else the first failure, the two that
+    hit the most people, the one that cut the most load, padded to about three (with a storm, which is a play of its
+    own, one fewer)."""
+    want, cap_ = (BIG_PLAYS - 1, BIG_PLAYS_MAX - 1) if storm else (BIG_PLAYS, BIG_PLAYS_MAX)
+    if len(rows) <= cap_:
+        return [r["n"] for r in rows]
+    total = sum(r["delta"] for r in rows)
+    lost = max((sum(max(r["dmw"], 0.0) for r in rows)), 0.0)
+    chosen = [rows[0]["n"]]
+    rest = rows[1:]
+    for r in sorted(rest, key=lambda r: (-r["delta"], r["n"])):
+        if len(chosen) >= want or r["delta"] <= BIG_SHARE * total:
+            break
+        chosen.append(r["n"])
+    mw = sorted((r for r in rest if r["n"] not in chosen and r["dmw"] >= max(BIG_MW_SHARE * lost, 1.0)), key=lambda r: (-r["dmw"], r["n"]))
+    if mw and len(chosen) < cap_:
+        chosen.append(mw[0]["n"])
+    for r in sorted(rest, key=lambda r: (-r["delta"], -max(r["dmw"], 0.0), -r["dark"], r["n"])):
+        if len(chosen) >= want:
+            break
+        if r["n"] not in chosen:
+            chosen.append(r["n"])
+    return sorted(chosen)
+
+
+def _chain_plan(w: Writer) -> dict:
+    """The big plays and the rest: {rows, big (step numbers), rest {steps, lines, transformers, people}}; the rest's
+    people are what its plays added to the people hit."""
+    rows, base = _chain_rows(w)
+    big = big_play_ns(rows, storm=bool(w.storm))
+    rest_rows = [r for r in rows if r["n"] not in big]
+    rest = {"steps": [r["n"] for r in rest_rows], "lines": sum(r["lines"] for r in rest_rows),
+            "transformers": sum(r["transformers"] for r in rest_rows), "people": sum(r["delta"] for r in rest_rows),
+            "shed": sum(1 for r in rest_rows if r["action"] == "shed"), "storm_hit": int(base)}
+    return {"rows": rows, "big": big, "rest": rest if rest_rows else None, "storm_hit": base}
+
+
+def _rest_say(rest: dict, lang: str, show: bool = False) -> str:
+    """The rest, in one sentence: 'Beyond those, six more lines tripped, hitting another 48,000 people (estimate).'
+    Counts in words (a spelled count is never mistaken for a fact); `show`: digits, for the slide's own line."""
+    en = lang == "en"
+    ln, xf, ppl = int(rest["lines"]), int(rest["transformers"]), int(rest["people"])
+    cnt = (lambda k, fem=False: str(k)) if show else (lambda k, fem=False: words(k, lang, fem=fem, before_noun=True))
+    if en:
+        parts = ([f"{cnt(ln)} more {'line' if ln == 1 else 'lines'}"] if ln else []) + (
+            [f"{cnt(xf)} {'more ' if not ln else ''}{'transformer' if xf == 1 else 'transformers'}"] if xf else [])
+        what = " and ".join(parts) or ("the operators cut load" if rest.get("shed") else "nothing else")
+        verb = "tripped" if parts else ""
+        who = (f", hitting another {people_round(ppl, 'en')} people (estimate)" if ppl >= 1
+               else ", with no one hit beyond those the storm already hit" if rest.get("storm_hit") else ", with no one else hit")
+        return f"Beyond those, {what} {verb}{who}.".replace("  ", " ").replace(" ,", ",")
+    parts = ([f"{cnt(ln, True)} {'línea' if ln == 1 else 'líneas'}"] if ln else []) + (
+        [f"{cnt(xf)} {'transformador' if xf == 1 else 'transformadores'}"] if xf else [])
+    n_all = ln + xf
+    what = (" y ".join(parts) + " más") if parts else ("los operadores cortaron carga" if rest.get("shed") else "nada más")
+    verb = ("se disparó " if n_all == 1 else "se dispararon ") if parts else ""
+    who = (f", que afectaron a otras {people_round(ppl, 'es')} personas (estimación)" if ppl >= 1
+           else ", sin afectar a nadie que la tormenta no hubiera afectado ya" if rest.get("storm_hit") else ", sin afectar a nadie más")
+    if ppl >= 999_500:
+        who = f", que afectaron a otros {people_round(ppl, 'es')} de personas (estimación)"
+    return f"Además, {verb}{what}{who}."
+
+
+def _clip(x: str, n: int = LINE_MAX) -> str:
+    """A slide line cut to `n` characters at a word boundary, with an ellipsis (never mid-word)."""
+    if len(x) <= n:
+        return x
+    cut = x[: n - 1].rsplit(" ", 1)[0].rstrip(" ,·;:(")
+    return cut + "…"
+
+
+def _rest_show(rest: dict, lang: str) -> str:
+    """The rest on the slide's own line, short enough for LINE_MAX: 'Then 6 more lines · +48,000 hit (estimate)'."""
+    en = lang == "en"
+    ln, xf, ppl = int(rest["lines"]), int(rest["transformers"]), int(rest["people"])
+    if en:
+        parts = ([f"{ln} more {'line' if ln == 1 else 'lines'}"] if ln else []) + (
+            [f"{xf} {'more ' if not ln else ''}{'transformer' if xf == 1 else 'transformers'}"] if xf else [])
+        what = "Then " + (" and ".join(parts) if parts else ("load cut" if rest.get("shed") else "nothing else"))
+        who = f"+{people_round(ppl, 'en')} hit (estimate)" if ppl >= 1 else ("no one beyond the storm's toll" if rest.get("storm_hit") else "no one else hit")
+    else:
+        parts = ([f"{ln} {'línea' if ln == 1 else 'líneas'}"] if ln else []) + (
+            [f"{xf} {'transformador' if xf == 1 else 'transformadores'}"] if xf else [])
+        what = "Luego " + ((" y ".join(parts) + " más") if parts else ("carga cortada" if rest.get("shed") else "nada más"))
+        who = (f"+{people_round(ppl, 'es')} afectadas (estimación)" if ppl >= 1
+               else ("nadie más allá de la tormenta" if rest.get("storm_hit") else "nadie más afectado"))
+    return f"{what} · {who}"
+
+
+def _plays(w: Writer, plan: dict | None = None) -> list[dict]:
+    """The cascade as plays for the play-by-play: one per failure, with what it is, how hard it was pushed, who it hit,
+    and whether it is one of the big plays the narration names (`big`; the rest are summed up in one line)."""
+    plan = plan or _chain_plan(w)
+    big = set(plan["big"])
     steps = (w.r.get("replay") or {}).get("steps") or []
     rows = {int(r.get("n", 0)): r for r in w.timeline if isinstance(r, dict)}
     hosp = {a["area"]: int(a["count"]) for a in ((w.r.get("hospitals") or {}).get("areas") or [])}
-    plays, prev = [], 0
+    plays, prev = [], plan.get("storm_hit") or 0
     for st in steps:
         n = int(st.get("n") or 0)
         if n <= 0:
             continue
         tr = [int(b) for b in (st.get("tripped") or [])]
         bid = tr[0] if tr else st.get("held_line")
-        if bid is None:
-            continue
-        i = w.g.br_index.get(int(bid))
-        kind = "transformer" if i is not None and int(w.g.bus_sub_idx[w.g.f[i]]) == int(w.g.bus_sub_idx[w.g.t[i]]) else "line"
-        ln = ((rows.get(n) or {}).get("lines") or [{}])[0]
         hit = int(st.get("people_hit") or 0)
+        if bid is None:
+            prev = max(prev, hit)  # nothing to show for this step, but its people are not the next play's
+            continue
+        kind = "transformer" if _is_xf(w, bid) else "line"
+        ln = ((rows.get(n) or {}).get("lines") or [{}])[0]
         areas = [h["area"] for h in (st.get("hits") or []) if h.get("area")][:3]
+        pct = ln.get("pct_before")
         plays.append({
             "n": n, "action": st.get("action"), "kind": kind, "id": int(bid),
             "label": {"en": w.line_label(bid, "en"), "es": w.line_label(bid, "es")},
-            "loading_pct": ln.get("pct_before"), "people_hit": hit, "people_delta": max(hit - prev, 0), "people_total": hit,
+            "loading_pct": pct, "far": pct is not None and float(pct) > PCT_FAR,
+            "people_hit": hit, "people_delta": max(hit - prev, 0), "people_total": hit,
             "areas": areas, "hospitals": sum(hosp.get(a, 0) for a in areas), "dark": len(st.get("dark_subs") or []),
+            "more": max(len(tr) - 1, 0), "big": n in big,
         })
-        prev = hit
-    return plays[:30]
+        prev = max(prev, hit)
+    # at most 30 cards' worth, but never without a big play (the narration names every one)
+    return [p for i, p in enumerate(plays) if i < 30 or p["big"]]
 
 
 def s_chain(w: Writer, lv: Level) -> dict:
     out = {"kind": "chain", "headline": {}, "lines": {}, "narr": {}}
     tl = [s for s in w.timeline if isinstance(s, dict)]
     run = [s for s in tl if int(s.get("n", 0)) > 0]
+    plan = _chain_plan(w)
+    big = set(plan["big"])
+    for r in plan["rows"]:  # each big play's toll is a fact (the Ask box and the checks can cite it)
+        if r["n"] in big and r["delta"]:
+            w.add(f"deck.play.{r['n']}.people", f"Step {r['n']}: people hit by this failure (added to the running total)", int(r["delta"]), "people", True)
+    if plan["rest"] and plan["rest"]["people"]:
+        w.add("deck.plays_rest.people", "People hit by the other failures, together", int(plan["rest"]["people"]), "people", True)
     trips = sum(len(s.get("lines") or []) for s in run if s.get("action") != "shed")
     islanded = (w.ev.get("outcome") == "islanded")
     # the mechanism, from the engine's "why" of the first trip: the line that picked up its power
@@ -1124,8 +1305,11 @@ def s_chain(w: Writer, lv: Level) -> dict:
             if why is not None:
                 a = w.line_label(first["lines"][0].get("id"), lang, fallback=first["lines"][0].get("label"))
                 b = w.line_label(why.get("id"), lang, fallback=why.get("label"))
-                parts.append(((f"When {a} trips, its power shifts onto {b}, which climbs to {pct_say(why['pct_after'], lang)}." if en
-                               else f"Cuando {a} se dispara, su energía pasa a {b}, que sube al {pct_say(why['pct_after'], lang)}."), True))
+                far = float(why["pct_after"]) > PCT_FAR
+                climbs = ((" is pushed" + pct_at(why["pct_after"], "en")) if far else f" climbs to {pct_say(why['pct_after'], lang)}") if en else (
+                    (" queda" + pct_at(why["pct_after"], "es")) if far else f" sube al {pct_say(why['pct_after'], lang)}")
+                parts.append(((f"When {a} trips, its power shifts onto {b}, which{climbs}." if en
+                               else f"Cuando {a} se dispara, su energía pasa a {b}, que{climbs}."), True))
             if why is not None:
                 parts.append((("Each trip does the same to the next line, until the grid gives way." if en
                                 else "Cada disparo hace lo mismo con la siguiente línea, hasta que la red cede."), 2))
@@ -1139,21 +1323,25 @@ def s_chain(w: Writer, lv: Level) -> dict:
                        else "Las protecciones siguen disparando líneas cuando el modelo se detiene.")
         elif islanded and w.people:
             closing = "Then the grid settles, split into pieces." if en else "Luego la red se estabiliza, partida en pedazos."
-        analyst = ""
-        for k in range(min(lv.k, len(run)), -1, -1):
-            k_eff = len(run) if len(run) <= k + 1 else k  # never group a single step
-            seen: set = set()
-            parts = [_step_sentence(w, s, lang, seen) for s in tl if int(s.get("n", 0)) == 0]
-            parts += [_step_sentence(w, s, lang, seen) for s in run[:k_eff]]
-            if len(run) > k_eff:
-                parts.append(_group_sentence(w, run[k_eff:], lang, after=k_eff > 0 or bool(parts), seen=seen))
-            text = " ".join(parts)
-            if closing and lv.opt and plain_len(text + " " + closing) <= ANALYST_MAX[lang]:
-                text += " " + closing
-            analyst = text
-            if plain_len(text) <= ANALYST_MAX[lang]:
-                break
-        out["narr"][lang] = [_seg("presenter", intro), _seg("analyst", analyst)]
+        # PLAYS, SUMMARIZED: the storm's damage, then each big play in its own segment (its line, how hard it was pushed,
+        # its toll), then ONE sentence for the rest (its step cues spread over it, so the map still moves step by step)
+        seen: set = set()
+        segs = [_seg("analyst", _step_sentence(w, s, lang, seen)) for s in tl if int(s.get("n", 0)) == 0]
+        delta = {r["n"]: r["delta"] for r in plan["rows"]}
+        for j, s in enumerate(s_ for s_ in run if int(s_.get("n", 0)) in big):
+            text = _step_sentence(w, s, lang, seen, toll=(delta.get(int(s["n"]), 0), j == 0 and not w.storm))
+            if plain_len(text) > ANALYST_MAX[lang]:  # a very long label: the toll stays, the area that went dark goes
+                text = _step_sentence(w, s, lang, set(seen) | {d["area"] for d in (s.get("newly_dark") or [])}, toll=(delta.get(int(s["n"]), 0), j == 0 and not w.storm))
+            segs.append(_seg("analyst", text))
+        tail = ""
+        if plan["rest"]:
+            # every other step is cued here, in order (the stage never moves the map back to an earlier step on a cue)
+            tail = spread(_rest_say(plan["rest"], lang), "step", plan["rest"]["steps"])
+        if closing and lv.opt:
+            tail = f"{tail} {closing}".strip()
+        if tail:
+            segs.append(_seg("analyst", tail))
+        out["narr"][lang] = [_seg("presenter", intro)] + segs
         if run:
             h = (f"{w.steps} {'step' if w.steps == 1 else 'steps'}: {trips} {'line' if trips == 1 else 'lines'} tripped" if en
                  else f"{w.steps} {'paso' if w.steps == 1 else 'pasos'}: se {'disparó' if trips == 1 else 'dispararon'} {trips} {'línea' if trips == 1 else 'líneas'}")
@@ -1168,17 +1356,17 @@ def s_chain(w: Writer, lv: Level) -> dict:
         lines = []
         if w.storm:
             lines.append(f"Storm · {w.storm:,} lines out" if en else f"Tormenta · {w.storm:,} líneas fuera")
-        for s in run[: 3 - len(lines) - (1 if len(run) > 2 else 0)]:
+        big_run = [s for s in run if int(s.get("n", 0)) in big]
+        for s in big_run[: 3 - len(lines) - (1 if plan["rest"] else 0)]:
             ln = (s.get("lines") or [{}])[0]
             lab = cap(w.line_label(ln.get("id"), lang, fallback=ln.get("label"))) if s.get("action") != "shed" else (
                 "Load cut to hold a line" if en else "Carga cortada para sostener una línea")
             pct = ln.get("pct_before")
-            lines.append((f"Step {s['n']} · " if en else f"Paso {s['n']} · ") + lab + (f" · {round(pct)}%" if pct is not None and s.get("action") != "shed" else ""))
-        shown = len([x for x in lines if not x.startswith(("Storm", "Tormenta"))])
-        if len(run) > shown:
-            rest = len(run) - shown
-            lines.append(f"… {rest} more {'step' if rest == 1 else 'steps'}" if en else f"… {rest} {'paso' if rest == 1 else 'pasos'} más")
-        out["lines"][lang] = [x[:LINE_MAX] for x in lines[:3]]
+            shown_pct = pct_show(pct) if en else ("muy por encima de su límite" if pct is not None and float(pct) > PCT_FAR else pct_show(pct))
+            lines.append((f"Play {s['n']} · " if en else f"Jugada {s['n']} · ") + lab + (f" · {shown_pct}" if pct is not None and s.get("action") != "shed" else ""))
+        if plan["rest"]:
+            lines.append(_rest_show(plan["rest"], lang))
+        out["lines"][lang] = [_clip(x) for x in lines[:3]]
     ids = [ln.get("id") for s in run for ln in (s.get("lines") or []) if ln.get("id") is not None]
     storm_ids = []
     for s in tl:
@@ -1197,7 +1385,8 @@ def s_chain(w: Writer, lv: Level) -> dict:
                       "fact_key": "event.steps", "tone": "alert"}
     out["camera"] = cam("bbox", pts, line_ids=ids) if pts else (cam("areas", [a.get("center") for a in w.areas[:4]]) if w.areas else region_cam(w))
     out["map"] = mapspec("replay", 0, w.steps, highlight=ids[:1])
-    out["plays"] = _plays(w)
+    out["plays"] = _plays(w, plan)  # every step (the map and the scoreboard); `big` marks the ones the narration names
+    out["plays_rest"] = plan["rest"]  # the rest, summed up: {steps, lines, transformers, people, shed} | None
     out["facts_used"] = w.keys("event.steps", "event.storm_lines_out", *[f"step.{s['n']}.line" for s in tl], *[f"step.{s['n']}.pct_before" for s in tl])
     return out
 
@@ -1251,18 +1440,21 @@ def s_hospitals(w: Writer, lv: Level) -> dict:
             parts_ = [f"{words(a['count'], lang, before_noun=True)} in {a['area']}" if en else f"{words(a['count'], lang, before_noun=True)} en {a['area']}" for a in per]
             s1 += ": " + join(parts_, lang)
         if count == 1:
-            s2 = "It would have to run on backup power." if en else "Tendría que funcionar con energía de respaldo."
+            s2 = "It is assumed to switch to backup power." if en else "Se supone que pasa a energía de respaldo."
         else:
-            s2 = "Each would have to run on backup power." if en else "Cada uno tendría que funcionar con energía de respaldo."
+            s2 = "Each is assumed to switch to backup power." if en else "Se supone que cada uno pasa a energía de respaldo."
         out["narr"][lang] = [_seg("presenter", sentences([(s1 + ".", False), (s2, False)], lv, PRESENTER_MAX[lang]))]
         out["headline"][lang] = (f"{count} {'hospital' if count == 1 else 'hospitals'} in the dark areas" if en
                                  else f"{count} {'hospital' if count == 1 else 'hospitales'} en las zonas sin luz")
         lines = [(f"{a['area']} · {a['count']} " + (("hospital" if a["count"] == 1 else "hospitals") if en else ("hospital" if a["count"] == 1 else "hospitales"))) for a in per[:2]]
         src = h.get("source")
-        lines.append(((f"Counts only · source: {src}" if en else f"Solo conteos · fuente: {src}") if src else ("Counts only, no names" if en else "Solo conteos, sin nombres"))[:LINE_MAX])
+        # REVIEW-1 (e): on backup is an assumption, said as one
+        lines.append(((f"Counts only, assumed on backup · {src}" if en else f"Solo conteos, se supone que con respaldo · {src}") if src
+                      else ("Counts only, assumed on backup" if en else "Solo conteos, se supone que con respaldo"))[:LINE_MAX])
         out["lines"][lang] = lines[:3]
     out["big"] = {"value": count, "display": {"en": f"{count}", "es": f"{count}"},
-                  "label": {"en": "hospitals in the dark areas", "es": "hospitales en las zonas sin luz"}, "fact_key": "deck.hospitals.count", "tone": "alert"}
+                  "label": {"en": "hospitals in dark areas (assumed on backup)", "es": "hospitales en zonas sin luz (se supone que con respaldo)"},
+                  "fact_key": "deck.hospitals.count", "tone": "alert"}
     centers = [a.get("center") for a in w.areas if a["area"] in {p["area"] for p in per}]
     out["camera"] = cam("areas", centers) if centers else region_cam(w)
     out["map"] = mapspec("final", w.steps, w.steps)
@@ -1663,6 +1855,224 @@ def _fix_big(w: Writer, fx: dict, lang: str) -> str:
             "time_of_day": ("Another hour", "Otra hora"), "remove": ("No campus", "Sin campus")}.get(fam, ("Fix", "Solución"))[0 if en else 1]
 
 
+# ---------------------------------------------------------------------------- the options, plainly
+# SOLUTIONS, SIMPLE -> IN DEPTH (user, Sat 20:31): each option in five short lines, in this order: what gets built or
+# changed (plain words), where, the cost range (with its source), what it prevents, how long it typically takes. Every
+# figure is the engine's (the fix's verified run, its priced elements) or a sourced typical range (leadtimes.py).
+TIME_ES = {
+    "connect": "el estudio de carga grande y la obra del propio campus",
+    "line": "reconductorar o reconstruir una línea en su propio corredor",
+    "transformer": "el plazo de entrega de un transformador de subestación",
+    "generation": "centrales eléctricas nuevas",
+    "line_doubled": "más que duplicar una línea en su corredor",
+    "new_line": "una línea de transmisión nueva",
+}
+
+
+def _on_screen(s: str) -> str:
+    """A spoken phrase as a screen label: '950 megawatts' -> '950 MW' (the voice keeps the words)."""
+    return re.sub(r"(\d)\s+(megawatts?|megavatios)\b", r"\1 MW", s)
+
+
+def _fix_towns(w: Writer, f: dict) -> list[str]:
+    """The towns an option's upgraded elements sit in (both ends of each), in order, at most three."""
+    out: list[str] = []
+    items = (f.get("cost") or {}).get("items") or (f.get("detail") or {}).get("list") or []
+    for it in items:
+        i = w.g.br_index.get(int(it["id"])) if it.get("id") is not None else None
+        if i is None:
+            continue
+        for bus in (w.g.f[i], w.g.t[i]):
+            a = area_of(w.g.sub_name[int(w.g.bus_sub_idx[bus])])
+            if a and a not in out:
+                out.append(a)
+                w.names.add(a)
+    return out[:3]
+
+
+def _time_of(f: dict, kind: str | None) -> dict | None:
+    """How long an option typically takes, from leadtimes.py's sourced ranges: an upgrade waits for its slowest element
+    (a transformer's lead time, a line rebuilt, a line more than doubled, a new line); power of its own for new plants;
+    another site or a smaller campus for the campus's own build; an operating rule has nothing to build."""
+    fam = f.get("family")
+    if fam in ("flexible", "time_of_day"):
+        return {"none": True}
+    try:
+        import leadtimes  # noqa: PLC0415 — the Strengthen page's time-to-power ranges
+    except Exception:  # noqa: BLE001 — no range beats a guessed one
+        return None
+    ks: set[str] = set()
+    if fam in ("upgrade", "agentic", "combo"):
+        for it in (f.get("cost") or {}).get("items") or []:
+            if it.get("work") == "transformer" or it.get("kind") == "transformer":
+                ks.add("transformer")
+                continue
+            old, new = float(it.get("old_mva") or 0), float(it.get("new_mva") or 0)
+            if old > 0 and new > leadtimes.CORRIDOR_MAX_RATIO * old + 1e-6:
+                ks.add("new_line")
+            else:
+                ks.add("line_doubled" if it.get("work") == "new_line" else "line")
+    elif fam == "onsite":
+        ks = {"generation"}
+    elif fam in ("move", "shrink"):
+        ks = {"connect"}
+    if not ks:
+        return None
+    item = max(ks, key=leadtimes._order)
+    lo, hi = max(leadtimes.ITEMS[k]["lo"] for k in ks), max(leadtimes.ITEMS[k]["hi"] for k in ks)
+    src = [leadtimes.SOURCES[s] for s in leadtimes.ITEMS[item]["sources"] if s in leadtimes.SOURCES]
+    return {"lo": lo, "hi": hi, "plus": any(leadtimes.ITEMS[k]["plus"] and leadtimes.ITEMS[k]["hi"] >= hi for k in ks), "item": item,
+            "label": {"en": leadtimes.ITEMS[item]["label"], "es": TIME_ES.get(item, leadtimes.ITEMS[item]["label"])},
+            "sources": [{"short": s.get("short") or s["name"], "name": s["name"], "url": s.get("url")} for s in src]}
+
+
+def _yrs(v: float) -> str:
+    return f"{v:g}"
+
+
+def _years_show(tm: dict, lang: str) -> str:
+    """'Typically 2–4 years · a substation transformer's lead time (Wood Mackenzie, 2024)'."""
+    en = lang == "en"
+    if tm.get("none"):
+        return "No construction: it is an operating agreement" if en else "Sin obras: es un acuerdo de operación"
+    span = f"{_yrs(tm['lo'])}–{_yrs(tm['hi'])}{'+' if tm.get('plus') else ''}"
+    src = tm["sources"][0]["short"] if tm.get("sources") else ""
+    if en:
+        return f"Typically {span} years · {tm['label']['en']}" + (f" ({src})" if src else "")
+    return f"Suele tardar {span.replace('.', ',')} años · {tm['label']['es']}" + (f" ({src})" if src else "")
+
+
+def _years_say(tm: dict, lang: str) -> str:
+    """'It typically takes two to four years.' (spoken: numbers in words)."""
+    en = lang == "en"
+    if tm.get("none"):
+        return "There is nothing to build: it is an operating agreement." if en else "No hay nada que construir: es un acuerdo de operación."
+
+    def yw(v: float) -> str:
+        if abs(v - round(v)) < 1e-9:
+            return words(int(round(v)), lang)
+        return (f"{words(int(v), 'en')} and a half" if en else f"{words(int(v), 'es')} y medio")
+    more = (" or more" if en else " o más") if tm.get("plus") else ""
+    return f"It typically takes {yw(tm['lo'])} to {yw(tm['hi'])} years{more}." if en else f"Suele tardar de {yw(tm['lo'])} a {yw(tm['hi'])} años{more}."
+
+
+def _cost_source() -> dict | None:
+    """Where an upgrade's price comes from (costs.py's per-mile and per-MVA figures)."""
+    try:
+        import costs  # noqa: PLC0415
+
+        s = costs.SOURCES["bv_wecc"]
+        return {"short": "Black & Veatch for WECC, 2014, in 2024 dollars", "name": s["name"], "url": s["url"]}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _elem_show(w: Writer, it: dict, lang: str) -> str:
+    """One priced element in plain words: 'replace the North Fort Myers 6 transformer with a bigger one'."""
+    en = lang == "en"
+    label = w.line_label(it.get("id"), lang)
+    mi = it.get("miles")
+    mi_s = (f"{float(mi):.1f}".rstrip("0").rstrip(".") if mi is not None else "")
+    if lang == "es":
+        mi_s = mi_s.replace(".", ",")
+    if it.get("work") == "transformer" or it.get("kind") == "transformer":
+        return f"replace {label} with a bigger one" if en else f"reemplazar {label} por uno más grande"
+    # a line in plain words, its size and length (the Where line says where it runs)
+    kv = f"{int(round(float(it['kv'])))} kV " if it.get("kv") else ""
+    if it.get("work") == "new_line":
+        return (f"build a new {kv}line beside an existing one" + (f" ({mi_s} mi)" if mi_s else "")) if en else (
+            f"construir una línea nueva de {kv}junto a la existente".replace("de junto", "junto") + (f" ({mi_s} mi)" if mi_s else ""))
+    return (f"rebuild {mi_s} mi of {kv}line" if mi_s else f"rebuild {label}") if en else (
+        (f"reconstruir {mi_s} mi de línea de {kv}".rstrip() if kv else f"reconstruir {mi_s} mi de línea") if mi_s else f"reconstruir {label}")
+
+
+def _plain_rows(w: Writer, f: dict, kind: str | None, plan: dict, tm: dict | None, lang: str) -> dict:
+    """{what, where, cost, prevents, time}: one short line each, in that order (screen text: digits and units)."""
+    en = lang == "en"
+    fam = f.get("family")
+    d = f.get("detail") or {}
+    cost = f.get("cost") or {}
+    items = cost.get("items") or []
+    total = float(w.mw or 0)
+    place = w.place or ""
+    fl = plan.get("flex") or {}
+    what = where = price = ""
+    if fam in ("upgrade", "agentic", "combo"):
+        parts = [_elem_show(w, it, lang) for it in items[:2]]
+        if len(items) > 2:
+            k_ = len(items) - 2
+            parts.append((f"{k_} more {'upgrade' if k_ == 1 else 'upgrades'}") if en else (f"{k_} {'refuerzo' if k_ == 1 else 'refuerzos'} más"))
+        if not parts:  # an upgrade priced without its elements: say what it raises
+            parts = [f"upgrade {_upgrade_what(f, 'en')}" if en else f"reforzar {_upgrade_what(f, 'es')}"]
+        what = cap(join(parts, lang))
+        kept = f.get("kept_mw")
+        if kept is not None and total and float(kept) < total - 0.5:
+            what = (f"Build {mw_show(kept)} instead of {mw_show(total)}, and {what[:1].lower() + what[1:]}" if en
+                    else f"Construir {mw_show(kept)} en lugar de {mw_show(total)}, y {what[:1].lower() + what[1:]}")
+        towns = _fix_towns(w, f)
+        if towns:
+            near = place in towns if place else False
+            where = (f"In {join(towns, 'en')}" + (", where the campus connects" if near else "")) if en else (
+                f"En {join(towns, 'es')}" + (", donde se conecta el campus" if near else ""))
+    elif fam == "flexible":
+        steps = sorted(((float(x["level"]), float(x.get("runs_mw") or 0)) for x in (fl.get("steps") or []) if x.get("level") is not None), key=lambda x: x[0])
+        if not steps:
+            steps = [(lv_, r) for lv_, r in _flex_steps(f)]
+        # the lowest level it steps down at, and this case's own level (else the highest): the engine's sizes
+        here = next((x for x in steps if abs(x[0] - w.lf) < 0.005), steps[-1] if steps else None)
+        pick = steps if len(steps) <= 2 else [steps[0], here]
+        named: dict[str, str] = {}  # each hour once (a case at its lowest level is both the first step and its own)
+        for x in pick:
+            if x is not None and level_show(x[0], lang) not in named:
+                named[level_show(x[0], lang)] = f"{mw_show(x[1])} {level_show(x[0], lang)}"
+        said = (" and " if en else " y ").join(named.values())
+        if not said:  # no step-downs to name: the option as the rest of the deck says it
+            what = cap(_fix_phrase(w, f, lang))
+        elif kind == "flexible_deep":
+            what = (f"An operating rule: the campus runs below full size at other hours too, down to {said}" if en
+                    else f"Una regla de operación: el campus opera por debajo de su tamaño también a otras horas, hasta {said}")
+        else:
+            what = (f"An operating rule: the campus steps down to {said}; full size the rest of the time" if en
+                    else f"Una regla de operación: el campus baja a {said}; tamaño completo el resto del tiempo")
+        where = (f"At the campus, {place}" if en else f"En el campus, {place}") if place else ""
+        price = "No new equipment: the cost is the computing it gives up in those hours" if en else "Sin equipos nuevos: el costo es el cómputo que deja de hacer en esas horas"
+    elif fam == "onsite":
+        gen, net = d.get("onsite_mw"), d.get("net_mw")
+        what = (f"A power plant of its own at the campus: {mw_show(gen or 0)}, so the grid supplies {mw_show(net or 0)}" if en
+                else f"Una planta propia en el campus: {mw_show(gen or 0)}, así la red aporta {mw_show(net or 0)}")
+        where = (f"At the campus, {place}" if en else f"En el campus, {place}") if place else ""
+        price = "Not estimated in this model" if en else "No se estima en este modelo"
+    elif fam == "move":
+        town = ((d.get("sites") or [{}])[0].get("town")) or d.get("town") or ""
+        what = (f"Build it at a {town} substation instead" if en else f"Construirlo en una subestación de {town}") if town else (
+            "Build it somewhere with room" if en else "Construirlo donde haya espacio")
+        where = (f"{town}, instead of {place}" if en else f"{town}, en lugar de {place}") if town and place else town
+        price = "No grid upgrade needed there" if en else "No hacen falta refuerzos de la red allí"
+    elif fam == "shrink":
+        kept = f.get("kept_mw")
+        what = (f"Build {mw_show(kept or 0)} instead of {mw_show(total)}" if en else f"Construir {mw_show(kept or 0)} en lugar de {mw_show(total)}")
+        where = (f"At the campus, {place}" if en else f"En el campus, {place}") if place else ""
+        price = "No grid upgrade needed" if en else "No hacen falta refuerzos de la red"
+    else:
+        what = cap(_fix_phrase(w, f, lang))
+    if cost.get("high"):
+        rng = usd_show(cost["high"]) if not cost.get("low") or cost["low"] >= cost["high"] else f"{usd_show(cost['low'])}–{usd_show(cost['high'])}"
+        src = _cost_source()
+        price = rng + (f" · {src['short'] if en else 'Black & Veatch para WECC, 2014, en dólares de 2024'}" if src else "")
+    o = f.get("outcome") or {}
+    out_n = int(o.get("people") or 0)
+    blackout = float((plan.get("blackout") or {}).get("high") or 0)
+    if f.get("verdict") == "holds" and out_n == 0 and w.hit:
+        prevents = (f"The blackout: {w.hit:,} people hit (estimate)" + (f", up to {usd_text(blackout, 'en')}" if blackout else "") if en
+                    else f"El apagón: {people_noun(w.hit, 'es')} afectadas (estimación)" + (f", hasta {usd_text(blackout, 'es')}" if blackout else ""))
+    elif out_n:
+        prevents = (f"Part of it: {out_n:,} people still lose power (estimate)" if en
+                    else f"Parte de él: {people_noun(out_n, 'es')} siguen sin luz (estimación)")
+    else:
+        prevents = "Every line stays within its limit" if en else "Todas las líneas quedan dentro de su límite"
+    return {"what": what, "where": where, "cost": price, "prevents": prevents, "time": _years_show(tm, lang) if tm else ""}
+
+
 def s_fix(w: Writer, lv: Level) -> dict:
     out = {"kind": "fix", "headline": {}, "lines": {}, "narr": {}}
     best = w.best
@@ -1794,7 +2204,6 @@ def s_fix(w: Writer, lv: Level) -> dict:
             works = ("With it, no line trips." if en else "Con ella, ninguna línea se dispara.") if int(o.get("steps") or 0) == 0 else (
                 f"With it, {people_say(o.get('people') or 0, 'en')} still lose power." if en else f"Con ella, {people_say(o.get('people') or 0, 'es')} siguen sin luz.")
             by = (" The AI proposed this one, and the engine checked it." if en else " La IA propuso esta, y el motor la comprobó.") if fx.get("by") == "gemini" else ""
-            var = _variants_say(fx, variants_of.get(id(fx)) or [], lang)  # the same elements, about the same price: folded in
             if kind == "upgrade_cheaper":  # the same elements as an earlier option for much less: said so, with its margin
                 home = undercut_of.get(id(fx))
                 k_home = next((j for j, y in enumerate(opts) if y is home), None)
@@ -1805,17 +2214,29 @@ def s_fix(w: Writer, lv: Level) -> dict:
             elif relief:
                 said_relief = relief
             head = f"Option {words(k + 1, 'en')}: {ph}." if en else f"Opción {words(k + 1, 'es')}: {ph}."
-            if not lv.opt:  # the short version: the variants are on screen; an alternative says what it is, what it keeps, that it holds
-                var = ""
-                if k > 0:
-                    relief = money = ""
-            elif kind_of.get(id(fx)) == "onsite" and not (fx.get("strain") or {}).get("peak_pct", 100) < 99.5:
+            # SOLUTIONS, SIMPLE (user, Sat 20:31): what it is, where it goes, what it costs, what it prevents, how long it
+            # takes, in that order (the variants and the strain detail are on screen and on Strengthen)
+            towns = _fix_towns(w, fx)
+            goes = ""  # (not `where`: the headline below reads the campus's place from it)
+            if towns and fx.get("family") in ("upgrade", "agentic", "combo"):
+                near = w.place in towns if w.place else False
+                goes = (f"It goes in at {join(towns, 'en')}{', where the campus connects' if near else ''}." if en
+                        else f"Va en {join(towns, 'es')}{', donde se conecta el campus' if near else ''}.")
+            tm = _time_of(fx, kind)
+            when = _years_say(tm, lang) if tm else ""
+            if kind_of.get(id(fx)) == "onsite" and not (fx.get("strain") or {}).get("peak_pct", 100) < 99.5:
                 relief = ""  # it leaves the busiest line at its rating: nothing to boast about
-            text = " ".join(f"{head} {keeps} {relief} {money} {works}{by} {var}".split())
-            if plain_len(text) > ANALYST_MAX[lang]:  # too long: drop the money and the provenance, keep the strain relief
-                text = " ".join(f"{head} {keeps} {relief} {works} {var}".split())
+            if k > 0 or not lv.opt:
+                relief = ""  # the strain it removes: said once, for the lead
+            if not lv.opt:  # the short version: the lead says what, what it costs and how long; an alternative, what it is
+                goes = ""
+                if k > 0:
+                    money = when = ""
+            text = " ".join(f"{head} {keeps} {goes} {money} {works} {when} {relief}{by}".split())
+            if plain_len(text) > ANALYST_MAX[lang]:  # too long: the strain relief and the provenance go first
+                text = " ".join(f"{head} {keeps} {goes} {money} {works} {when}".split())
             if plain_len(text) > ANALYST_MAX[lang]:
-                text = " ".join(f"{head} {keeps} {works}".split())
+                text = " ".join(f"{head} {keeps} {money} {works}".split())
             segs.append(_seg("analyst", cue("option", k) + text))
         out["narr"][lang] = segs
         pre = ("Preventable" if en else "Evitable") if w.verdict == "preventable" else ("Partly preventable" if en else "Evitable en parte")
@@ -1863,7 +2284,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
     def opt_row(k: int, f: dict, role: str, head: dict | None = None) -> dict:
         row = {
             "fix": w.fixes.index(f), "family": f.get("family"), "role": role,
-            "name": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
+            "name": {"en": _on_screen(cap(_fix_phrase(w, f, "en"))), "es": _on_screen(cap(_fix_phrase(w, f, "es")))},
             "kept_mw": f.get("kept_mw"), "kept_pct": f.get("kept_pct"), "must": f.get("must") or {"en": [], "es": []},
             "cost": f.get("cost"), "by": f.get("by") or "engine", "verdict": f.get("verdict"), "outcome": f.get("outcome"), "strain": f.get("strain"),
             "lines": [{"id": x["id"], "label": x.get("label"), "old_mva": x.get("old_mva"), "new_mva": x.get("new_mva"), "transformer": bool(x.get("transformer")), "km": x.get("km")}
@@ -1872,6 +2293,13 @@ def s_fix(w: Writer, lv: Level) -> dict:
             "sites": [{"town": s.get("town"), "lat": s.get("lat"), "lon": s.get("lon")} for s in ((f.get("detail") or {}).get("sites") or [])[:3] if isinstance(s, dict)],
             "kind": kind_of.get(id(f)) if role in ("lead", "alt") else None,
         }
+        # SOLUTIONS, SIMPLE (user, Sat 20:31): the option in five plain lines, in this order: what gets built or changed,
+        # where, the cost range with its source, what it prevents, how long it typically takes (leadtimes.py's sourced
+        # ranges); the depth lives on Strengthen's incident stage
+        tm = _time_of(f, kind_of.get(id(f)))
+        row["time"] = tm
+        row["cost_source"] = _cost_source() if (f.get("cost") or {}).get("high") else None
+        row["plain"] = {lang: _plain_rows(w, f, kind_of.get(id(f)), plan, tm, lang) for lang in LANGS}
         if row["kind"] == "flexible_deep" and plan.get("flex"):
             row["name"] = {lang: cap(_deep_name(w, lang)) for lang in LANGS}
             row["note"] = {lang: _deep_say(plan["flex"], lang, show=True) for lang in LANGS}
@@ -2682,9 +3110,9 @@ Answer only with JSON: {"slides": {"<slide id>": {"en": "...", "es": "..."}}}, o
 
 AI_PURPOSE = {
     "event": "what happened, in one breath: the trigger, where and when, how it spread, how many people are hit and how many are still without power when it settles (use those exact labels)",
-    "chain": "introduce the step-by-step chain reaction (an analyst reads the steps right after you)",
+    "chain": "introduce the chain reaction (an analyst names the biggest failures right after you and sums up the rest)",
     "areas": "where the lights went out: the people still without power when it settles, in total, and that these are estimates",
-    "hospitals": "hospitals in the dark areas would need backup power (counts only, no names)",
+    "hospitals": "hospitals in the dark areas, assumed to switch to backup power (never say they are on backup as a fact; counts only, no names)",
     "cost": "what it would cost, each figure an estimate with its assumption",
     "cause": ("why it happened, the grid first: name the weak point (the line or transformer that fails first), how loaded it "
               "already is on today's grid before any new load, and the share of any new load that flows through it; any big "
@@ -2821,7 +3249,9 @@ def ai_data(w: Writer, sid: str) -> dict:
         if run and run[0].get("lines"):
             ln = run[0]["lines"][0]
             d["first_line_to_trip"] = {lang: w.line_label(ln.get("id"), lang, fallback=ln.get("label")) for lang in LANGS}
-            if ln.get("pct_before") is not None:
+            if ln.get("pct_before") is not None and float(ln["pct_before"]) > PCT_FAR:
+                d["its_loading_when_it_tripped"] = {"en": "far past its limit", "es": "muy por encima de su límite"}
+            elif ln.get("pct_before") is not None:
                 d["its_loading_when_it_tripped"] = _both(lambda lang: pct_say(ln["pct_before"], lang))
         why = next((f for f in w.extra if f["key"].startswith("deck.why.")), None)
         if why and run:
@@ -2829,8 +3259,12 @@ def ai_data(w: Writer, sid: str) -> dict:
             cands = [x for x in (first.get("why") or []) if isinstance(x, dict) and x.get("pct_after") == why["value"]]
             if cands:
                 d["line_that_picked_up_its_power"] = {lang: w.line_label(cands[0].get("id"), lang, fallback=cands[0].get("label")) for lang in LANGS}
-                d["that_line_climbs_to"] = _both(lambda lang: pct_say(why["value"], lang))
-        d["note"] = "an analyst reads each step right after you: introduce the chain reaction, do not list the steps"
+                if float(why["value"]) > PCT_FAR:  # a re-solve artefact past 300 %: words, never the figure
+                    d["that_line_is_pushed"] = {"en": "far past its limit", "es": "muy por encima de su límite"}
+                else:
+                    d["that_line_climbs_to"] = _both(lambda lang: pct_say(why["value"], lang))
+        d["note"] = ("an analyst names only the few biggest failures right after you, then sums up the rest in one line: "
+                     "introduce the chain reaction, do not list the steps")
     elif sid == "areas":
         d["people_still_without_power_when_it_settles"] = ppl
         d["share_of_state_residents"] = _both(lambda lang: share_say(ev.get("people_share_pct"), lang))
@@ -2839,7 +3273,7 @@ def ai_data(w: Writer, sid: str) -> dict:
     elif sid == "hospitals":
         h = r.get("hospitals") or {}
         d["hospitals_in_the_dark_areas"] = _both(lambda lang: words(int(h.get("count") or 0), lang))
-        d["note"] = "counts only, no hospital names; they would need backup power"
+        d["note"] = "counts only, no hospital names; they are ASSUMED to switch to backup power (an assumption, never a fact)"
     elif sid == "cost":
         c = r.get("cost") or {}
         if c.get("duration_h_assumed"):
@@ -3094,7 +3528,7 @@ async def build_deck(body: DeckIn) -> tuple[dict, dict]:
     """(deck, report). ai=false: templates only, instantly. ai=true: Gemini's presenter prose where it
     passes the checks (cached per report), templates everywhere else."""
     report = await run_in_threadpool(report_for_case, body)
-    if report.get("key"):
+    if report.get("key") and getattr(body, "propose", True):
         try:
             import solutions
 

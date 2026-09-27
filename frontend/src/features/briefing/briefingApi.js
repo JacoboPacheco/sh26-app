@@ -38,9 +38,15 @@ export function cleanBody(body) {
 }
 const keyOf = (body, extra = '') => `${extra}|${JSON.stringify(cleanBody(body))}`
 
-export const getReport = (body) => cached(keyOf(body, 'report'), () => api('/api/briefing', { method: 'POST', body: cleanBody(body) }))
-export const getDeck = (body, { ai = false, length = 'full' } = {}) =>
-  cached(keyOf(body, `deck:${ai}:${length}`), () => api('/api/briefing/deck', { method: 'POST', body: { ...cleanBody(body), ai, length } }))
+// `propose: false` (a prefetch nobody may present): the server does not start its AI proposer for the case yet; the
+// stage's own requests (Gemini's deck, the poll) start it. Not part of the cache key: the answer is the same.
+const noPropose = (propose) => (propose === false ? { propose: false } : {})
+export const getReport = (body, { propose } = {}) =>
+  cached(keyOf(body, 'report'), () => api('/api/briefing', { method: 'POST', body: { ...cleanBody(body), ...noPropose(propose) } }))
+export const getDeck = (body, { ai = false, length = 'full', propose } = {}) =>
+  cached(keyOf(body, `deck:${ai}:${length}`), () =>
+    api('/api/briefing/deck', { method: 'POST', body: { ...cleanBody(body), ai, length, ...noPropose(propose) } }),
+  )
 // Fetch again, past the cache, and keep the answer for next time: the AI proposer adds its verified plans to a
 // report in the background (deck.agentic.status 'running' → 'done'), so the stage asks again while it runs.
 function fresh(key, fn) {
@@ -59,12 +65,14 @@ export const refetchDeck = (body, { ai = false, length = 'full' } = {}) =>
   fresh(keyOf(body, `deck:${ai}:${length}`), () => api('/api/briefing/deck', { method: 'POST', body: { ...cleanBody(body), ai, length } }))
 export const getPresets = (region = 'FL') => cached(`presets|${region}`, () => api(`/api/briefing/presets?region=${encodeURIComponent(region)}`))
 
-// Start fetching a briefing (the review card calls this as soon as a cascade lands).
-export function prefetchBriefing(body) {
-  getReport(body).catch(() => {})
-  getDeck(body, { ai: false })
-    .then(() => getDeck(body, { ai: true }))
-    .catch(() => {})
+// Start fetching a briefing (the review card and "Present the damage" call this as soon as a cascade lands): the
+// template deck, the report and Gemini's deck at the same moment (BRIEFING SPEED: the server builds each case once, so
+// the three share one build). `ai`: false leaves Gemini for the click: outside Florida a cascade nobody presents spends
+// no Gemini call on its deck, and the AI proposer waits for the click too.
+export function prefetchBriefing(body, { ai = true } = {}) {
+  getDeck(body, { ai: false, propose: ai }).catch(() => {})
+  getReport(body, { propose: ai }).catch(() => {})
+  if (ai) getDeck(body, { ai: true }).catch(() => {})
 }
 
 // A catastrophe's cascade, loaded into the map from its report, remembers the case it came from (the

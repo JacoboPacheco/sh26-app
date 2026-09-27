@@ -19,10 +19,13 @@ import {
   mustRows,
   optionBeatMs,
   optionSay,
+  plainRows,
+  rowStep,
   usdCompact,
   usdShort,
   variantsOf,
 } from './showDeck'
+import { fullSolutionHref, hasFullSolution } from './fullSolution'
 import { P, S, levelName } from './showText'
 import { clamp01, easeInOut, useElapsed } from './useShowClock'
 
@@ -244,6 +247,7 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
             <PlanRow key={i} o={o} i={i} main={main} lang={lang} weakId={weakId} onHow={openAi} />
           ))}
         </ol>
+        <FullSolution report={report} lang={lang} stage={stage} />
         {top && <Weigh opt={top} blackout={blackout} often={often} lang={lang} animate={false} />}
         <MoreOptions more={more} lang={lang} />
         <Frame agentic={run || agentic} options={main} lang={lang} />
@@ -273,6 +277,7 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
             <PlanRow key={i} o={o} i={i} main={main} lang={lang} weakId={weakId} onHow={openAi} anim />
           ))}
         </ol>
+        <FullSolution report={report} lang={lang} stage={stage} />
         <MoreOptions more={more} lang={lang} compact />
       </div>
     )
@@ -283,7 +288,7 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
   const people = before + (after - before) * g
   const runDone = g >= 1
   const rows = opt ? beatRows(opt, lang) : 0
-  const shownRows = opt ? Math.min(rows, Math.max(0, Math.floor((local - SOL.lineAt) / SOL.lineStep) + 1)) : 0
+  const shownRows = opt ? Math.min(rows, Math.max(0, Math.floor((local - SOL.lineAt) / rowStep(opt)) + 1)) : 0
   const beat = opt ? beats[cur] : 1
   const ai = opt?.by === 'gemini'
 
@@ -333,8 +338,8 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
             {opt.name[lang]}
           </h2>
           {opt.sub?.[lang] && <p className="sh-opt__sub">{opt.sub[lang]}</p>}
-          {opt.note?.[lang] && <p className="sh-opt__note">{opt.note[lang]}</p>}
-          <OptionDetail o={opt} shown={shownRows} lang={lang} />
+          {opt.note?.[lang] && !opt.plain && <p className="sh-opt__note">{opt.note[lang]}</p>}
+          {opt.plain ? <PlainRows o={opt} shown={shownRows} lang={lang} /> : <OptionDetail o={opt} shown={shownRows} lang={lang} />}
 
           <div className={`sh-rerun${local >= tg - 250 ? ' sh-rerun--go' : ''}${runDone ? ' sh-rerun--done' : ''}`} style={{ '--g': g }}>
             <p className="sh-rerun__label">{runDone ? t.peopleOut : local >= tg - 250 ? t.rerun : t.scPeople}</p>
@@ -348,7 +353,12 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
 
           {revealed && (
             <>
-              <Weigh opt={opt} blackout={blackout} often={cur === 0 ? often : null} lang={lang} animate />
+              {/* SOLUTIONS, SIMPLE: the five lines already weigh it (what it prevents); how often, once, for the lead */}
+              {opt.plain ? (
+                cur === 0 && often && <p className="sh-weigh__often sh-rise">{often}</p>
+              ) : (
+                <Weigh opt={opt} blackout={blackout} often={cur === 0 ? often : null} lang={lang} animate />
+              )}
               <p className="sh-verified">
                 <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                   <path d="M3 8.5 6.5 12 13 4.5" fill="none" stroke="currentColor" strokeWidth="2" pathLength="1" />
@@ -356,13 +366,72 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
                 {ai ? t.verifiedAI : t.verifiedEngine}
                 {` · ${keepsText(opt, T)}`}
               </p>
-              <Variants o={opt} lang={lang} onHow={openAi} />
+              <Variants o={opt} lang={lang} onHow={openAi} compact={!!opt.plain} />
             </>
           )}
+          {cur === n - 1 && revealed && <FullSolution report={report} lang={lang} stage={stage} />}
           {cur === n - 1 && revealed && more.length > 0 && <MoreOptions more={more} lang={lang} compact />}
         </div>
       )}
     </>
+  )
+}
+
+// SOLUTIONS, SIMPLE (user, Sat 20:31): an option in five short lines, in this order: what gets built or changed, where,
+// the cost range with its source, what it prevents, how long it typically takes (leadtimes.py's sourced ranges). They
+// land one by one while the elements land on the map. `keys`: only these lines (the comparison's compact rows).
+function PlainRows({ o, shown = 5, lang, keys = null, compact = false }) {
+  const T = P[lang]
+  const rows = plainRows(o, lang).filter(([k]) => !keys || keys.includes(k))
+  const costSrc = o.cost_source
+  const timeSrc = o.time?.sources?.[0]
+  const paren = /\(([^()]*)\)$/
+  // compact (the comparison): the cost's range with a "source" link, the time's span with its source (not the work's words)
+  const shortTime = (v) => (compact ? v.replace(/ · [^(]*(?=\()/, ' ') : v.replace(/\s*\([^()]*\)$/, ''))
+  return (
+    <dl className={`sh-plain${compact ? ' sh-plain--compact' : ''}`}>
+      {rows.slice(0, compact ? rows.length : shown).map(([k, v]) => (
+        <div key={k} className={`sh-plain__row sh-plain__row--${k}`}>
+          <dt>{T.plain[k]}</dt>
+          <dd>
+            {k === 'cost' && costSrc?.url && o.cost?.high && v.includes(' · ') ? (
+              <>
+                {v.split(' · ')[0]}
+                {' · '}
+                <a className="sh-plain__src" href={costSrc.url} target="_blank" rel="noreferrer" title={costSrc.name}>
+                  {compact ? T.source : v.split(' · ').slice(1).join(' · ')}
+                </a>
+              </>
+            ) : k === 'time' && timeSrc?.url && paren.test(v) ? (
+              <>
+                {compact ? shortTime(v).replace(/\s*\([^()]*\)$/, '') : shortTime(v)}{' '}
+                <a className="sh-plain__src" href={timeSrc.url} target="_blank" rel="noreferrer" title={timeSrc.name}>
+                  ({paren.exec(v)[1]})
+                </a>
+              </>
+            ) : (
+              v
+            )}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+// "The full solution": this incident on Strengthen's incident stage, in depth (the same case: site, size, time of day).
+// A link to its deep link (features/briefing/fullSolution.js); following it closes the presentation.
+function FullSolution({ report, lang, stage }) {
+  const T = P[lang]
+  const body = report?.case?.body || null
+  if (!hasFullSolution(body)) return null
+  return (
+    <a className="sh-fullsol" href={fullSolutionHref(body)} onClick={() => stage?.close?.()}>
+      <span className="sh-fullsol__a">
+        {T.fullSolution} <span aria-hidden="true">→</span>
+      </span>
+      <span className="sh-fullsol__q">{T.fullSolutionHint}</span>
+    </a>
   )
 }
 
@@ -478,12 +547,19 @@ function PlanRow({ o, i, main, lang, weakId, onHow, anim = false }) {
         {o.by === 'gemini' && <em className="sh-ai">{t.aiPlan}</em>}
       </p>
       <p className="sh-planrow__name">{o.name[lang]}</p>
-      <p className="sh-planrow__meta">
-        <b>{o.cost?.high ? rangeText(o.cost.low, o.cost.high) : o.family === 'flexible' ? T.noEquipment : t.costNone}</b>
-        <span>{keepsText(o, T)}</span>
-        <span className={Number(o.outcome?.people) ? '' : 'sh-ok'}>{Number(o.outcome?.people) ? t.peopleOutN(fmt(o.outcome.people)) : t.zeroOut}</span>
-      </p>
-      {o.note?.[lang] && <p className="sh-planrow__note">{o.note[lang]}</p>}
+      {o.plain ? (
+        <>
+          <PlainRows o={o} lang={lang} keys={['cost', 'time']} compact />
+          <p className={`sh-planrow__out${Number(o.outcome?.people) ? '' : ' sh-ok'}`}>{Number(o.outcome?.people) ? t.peopleOutN(fmt(o.outcome.people)) : t.zeroOut}</p>
+        </>
+      ) : (
+        <p className="sh-planrow__meta">
+          <b>{o.cost?.high ? rangeText(o.cost.low, o.cost.high) : o.family === 'flexible' ? T.noEquipment : t.costNone}</b>
+          <span>{keepsText(o, T)}</span>
+          <span className={Number(o.outcome?.people) ? '' : 'sh-ok'}>{Number(o.outcome?.people) ? t.peopleOutN(fmt(o.outcome.people)) : t.zeroOut}</span>
+        </p>
+      )}
+      {o.note?.[lang] && !o.plain && <p className="sh-planrow__note">{o.note[lang]}</p>}
       <Variants o={o} lang={lang} onHow={onHow} compact />
     </li>
   )

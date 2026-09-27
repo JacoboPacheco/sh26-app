@@ -134,6 +134,89 @@ def register(ctx):
         assert rep["fixes"][rep["best_fix"]]["kept_pct"] >= 90, "best_fix keeps at least 90% of the campus when such a fix holds"
         assert isinstance((d.get("agentic") or {}).get("status", "off"), str)
 
+    def test_plays_summarized_plain_options():
+        """PLAYS, SUMMARIZED (Sat 20:29): the chain names only the big plays (about three, at most four, the first always
+        among them), each with its line and toll, then ONE sentence for the rest; every step is still cued and in the
+        plays (the map and the scoreboard). REVIEW-1 (c): no loading past 300 % is printed or spoken as a figure.
+        SOLUTIONS, SIMPLE (Sat 20:31): every walked option carries five plain lines in EN and ES with a sourced time."""
+        d = state["deck"]
+        chain = next(s for s in d["slides"] if s["id"] == "chain")
+        plays = chain["plays"]
+        big = [p_ for p_ in plays if p_["big"]]
+        assert all(isinstance(p_["big"], bool) for p_ in plays), plays[0]
+        assert plays[0]["big"], "the first failure is always a big play"
+        assert (1 <= len(big) <= 4) and (len(big) >= 3 or len(plays) <= 4 or len(big) == len(plays)), [p_["n"] for p_ in big]
+        rest = chain.get("plays_rest")
+        if len(big) < len(plays):
+            assert rest and sorted(rest["steps"]) == sorted(p_["n"] for p_ in plays if not p_["big"]), rest
+            assert rest["people"] == sum(p_["people_delta"] for p_ in plays if not p_["big"]), (rest["people"], [p_["people_delta"] for p_ in plays])
+        for lang, word, rest_word in (("en", "Play ", "Beyond those"), ("es", "Jugada ", "Además")):
+            segs = [g["text"] for g in chain["narration"][lang] if g["role"] == "analyst"]
+            named = [t for t in segs if t.startswith(word)]
+            assert len(named) == len(big), (lang, len(named), len(big), segs)
+            if rest:
+                assert any(t.startswith(rest_word) for t in segs), (lang, segs[-1])
+            spoken = " ".join(segs + [g["text"] for g in chain["narration"][lang]])
+            for m in re.finditer(r"(\d[\d,]*)\s*(percent|por ciento|%)", spoken + " ".join(chain["lines"][lang])):
+                assert int(m.group(1).replace(",", "")) <= 300, f"{lang}: a loading past 300 % printed as a figure: {m.group(0)}"
+        if any((p_["loading_pct"] or 0) > 300 for p_ in big):
+            assert "far past its limit" in str(chain["narration"]["en"]) and any(c["name"] == "raw" for g in chain["narration"]["en"] for c in g["cues"]), \
+                "the raw value rides along as a cue for the transcript"
+        fix = next(s for s in d["slides"] if s["id"] == "fix")
+        for o in (o for o in fix["options"] if o["role"] in ("lead", "alt")):
+            for lang in ("en", "es"):
+                pl = (o.get("plain") or {}).get(lang) or {}
+                assert pl.get("what") and pl.get("cost") and pl.get("prevents") and pl.get("time"), (lang, o["family"], pl)
+            t = o.get("time") or {}
+            assert t.get("none") or (t["lo"] <= t["hi"] and t["sources"] and t["sources"][0]["url"].startswith("https://")), (o["family"], t)
+            if (o.get("cost") or {}).get("high"):
+                assert (o.get("cost_source") or {}).get("url", "").startswith("https://"), o.get("cost_source")
+            # Spanish figures read the Spanish way ("1,27 millones", "48 mil"), never with English thousands commas
+            assert not re.search(r"\d,\d{3}", o["plain"]["es"]["prevents"]), o["plain"]["es"]["prevents"]
+            # an operating rule names each hour once (a case at its lowest level is both the first step and its own)
+            for lang in ("en", "es"):
+                w_ = o["plain"][lang]["what"]
+                assert not re.search(r"(\b[\d,.]+ MW [^;]+?) (?:and|y) \1\b", w_), (lang, w_)
+        if rest:  # the slide's own line for the rest is short enough to fit, never cut mid-word
+            for lang, lead in (("en", "Then "), ("es", "Luego ")):
+                last = chain["lines"][lang][-1]
+                assert last.startswith(lead) and not last.endswith("…") and len(last) <= 90, (lang, last)
+        hosp = next((s for s in d["slides"] if s["id"] == "hospitals"), None)
+        if hosp:  # REVIEW-1 (e): an assumption, never stated as a fact
+            text = " ".join(g["text"] for lang in ("en", "es") for g in hosp["narration"][lang])
+            assert "assumed" in text.lower() and "se supone" in text.lower(), text[:300]
+
+    def test_prefetch_waits_to_propose():
+        """A prefetch outside Florida (propose: false) builds the deck without starting the AI proposer; the stage's own
+        request for the same case starts it (with a key: running; without one: off)."""
+        import time as _t
+
+        fresh = {**case, "mw": hero["mw"] - 13 + round(_t.time() % 1, 3)}  # a case this server has not seen
+        for _ in range(2):  # asked twice: the second answer would carry the proposer's status had the first started it
+            d = ctx.request("POST", "/api/briefing/deck", {**fresh, "ai": False, "propose": False})
+            assert d["slides"] and d.get("agentic") is None, d.get("agentic")
+        ctx.request("POST", "/api/briefing/deck", {**fresh, "ai": False})  # starts it (a cached report shows it next time)
+        d3 = ctx.request("POST", "/api/briefing/deck", {**fresh, "ai": False})
+        assert isinstance(d3.get("agentic"), dict) and d3["agentic"].get("status") in ("running", "off", "done", "error"), d3.get("agentic")
+
+    def test_storm_rest_and_short_lines():
+        """PLAYS, SUMMARIZED after a storm: when the storm has already hit everyone the later failures reach, the rest is
+        "no one beyond those the storm already hit" (never "no one else hit" after a storm's toll); the slide's own line
+        for the rest is a short form that fits (never cut mid-word)."""
+        d = ctx.request("POST", "/api/briefing/deck", {"preset": "fl-cat5-statewide", "ai": False})
+        chain = next(s for s in d["slides"] if s["id"] == "chain")
+        rest = chain.get("plays_rest")
+        if rest:
+            assert rest.get("storm_hit", 0) > 0, rest
+            tail = [g["text"] for g in chain["narration"]["en"] if g["role"] == "analyst" and g["text"].startswith("Beyond those")]
+            assert tail, [g["text"][:60] for g in chain["narration"]["en"]]
+            if not rest["people"]:
+                assert "storm already hit" in tail[0], tail[0]
+                assert "no one else hit" not in tail[0], tail[0]
+            for lang, lead in (("en", "Then "), ("es", "Luego ")):
+                last = chain["lines"][lang][-1]
+                assert last.startswith(lead) and not last.endswith("…") and len(last) <= 90, (lang, last)
+
     def test_hero_fix_holds():
         d = state["deck"]
         fix = next((s for s in d["slides"] if s["id"] in ("fix", "no_fix")), None)
@@ -278,6 +361,9 @@ def register(ctx):
 
     ctx.check("briefing deck (hero, templates): slide order, SIMULATION open/close EN+ES, budgets, cues for every step", test_hero_deck)
     ctx.check("briefing deck: several verified solutions, full size first, each with what you have to do; the play-by-play has its plays", test_solutions_and_play_by_play)
+    ctx.check("briefing deck: the play-by-play names only the big plays and sums up the rest; loadings past 300 % in words; every option in five plain lines", test_plays_summarized_plain_options)
+    ctx.check("briefing deck: after a storm that already hit everyone, the rest says so; the rest's slide line fits", test_storm_rest_and_short_lines)
+    ctx.check("briefing deck: a prefetch with propose=false leaves the AI proposer for the stage's own request", test_prefetch_waits_to_propose)
     ctx.check("briefing deck: the hero is preventable and the deck's best fix really stops the cascade", test_hero_fix_holds)
     ctx.check("briefing deck: one set of numbers (people hit / still without power, 'about N hours', high-end cost) and the best fix the panel flips to", test_one_set_of_numbers)
     ctx.check("briefing deck (short): the <= 60 s demo version", test_short_deck)

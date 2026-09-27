@@ -116,7 +116,17 @@ def _filings() -> list[dict]:
     except (OSError, ValueError):
         return []
     return [{"id": f"filing.{s.get('id')}", "name": s.get("title"), "url": s.get("url"), "used_for": "Build together: the utilities' planned projects, as filed (public versions only)"}
-            for s in doc.get("sources") or [] if isinstance(s, dict) and s.get("title")]
+            for s in doc.get("sources") or [] if isinstance(s, dict) and s.get("title")] + _desc_2026()
+
+
+def _desc_2026() -> list[dict]:
+    try:
+        s = json.loads((DEMO / "gridlock" / "data" / "desc_2026_2030.json").read_text(encoding="utf-8")).get("source") or {}
+    except (OSError, ValueError, AttributeError):
+        return []
+    if not s.get("title"):
+        return []
+    return [{"id": f"filing.{s.get('id') or 'desc_2026'}", "name": s["title"], "url": s.get("url"), "used_for": "Build together: the utilities' planned projects, as filed (public versions only)"}]
 
 
 def _questions() -> list[dict]:

@@ -19,7 +19,7 @@ import { useOverload } from '../../store'
 //     still   true: the finished picture (nothing loops)
 //     gauge   {at: [lon, lat], from, to, max?, ms?, delay?, appear?, title, sub?, ratingLabel?}  a loading bar pinned beside one element, filling
 //             from its level on today's grid past its rating (the rating marked)
-//     tags    [{at: [lon, lat], text, sub?, sub2?, tone: 'fix' | 'lost' | 'info', delay?, side?: 'ne' | 'se' | 'nw' | 'sw'}]
+//     tags    [{at: [lon, lat], text, sub?, sub2?, tone: 'fix' | 'lost' | 'info', delay?, side?: 'ne' | 'se' | 'nw' | 'sw' | 'w' | 'e'}]
 //     marks   [{at: [lon, lat], tone: 'strain' | 'over' | 'fix' | 'site' | 'lost', r?}]  a ring on one place
 export default function MapOverlay({ lines = [], ghost = null, rings = [], layerKey = '', layer = null }) {
   const { branchById, subPos } = useOverload()
@@ -188,12 +188,14 @@ function Hull({ h, w }) {
 }
 
 // ------------------------------------------------------------------ a pinned tag: what goes here and what it costs
-const SIDE = { ne: [16, -16, 'start'], se: [16, 20, 'start'], nw: [-16, -16, 'end'], sw: [-16, 20, 'end'] }
+// 'w' / 'e': out beside an area, level with its edge, on a longer leader (CLEAR AREAS: a figure that names an area sits
+// outside it, never on it)
+const SIDE = { ne: [16, -16, 'start'], se: [16, 20, 'start'], nw: [-16, -16, 'end'], sw: [-16, 20, 'end'], w: [-46, 4, 'end'], e: [46, 4, 'start'] }
 function Tag({ t, w }) {
   const [x, y] = project(t.at[0], t.at[1])
   const [dx, dy0, anchor] = SIDE[t.side || 'ne']
   // a third line (sub2) lifts a tag above its point (below it on a south side stays as is)
-  const dy = t.sub2 && dy0 < 0 ? dy0 - 11 : dy0
+  const dy = t.sub2 && dy0 < 0 ? dy0 - 14 : dy0
   return (
     <g className={`rs-map__tag rs-map__tag--${t.tone || 'info'}`} transform={`translate(${x} ${y}) scale(${w})`} style={{ animationDelay: `${t.delay || 0}ms` }}>
       <circle className="rs-map__tag-dot" r="2.6" />
@@ -207,7 +209,7 @@ function Tag({ t, w }) {
         </text>
       )}
       {t.sub2 && (
-        <text className="rs-map__tag-sub" x={dx} y={dy + 20} textAnchor={anchor}>
+        <text className="rs-map__tag-sub" x={dx} y={dy + 22.5} textAnchor={anchor}>
           {t.sub2}
         </text>
       )}

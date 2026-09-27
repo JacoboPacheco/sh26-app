@@ -1821,7 +1821,8 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
     B.f("max_km", float(opp["params"]["max_km"]), "km", f"{half_up(opp['params']['max_km'])} " + T(lang, "kilometers", "kilómetros"))
     for y in (2024, 2025, 2028, 2034):
         B.f(f"y{y}", y, "year", str(y), "the filings' titles")
-    src_desc = next((s for s in summ.get("sources") or [] if s.get("id") == "desc"), {})
+    _srcs = summ.get("sources") or []
+    src_desc = next((s for s in _srcs if s.get("id") == "desc_2026"), None) or next((s for s in _srcs if s.get("id") == "desc"), {})
     src_ga = next((s for s in summ.get("sources") or [] if s.get("id") == "ga_irp"), {})
 
     # all located projects of the two utilities in play: from the pair list (every project that appears in a flagged pair)
@@ -1946,16 +1947,16 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
             grid_layer("hidden"),
             {"type": "lines", "style": "project_a", "animate": "none", "items": la},
             {"type": "lines", "style": "project_b", "animate": "none", "items": lb},
-            {"type": "bars", "title": T(lang, "Top pairs in rank order (score 0-100; same-station pairs rank first)", "Mejores pares en orden (puntuación 0-100; la misma subestación va primero)"), "format": "count",
+            {"type": "bars", "title": T(lang, "Top pairs in rank order (score 0-100)", "Mejores pares en orden (puntuación 0-100)"), "format": "count",
              "items": [{"label": pair_label(o), "value": o.get("score"), "tone": "gain" if o.get("shared_station") else "neutral"} for o in ranked]},
             {"type": "lines", "style": "corridor", "animate": "draw", "stagger_ms": 900, "items": rk_lines},
         ], [
-            ("presenter", T(lang, "The ranking puts one class above every distance: pairs whose filings work at the very same substation.",
-                            "La clasificación pone una clase por encima de cualquier distancia: los pares cuyos documentos trabajan en la misma subestación."), []),
-            ("analyst", T(lang, "After that, closer is worth more, and so is a build window that overlaps. A pair far apart in time scores low, even when it touches.",
-                          "Después, más cerca vale más, y también una ventana de obra que coincide. Un par lejano en el tiempo puntúa bajo, aunque se toque."), []),
-        ], 8500, brief="The top pairs as bars in rank order (same station first, then score); each pair's ring or connector draws in rank order on the map.",
-            points=["same station ranks first, whatever the score", "score: distance, timeline, location confidence"])
+            ("presenter", T(lang, "The ranking asks timing first: pairs building in the same months come first, then pairs building at different times, then pairs whose timing is unknown, and last the ones whose time has passed.",
+                            "La clasificación mira primero el calendario: primero los pares que construyen en los mismos meses, luego los que construyen en momentos distintos, luego los de calendario desconocido y, al final, los que ya pasaron."), []),
+            ("analyst", T(lang, "Inside each group, pairs at the very same substation go first, then the score: closer is worth more, and so is a build window that overlaps.",
+                          "Dentro de cada grupo, primero van los pares en la misma subestación y luego la puntuación: más cerca vale más, y también una ventana de obra que coincide."), []),
+        ], 8500, brief="The top pairs as bars in rank order (timing group first: same months, different times, unknown, passed; then same station, then score); each pair's ring or connector draws in rank order on the map.",
+            points=["grouped by timing first: same months, different times, timing unknown, time passed", "within a group: same station first, then score", "score: distance, timeline, location confidence"])
 
     ss = top.get("shared_station") or {}
     if ss:

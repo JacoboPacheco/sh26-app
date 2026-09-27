@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Gauge, Kicker } from './ShowBits'
-import { playsOf, scoreAt } from './showDeck'
+import { playsOf, restOf, restParts, restSay, scoreAt } from './showDeck'
 import { S } from './showText'
 import { useTween } from './useShowClock'
 
@@ -18,14 +18,18 @@ function landAt(fx, p, i, count) {
   return ((i + 0.6) / Math.max(1, count)) * sch.total
 }
 
-// The chain as a broadcast: each tripped line is a play card sliding into the feed while the scoreboard
-// ticks, and the map plays the same blast. The plays land on the map's own clock (its replay schedule),
-// or on the narration's step cues, whichever is ahead, so the cards and the map never disagree.
+// The chain as a broadcast. PLAYS, SUMMARIZED (user, Sat 20:29): the map replays every step and the step counter and the
+// scoreboard keep the totals as each lands, but only the BIG plays (the first failure, the ones that hit the most people
+// or split the grid: about three) get a card, a banner and a caption, each with its line and its toll; once the last
+// step has landed, ONE card sums up the rest ("6 more lines tripped, hitting another 47,565 people"). The plays land on
+// the map's own clock (its replay schedule) or on the narration's step cues, whichever is ahead, so the cards and the
+// map never disagree.
 export default function ShowChain({ slide, report, lang, animate, stage, cueStep }) {
   const t = S[lang]
   const o = useOverload()
   const cascade = o.cascade
   const plays = useMemo(() => playsOf(report, slide, cascade), [report, slide, cascade])
+  const rest = useMemo(() => restOf(slide, plays), [slide, plays])
   const [shown, setShown] = useState(animate ? 0 : plays.length)
   const fxRef = useRef(null)
   const cueRef = useRef(0)
@@ -35,7 +39,7 @@ export default function ShowChain({ slide, report, lang, animate, stage, cueStep
   })
   const headline = slide.headline?.[lang] || slide.headline?.en || ''
 
-  // which plays have landed
+  // which plays have landed (every step: the map, the step counter and the scoreboard follow them all)
   useEffect(() => {
     if (!animate) return undefined
     const t0 = performance.now()
@@ -56,15 +60,26 @@ export default function ShowChain({ slide, report, lang, animate, stage, cueStep
     return () => cancelAnimationFrame(raf)
   }, [animate, plays])
 
-  // the scoreboard and the map's banner follow the newest play
+  // the scoreboard follows every step; the banner and the caption only the big plays, then the rest in one line
   const score = scoreAt(plays, shown)
+  const landed = plays.slice(0, shown)
+  const bigLanded = landed.filter((p) => p.big)
+  const lastBig = bigLanded[bigLanded.length - 1] || null
+  const allIn = shown >= plays.length
   useEffect(() => {
     stage.setPlay(shown)
-    if (!animate || shown === 0) return
-    const p = plays[shown - 1]
-    stage.callout(calloutFor(p, t, lang, shown === 1))
-    stage.say({ key: `play-${p.n}`, text: p.say[lang] }) // shown whenever the narration isn't speaking
-  }, [shown, animate, plays, lang, stage, t])
+  }, [shown, stage])
+  useEffect(() => {
+    if (!animate || !lastBig) return
+    stage.callout(calloutFor(lastBig, t, lang, lastBig === plays.find((p) => p.big)))
+    stage.say({ key: `play-${lastBig.n}`, text: lastBig.say[lang] }) // shown whenever the narration isn't speaking
+  }, [lastBig, animate, plays, lang, stage, t])
+  useEffect(() => {
+    if (!animate || !allIn || !rest) return
+    const text = restSay(rest, lang)
+    stage.callout({ key: 'rest', tone: 'amber', head: t.restHead, text: text.replace(/^(Beyond those|Además), /, '').replace(/\.$/, ''), sub: '' })
+    stage.say({ key: 'play-rest', text })
+  }, [allIn, rest, animate, lang, stage, t])
   useEffect(
     () => () => {
       stage.callout(null)
@@ -73,19 +88,18 @@ export default function ShowChain({ slide, report, lang, animate, stage, cueStep
     [stage],
   )
 
-  const newest = shown - 1
-  const items = plays.slice(0, shown)
+  const newest = bigLanded.length - 1
   return (
     <>
       <div className="sh-headrow">
         <Kicker tone="red">{t.playByPlay}</Kicker>
         <span className="sh-count">
-          {t.play} {Math.max(shown, animate ? 0 : plays.length)} {t.of} {plays.length}
+          {t.step} {Math.max(shown, animate ? 0 : plays.length)} {t.of} {plays.length}
         </span>
       </div>
       <div className="sh-drive" aria-hidden="true">
         {plays.map((p, i) => (
-          <i key={p.n} className={i < shown ? (i === newest && animate ? 'on new' : 'on') : ''} />
+          <i key={p.n} className={`${i < shown ? (i === shown - 1 && animate ? 'on new' : 'on') : ''}${p.big ? ' big' : ''}`} />
         ))}
       </div>
       <h2 className="rs-headline sh-headline--small" id={`rs-h-${slide.id}`}>
@@ -100,13 +114,14 @@ export default function ShowChain({ slide, report, lang, animate, stage, cueStep
       </dl>
 
       <ol className="sh-feed" aria-label={t.playByPlay}>
-        {items
-          .map((p, i) => ({ p, age: shown - 1 - i }))
+        {allIn && rest && <RestCard rest={rest} lang={lang} animate={animate} />}
+        {bigLanded
+          .map((p, i) => ({ p, age: bigLanded.length - 1 - i + (allIn && rest ? 1 : 0) }))
           .reverse()
           .map(({ p, age }) => (
-            <PlayCard key={p.n} p={p} age={age} lang={lang} animate={animate} />
+            <PlayCard key={p.n} p={p} age={age} lang={lang} animate={animate && age === 0 && newest >= 0} />
           ))}
-        {shown === 0 && <li className="sh-feed__wait">{t.live}…</li>}
+        {bigLanded.length === 0 && <li className="sh-feed__wait">{t.live}…</li>}
       </ol>
     </>
   )
@@ -129,6 +144,8 @@ function PlayCard({ p, age, lang, animate }) {
   const cls = age === 0 ? 'new' : age === 1 ? 'recent' : 'old'
   const kindLabel = p.kind === 'transformer' ? t.transformer : p.kind === 'storm' ? t.storm : t.line
   const pct = p.loading_pct != null ? Math.round(p.loading_pct) : null
+  // REVIEW-1 (c): past ~300 % the figure is a re-solve artefact: words, and a full gauge
+  const pctText = pct == null ? null : p.far ? t.farShort : `${fmt(pct)}%`
   return (
     <li className={`sh-play sh-play--${p.kind} sh-play--${cls}${animate ? ' sh-play--live' : ''}`}>
       <div className="sh-play__in">
@@ -138,7 +155,7 @@ function PlayCard({ p, age, lang, animate }) {
             {kindLabel}
           </span>
           <span className="sh-play__label">{p.kind === 'storm' ? `${fmt(p.count)} ${lang === 'es' ? 'líneas cortadas' : 'lines cut'}` : p.labels[lang] || p.label}</span>
-          {pct != null && <span className="sh-play__pct">{fmt(pct)}%</span>}
+          {pctText && <span className="sh-play__pct">{pctText}</span>}
         </p>
         {(p.people_hit > 0 || p.hospitals > 0 || p.dark > 0) && (
           <div className="sh-play__more sh-play__more--hit">
@@ -157,10 +174,8 @@ function PlayCard({ p, age, lang, animate }) {
           <div>
             {pct != null && (
               <p className="sh-play__gauge">
-                <Gauge pct={pct} />
-                <span>
-                  {fmt(pct)}% {t.ofItsLimit}
-                </span>
+                <Gauge pct={p.far ? 300 : pct} />
+                <span>{p.far ? t.farPast : `${fmt(pct)}% ${t.ofItsLimit}`}</span>
               </p>
             )}
             <p className="sh-play__say">{p.say[lang]}</p>
@@ -171,10 +186,38 @@ function PlayCard({ p, age, lang, animate }) {
   )
 }
 
-// the banner over the map when a play lands: the crucial piece of infrastructure that fell, and who it hit
+// the rest of the chain, in one card: how many more lines and transformers tripped, and who they hit
+function RestCard({ rest, lang, animate }) {
+  const t = S[lang]
+  // "6 more lines tripped" / "5 more lines and 1 transformer tripped" / "Se dispararon 6 líneas más"
+  const { what, none } = restParts(rest, lang)
+  return (
+    <li className={`sh-play sh-play--rest sh-play--new${animate ? ' sh-play--live' : ''}`}>
+      <div className="sh-play__in">
+        <p className="sh-play__row">
+          <span className="sh-play__tag">{t.restHead}</span>
+          <span className="sh-play__label">{what}</span>
+        </p>
+        <div className="sh-play__more sh-play__more--hit">
+          <p className="sh-play__hit">
+            {rest.people > 0 ? (
+              <strong>
+                +{fmt(rest.people)} {t.hit}
+              </strong>
+            ) : (
+              <span>{none.charAt(0).toUpperCase() + none.slice(1)}</span>
+            )}
+          </p>
+        </div>
+      </div>
+    </li>
+  )
+}
+
+// the banner over the map when a big play lands: the crucial piece of infrastructure that fell, and who it hit
 function calloutFor(p, t, lang, first) {
   const label = p.labels[lang] || p.label
-  const pct = p.loading_pct != null ? ` · ${fmt(Math.round(p.loading_pct))}% ${t.ofItsLimit}` : ''
+  const pct = p.loading_pct == null ? '' : p.far ? ` · ${t.farPast}` : ` · ${fmt(Math.round(p.loading_pct))}% ${t.ofItsLimit}`
   const hit = [
     p.people_hit > 0 ? `${p.areas[0] ? `${p.areas[0]} · ` : ''}+${fmt(p.people_hit)} ${t.hit}` : null,
     p.dark > 0 ? t.subsDark(p.dark) : null,

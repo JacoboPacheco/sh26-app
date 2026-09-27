@@ -5,6 +5,7 @@ import DarkFirstLayer from './features/darkfirst/DarkFirstLayer'
 import FlowCanvas from './features/flow/FlowCanvas'
 import Intro from './features/flow/Intro'
 import HardenLayer from './features/harden/HardenLayer'
+import HospitalAgentStarter from './features/hospitals/HospitalAgentStarter'
 import HurricaneLayer from './features/hurricane/HurricaneLayer'
 import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
@@ -260,6 +261,8 @@ function MissionControl() {
         </span>
       </p>
       <Intro />
+      {/* starts the hospital beds agent when a cascade lands (renders nothing, no audio) */}
+      <HospitalAgentStarter />
       <PreviewHost />
     </div>
   )

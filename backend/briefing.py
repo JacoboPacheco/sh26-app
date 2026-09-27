@@ -37,6 +37,7 @@ import re
 import threading
 import time
 from collections import OrderedDict
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -189,6 +190,7 @@ class BriefingIn(CaseIn):
     budget_ms: int = 1800  # wall budget for open-ended searches (towns tried for a move beyond the first 12); 300..1800
     outages: list[int] = Field(default_factory=list)  # Plant Down: plant ids taken offline (plants.py)
     retire_fuels: list[str] = Field(default_factory=list)  # Plant Down: every plant of these fuels offline
+    propose: bool = True  # false: don't start the AI proposer yet (a prefetch nobody may present); never part of the key
 
 
 @dataclass
@@ -2448,29 +2450,55 @@ def _banner(code: str) -> str:
     return f"SIMULATION · synthetic grid model of {name} ({CREDIT}) · not any utility's network · every people and cost number is an estimate."
 
 
+# BRIEFING SPEED (Sat 20:16): the presentation asks for the report, the template deck and Gemini's deck at the same moment,
+# and each used to build the same report at once (three times the work on the public site's half a CPU). One build per
+# key: a second request for a case being built waits for it and takes the cached report. Each key's lock lives only
+# while someone holds it or waits for it: a count of its users (taken under _cache_lock) decides when it is dropped, so
+# a lock one thread has fetched but not yet acquired is never replaced by a new one.
+_build_locks: dict[str, list] = {}  # key -> [lock, users]
+
+
+@contextmanager
+def _building(key: str):
+    with _cache_lock:
+        ent = _build_locks.get(key)
+        if ent is None:
+            ent = _build_locks[key] = [threading.Lock(), 0]
+        ent[1] += 1
+    try:
+        with ent[0]:
+            yield
+    finally:
+        with _cache_lock:
+            ent[1] -= 1
+            if ent[1] <= 0 and _build_locks.get(key) is ent:
+                del _build_locks[key]
+
+
 def report_for(body: BriefingIn) -> dict:
-    """The whole report for a case. Sync and cached (LRU 64 by key)."""
+    """The whole report for a case. Sync and cached (LRU 64 by key); one build per key at a time (see _building)."""
     t_all = time.perf_counter()
     c = build_case(body)
     budget_ms = int(min(max(int(body.budget_ms or BUDGET_MAX), BUDGET_MIN), BUDGET_MAX))
     if c.preset:
         budget_ms = max(budget_ms, PRESET_BUDGET_MS)
-    with _cache_lock:
-        hit = _cache.get(c.key)
-    if hit is not None and not (hit.get("unchecked") and budget_ms > hit.get("_budget_ms", BUDGET_MAX)):
+    with _building(c.key):
         with _cache_lock:
-            _cache.move_to_end(c.key)
-        return {**hit, "cached": True, "timing_ms": {**hit["timing_ms"], "cached_total": _ms(t_all)}}
-    try:
-        rep = _build(c, budget_ms, t_all)
-    except EngineGap as e:
-        log.warning("briefing: engine gap on %s: %s", c.key, e)
-        raise HTTPException(
-            status_code=503,
-            detail="This catastrophe needs an engine patch that is not in yet" if c.preset else "This storm hits a case the engine can't solve yet — try another path",
-        )
-    _remember(c.key, rep, c)
-    return rep
+            hit = _cache.get(c.key)
+        if hit is not None and not (hit.get("unchecked") and budget_ms > hit.get("_budget_ms", BUDGET_MAX)):
+            with _cache_lock:
+                _cache.move_to_end(c.key)
+            return {**hit, "cached": True, "timing_ms": {**hit["timing_ms"], "cached_total": _ms(t_all)}}
+        try:
+            rep = _build(c, budget_ms, t_all)
+        except EngineGap as e:
+            log.warning("briefing: engine gap on %s: %s", c.key, e)
+            raise HTTPException(
+                status_code=503,
+                detail="This catastrophe needs an engine patch that is not in yet" if c.preset else "This storm hits a case the engine can't solve yet — try another path",
+            )
+        _remember(c.key, rep, c)
+        return rep
 
 
 def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
@@ -2808,7 +2836,8 @@ async def post_briefing(request: Request, body: BriefingIn):
     try:
         import solutions
 
-        solutions.kick(rep["key"])  # Gemini proposes plans, the engine verifies them, in the background
+        if body.propose:
+            solutions.kick(rep["key"])  # Gemini proposes plans, the engine verifies them, in the background
     except Exception as e:  # noqa: BLE001
         log.warning("briefing: could not start the AI proposer: %s", e)
     return _public(rep)

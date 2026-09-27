@@ -544,6 +544,7 @@ def _flex_info(i: int, fx: dict, total: float, lf: float) -> dict:
         "steps": [{"level": x["level"], "name": x["name"], "runs_mw": round(x["runs_mw"], 1), "step_mw": x["step_mw"]} for x in over],
         "peak_mw": runs_at(PEAK_LF) if runs_at(PEAK_LF) is not None else round(case_mw, 1),
         "heat_mw": runs_at(1.04), "case_mw": round(case_mw, 1), "step_down_mw": round(step, 1),
+        "case_level": round(float(lf), 3),  # this case's own load level (the pin and the plain line name it with the first step)
         "hours_assumed": FLEX_HOURS, "mwh_year": round(mwh), "mwh_year_is_upper_bound": True,
         "energy_share_pct": round(100.0 * mwh / (total * HOURS_YEAR), 2) if total else None,
         "assumption": ("about 85 hours of curtailment a year, mostly partial, as reported for Duke University's 2025 national study "

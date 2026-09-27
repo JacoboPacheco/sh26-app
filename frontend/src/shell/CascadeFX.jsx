@@ -319,7 +319,7 @@ export default function CascadeFX() {
     <>
       {defs}
       <g className={running ? 'fx bx' : 'fx bxa'} pointerEvents="none" aria-hidden="true" ref={attach}>
-        {host && <BlastCanvas fx={fx} items={plan.canvas} fires={fires} anchor={anchor} host={host} still={reduced} rateRef={rateRef} />}
+        {host && <BlastCanvas fx={fx} items={plan.canvas} fires={fires} anchor={anchor} host={host} still={reduced} rateRef={rateRef} clean={clean} />}
         {running && <Sfx plan={plan} u={u} />}
       </g>
     </>
@@ -363,7 +363,7 @@ const LOSS = '#ff4d68'
 
 // A <canvas> over the map (portaled into GridMap's .map box, under the side panels), drawn per
 // frame in map units: the frame's transform is the camera's screen matrix, read from the FX group.
-function BlastCanvas({ fx, items, fires, anchor, host, still, rateRef }) {
+function BlastCanvas({ fx, items, fires, anchor, host, still, rateRef, clean = false }) {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -379,10 +379,12 @@ function BlastCanvas({ fx, items, fires, anchor, host, still, rateRef }) {
     })
     // with fire the canvas carries on past the replay: the flames die back and the hot spots smolder out
     const end = fx.schedule.total + (fires?.any ? AFTERGLOW_MS : LINE_LIFE)
-    const o = { total: fx.schedule.total, end, reduced: !!still, cw: 0, ch: 0, dpr: 1, cull: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0, w: 0, h: 0 }, rateRef, bitmaps: new Map() }
+    const o = { total: fx.schedule.total, end, reduced: !!still, cw: 0, ch: 0, dpr: 1, cull: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0, w: 0, h: 0 }, rateRef, bitmaps: new Map(), hideLabels: false }
     let raf = 0
     const frame = () => {
       const ms = performance.now() - fx.startedAt
+      // the review only (clean): while a beat shows a place (html.rs-clear, CLEAR AREAS) its town labels step aside
+      o.hideLabels = clean && document.documentElement.classList.contains('rs-clear')
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       const w = Math.round(host.clientWidth * dpr)
       const h = Math.round(host.clientHeight * dpr)
@@ -409,7 +411,7 @@ function BlastCanvas({ fx, items, fires, anchor, host, still, rateRef }) {
     }
     raf = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(raf)
-  }, [fx, items, fires, host, anchor, still, rateRef])
+  }, [fx, items, fires, host, anchor, still, rateRef, clean])
 
   return createPortal(<canvas ref={ref} className="bx-canvas" aria-hidden="true" />, host)
 }
@@ -573,7 +575,7 @@ function draw(ctx, ms, px, { rings, flares, labels, lineFlares }, sparks, fires,
   }
   // fire, sparks, smoke and hot spots (features/impact/fireFx.js), under the labels
   drawFires(ctx, ms, px, fires, o)
-  drawLabels(ctx, ms, px, labels, o)
+  if (!o.hideLabels) drawLabels(ctx, ms, px, labels, o)
 }
 
 // The labels: quiet text on a soft scrim, in screen px. Each appears as the front reaches its town, stays

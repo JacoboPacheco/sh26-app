@@ -1309,3 +1309,134 @@ html.review-open .map-controls {
     animation: none !important;
   }
 }
+
+/* ---------------------------------------------------------------------- CLEAR AREAS (user, Sat 20:30)
+   While a beat shows a place (ReviewStage: html.rs-clear), the map's per-town number labels (people, money: the town
+   labels of features/impact) step aside, so the area reads as a clear shape; the numbers are in the slide panel. The
+   deck's own figures that name an area sit outside it, on a short leader line (MapOverlay Tag side 'w' / 'e'). */
+html.rs-clear .impact-labels {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+/* ---------------------------------------------------------------------- SOLUTIONS, SIMPLE (user, Sat 20:31)
+   An option in five short lines: what, where, cost (with its source), what it prevents, how long it takes. */
+.sh-plain {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 12px;
+}
+
+.sh-plain__row {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  animation: rs-fade 360ms ease-out both;
+}
+
+.sh-plain dt {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.sh-plain dd {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.sh-plain__row--cost dd,
+.sh-plain__row--time dd {
+  font-variant-numeric: tabular-nums;
+}
+
+.sh-plain__row--prevents dd {
+  color: var(--hr-ok);
+}
+
+.sh-plain__src {
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--ink-2) 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.sh-plain__src:hover,
+.sh-plain__src:focus-visible {
+  color: var(--ink);
+}
+
+.sh-plain--compact {
+  gap: 3px;
+  margin: 6px 0 4px;
+}
+
+.sh-plain--compact .sh-plain__row {
+  grid-template-columns: 62px 1fr;
+  animation: none;
+}
+
+.sh-plain--compact dd {
+  font-size: 12.5px;
+}
+
+/* "The full solution": the incident on Strengthen, in depth */
+.sh-fullsol {
+  display: grid;
+  gap: 2px;
+  margin: 12px 0 6px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--hr-ok) 55%, transparent);
+  border-radius: 8px;
+  color: var(--ink);
+  text-decoration: none;
+  background: color-mix(in srgb, var(--hr-ok) 8%, transparent);
+  transition: background 0.2s ease;
+}
+
+.sh-fullsol:hover,
+.sh-fullsol:focus-visible {
+  background: color-mix(in srgb, var(--hr-ok) 16%, transparent);
+}
+
+.sh-fullsol__a {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--hr-ok);
+}
+
+.sh-fullsol__q {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* PLAYS, SUMMARIZED: the one card for the rest of the chain */
+.sh-play--rest .sh-play__tag {
+  color: var(--ink-2);
+}
+
+/* every step lights its tick (the totals); the big plays (the ones named) in full, the rest quieter */
+.sh-drive i.on:not(.big) {
+  opacity: 0.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-plain__row {
+    animation: none;
+  }
+}
+
+.sh-planrow__out {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.sh-planrow__out.sh-ok {
+  color: var(--hr-ok);
+}

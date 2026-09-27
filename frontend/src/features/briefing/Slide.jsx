@@ -7,6 +7,7 @@ import ShowChain from './ShowChain'
 import ShowSolutions from './ShowSolutions'
 import ShowToll from './ShowToll'
 import ShowWeakPoint from './ShowWeakPoint'
+import HospitalsFound from '../hospitals/HospitalsFound'
 import { S } from './showText'
 import { bestApply, linesOf } from './stage'
 import { reportPeople } from '../cost/figures'
@@ -99,6 +100,8 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
         {!(kind === 'areas' && report?.areas?.length) && !(kind === 'cause' && report?.root_cause?.pct_with != null) && (
           <Lines lines={lines} verdicts={kind === 'fix'} lang={lang} />
         )}
+        {/* the hospital beds agent's answer (started when the cascade landed): beds as reported, each with its source */}
+        {kind === 'hospitals' && <HospitalsFound lang={lang} animate={animate} max={6} />}
         {kind === 'recovery' && report?.recovery?.waves?.length > 0 && <WaveStrip recovery={report.recovery} wave={wave} lang={lang} />}
         {apply && (
           <div className="rs-apply">

@@ -71,7 +71,7 @@ export function playsOf(report, slide, cascade = null) {
   let lines = 0
   const seen = new Set()
   let hospitalsTotal = 0
-  return rows.map((p, i) => {
+  const list = rows.map((p, i) => {
     const t = byN.get(p.n)
     const st = stepByN.get(p.n)
     const areas = (p.areas || (t?.newly_dark || []).map((d) => d.area) || []).filter(Boolean)
@@ -92,13 +92,17 @@ export function playsOf(report, slide, cascade = null) {
     if (i === rows.length - 1) hAdd += Math.max(0, (Number(report?.hospitals?.count) || 0) - hospitalsTotal - hAdd)
     hospitalsTotal += hAdd
     const labels = labelsOf(p.label, t?.lines?.[0]?.label)
+    const loading = p.loading_pct != null ? Number(p.loading_pct) : (t?.lines?.[0]?.pct_before ?? null)
     const out = {
       n: p.n ?? i + 1,
       id: p.id ?? t?.lines?.[0]?.id ?? null,
       kind,
       labels,
       label: labels.en,
-      loading_pct: p.loading_pct != null ? Number(p.loading_pct) : (t?.lines?.[0]?.pct_before ?? null),
+      loading_pct: loading,
+      // REVIEW-1 (c): past ~300 % a line's loading is a re-solve artefact after the grid splits, not a reading
+      far: loading != null && Number(loading) > FAR_PCT,
+      big: kind === 'storm' ? true : p.big, // the backend's pick (bulletin.big_play_ns); filled in below when the deck has none
       people_hit: Math.max(0, total - prevPeople),
       people_total: total,
       mw_total: t?.lost_mw_cum != null ? Number(t.lost_mw_cum) : st?.lost_mw != null ? Number(st.lost_mw) : null,
@@ -111,10 +115,111 @@ export function playsOf(report, slide, cascade = null) {
       why: (t?.why || [])[0] || null,
       dark: Number(p.dark) || (st?.dark_subs?.length ?? 0),
     }
-    out.say = { en: sayPlay(out, i, 'en'), es: sayPlay(out, i, 'es') }
     prevPeople = total
     return out
   })
+  // PLAYS, SUMMARIZED: a deck without the backend's pick (an older deck, the fixture) picks the big plays the same way
+  if (list.some((p) => typeof p.big !== 'boolean')) {
+    const pick = new Set(bigPlays(list))
+    list.forEach((p) => (p.big = pick.has(p.n)))
+  }
+  list.forEach((p, i) => (p.say = { en: sayPlay(p, i, 'en'), es: sayPlay(p, i, 'es') }))
+  return list
+}
+
+// PLAYS, SUMMARIZED (user, Sat 20:29: "summarize the big ones, not EVERY SINGLE EVENT, and then just SUMMARIZE THE
+// REST"): the narration, the captions and the play cards name only the big plays; the map replays every step and the
+// step counter and the scoreboard keep the totals. The backend picks them (bulletin.big_play_ns); this is the same rule
+// for a deck that doesn't carry the pick: all of them when there are four or fewer, else the first failure, the two
+// that hit the most people and the one that cut the most load, padded to three (a storm is a play of its own: one fewer).
+export const FAR_PCT = 300
+export function bigPlays(plays) {
+  const storm = plays.some((p) => p.kind === 'storm')
+  const rows = plays.filter((p) => p.kind !== 'storm')
+  const [want, cap] = storm ? [2, 3] : [3, 4]
+  if (rows.length <= cap) return rows.map((p) => p.n)
+  let prevMw = 0
+  const r = rows.map((p) => {
+    const mw = Number(p.mw_total) || 0
+    const d = { n: p.n, delta: p.people_hit || 0, dmw: mw - prevMw, dark: p.dark || 0 }
+    prevMw = Math.max(prevMw, mw)
+    return d
+  })
+  const total = r.reduce((a, x) => a + x.delta, 0)
+  const lost = r.reduce((a, x) => a + Math.max(0, x.dmw), 0)
+  const chosen = [r[0].n]
+  const rest = r.slice(1)
+  for (const x of [...rest].sort((a, b) => b.delta - a.delta || a.n - b.n)) {
+    if (chosen.length >= want || x.delta <= 0.02 * total) break
+    chosen.push(x.n)
+  }
+  const mw = rest.filter((x) => !chosen.includes(x.n) && x.dmw >= Math.max(0.05 * lost, 1)).sort((a, b) => b.dmw - a.dmw || a.n - b.n)
+  if (mw.length && chosen.length < cap) chosen.push(mw[0].n)
+  for (const x of [...rest].sort((a, b) => b.delta - a.delta || Math.max(0, b.dmw) - Math.max(0, a.dmw) || b.dark - a.dark || a.n - b.n)) {
+    if (chosen.length >= want) break
+    if (!chosen.includes(x.n)) chosen.push(x.n)
+  }
+  return chosen.sort((a, b) => a - b)
+}
+
+// The rest, summed up: {lines, transformers, people, steps, shed, storm_hit}, or null when every play is a big one. The
+// backend's slide.plays_rest is what the narration says, so it wins whenever it is there (its plays may be capped or skip
+// a step with nothing to show); a deck without it sums its own plays.
+export function restOf(slide, plays) {
+  const given = slide?.plays_rest
+  if (given && Array.isArray(given.steps)) {
+    if (!given.steps.length) return null
+    return {
+      lines: Number(given.lines) || 0,
+      transformers: Number(given.transformers) || 0,
+      people: Number(given.people) || 0,
+      steps: given.steps,
+      shed: Number(given.shed) || 0,
+      storm_hit: Number(given.storm_hit) || 0,
+    }
+  }
+  const rest = plays.filter((p) => !p.big && p.kind !== 'storm')
+  if (!rest.length) return null
+  const tx = rest.filter((p) => p.kind === 'transformer')
+  return {
+    lines: rest.reduce((a, p) => a + (p.kind === 'transformer' ? 0 : 1 + (p.more || 0)), 0),
+    transformers: tx.length,
+    people: rest.reduce((a, p) => a + (p.people_hit || 0), 0),
+    steps: rest.map((p) => p.n),
+    shed: 0,
+    storm_hit: plays.some((p) => p.kind === 'storm') ? 1 : 0,
+  }
+}
+
+// the rest's "what" and "who", shared by the caption and the card: "6 more lines and 1 transformer tripped" /
+// "+47,565 hit"; nobody new after a storm that already hit everyone says so (never "no one else hit" after a storm's toll)
+export function restParts(rest, lang = 'en') {
+  const es = lang === 'es'
+  const { lines: ln, transformers: xf } = rest
+  const parts = es
+    ? [ln ? `${fmt(ln)} ${ln === 1 ? 'línea' : 'líneas'}` : null, xf ? `${fmt(xf)} ${xf === 1 ? 'transformador' : 'transformadores'}` : null].filter(Boolean)
+    : [ln ? `${fmt(ln)} more ${ln === 1 ? 'line' : 'lines'}` : null, xf ? `${fmt(xf)} ${ln ? '' : 'more '}${xf === 1 ? 'transformer' : 'transformers'}` : null].filter(Boolean)
+  const n = ln + xf
+  let what
+  if (!parts.length) what = rest.shed ? (es ? 'Los operadores cortaron carga' : 'The operators cut load') : es ? 'Nada más' : 'Nothing else'
+  else what = es ? `${n === 1 ? 'Se disparó' : 'Se dispararon'} ${parts.join(' y ')} más` : `${parts.join(' and ')} tripped`
+  const none = rest.storm_hit
+    ? es
+      ? 'sin afectar a nadie que la tormenta no hubiera afectado ya'
+      : 'with no one hit beyond those the storm already hit'
+    : es
+      ? 'sin afectar a nadie más'
+      : 'with no one else hit'
+  return { what, none }
+}
+
+// "Beyond those, 6 more lines tripped, hitting another 47,565 people (estimate)."
+export function restSay(rest, lang = 'en') {
+  const es = lang === 'es'
+  const { what, none } = restParts(rest, lang)
+  const lead = what.charAt(0).toLowerCase() + what.slice(1)
+  if (es) return `Además, ${lead}${rest.people > 0 ? `, que afectaron a otras ${fmt(rest.people)} personas (estimación)` : `, ${none}`}.`
+  return `Beyond those, ${lead}${rest.people > 0 ? `, hitting another ${fmt(rest.people)} people (estimate)` : `, ${none}`}.`
 }
 
 // a label is a string (the timeline, English) or {en, es} (the deck's plays); on a card it stands alone:
@@ -158,13 +263,13 @@ function sayPlay(p, i, lang) {
   }
   const first = i === 0 || (i === 1 && p.n === 1)
   const what = p.kind === 'transformer' ? (es ? 'Transformador caído' : 'Transformer down') : es ? 'Línea caída' : 'Line down'
-  let s = es
-    ? `${first ? 'Primero en caer' : what}: ${label}${pct ? ` al ${pct}% de su límite` : ''}.`
-    : `${first ? 'First to go' : what}: ${label}${pct ? ` at ${pct}% of its limit` : ''}.`
+  const at = !pct ? '' : p.far ? (es ? ' muy por encima de su límite' : ' far past its limit') : es ? ` al ${pct}% de su límite` : ` at ${pct}% of its limit`
+  let s = es ? `${first ? 'Primero en caer' : what}: ${label}${at}.` : `${first ? 'First to go' : what}: ${label}${at}.`
   if (p.why) {
     const onto = esLabel(bare(p.why.label))
     const to = onto.startsWith('los ') ? `a ${onto}` : onto.startsWith('transformador') ? `al ${onto}` : `a la ${onto}`
-    s += es ? ` Su carga pasa ${to} (${Math.round(p.why.pct_after)}%).` : ` Its load moves onto ${bare(p.why.label)} (${Math.round(p.why.pct_after)}%).`
+    const after = Number(p.why.pct_after) > FAR_PCT ? (es ? 'muy por encima de su límite' : 'far past its limit') : `${Math.round(p.why.pct_after)}%`
+    s += es ? ` Su carga pasa ${to} (${after}).` : ` Its load moves onto ${bare(p.why.label)} (${after}).`
   }
   if (p.people_hit > 0 && p.areas.length) {
     const rest = p.areas.length - 1
@@ -173,7 +278,11 @@ function sayPlay(p, i, lang) {
       : ` ${p.areas[0]}${rest > 0 ? ` and ${rest} more ${rest === 1 ? 'area' : 'areas'}` : ''}: +${fmt(p.people_hit)} people hit.`
   }
   if (p.dark > 0) s += es ? ` ${p.dark} ${p.dark === 1 ? 'subestación queda' : 'subestaciones quedan'} a oscuras.` : ` ${p.dark} ${p.dark === 1 ? 'substation goes' : 'substations go'} dark.`
-  if (p.hospitals > 0) s += es ? ` ${p.hospitals} ${p.hospitals === 1 ? 'hospital pasa' : 'hospitales pasan'} a energía de respaldo.` : ` ${p.hospitals} ${p.hospitals === 1 ? 'hospital goes' : 'hospitals go'} to backup power.`
+  // REVIEW-1 (e): an assumption, never stated as a fact
+  if (p.hospitals > 0)
+    s += es
+      ? ` ${p.hospitals} ${p.hospitals === 1 ? 'hospital en zonas sin luz' : 'hospitales en zonas sin luz'} (se supone que con respaldo).`
+      : ` ${p.hospitals} ${p.hospitals === 1 ? 'hospital' : 'hospitals'} in dark areas (assumed on backup).`
   return s
 }
 
@@ -278,6 +387,11 @@ function normOption(o, f = {}, orig, report, k) {
     extra: o.extra || [],
     variants_how: o.variants_how || null, // what its variants raise next to it, in the backend's exact words
     variants: [],
+    // SOLUTIONS, SIMPLE: the backend's five plain lines {what, where, cost, prevents, time} per language, the typical
+    // time to build (leadtimes.py's sourced range) and the cost's source
+    plain: o.plain || null,
+    time: o.time || null,
+    cost_source: o.cost_source || null,
   }
 }
 
@@ -329,16 +443,38 @@ function tidyName(raw, ai) {
   return { name, sub: sub.en || sub.es ? sub : null }
 }
 
-// the solutions beat's clock (ms): the headline, then per option its name, each element it upgrades landing on the map
-// with its price (or the operating rule's levels, or the "you have to" lines), the re-run counting down, then the
-// result weighed against the blackout it prevents, held to be read
-export const SOL = { intro: 2400, lineAt: 1000, lineStep: 950, run: 1500, read: 4200 }
+// the solutions beat's clock (ms): the headline, then per option its name, its five plain lines one by one while each
+// element it upgrades lands on the map with its price, the re-run counting down, then the result, held to be read
+export const SOL = { intro: 2400, lineAt: 1000, lineStep: 950, plainStep: 650, run: 1500, read: 4000 }
 export const mustRows = (o, lang = 'en') => o.must?.[lang] || o.must?.en || []
-// the rows an option's beat reveals one by one: its priced elements, the operating rule's load levels, else its list
+// SOLUTIONS, SIMPLE (user, Sat 20:31): an option in five short lines, in this order: what gets built or changed, where,
+// the cost range with its source, what it prevents, how long it typically takes. The backend writes them
+// (bulletin._plain_rows); an older deck gets what its option says.
+const PLAIN_KEYS = ['what', 'where', 'cost', 'prevents', 'time']
+export function plainRows(o, lang = 'en') {
+  const given = o?.plain?.[lang] || o?.plain?.en
+  if (given) return PLAIN_KEYS.filter((k) => given[k]).map((k) => [k, given[k]])
+  const s = S[lang]
+  const after = Number(o?.outcome?.people) || 0
+  return [
+    ['what', o?.name?.[lang] || o?.name?.en || ''],
+    ['cost', o?.cost?.high ? usdCompact(o.cost.high, lang) : s.costNone],
+    ['prevents', after === 0 ? s.zeroOut : s.peopleOutN(fmt(after))],
+  ].filter(([, v]) => v)
+}
+// the rows an option's beat reveals one by one: its five plain lines; an older deck, its priced elements (or the
+// operating rule's load levels, or its list)
 export const beatRows = (o, lang = 'en') =>
-  o.cost?.items?.length ? Math.min(o.cost.items.length, 6) : o.flex?.levels?.length ? o.flex.levels.length : Math.min(mustRows(o, lang).length, 6)
+  o.plain
+    ? plainRows(o, lang).length
+    : o.cost?.items?.length
+      ? Math.min(o.cost.items.length, 6)
+      : o.flex?.levels?.length
+        ? o.flex.levels.length
+        : Math.min(mustRows(o, lang).length, 6)
+export const rowStep = (o) => (o.plain ? SOL.plainStep : SOL.lineStep)
 // when the green reveal starts inside an option's beat
-export const greenAt = (o, lang = 'en') => SOL.lineAt + SOL.lineStep * beatRows(o, lang) + 300
+export const greenAt = (o, lang = 'en') => SOL.lineAt + rowStep(o) * beatRows(o, lang) + 300
 export const optionBeatMs = (o, lang = 'en') => greenAt(o, lang) + SOL.run + SOL.read
 // the options the beats walk through one by one (the lead, then the alternatives); the rest go under "More options"
 export const mainOptions = (options) => {
@@ -447,7 +583,11 @@ export const SPREAD_MS = 4200
 export function dwellMs(slide, report, lang = 'en', options = []) {
   const kind = slide?.kind || slide?.id
   if (kind === 'toll') return 9500
-  if (kind === 'chain') return 3800 + playsOf(report, slide).length * 1550
+  if (kind === 'chain') {
+    // the narration names only the big plays and sums up the rest (the map's replay sets its own pace: holdFor)
+    const plays = playsOf(report, slide)
+    return 3800 + (plays.filter((p) => p.big).length + (restOf(slide, plays) ? 1 : 0)) * 1550
+  }
   if (kind === 'problem') return 4600
   if (kind === 'fix') return options.length ? SOL.intro + mainOptions(options).reduce((n, o) => n + optionBeatMs(o, lang), 0) + aiBeatMs(aiTraceOf(slide)) : 0
   if (kind === 'no_fix') return 8000
@@ -484,7 +624,7 @@ export function tickerItems(report, deck, lang) {
   }
   if (rc?.path_share_pct >= 5) items.push(es ? `El ${Math.round(rc.path_share_pct)}% de cualquier carga nueva aquí pasa por el punto débil` : `${Math.round(rc.path_share_pct)}% of any new load here flows through the weak point`)
   const hos = report?.hospitals
-  if (hos?.count) items.push(es ? `${hos.count} hospitales en zonas sin luz (estimación, energía de respaldo)` : `${hos.count} hospitals in the dark areas (estimate; on backup power)`)
+  if (hos?.count) items.push(es ? `${hos.count} hospitales en zonas sin luz (estimación; se supone que con respaldo)` : `${hos.count} hospitals in dark areas (estimate; assumed on backup)`)
   const areas = (report?.areas || []).slice(0, 3)
   // the areas' figures are the people still without power (not the people hit): say so, or they read as a third number
   if (areas.length) items.push((es ? 'Aún sin luz: ' : 'Still without power: ') + areas.map((a) => `${a.area} ${fmt(a.people)}`).join(' · ') + (es ? ' personas (estimación)' : ' people (estimate)'))

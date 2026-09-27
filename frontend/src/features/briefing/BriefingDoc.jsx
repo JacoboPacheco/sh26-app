@@ -5,6 +5,10 @@ import { SplitBar } from './Slide'
 import { headlineOf, linesOf, loc } from './stage'
 import { FAMILY, T, VERDICT, num, people, usd } from './text'
 
+// REVIEW-1 (c): past ~300 % a loading is a DC re-solve artefact after the grid splits: said in words, the model's
+// figure kept in brackets (the written briefing is a transcript)
+const atPct = (p) => (Number(p) > 300 ? `far past its limit (${Math.round(p).toLocaleString('en-US')}% in the model)` : `at ${Math.round(p)}%`)
+
 // The full written briefing: the report laid out as a document, top to bottom. The timeline is synced
 // to the map (the step on screen is marked; a row click shows that step). Fixes carry their verified
 // verdict and, when the engine gives one, an "Apply this fix" button. Prints cleanly (briefing.css).
@@ -71,7 +75,7 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
                     <span className="rs-tl__what">
                       {row.action === 'storm'
                         ? `${num(row.storm_lines?.count ?? row.storm_lines ?? row.lines?.length)} lines knocked out by the storm`
-                        : row.lines?.map((l) => `${capital(l.label)}${l.pct_before ? ` trips at ${Math.round(l.pct_before)}%` : ''}`).join('; ')}
+                        : row.lines?.map((l) => `${capital(l.label)}${l.pct_before ? ` trips ${atPct(l.pct_before)}` : ''}`).join('; ')}
                       {row.action === 'shed' && ' (customers cut to hold a line)'}
                     </span>
                     {(() => {
@@ -79,7 +83,7 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
                       return (
                         w && (
                           <span className="rs-tl__why">
-                            Its flow moves onto {w.label} (+{num(Math.round(w.delta_mw))} MW{w.pct_after != null ? `, now at ${Math.round(w.pct_after)}%` : ''})
+                            Its flow moves onto {w.label} (+{num(Math.round(w.delta_mw))} MW{w.pct_after != null ? `, now ${atPct(w.pct_after)}` : ''})
                           </span>
                         )
                       )

@@ -186,10 +186,14 @@ export function oftenText(often, lang) {
 // the operating rule's pin on the campus, in three short lines (SVG text doesn't wrap, and the map between the slide
 // and the Ask sidebar is narrow): "Steps down to 550 MW" / "at the 4 PM peak" / "230 MW in a heat wave" (one level:
 // "No new equipment" last), the engine's per-level sizes; set to the campus's upper left, clear of the town's label
+// The two levels named are the plain option line's (bulletin._plain_rows): the lowest step and this case's own level
+// (else the highest), each once.
 export function flexPin(flex, lang) {
   const T = P[lang]
-  const steps = flex?.steps?.length ? flex.steps : flex?.peak_mw != null ? [{ runs_mw: flex.peak_mw, name: '4 PM' }] : []
-  const [first, second] = steps
+  const steps = flex?.steps?.length ? [...flex.steps].sort((a, b) => (a.level ?? 0) - (b.level ?? 0)) : flex?.peak_mw != null ? [{ runs_mw: flex.peak_mw, name: '4 PM' }] : []
+  const here = steps.length > 2 ? steps.find((s) => flex?.case_level != null && Math.abs((s.level ?? -1) - flex.case_level) < 0.005) || steps[steps.length - 1] : null
+  const pick = here ? [steps[0], here] : steps
+  const [first, second] = pick.filter((s, i) => pick.findIndex((x) => atLevel(x.name, lang) === atLevel(s.name, lang)) === i)
   if (!first) return { text: T.noEquipment, side: 'nw' }
   return {
     text: `${T.flexTagHead} ${fmt(first.runs_mw)} MW`,

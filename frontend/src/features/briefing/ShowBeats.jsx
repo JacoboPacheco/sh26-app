@@ -91,18 +91,65 @@ export function StormLayer({ report, stage, animate }) {
   return null
 }
 
-// hospitals on backup power: a pin on each area with its count
+// CLEAR AREAS (user, Sat 20:30): a figure that names an area sits outside it, level with its edge on the side away from
+// the other areas (the west edge of an area west of the group's middle, else the east edge), on a short leader line: the
+// area stays a clear shape. When the text on that side would lie over another area (`others`: their points), the other
+// side is used if it is clearer. `room` = a point beyond the text, so the camera frames the tag too.
+function outside(O, a, mid, span, others = []) {
+  const { pts, center } = areaShape(O, a)
+  const all = pts.length ? pts : center ? [center] : []
+  if (!all.length) return null
+  const c = center || [all.reduce((n, p) => n + p[0], 0) / all.length, all.reduce((n, p) => n + p[1], 0) / all.length]
+  const pad = Math.max(0.45, span * 1.5) // about a tag's width at the zoom that frames the areas
+  const place = (west) => {
+    const edge = all.reduce((m, p) => ((west ? p[0] < m[0] : p[0] > m[0]) ? p : m), all[0])
+    // the text's box beside the edge (a little taller than two lines, a little wider than the text: the hatching is
+    // drawn around the substations, past their points)
+    const x0 = west ? edge[0] - pad * 1.1 : edge[0]
+    const x1 = west ? edge[0] : edge[0] + pad * 1.1
+    const h = pad * 0.4
+    const hits = others.reduce((n, p) => n + (p[0] > x0 && p[0] < x1 && Math.abs(p[1] - c[1]) < h ? 1 : 0), 0)
+    return { at: [edge[0], c[1]], side: west ? 'w' : 'e', room: [edge[0] + (west ? -pad : pad), c[1]], hits }
+  }
+  const pref = place(c[0] <= mid)
+  const alt = pref.hits ? place(!(c[0] <= mid)) : null
+  const best = alt && alt.hits < pref.hits ? alt : pref
+  return { at: best.at, side: best.side, room: best.room, pts: all }
+}
+
+// the middle and the east-west span of a set of areas (their centers)
+function spanOf(areas) {
+  const xs = areas.map((a) => a.center?.[0]).filter((x) => Number.isFinite(x))
+  if (!xs.length) return { mid: 0, span: 0 }
+  const lo = Math.min(...xs)
+  const hi = Math.max(...xs)
+  return { mid: (lo + hi) / 2, span: hi - lo }
+}
+
+// hospitals in the dark areas (assumed on backup power): each area's count, outside the area
 export function HospitalsLayer({ report, lang, stage, animate }) {
+  const { grid } = useOverload()
   const layer = useMemo(() => {
     const areas = new Map((report?.areas || []).map((a) => [String(a.area).toLowerCase(), a]))
-    const tags = (report?.hospitals?.areas || [])
+    const rows = (report?.hospitals?.areas || [])
       .map((h) => ({ h, a: areas.get(String(h.area).toLowerCase()) }))
       .filter((x) => x.a?.center && Number(x.h.count) > 0)
       .slice(0, 6)
-      .map((x, i) => ({ at: x.a.center, text: P[lang].hospitalsN(Number(x.h.count)), tone: 'lost', side: ['sw', 'nw', 'se', 'ne'][i % 4], delay: animate ? 300 + i * 450 : 0 }))
-    return tags.length ? { key: 'hospitals', still: !animate, tags } : null
-  }, [report, lang, animate])
-  const cam = useMemo(() => (layer ? { points: layer.tags.map((t) => t.at) } : null), [layer])
+    const { mid, span } = spanOf(rows.map((x) => x.a))
+    const tags = []
+    const pts = []
+    // every dark area's points (not only those with hospitals): a tag keeps off all of them
+    const shapes = [...areas.values()].filter((a) => a?.center).map((a) => ({ a, pts: areaShape({ grid }, a).pts }))
+    rows.forEach((x, i) => {
+      const others = shapes.filter((s) => s.a !== x.a).flatMap((s) => s.pts)
+      const o = outside({ grid }, x.a, mid, span, others)
+      if (!o) return
+      pts.push(...o.pts, o.room)
+      tags.push({ at: o.at, text: P[lang].hospitalsN(Number(x.h.count)), sub: x.a.area, tone: 'lost', side: o.side, delay: animate ? 300 + i * 450 : 0 })
+    })
+    return tags.length ? { key: 'hospitals', still: !animate, tags, pts } : null
+  }, [report, lang, animate, grid])
+  const cam = useMemo(() => (layer ? { points: [...layer.tags.map((t) => t.at), ...layer.pts] } : null), [layer])
   useLayer(stage, layer, cam)
   return null
 }
@@ -119,8 +166,11 @@ export function CostLayer({ report, lang, stage, animate }) {
     const areas = (report?.areas || []).filter((a) => Number(a.people) > 0 && a.center).slice(0, 3)
     areas.forEach((a) => hulls.push({ key: a.area, pts: areaShape(O, a).pts, tone: 'dim' }))
     const hi = Number(c.blackout_high_usd) || Number(c.ranges?.blackout_usd?.[1]) || 0
-    // the app labels each dark town to the right of it: these pins go to the left
-    if (hi && areas[0]) tags.push({ at: areas[0].center, text: T.costBlackout(moneyShort(hi)), tone: 'lost', side: 'sw', delay: animate ? 400 : 0 })
+    // outside the hardest-hit area, on a short leader (CLEAR AREAS)
+    const sp = spanOf(areas)
+    const others = areas.slice(1).flatMap((a) => areaShape(O, a).pts)
+    const out = hi && areas[0] ? outside(O, areas[0], sp.mid, sp.span, others) : null
+    if (out) tags.push({ at: out.at, text: T.costBlackout(moneyShort(hi)), tone: 'lost', side: out.side, delay: animate ? 400 : 0 })
     const best = report?.best_fix != null ? report.fixes?.[report.best_fix] : null
     const first = (best?.detail?.list || [])[0]
     const at = first && branchAt({ branchById, subPos }, first.id)

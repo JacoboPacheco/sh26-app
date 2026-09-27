@@ -19,7 +19,7 @@ import { dwellMs, mergeSolutions, optionsOf, quietDeck, swapUnplayed, withShow }
 import { P } from './showText'
 import './show.css'
 import './present.css'
-import { applyBase, extentPoints, loc, setStoreCase, stepIndexOf, transcriptText } from './stage'
+import { applyBase, extentPoints, loc, setStoreCase, stepIndexOf, transcriptSeg, transcriptText } from './stage'
 import { T } from './text'
 import useDeck from './useDeck'
 import useNarration, { readMuted, reducedMotion } from './useNarration'
@@ -43,6 +43,17 @@ import { getDownload } from './voiceApi'
 // OPTIONS PANEL (user, Sat 19:12): "How the AI found them" opens in that same right-hand slot as a second tab, beside
 // the options and never over them: the options' review beat opens it by itself (wide screens; a phone keeps it one tap
 // away as a bottom sheet), and leaving the solutions puts the sidebar back the way it was.
+// the beats that show a place on the map: the per-town number labels step aside while they are up (CLEAR AREAS)
+const CLEAR_BEATS = new Set(['toll', 'areas', 'hospitals', 'cause', 'fix', 'problem', 'bottom_line', 'no_fix', 'cost', 'event'])
+// A request that never reached the server reads "Failed to fetch": say it plainly (REVIEW-1 (g)); a server's own
+// sentence stays as it is.
+function plainError(err, lang) {
+  const m = String(err?.message || err || '')
+  if (/failed to fetch|networkerror|load failed|network request failed|timed? ?out|aborted/i.test(m)) {
+    return new Error(lang === 'es' ? 'No se pudo contactar con el servidor del informe. Revisa la conexión e inténtalo de nuevo.' : "The briefing server couldn't be reached. Check the connection and try again.")
+  }
+  return err
+}
 const WIDE_ASK = 1200
 const NARROW = 860
 const AI_HOLD_MS = 1500 // autoplay waits up to this long for Gemini's deck when it is not in yet (REVIEW-1 #1)
@@ -68,6 +79,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   const reduced = useMemo(() => reducedMotion(), [])
   const locked = useRef(false)
   const rootRef = useRef(null)
+  const closeRef = useRef(null)
   const { report: baseReport, deck: templateDeck, aiDeck, aiSettled, error, fixture, retry, late } = useDeck(body, { allowFixture })
   // Gemini's deck: the whole deck when it is in before playback starts; after that, the slides not played yet
   // (REVIEW-1 #1: it used to arrive a moment after the template had started and be dropped)
@@ -217,7 +229,11 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         if (!c) return
         setLive((l) => ({ ...l, cueStep: Math.max(l.cueStep, Number(value) || 0) })) // the play cards follow the words too
         if (O.playing) return // the blast is playing on the map: a cue must not cut it short
-        O.setStep(stepIndexOf(c, value) ?? Math.min(Math.max(0, Number(value) || 0), c.steps.length))
+        const at = stepIndexOf(c, value) ?? Math.min(Math.max(0, Number(value) || 0), c.steps.length)
+        // PLAYS, SUMMARIZED: the big plays are named first and the rest summed up after them, so a cue can name an
+        // earlier step than the map shows: on the chain the map only moves forward
+        if (kindRef.current === 'chain' && at <= O.step) return
+        O.setStep(at)
       } else if (name === 'option') {
         // the first option's cue may be 0 or 1: the smallest value in the fix slide's cues is the first option
         const vals = (deckRef.current?.slides || [])
@@ -257,10 +273,13 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     let need = (reduced ? Math.min(dwell, 7000) : dwell) - elapsed
     if ((slide.kind || slide.id) === 'chain') {
       const now = performance.now()
+      // the last play lands with the replay's end; the "Beyond those" card that sums up the rest lands with it and
+      // needs a moment to be read (PLAYS, SUMMARIZED)
+      const tail = slide.plays_rest?.steps?.length ? 4800 : 2600
       if (O.playing) {
         replayEnd.current = now // the blast is still on the map: wait, then let the last play land
         need = Math.max(need, 400)
-      } else if (now - replayEnd.current < 2600) need = Math.max(need, 2600 - (now - replayEnd.current))
+      } else if (now - replayEnd.current < tail) need = Math.max(need, tail - (now - replayEnd.current))
     }
     return Math.max(0, need)
   }, [reduced])
@@ -394,6 +413,17 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   useEffect(() => {
     kindRef.current = slideKind
   })
+  // CLEAR AREAS (user, Sat 20:30: "remove the numbers when you're showing a location so it shows a clear area"): while a
+  // beat shows a place (the toll's blackout, the areas the camera visits, the hospitals, the weak point, the fix pins,
+  // the bottom line), <html class="rs-clear"> hides the map's per-town number labels (the town labels' people and money,
+  // features/impact ImpactLayer; the replay's canvas labels, shell/CascadeFX); the numbers are in the slide panel.
+  // The chain keeps the replay as it is (the blast's labels are the play-by-play).
+  const clearMap = view === 'slides' && CLEAR_BEATS.has(slideKind)
+  useEffect(() => {
+    const el = document.documentElement
+    el.classList.toggle('rs-clear', clearMap)
+    return () => el.classList.remove('rs-clear')
+  }, [clearMap])
 
   // the options' review beat drives the AI tab: it opens beside the options by itself on a wide screen (remembering the
   // sidebar as it was), shows the whole run once the beat is over, and leaving the solutions puts the sidebar back
@@ -443,6 +473,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         setSide({ open: true, tab: 'ai' })
       },
       wave: (n) => setFx((f) => (f.wave === n ? f : { ...f, wave: n })),
+      close: () => closeRef.current?.(),
       camera,
       // the map's moment: 'start' (before anything failed) or 'final' (where the incident ended)
       mapStep: (which) => {
@@ -482,6 +513,9 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     if (O.cascade) O.setStep(O.cascade.steps.length)
     onClose()
   }, [onClose])
+  useEffect(() => {
+    closeRef.current = close
+  })
   // a catastrophe's fixes are listed, not applied (too many lines out for the map); so are they while a plant
   // outage is on the map (Plants tab): this deck's case has every plant running, so "apply" would run another case
   const onApply = base && !plantsOut(o.cascade) ? apply : null
@@ -650,11 +684,11 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         <main className={view === 'document' || docOnly ? 'rs-panel rs-panel--doc' : 'rs-panel'}>
           {docOnly ? (
             <>
-              {!notLive(error) && <ErrorBanner error={new Error('The slides could not be prepared; here is the written briefing.')} onRetry={retry} />}
+              {!notLive(error) && <ErrorBanner error={new Error(lang === 'es' ? 'No se pudieron preparar las diapositivas; aquí está el informe escrito.' : 'The slides could not be prepared; here is the written briefing.')} onRetry={retry} />}
               <BriefingDoc report={report} deck={null} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={onApply} fixture={fixture} />
             </>
           ) : error ? (
-            <ErrorBanner error={error} onRetry={retry} />
+            <ErrorBanner error={plainError(error, lang)} onRetry={retry} />
           ) : !deck ? (
             <Loading label={t.preparing} />
           ) : view === 'document' ? (
@@ -839,7 +873,7 @@ function Transcript({ deck, lang, onClose }) {
             <h3>{s.headline?.[lang]}</h3>
             {(s.narration?.[lang] || []).map((g) => (
               <p key={g.key}>
-                <span className="rs-transcript__who">{g.role === 'analyst' ? t.analyst : t.presenter}</span> {g.text}
+                <span className="rs-transcript__who">{g.role === 'analyst' ? t.analyst : t.presenter}</span> {transcriptSeg(g, lang)}
               </p>
             ))}
           </li>

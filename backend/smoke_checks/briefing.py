@@ -4,6 +4,9 @@ ctx: check(name, fn), request(method, path, data=None, headers=None, expect=200)
 auth() -> headers for this run's throwaway user, expected (expected_whatif.json).
 These endpoints are public and store nothing."""
 
+import threading
+import time
+
 
 def register(ctx):
     hero = ctx.expected["hero"]
@@ -153,7 +156,31 @@ def register(ctx):
         for bad in ("FEMA", "evacuat", "this is not a test", "Hurricane "):
             assert bad not in texts, bad
 
+    def one_build_per_case():
+        """BRIEFING SPEED (Sat 20:16): the presentation asks for the report and its decks at the same moment; a case the
+        server has not seen is built once, and every other request for it at that moment waits and takes the cached
+        report (exactly one of three concurrent answers is a fresh build)."""
+        body = {**case, "mw": hero["mw"] - 11 + (time.time() % 1)}  # a case this server has not built yet
+        out: list = []
+
+        def ask():
+            try:
+                out.append(ctx.request("POST", "/api/briefing", body))
+            except Exception as e:  # noqa: BLE001
+                out.append(e)
+
+        th = [threading.Thread(target=ask) for _ in range(3)]
+        for t in th:
+            t.start()
+        for t in th:
+            t.join()
+        assert not any(isinstance(x, Exception) for x in out), out
+        fresh = [x for x in out if not x.get("cached")]
+        assert len(fresh) == 1, f"{len(fresh)} of 3 concurrent requests built the same case"
+        assert len({x["key"] for x in out}) == 1 and len({len(x["fixes"]) for x in out}) == 1, [x["key"] for x in out]
+
     ctx.check("briefing: hero report — timeline, root cause, areas (briefing.py)", hero_report)
+    ctx.check("briefing: three concurrent requests for a new case build it once", one_build_per_case)
     ctx.check("briefing: Category 5 across Florida — no fix exists, LP-verified rebuild waves, cached repeat", catastrophe_no_fix_and_plan)
     ctx.check("briefing: fact texts carry no alert phrasing or storm names", check_text_is_strict)
     ctx.check("briefing: hero fixes verified — full size first, shrink to 550 MW still holds; every 'holds' re-runs calm", hero_fixes_are_verified)

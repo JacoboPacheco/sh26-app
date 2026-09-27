@@ -93,11 +93,24 @@ export function headlineOf(report, deck) {
 // the deck's banner / credit / disclaimer in this language (the writer puts the Spanish ones in deck.local)
 export const loc = (deck, key, lang) => deck?.local?.[lang]?.[key] || deck?.[key] || ''
 
+// A segment's words as the transcript keeps them: REVIEW-1 (c) — the voice and the captions say "far past its limit" for
+// a loading past ~300 % (a re-solve artefact), and the `raw` cue at that spot carries the model's figure, which the
+// transcript prints: "far past its limit (1,344 % in the model)".
+export function transcriptSeg(g, lang) {
+  const raws = (g?.cues || []).filter((c) => c.name === 'raw').sort((a, b) => b.char - a.char)
+  let text = g?.text || ''
+  for (const c of raws) {
+    const v = Number(c.value).toLocaleString('en-US')
+    text = `${text.slice(0, c.char)} (${lang === 'es' ? `${v} % en el modelo` : `${v}% in the model`})${text.slice(c.char)}`
+  }
+  return text
+}
+
 export function transcriptText(deck, lang) {
   const out = [loc(deck, 'banner', lang), '', deck.title?.[lang] || '', '']
   deck.slides.forEach((s, i) => {
     out.push(`${i + 1}. ${s.headline?.[lang] || ''}`)
-    ;(s.narration?.[lang] || []).forEach((g) => out.push(`${g.role === 'analyst' ? T[lang].analyst : T[lang].presenter}: ${g.text}`))
+    ;(s.narration?.[lang] || []).forEach((g) => out.push(`${g.role === 'analyst' ? T[lang].analyst : T[lang].presenter}: ${transcriptSeg(g, lang)}`))
     out.push('')
   })
   out.push(loc(deck, 'credit', lang), loc(deck, 'disclaimer', lang))

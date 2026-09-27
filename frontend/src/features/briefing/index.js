@@ -7,3 +7,5 @@ export { default as ReviewCard } from '../bulletin/Bulletin'
 export { default as BriefRoute } from './BriefRoute'
 export { HERO } from './stage'
 export { default as PresentDamage } from './PresentDamage'
+//   fullSolutionHref  the deep link to Strengthen's incident solution stage for a case ("The full solution")
+export { fullSolutionHref } from './fullSolution'
