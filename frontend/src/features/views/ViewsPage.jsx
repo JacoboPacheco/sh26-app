@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import DataCentersTab from './DataCentersTab'
-import JudgesGuide from './JudgesGuide'
 import PopulationTab from './PopulationTab'
 import SourcesTab from './SourcesTab'
 import './views.css'
@@ -69,7 +68,6 @@ export default function ViewsPage() {
         <div hidden={tab !== 'datacenters'}>
           {seen.has('datacenters') && (
             <>
-              <JudgesGuide />
               <div className="vw-lead">
                 <h1 className="vw-h2">Where the data centers are</h1>
                 <p>
