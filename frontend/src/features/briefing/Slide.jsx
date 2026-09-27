@@ -197,7 +197,7 @@ function AreaBars({ areas, lang, animate, on = null }) {
           </span>
         </li>
       ))}
-      <li className="sh-areas__foot">{t.stillOut === 'out' ? 'people without power (estimate)' : 'personas sin luz (estimación)'}</li>
+      <li className="sh-areas__foot">{t.stillOut === 'out' ? 'an estimated number of people without power' : 'un estimado de personas sin luz'}</li>
     </ol>
   )
 }

@@ -816,9 +816,9 @@ def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
         )
         if c.sites:
             if people_wo >= 0.95 * people_inc:
-                sentence += f" Without {dc}, about the same number of people lose power: {_big(people_wo)} (estimate)."
+                sentence += f" Without {dc}, about the same number of people lose power: an estimated {_big(people_wo)}."
             else:
-                sentence += f" Without {dc}, {_big(people_wo)} people (estimate) would lose power instead of {_big(people_inc)}."
+                sentence += f" Without {dc}, an estimated {_big(people_wo)} people would lose power instead of {_big(people_inc)}."
     return {
         **base,
         "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer", "rate_est")},
@@ -880,20 +880,20 @@ def _root_cause_plants(c: _Case, first, inc: dict, floor: dict, base: dict, over
             return f" With {ref} running, no one loses power" + (f", {dc} included." if c.sites else ".")
         if people_inc > people_on:
             if c.sites and grid_alone_holds:
-                return f" With {ref} running, {_big(people_on)} people (estimate) would still lose power to {dc_s} own overloads, instead of {_big(people_inc)}."
-            return f" With {ref} running, {_big(people_on)} people (estimate) would lose power instead of {_big(people_inc)}."
+                return f" With {ref} running, an estimated {_big(people_on)} people would still lose power to {dc_s} own overloads, instead of {_big(people_inc)}."
+            return f" With {ref} running, an estimated {_big(people_on)} people would lose power instead of {_big(people_inc)}."
         if people_inc == people_on > 0:
-            return f" With {ref} running, the same {_big(people_on)} people (estimate) lose power."
+            return f" With {ref} running, the same estimated {_big(people_on)} people lose power."
         if people_on > people_inc:  # the case is worse with the plants running
             if people_inc == 0:
-                return f" With {ref} running, {_big(people_on)} people (estimate) would lose power; with {ref} offline, no one does."
-            return f" With {ref} running, {_big(people_on)} people (estimate) would lose power instead of {_big(people_inc)}."
+                return f" With {ref} running, an estimated {_big(people_on)} people would lose power; with {ref} offline, no one does."
+            return f" With {ref} running, an estimated {_big(people_on)} people would lose power instead of {_big(people_inc)}."
         return ""
 
     def plant_too() -> str:
         """The closing words when the plants are not the cause: they were offline too, and what that changed."""
         if due > 0:
-            return f" Losing {pw_['label']} ({pw_['size']}) made it worse: {_big(people_inc)} people (estimate) lose power instead of {_big(people_on)}."
+            return f" Losing {pw_['label']} ({pw_['size']}) made it worse: an estimated {_big(people_inc)} people lose power instead of {_big(people_on)}."
         if people_on > people_inc:
             return f" {pw_['Label']} ({pw_['size']}) was offline too; it adds no one to the outage." + with_plants_note()
         if people_inc > 0:  # the same count with every plant running (never "picked up its output": that isn't known here)
@@ -1150,18 +1150,19 @@ def _headline_case(c: _Case, kind: str, inc: dict, areas: list[dict]) -> str:
 # ----------------------------------------------------------------------------- facts
 def _fact(key, label, value, unit="", estimate=False, source="engine", text=None) -> dict:
     if text is None:
+        pre = "an estimated " if estimate else ""
         if isinstance(value, str):
             text = value
         elif unit == "people":
-            text = f"{int(value):,} people" + (" (estimate)" if estimate else "")
+            text = f"{pre}{int(value):,} people"
         elif unit == "%":
-            text = f"{value:.1f}%" + (" (estimate)" if estimate else "")
+            text = f"{pre}{value:.1f}%"
         elif unit == "MW":
-            text = f"{value:,.1f} MW".replace(".0 MW", " MW") + (" (estimate)" if estimate else "")
+            text = (f"{pre}{value:,.1f} MW").replace(".0 MW", " MW")
         elif unit in ("MVA", "km"):
             text = f"{value:,.1f} {unit}".replace(f".0 {unit}", f" {unit}")
         elif unit == "USD":
-            text = f"${value:,.0f}" + (" (estimate)" if estimate else "")
+            text = f"{pre}${value:,.0f}"
         elif isinstance(value, float) and not float(value).is_integer():
             text = f"{value:,.2f}".rstrip("0").rstrip(".") + (f" {unit}" if unit else "")
         else:
@@ -1315,7 +1316,7 @@ def _facts(c: _Case, rep: dict) -> list[dict]:
                 F.append(_fact(f"cost.{k}", f"{name} (midpoint)", float(cost[k]), "USD", True, cost.get("source", "costs.py")))
                 rng = (cost.get("ranges") or {}).get(k)
                 if rng:
-                    F.append(_fact(f"cost.{k}_range", f"{name} (low to high)", float(rng[1]), "USD", True, cost.get("source", "costs.py"), text=f"${rng[0]:,.0f} to ${rng[1]:,.0f} (estimate)"))
+                    F.append(_fact(f"cost.{k}_range", f"{name} (low to high)", float(rng[1]), "USD", True, cost.get("source", "costs.py"), text=f"an estimated ${rng[0]:,.0f} to ${rng[1]:,.0f}"))
         if cost.get("who_pays"):
             F.append(_fact("cost.who_pays", "Who pays", cost["who_pays"], source=cost.get("source", "costs.py")))
         if cost.get("duration_h_assumed"):
@@ -1679,7 +1680,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                     FAMILY_LABEL[fam],
                     "not_needed",
                     floor_oc,
-                    f"Without the data center the same {_big(floor['people'])} people (estimate) lose power, verified by the no-campus run, so changing the campus does not help.",
+                    f"Without the data center the same estimated {_big(floor['people'])} people lose power, verified by the no-campus run, so changing the campus does not help.",
                     {},
                     None,
                     0,
@@ -1698,7 +1699,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 if new_total < 1.0:
                     oc, v = floor_oc, J.verdict(floor_oc)
                     trade = f"No size fits here without an overload {word}." + (
-                        f" Even with no data center, {_big(floor['people'])} people (estimate) lose power." if floor["people"] else ""
+                        f" Even with no data center, an estimated {_big(floor['people'])} people lose power." if floor["people"] else ""
                     )
                     fixes.append(_fix(fam, "Shrink the data center", "fails" if v == "holds" else v, oc, trade, {"mw": 0.0, "from_mw": total, "solves": solves}, None, _ms(t0)))
                     shrink_res = {"ok": False}
@@ -1847,7 +1848,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 trade = f"New equipment on {what}" + (f" ({km:,.1f} km of line)" if km else "")
                 if J.bound_people > 0:
                     trade += (
-                        f". It stops the cascade, but the {_big(J.bound_people)} people (estimate) the {_storm_word(c)} cut off stay dark until the downed lines are rebuilt."
+                        f". It stops the cascade, but an estimated {_big(J.bound_people)} people the {_storm_word(c)} cut off stay dark until the downed lines are rebuilt."
                         if oc["steps"] == 0
                         else f". The people the {_storm_word(c)} cut off stay dark until the downed lines are rebuilt."
                     )
@@ -1896,7 +1897,7 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
                 fixes.append(_fix(fam, action, v, oc, trade, {"mw": mid_total, "lines": len(lst), "mva": mva, "km": km, "list": lst[:20], "checked_by": how}, ap, _ms(t0)))
             elif fam == "remove":
                 v = J.verdict(floor_oc)
-                trade = "No campus at this site." if v == "holds" else f"Even with no data center, {_big(floor['people'])} people (estimate) lose power, verified by the no-campus run."
+                trade = "No campus at this site." if v == "holds" else f"Even with no data center, an estimated {_big(floor['people'])} people lose power, verified by the no-campus run."
                 fixes.append(_fix(fam, "Don't build the data center here", v, floor_oc, trade, {"checked_by": "the no-campus run"}, {"lat": None, "lon": None, "mw": None, "sites": []}, _ms(t0)))
         except EngineGap:
             raise
@@ -1906,14 +1907,14 @@ def _fixes(c: _Case, B: _Budget, J: _Judge, inc: dict, floor: dict) -> tuple[lis
     # a fix that doesn't fully hold says what the engine found when it ran it
     for fx in fixes:
         oc = fx.get("outcome")
-        if fx["verdict"] in ("partly", "fails") and oc and fx["family"] != "time_of_day" and "(estimate)" not in fx["tradeoff"]:
+        if fx["verdict"] in ("partly", "fails") and oc and fx["family"] != "time_of_day" and "estimated" not in fx["tradeoff"]:
             n, ppl = int(oc["steps"]), int(oc["people"])
             if n == 0:
-                fx["tradeoff"] += f" Engine check: no cascade, but {_big(ppl)} people (estimate) are still without power."
+                fx["tradeoff"] += f" Engine check: no cascade, but an estimated {_big(ppl)} people are still without power."
             elif ppl == 0:
                 fx["tradeoff"] += f" Engine check: lines still trip ({n} {'step' if n == 1 else 'steps'}), though no one loses power."
             else:
-                fx["tradeoff"] += f" Engine check: still {_a(n)} {n}-step cascade, with {_big(ppl)} people (estimate) without power."
+                fx["tradeoff"] += f" Engine check: still {_a(n)} {n}-step cascade, with an estimated {_big(ppl)} people without power."
     return fixes, unchecked, notes
 
 
@@ -2685,10 +2686,10 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
             "proof": [{"family": f["family"], "verdict": f["verdict"], "people": (f.get("outcome") or {}).get("people")} for f in fixes],
             "sentence": (
                 (
-                    f"No line fix exists for about {_big(bound['people'])} people (estimate). Even with unlimited line capacity and no data center, "
+                    f"No line fix exists for about {_big(bound['people'])} people. Even with unlimited line capacity and no data center, "
                     f"the plants still running can't make up the output of {_plant_words(c)['label']}; only bringing {'them' if c.plants['words']['plural'] else 'it'} back, or other generation, serves them. "
                     if plant_short
-                    else f"No fix exists for about {_big(bound['people'])} people (estimate). Even with unlimited line capacity and no data center, "
+                    else f"No fix exists for about {_big(bound['people'])} people. Even with unlimited line capacity and no data center, "
                     f"the damage cuts them off from the power plants that could serve them; only rebuilding the downed lines brings them back. "
                 )
                 + (
@@ -2715,7 +2716,7 @@ def _build(c: _Case, budget_ms: int, t_all: float) -> dict:
     if no_fix and recovery and recovery.get("still_out_after_all"):
         left = int(recovery["still_out_after_all"])
         no_fix["after_rebuild_people"] = left
-        no_fix["sentence"] += f" Even with every line rebuilt, about {_big(left)} people (estimate) stay dark at this load; only cutting demand could reach them."
+        no_fix["sentence"] += f" Even with every line rebuilt, about {_big(left)} people stay dark at this load; only cutting demand could reach them."
 
     case_out = {
         **c.header,
@@ -2890,7 +2891,7 @@ def what_if(report_key: str, change: dict) -> dict:
         facts.append(_fact("whatif.mw", "What-if: data center size", float(sum(s.mw for s in sites)), "MW"))
     facts.append(_fact("whatif.load_factor", "What-if: load level", round(g.load_factor, 2), "x summer peak", text=f"{g.load_factor:.2f} x the summer peak ({load_word(g.load_factor)})"))
     return {
-        "label": f"Ran the engine: {label} → {steps} steps, {people:,} people (estimate)",
+        "label": f"Ran the engine: {label} → {steps} steps, an estimated {people:,} people",
         "case_delta": delta,
         "steps": steps,
         "people": people,

@@ -48,10 +48,10 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
       <section aria-labelledby="rs-doc-sum">
         <h3 id="rs-doc-sum">Summary</h3>
         <dl className="rs-facts">
-          <Fact k={LABEL.en.hit.replace(' (estimate)', '')} v={`${num(hit)} (estimate)`} hint={LABEL.en.hitVsStillOut} />
-          <Fact k={LABEL.en.stillOutK.replace(' (estimate)', '')} v={`${num(stillOut)} (estimate)`} hint={LABEL.en.hitVsStillOut} />
-          {report.cost?.duration_h_assumed > 0 && <Fact k="Time without power" v={`${outageText(report.cost.duration_h_assumed)} (estimate)`} />}
-          {ev.people_share_pct != null && <Fact k={`Share of ${report.region_name || 'the state'}`} v={`${ev.people_share_pct}% (estimate)`} />}
+          <Fact k={LABEL.en.hit.replace(' (estimate)', '')} v={`an estimated ${num(hit)}`} hint={LABEL.en.hitVsStillOut} />
+          <Fact k={LABEL.en.stillOutK.replace(' (estimate)', '')} v={`an estimated ${num(stillOut)}`} hint={LABEL.en.hitVsStillOut} />
+          {report.cost?.duration_h_assumed > 0 && <Fact k="Time without power" v={`an estimated ${outageText(report.cost.duration_h_assumed)}`} />}
+          {ev.people_share_pct != null && <Fact k={`Share of ${report.region_name || 'the state'}`} v={`an estimated ${ev.people_share_pct}%`} />}
           <Fact k="Existing load lost" v={`${num(ev.lost_mw)} MW`} />
           <Fact k="Cascade steps" v={`${num(ev.steps)}${ev.capped ? ' (still spreading when the model stopped)' : ''}`} />
           {ev.storm_lines_out > 0 && <Fact k="Lines knocked out by the storm" v={num(ev.storm_lines_out)} />}
@@ -88,8 +88,8 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
                         )
                       )
                     })()}
-                    {row.newly_dark?.length > 0 && <span className="rs-tl__dark">Power lost (estimates): {darkList(row.newly_dark)}</span>}
-                    <span className="rs-tl__cum">{row.people_cum > 0 ? `${num(row.people_cum)} people without power so far (estimate)` : 'No one has lost power yet'}</span>
+                    {row.newly_dark?.length > 0 && <span className="rs-tl__dark">An estimated power lost: {darkList(row.newly_dark)}</span>}
+                    <span className="rs-tl__cum">{row.people_cum > 0 ? `an estimated ${num(row.people_cum)} people without power so far` : 'No one has lost power yet'}</span>
                   </button>
                 </li>
               )
@@ -144,18 +144,18 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
 
       {report.cost && (
         <section aria-labelledby="rs-doc-cost">
-          <h3 id="rs-doc-cost">What it costs (estimate)</h3>
+          <h3 id="rs-doc-cost">What it costs (estimated)</h3>
           <dl className="rs-facts">
             {/* every cost at the high end of its range, as the results panel and the deck say it */}
             {report.cost.blackout_usd != null && (
               <Fact
                 k={`The blackout, if it lasts ${outageText(report.cost.duration_h_assumed)} (assumed)`}
-                v={`${usd(report.cost.blackout_high_usd ?? report.cost.ranges?.blackout_usd?.[1] ?? report.cost.blackout_usd)} (high end${report.cost.ranges?.blackout_usd ? `; range ${range(report.cost.ranges.blackout_usd, 'USD')}` : ''}; estimate)`}
+                v={`an estimated ${usd(report.cost.blackout_high_usd ?? report.cost.ranges?.blackout_usd?.[1] ?? report.cost.blackout_usd)} (high end${report.cost.ranges?.blackout_usd ? `; range ${range(report.cost.ranges.blackout_usd, 'USD')}` : ''})`}
               />
             )}
-            {report.cost.upgrade_usd != null && <Fact k="The upgrades that prevent it" v={`up to ${usd(report.cost.ranges?.upgrade_usd?.[1] ?? report.cost.upgrade_usd)} (estimate)`} />}
+            {report.cost.upgrade_usd != null && <Fact k="The upgrades that prevent it" v={`up to an estimated ${usd(report.cost.ranges?.upgrade_usd?.[1] ?? report.cost.upgrade_usd)}`} />}
             {report.cost.campus_bill_usd_per_year != null && (
-              <Fact k="The data center's power bill per year" v={`up to ${usd(report.cost.ranges?.campus_bill_usd_per_year?.[1] ?? report.cost.campus_bill_usd_per_year)} (estimate)`} />
+              <Fact k="The data center's power bill per year" v={`up to an estimated ${usd(report.cost.ranges?.campus_bill_usd_per_year?.[1] ?? report.cost.campus_bill_usd_per_year)}`} />
             )}
             {report.cost.who_pays && <Fact k="Who pays" v={report.cost.who_pays} />}
           </dl>
@@ -204,7 +204,7 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
                   {f.outcome && f.verdict !== 'not_checked' && f.verdict !== 'not_needed' && (
                     <>
                       {' · '}
-                      {f.outcome.steps} steps, {num(f.outcome.people)} people out (estimate)
+                      {f.outcome.steps} steps, an estimated {num(f.outcome.people)} people out
                     </>
                   )}
                   {f.tradeoff && ` · ${f.tradeoff}`}
@@ -219,8 +219,8 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
           </ul>
           {report.firm_note && (
             <p className="muted">
-              Firm service instead: keeping the data center on means cutting {num(report.firm_note.shed_mw)} MW of other customers (
-              {num(report.firm_note.people)} people, estimate).
+              Firm service instead: keeping the data center on means cutting {num(report.firm_note.shed_mw)} MW of other customers (an estimated{' '}
+              {num(report.firm_note.people)} people).
             </p>
           )}
           {report.unchecked?.length > 0 && <p className="muted">Not checked in time: {report.unchecked.map((f) => FAMILY.en[f] || f).join(', ')}.</p>}
@@ -229,7 +229,7 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
 
       {nf && (
         <section aria-labelledby="rs-doc-nofix" className="rs-doc__nofix">
-          <h3 id="rs-doc-nofix">No fix exists for about {people(nf.people)} people (estimate)</h3>
+          <h3 id="rs-doc-nofix">No fix exists for about {people(nf.people)} people</h3>
           <p>{nf.sentence}</p>
           {report.split && <SplitBar split={report.split} lang="en" />}
         </section>
@@ -268,14 +268,14 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
           </table>
           {rec.baseline?.plan_better_by > 0 && (
             <p>
-              The order matters: after {num(rec.baseline.repairs)} repairs, this plan leaves {num(rec.baseline.plan_people_out)} people without power; rebuilding the
-              biggest lines first would leave {num(rec.baseline.people_out)} (estimates).
+              The order matters: after {num(rec.baseline.repairs)} repairs, this plan leaves an estimated {num(rec.baseline.plan_people_out)} people without power; rebuilding the
+              biggest lines first would leave an estimated {num(rec.baseline.people_out)}.
             </p>
           )}
           {rec.hardening?.length > 0 && (
             <p>
               Hardening before the next storm:{' '}
-              {rec.hardening.map((h) => `${h.k} lines${h.km != null ? ` (${num(Math.round(h.km))} km)` : ''} kept standing would keep ${num(h.people_kept_on)} people on (estimate)`).join('; ')}.
+              {rec.hardening.map((h) => `${h.k} lines${h.km != null ? ` (${num(Math.round(h.km))} km)` : ''} kept standing would keep an estimated ${num(h.people_kept_on)} people on`).join('; ')}.
             </p>
           )}
         </section>

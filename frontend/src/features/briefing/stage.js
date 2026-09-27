@@ -77,16 +77,16 @@ export function setStoreCase(O, full, delta = {}) {
   O.setFirm(!!full.firm)
 }
 
-// The incident's headline with the results panel's figures. The deck's event slide names them ("…: 1,266,110
-// people hit (estimate)."); the engine's own headline counts only the people still out ("an estimated 783,883
-// people lost power"), so where it stands in, that clause is rewritten with both figures, precisely labeled.
+// The incident's headline with the results panel's figures. The deck's event slide names them ("…: an
+// estimated 1,266,110 people hit"); the engine's own headline counts only the people still out ("an estimated
+// 783,883 people lost power"), so where it stands in, that clause is rewritten with both figures, precisely labeled.
 export function headlineOf(report, deck) {
   const ev = (deck?.slides || []).find((s) => (s.kind || s.id) === 'event')?.headline?.en
   if (ev) return ev
   const text = report?.headline?.text || ''
   const { hit, stillOut } = reportPeople(report)
   if (!text || !(hit > 0)) return text
-  const both = hit > stillOut ? `${fmt(hit)} people hit, ${fmt(stillOut)} still without power when it settled (estimates)` : `${fmt(hit)} people hit (estimate)`
+  const both = hit > stillOut ? `an estimated ${fmt(hit)} people hit, an estimated ${fmt(stillOut)} still without power when it settled` : `an estimated ${fmt(hit)} people hit`
   return text.replace(/an estimated [\d,.]+(?: million)? people (?:lost power|without power)/, both)
 }
 

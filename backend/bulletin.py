@@ -249,8 +249,9 @@ def _group_areas(g, pairs) -> list[dict]:
 
 def _fact(key, label, value, unit="", estimate=False, source="engine") -> dict:
     shown = f"{value:,}" if isinstance(value, int) else str(value)
+    prefix = "an estimated " if estimate else ""
     return {"key": key, "label": label, "value": value, "unit": unit, "estimate": estimate, "source": source,
-            "text": f"[{key}] {label}: {shown}{(' ' + unit) if unit else ''}{' (estimate)' if estimate else ''}"}
+            "text": f"[{key}] {label}: {prefix}{shown}{(' ' + unit) if unit else ''}"}
 
 
 def _local_report(body: CaseIn) -> dict:
@@ -749,16 +750,17 @@ class Writer:
         return f"{people_say(self.people, 'en')} lose power" if en else f"{people_say(self.people, 'es')} se quedan sin luz"
 
     def toll_head(self, lang: str) -> str:
-        """The headline figure, exactly as the panel's counter prints it: '1,266,110 people hit (estimate)'."""
-        return f"{self.hit:,} people hit (estimate)" if lang == "en" else f"{self.hit:,} personas afectadas (estimación)"
+        """The headline figure, in the slide's spoken/captioned form: 'an estimated 1,266,110 people hit'."""
+        return f"an estimated {self.hit:,} people hit" if lang == "en" else f"un estimado de {self.hit:,} personas afectadas"
 
     def toll_show(self, lang: str) -> str:
-        """The same two figures for a slide line: 'People hit: 1,266,110 · still without power when it settled: 783,883 (estimates)'."""
+        """The same two figures for a slide line, within LINE_MAX: 'People hit: an estimated 1,266,110 · still out
+        when it settled: an estimated 783,883'."""
         en = lang == "en"
         if self.hit > self.people:
-            return (f"People hit: {self.hit:,} · still without power when it settled: {self.people:,} (estimates)" if en
-                    else f"Personas afectadas: {self.hit:,} · aún sin luz al estabilizarse: {self.people:,} (estimaciones)")
-        return f"People without power: {self.people:,} (estimate)" if en else f"Personas sin luz: {self.people:,} (estimación)"
+            return (f"People hit: an estimated {self.hit:,} · still out when it settled: an estimated {self.people:,}" if en
+                    else f"Personas afectadas: un estimado de {self.hit:,} · aún sin luz: un estimado de {self.people:,}")
+        return f"People without power: an estimated {self.people:,}" if en else f"Personas sin luz: un estimado de {self.people:,}"
 
     def mask(self, text: str) -> str:
         """Names hold digits ('Fort Myers 12') that are not quantities: hide them from the number check."""
@@ -835,7 +837,7 @@ def s_toll(w: Writer, lv: Level) -> dict:
         parts: list[tuple[str, bool | int]] = [
             (f"The expected cost is about {usd}." if en else f"El costo esperado es de unos {usd}.", False),
             (f"People would be without power for {hours_say(hours, lang)}." if en else f"La gente estaría sin luz {hours_say(hours, lang)}.", False),
-            ((f"{cap(w.toll_say('en'))} (estimates)." if en else f"{cap(w.toll_say('es'))} (estimaciones)."), 1),
+            (f"{cap(w.toll_say(lang))}.", 1),
         ]
         out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang] - len(OPEN[lang].format(region=rn)) - 1),
                                   prefix=OPEN[lang].format(region=rn))]
@@ -845,8 +847,8 @@ def s_toll(w: Writer, lv: Level) -> dict:
                                  else f"Costo esperado {usd_text(high, 'es')}, {lab} sin luz")
         lines = []
         if low and low < high:
-            lines.append(f"Range: {usd_text(low, 'en')} to {usd_text(high, 'en')} (estimate)" if en
-                         else f"Rango: de {usd_text(low, 'es')} a {usd_text(high, 'es')} (estimación)")
+            lines.append(f"Estimated range: {usd_text(low, 'en')} to {usd_text(high, 'en')}" if en
+                         else f"Rango estimado: de {usd_text(low, 'es')} a {usd_text(high, 'es')}")
         if w.people:
             lines.append(w.toll_show(lang))
         lines.append("Outage time is estimated from the incident's size, not forecast" if en
@@ -856,7 +858,7 @@ def s_toll(w: Writer, lv: Level) -> dict:
                   "label": {"en": "expected cost, high end of typical estimates", "es": "costo esperado, extremo alto de las estimaciones típicas"},
                   "fact_key": "deck.toll.cost_high.scaled", "tone": "alert"}
     out["big2"] = {"value": hours, "display": {"en": hours_show(hours, "en"), "es": hours_show(hours, "es")},
-                   "label": {"en": "time without power (estimate)", "es": "tiempo sin luz (estimación)"},
+                   "label": {"en": "estimated time without power", "es": "un estimado del tiempo sin luz"},
                    "fact_key": "deck.toll.outage_hours", "tone": "alert"}
     # the panel's two people figures, for the slide and the show's slate
     out["people"] = {"hit": w.hit, "still_out": w.people}
@@ -1003,7 +1005,7 @@ def s_event(w: Writer, lv: Level) -> dict:
     tone = "alert" if w.people else "good"
     # the big figure is the panel's headline counter: people hit (the lines under it give the rest)
     out["big"] = {"value": w.hit, "display": {"en": f"{w.hit:,}", "es": f"{w.hit:,}"},
-                  "label": {"en": "people hit (estimate)", "es": "personas afectadas (estimación)"},
+                  "label": {"en": "an estimated number of people hit", "es": "un estimado de personas afectadas"},
                   "fact_key": "deck.people_hit" if w.hit > w.people else "event.people_out", "tone": tone}
     out["people"] = {"hit": w.hit, "still_out": w.people}
     site = w.site_pt()
@@ -1170,9 +1172,10 @@ def s_areas(w: Writer, lv: Level) -> dict:
         out["narr"][lang] = ([] if lv.short else [_seg("presenter", body)]) + [_seg("analyst", " ".join(items))]
         out["headline"][lang] = (f"Where the lights went out: {top['area']} was hit hardest" if en
                                  else f"Dónde se fue la luz: {top['area']}, la zona más afectada")
-        out["lines"][lang] = [(f"{a['area']} · {a['people']:,} " + ("still without power (estimate)" if en else "aún sin luz (estimación)"))[:LINE_MAX] for a in w.areas[:3]]
+        out["lines"][lang] = [(f"{a['area']} · an estimated {a['people']:,} still without power" if en
+                               else f"{a['area']} · un estimado de {a['people']:,} aún sin luz")[:LINE_MAX] for a in w.areas[:3]]
     out["big"] = {"value": top["people"], "display": {"en": f"{top['people']:,}", "es": f"{top['people']:,}"},
-                  "label": {"en": f"still without power in {top['area']} (estimate)", "es": f"aún sin luz en {top['area']} (estimación)"},
+                  "label": {"en": f"an estimated number still without power in {top['area']}", "es": f"un estimado de quienes siguen sin luz en {top['area']}"},
                   "fact_key": (w.area_key(top["area"]) or [None])[0], "tone": "alert"}
     shown = w.areas[: max(lv.areas, 1)]
     out["camera"] = cam("areas", [a.get("center") for a in shown], center=top.get("center"),
@@ -1286,29 +1289,31 @@ def s_cost(w: Writer, lv: Level) -> dict:
             if out_h:
                 h_ += f" ({out_h} without power)" if en else f" ({out_h} sin luz)"
         else:
-            h_ = "What it costs (estimates)" if en else "Lo que cuesta (estimaciones)"
+            h_ = "Estimated cost breakdown" if en else "Desglose estimado de costos"
         out["headline"][lang] = h_
         lines = []
         if blackout and low("blackout_usd") < blackout:
-            lines.append(f"Range: {usd_text(low('blackout_usd'), 'en')} to {usd_text(blackout, 'en')} (estimate)" if en
-                         else f"Rango: de {usd_text(low('blackout_usd'), 'es')} a {usd_text(blackout, 'es')} (estimación)")
+            lines.append(f"Estimated range: {usd_text(low('blackout_usd'), 'en')} to {usd_text(blackout, 'en')}" if en
+                         else f"Rango estimado: de {usd_text(low('blackout_usd'), 'es')} a {usd_text(blackout, 'es')}")
         if upgrade:
             what = ("Upgrades that prevent it" if prevents else "Upgrades that stop the cascade") if en else (
                 "Refuerzos que lo evitan" if prevents else "Refuerzos que detienen la cascada")
-            lines.append(f"{what}: up to {usd_text(upgrade, 'en')} (estimate)" if en else f"{what}: hasta {usd_text(upgrade, 'es')} (estimación)")
+            lines.append(f"{what}: up to an estimated {usd_text(upgrade, 'en')}" if en else f"{what}: hasta un estimado de {usd_text(upgrade, 'es')}")
         if bill:
-            lines.append((f"Campus power bill: up to {usd_text(bill, 'en')} a year (estimate)" if en
-                          else f"Factura del campus: hasta {usd_text(bill, 'es')} al año (estimación)"))
+            lines.append((f"Campus power bill: up to an estimated {usd_text(bill, 'en')} a year" if en
+                          else f"Factura del campus: hasta un estimado de {usd_text(bill, 'es')} al año"))
         if c.get("who_pays") and en and len(lines) < 3:
-            # costs.py's range, read as a reader would say it ("$0.00 to $0.04" -> "up to $0.04")
-            who = re.sub(r"^\$0\.00 to (\$\d[\d.,]*)", r"up to \1", str(c["who_pays"]))
-            lines.append(f"Who pays (estimate): {who}"[:LINE_MAX])
+            # costs.py's range, read as a reader would say it ("$0.00 to $0.04" -> "up to an estimated $0.04")
+            raw = str(c["who_pays"])
+            m = re.match(r"^\$0\.00 to (\$\d[\d.,]*)", raw)
+            who = f"up to an estimated {m.group(1)}" if m else f"an estimated {raw}"
+            lines.append(f"Who pays: {who}"[:LINE_MAX])
         out["lines"][lang] = [ln[:LINE_MAX] for ln in lines[:3]]
     v = blackout or upgrade or 0
     oh = {lang: (hours_show(float(hours), lang) if hours else None) for lang in LANGS}
     out["big"] = {"value": v, "display": {"en": usd_text(v, "en"), "es": usd_text(v, "es")},
-                  "label": {"en": ("blackout cost, high end (estimate" + (f", {oh['en']} without power)" if oh["en"] else ")")) if blackout else "upgrades, high end (estimate)",
-                            "es": ("costo del apagón, extremo alto (estimación" + (f", {oh['es']} sin luz)" if oh["es"] else ")")) if blackout else "refuerzos, extremo alto (estimación)"},
+                  "label": {"en": ((f"an estimated blackout cost, high end, {oh['en']} without power" if oh["en"] else "an estimated blackout cost, high end") if blackout else "an estimated upgrade cost, high end"),
+                            "es": ((f"un estimado del costo del apagón, extremo alto, {oh['es']} sin luz" if oh["es"] else "un estimado del costo del apagón, extremo alto") if blackout else "un estimado del costo de los refuerzos, extremo alto")},
                   "fact_key": "deck.cost.blackout_high.scaled.en" if blackout else "deck.cost.upgrade_high.scaled.en", "tone": "alert"}
     out["camera"] = region_cam(w) if not w.areas else cam("areas", [a.get("center") for a in w.areas[:4]])
     out["map"] = mapspec("final", w.steps, w.steps)
@@ -1825,11 +1830,11 @@ def _plain_rows(w: Writer, f: dict, kind: str | None, plan: dict, tm: dict | Non
     out_n = int(o.get("people") or 0)
     blackout = float((plan.get("blackout") or {}).get("high") or 0)
     if f.get("verdict") == "holds" and out_n == 0 and w.hit:
-        prevents = (f"The blackout: {w.hit:,} people hit (estimate)" + (f", up to {usd_text(blackout, 'en')}" if blackout else "") if en
-                    else f"El apagón: {people_noun(w.hit, 'es')} afectadas (estimación)" + (f", hasta {usd_text(blackout, 'es')}" if blackout else ""))
+        prevents = (f"The blackout: an estimated {w.hit:,} people hit" + (f", up to {usd_text(blackout, 'en')}" if blackout else "") if en
+                    else f"El apagón: un estimado de {people_noun(w.hit, 'es')} afectadas" + (f", hasta {usd_text(blackout, 'es')}" if blackout else ""))
     elif out_n:
-        prevents = (f"Part of it: {out_n:,} people still lose power (estimate)" if en
-                    else f"Parte de él: {people_noun(out_n, 'es')} siguen sin luz (estimación)")
+        prevents = (f"Part of it: an estimated {out_n:,} people still lose power" if en
+                    else f"Parte de él: un estimado de {people_noun(out_n, 'es')} siguen sin luz")
     else:
         prevents = "Every line stays within its limit" if en else "Todas las líneas quedan dentro de su límite"
     return {"what": what, "where": where, "cost": price, "prevents": prevents, "time": _years_show(tm, lang) if tm else ""}
@@ -2400,27 +2405,27 @@ def s_no_fix(w: Writer, lv: Level) -> dict:
                 s = s.replace("quedan aisladas", "quedan aislados")
             segs.append(_seg("analyst", s + "."))
         out["narr"][lang] = segs
-        out["headline"][lang] = (f"No fix exists for about {people_round(n, 'en')} people (estimate)" if en
-                                 else f"No hay solución para unas {people_round(n, 'es')} personas (estimación)" if n < 999_500
-                                 else f"No hay solución para unos {people_round(n, 'es')} de personas (estimación)")
+        out["headline"][lang] = (f"No fix exists for about {people_round(n, 'en')} people" if en
+                                 else f"No hay solución para unas {people_round(n, 'es')} personas" if n < 999_500
+                                 else f"No hay solución para unos {people_round(n, 'es')} de personas")
         if best_p is not None:
             fam_ = FAMILY_SAY[best_p["family"]][0 if en else 1]
             if stops:
                 lines = [(f"Best fix run, {fam_}: stops the cascade only" if en
                           else f"Mejor solución probada, {fam_}: solo detiene la cascada")[:LINE_MAX]]
             else:
-                lines = [(f"Best fix run, {fam_}: {int(best_p['people']):,} still out (estimate)" if en
-                          else f"Mejor solución probada, {fam_}: {int(best_p['people']):,} siguen sin luz (estimación)")[:LINE_MAX]]
+                lines = [(f"Best fix run, {fam_}: an estimated {int(best_p['people']):,} still out" if en
+                          else f"Mejor solución probada, {fam_}: un estimado de {int(best_p['people']):,} siguen sin luz")[:LINE_MAX]]
         else:
             lines = ["Every fix family checked against the model" if en else "Cada familia de soluciones, comprobada en el modelo"]
         if phys:
-            lines.append((f"Cut off by the damage: {phys:,} (estimate)" if en else f"Aislados por el daño: {phys:,} (estimación)"))
+            lines.append((f"Cut off by the damage: an estimated {phys:,}" if en else f"Aislados por el daño: un estimado de {phys:,}"))
         if casc is not None and phys:
-            lines.append((f"Cascade: {casc:,} · data center: {camp or 0:,} (estimates)" if en
-                          else f"Cascada: {casc:,} · centro de datos: {camp or 0:,} (estimaciones)"))
+            lines.append((f"An estimated split — cascade: {casc:,} · data center: {camp or 0:,}" if en
+                          else f"Un estimado del reparto — cascada: {casc:,} · centro de datos: {camp or 0:,}"))
         out["lines"][lang] = lines[:3]
     out["big"] = {"value": n, "display": {"en": f"~{people_round(n, 'en')}", "es": f"~{people_round(n, 'es')}"},
-                  "label": {"en": "people no fix can reach (estimate)", "es": "personas que ninguna solución alcanza (estimación)"},
+                  "label": {"en": "an estimated number of people no fix can reach", "es": "un estimado de personas que ninguna solución alcanza"},
                   "fact_key": "bound.people", "tone": "alert"}
     out["table"] = {"proof": [{"family": p.get("family"), "verdict": p.get("verdict"), "people": p.get("people"),
                                "label": {"en": cap(FAMILY_SAY.get(p.get("family"), (p.get("family"), p.get("family")))[0] or ""),
@@ -2479,20 +2484,20 @@ def s_recovery(w: Writer, lv: Level) -> dict:
             items.append(cue("wave", wv.get("n", i + 1)) + s)
         out["narr"][lang] = [_seg("presenter", sentences(parts, lv, PRESENTER_MAX[lang]))] + ([_seg("analyst", " ".join(items))] if items else [])
         first = waves[0] if waves else {}
-        out["headline"][lang] = ((f"The first {first.get('_count', 0)} repairs bring back {people_noun(first.get('people_back') or 0, 'en')} (estimate)" if en
-                                  else f"Las primeras {first.get('_count', 0)} reparaciones devuelven la luz a {people_noun(first.get('people_back') or 0, 'es')} (estimación)")
+        out["headline"][lang] = ((f"The first {first.get('_count', 0)} repairs bring back an estimated {people_noun(first.get('people_back') or 0, 'en')}" if en
+                                  else f"Las primeras {first.get('_count', 0)} reparaciones devuelven la luz a un estimado de {people_noun(first.get('people_back') or 0, 'es')}")
                                  if first else ("Rebuild order" if en else "Orden de reconstrucción"))
         lines = []
         for wv in waves[:3]:
             km = f" · {wv['_km']:,.0f} km" if wv.get("_km") else ""
-            lines.append((f"Wave {wv.get('n')}: {wv['_count']} lines{km} · {int(wv.get('people_back') or 0):,} back (estimate)" if en
-                          else f"Ola {wv.get('n')}: {wv['_count']} líneas{km} · {int(wv.get('people_back') or 0):,} con luz (estimación)")[:LINE_MAX])
+            lines.append((f"Wave {wv.get('n')}: {wv['_count']} lines{km} · an estimated {int(wv.get('people_back') or 0):,} back" if en
+                          else f"Ola {wv.get('n')}: {wv['_count']} líneas{km} · un estimado de {int(wv.get('people_back') or 0):,} con luz")[:LINE_MAX])
         if not lp and lines:
             lines[-1] = (lines[-1] + (" (line limits not applied)" if en else " (sin límites de línea)"))[:LINE_MAX]
         out["lines"][lang] = lines
     third = spoken[-1] if spoken else {}
     out["big"] = ({"value": third.get("people_back"), "display": {"en": f"{int(third.get('people_back') or 0):,}", "es": f"{int(third.get('people_back') or 0):,}"},
-                   "label": {"en": f"people back after wave {third.get('n')} (estimate)", "es": f"personas con luz tras la ola {third.get('n')} (estimación)"},
+                   "label": {"en": f"an estimated number of people back after wave {third.get('n')}", "es": f"un estimado de personas con luz tras la ola {third.get('n')}"},
                    "fact_key": f"recovery.wave.{third.get('n')}.people_back", "tone": "good"} if third else None)
     out["waves"] = [{"n": wv.get("n"), "lines": wv["_count"], "km": wv.get("_km"), "people_back": wv.get("people_back"),
                      "people_out": wv.get("people_out"), "areas_relit": wv.get("areas_relit")} for wv in waves]
@@ -2952,7 +2957,8 @@ Rules:
   rewrite the DRAFT as one flowing sentence in the same shape, keeping every name and every figure exactly as the DRAFT
   writes it (you may vary the wording around them), in the language asked. Never label or number it ("Play 1", "Step 2",
   "first", "second"), never add another sentence, never write "will", never use the DATA's field names as words. Keep
-  the "(estimate)" wording.
+  the "an estimated <figure>" wording (English) / "un estimado de <figure>" (Spanish); never write "(estimate)" or
+  "(estimación)" as a parenthetical tag.
 
 Answer only with JSON: {"slides": {"<slide id>": {"en": "...", "es": "..."}}}, one entry per slide id given."""
 

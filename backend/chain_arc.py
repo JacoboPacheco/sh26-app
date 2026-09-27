@@ -4,9 +4,9 @@ THE CHAIN IN FOUR PARTS (user, Sat 23:37-23:48): the play-by-play is one arc ove
 a single flowing sentence, never labeled or numbered (no "Play 1", no "First,"):
 
   origin    It begins at <the first element to fail>, which extends into <the next elements>, causing damage that hits
-            <people> (estimate).
+            an estimated <people>.
   spread    The chains extend, causing damage at <place>, <place> and <place>.
-  outward   As the damage makes its way toward <the farthest place reached>, it hits <people> (estimate).
+  outward   As the damage makes its way toward <the farthest place reached>, it hits an estimated <people>.
   end       It finally reaches <the last element> before the grid <settles | splits apart>, resulting in <the result>.
 
 The cascade's ordered steps are cut into four consecutive phases (fewer parts when there are fewer than four steps: three,
@@ -30,14 +30,14 @@ MAX_IDS = 60  # tripped ids kept per part (the map highlights them)
 
 # the shape of each part's sentence, as Gemini is told it (slots in angle brackets); never printed on screen
 SHAPE = {
-    "origin": "It begins at <first_element>, which extends into <extends_into>, causing damage that hits <people_hit_in_this_part> (estimate).",
-    "origin_storm": "It begins with the storm, which cuts <storm_lines_cut> lines, then extends into <extends_into>, causing damage that hits <people_hit_in_this_part> (estimate).",
+    "origin": "It begins at <first_element>, which extends into <extends_into>, causing damage that hits an estimated <people_hit_in_this_part>.",
+    "origin_storm": "It begins with the storm, which cuts <storm_lines_cut> lines, then extends into <extends_into>, causing damage that hits an estimated <people_hit_in_this_part>.",
     "spread": "The chains extend into <extends_into>, causing damage at <places>.",
     "spread_places": "The chains extend, causing damage at <places>.",
     "spread_elements": "The chains extend, tripping <elements_that_trip>.",
-    "outward": "As the damage makes its way toward <farthest_place>, it hits <people_hit_in_this_part> (estimate).",
+    "outward": "As the damage makes its way toward <farthest_place>, it hits an estimated <people_hit_in_this_part>.",
     "end": "It finally reaches <last_element> <how_it_ends>, resulting in <result>.",
-    "only": "It begins at <first_element>, causing damage that hits <people_hit_in_this_part> (estimate), <how_it_ends>, resulting in <result>.",
+    "only": "It begins at <first_element>, causing damage that hits an estimated <people_hit_in_this_part>, <how_it_ends>, resulting in <result>.",
 }
 
 
@@ -205,30 +205,30 @@ def _result(w, lang: str) -> tuple[str, list[str]]:
     lost = float(w.ev.get("lost_mw") or 0)
     if lost >= 0.5:
         s = mw_say(lost, lang)
-        items.append(f"{s} of load lost" if en else f"{s} de carga perdida")
+        items.append(f"an estimated {s} of load lost" if en else f"un estimado de {s} de carga perdida")
         marks.append(s)
     if high:
         usd = usd_say(high, lang)[0]
         items.append(f"an expected cost of about {usd}" if en else f"un costo esperado de unos {usd}")
         marks.append(usd)
-    return _list(items, lang) + (" (estimates)" if en else " (estimaciones)"), marks
+    return _list(items, lang), marks
 
 
 def sentence(w, part: dict, lang: str) -> tuple[str, list[str]]:
     """(the part's sentence, the names / places / numbers in it to set in heavier weight)."""
-    from bulletin import num, people_round, people_say  # noqa: PLC0415
+    from bulletin import num, people_noun, people_round  # noqa: PLC0415
 
     en = lang == "en"
     kind = part["kind"]
     el = lambda bid: w.line_label(bid, lang)  # noqa: E731
     marks: list[str] = []
-    ppl = people_say(part["people_delta"], lang) if part["people_delta"] >= 1 else None
+    ppl = people_noun(part["people_delta"], lang) if part["people_delta"] >= 1 else None
     hit_mark = people_round(part["people_delta"], lang) if ppl else None  # set in weight where the sentence prints it
 
     def causing() -> str:
         if ppl:
             marks.append(hit_mark)
-            return f"causing damage that hits {ppl} (estimate)" if en else f"causando daños que afectan a {ppl} (estimación)"
+            return f"causing damage that hits an estimated {ppl}" if en else f"causando daños que afectan a un estimado de {ppl}"
         return "shifting its load onto the lines around it" if en else "pasando su carga a las líneas cercanas"
 
     if kind in ("origin", "only"):
@@ -280,8 +280,8 @@ def sentence(w, part: dict, lang: str) -> tuple[str, list[str]]:
             place = "the edge of the affected area" if en else "el borde de la zona afectada"
         if ppl:
             marks.append(hit_mark)
-            return (f"As the damage makes its way toward {place}, it hits {ppl} (estimate)." if en
-                    else f"A medida que el daño avanza hacia {place}, afecta a {ppl} (estimación)."), marks
+            return (f"As the damage makes its way toward {place}, it hits an estimated {ppl}." if en
+                    else f"A medida que el daño avanza hacia {place}, afecta a un estimado de {ppl}."), marks
         return (f"As the damage makes its way toward {place}, it reaches no one new." if en
                 else f"A medida que el daño avanza hacia {place}, no afecta a nadie más."), marks
     # end

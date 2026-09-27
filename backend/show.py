@@ -700,7 +700,7 @@ def build_collapse(code: str, lang: str) -> Board:
         B.towns[f"{B.episode}-{len(B.scenes) + 1:02d}-{key}"] = [{"town": z["label"], "order": i + 1} for i, z in enumerate(zones)]
         for z in zones:
             B.name(z["label"])
-        cnt = counter(T(lang, "People hit (estimate)", "Personas afectadas (estimación)"), frm, to, "people", "loss")
+        cnt = counter(T(lang, "An estimated number of people hit", "Un estimado de personas afectadas"), frm, to, "people", "loss")
         cnt.update({"timing": "span", "after_ms": 450, "leaps": leaps})
         B.scene(key, chapter, bounds_of(pts or [(p["lat"], p["lon"]) for p in camp_pts], 0.3), [
             grid_layer("dim"),
@@ -711,7 +711,7 @@ def build_collapse(code: str, lang: str) -> Board:
             cnt,
             {"type": "timeline", "timing": "span", "items": [{"t": s["n"], "label": T(lang, f"Step {s['n']}", f"Paso {s['n']}"), "tone": "loss", "at": span_at(j, k)} for j, s in enumerate(part)][:40]},
         ], lines, max(12000, 1000 * k + 2000), brief=brief,
-            points=["the cascade: each trip pushes flow onto neighbors", "towns going dark in order", "people hit (estimate) leaps with every step",
+            points=["the cascade: each trip pushes flow onto neighbors", "towns going dark in order", "the estimated people-hit count leaps with every step",
                     "'people hit' is not 'people without power': say 'hit' or 'affected' for this counter"])
 
     first_towns = [z["label"] for z in _hit_zones(geo, part1)][:3]
@@ -752,9 +752,9 @@ def build_collapse(code: str, lang: str) -> Board:
     B.scene("toll", T(lang, "The toll", "El saldo"), region_bounds(code), [
         grid_layer("dim"),
         {"type": "zones", "style": "blackout", "animate": "none", "items": _hit_zones(geo, steps)},
-        counter(T(lang, "People hit (estimate)", "Personas afectadas (estimación)"), final_hit, final_hit, "people", "loss"),
+        counter(T(lang, "An estimated number of people hit", "Un estimado de personas afectadas"), final_hit, final_hit, "people", "loss"),
         counter(T(lang, "Cost of the blackout (high end)", "Costo del apagón (extremo alto)"), 0, round(cost["blackout_high"]), "usd", "loss"),
-        {"type": "bars", "title": T(lang, "Hardest-hit areas (people without power, estimate)", "Zonas más afectadas (personas sin luz, estimación)"), "format": "people", "items": bars},
+        {"type": "bars", "title": T(lang, "Hardest-hit areas: an estimated number of people without power", "Zonas más afectadas: un estimado de personas sin luz"), "format": "people", "items": bars},
     ], [
         ("presenter", T(lang, f"The toll: about {people_text(final_hit, lang)} hit, and the lights stay out {hours_say(cost['hours'], lang)}.",
                         f"El saldo: unas {people_text(final_hit, lang)} afectadas, y la luz no vuelve en {hours_say(cost['hours'], lang)}."), ["people_hit", "hours"]),
@@ -838,7 +838,7 @@ def build_collapse(code: str, lang: str) -> Board:
         fl_layers += [
             {"type": "points", "kind": "campus", "animate": "none", "items": camp_pts},
             {"type": "zones", "style": "restored", "animate": "spread", "stagger_ms": 150, "items": _hit_zones(geo, steps)},
-            counter(T(lang, "People hit (estimate)", "Personas afectadas (estimación)"), final_hit, 0, "people", "gain"),
+            counter(T(lang, "An estimated number of people hit", "Un estimado de personas afectadas"), final_hit, 0, "people", "gain"),
         ]
         if after is not None:
             fl_layers.append(compare("gain", (T(lang, "Busiest line, before", "Línea más cargada, antes"), f"{half_up(peak)}%"),
@@ -1076,7 +1076,7 @@ def build_hurricane(code: str, lang: str) -> Board:
         B.name(z["label"])
     z_storm.sort(key=lambda z: z["at"])
     B.towns[f"hurricane-{len(B.scenes) + 1:02d}-dark"] = [{"town": z["label"], "order": i + 1} for i, z in enumerate(z_storm)]
-    hit_c = counter(T(lang, "People hit (estimate)", "Personas afectadas (estimación)"), 0, hit_storm, "people", "loss")
+    hit_c = counter(T(lang, "An estimated number of people hit", "Un estimado de personas afectadas"), 0, hit_storm, "people", "loss")
     hit_c.update({"timing": "span", "after_ms": 450, "leaps": leaps_by_weight(z_storm, 0, hit_storm, 10)})
     B.scene("dark", T(lang, "Lights out", "Apagón"), bounds_of([(z["lat"], z["lon"]) for z in z_storm] or [(p[0], p[1]) for p in tr], 0.4), [
         grid_layer("dim"),
@@ -1087,7 +1087,7 @@ def build_hurricane(code: str, lang: str) -> Board:
         ("presenter", T(lang, f"The towns in its path go dark first. About {people_text(hit_storm, lang)} are hit by the storm's damage alone.",
                         f"Los pueblos a su paso se apagan primero. Unas {people_text(hit_storm, lang)} resultan afectadas solo por los daños de la tormenta."), ["people_storm"]),
     ], 9000, brief="Blackout zones spread along the damage corridor in the order the storm passed; the people-hit counter leaps.",
-        points=["people HIT by the storm's damage alone (an estimate): 'hit' or 'affected', never 'lose power' or 'cut off' for this number"])
+        points=["the estimated people HIT by the storm's damage alone: 'hit' or 'affected', never 'lose power' or 'cut off' for this number"])
 
     k_cas = len(after_storm)
     trips = []
@@ -1106,7 +1106,7 @@ def build_hurricane(code: str, lang: str) -> Board:
             leaps.append({"at": span_at(j, k_cas), "value": last})
     if not leaps or leaps[-1]["value"] != final_hit:
         leaps.append({"at": 1.0, "value": final_hit})
-    cas_c = counter(T(lang, "People hit (estimate)", "Personas afectadas (estimación)"), hit_storm, final_hit, "people", "loss")
+    cas_c = counter(T(lang, "An estimated number of people hit", "Un estimado de personas afectadas"), hit_storm, final_hit, "people", "loss")
     cas_c.update({"timing": "span", "after_ms": 450, "leaps": leaps})
     B.scene("cascade", T(lang, "The cascade", "La cascada"), region_bounds(code), [
         grid_layer("dim"),
@@ -1120,7 +1120,7 @@ def build_hurricane(code: str, lang: str) -> Board:
         ("analyst", T(lang, f"In the end, about {people_text(final_hit, lang)} are hit, and about {people_text(people_out, lang)} are left without power. Estimates, on the long side.",
                       f"Al final, unas {people_text(final_hit, lang)} resultan afectadas, y unas {people_text(people_out, lang)} quedan sin luz. Estimaciones, del lado alto."), ["people_hit", "people_out"]),
     ], max(9000, 1500 * max(k_cas, 1) + 2500), brief="The cascade after the storm: more lines trip step by step, more zones go dark, the counter leaps with every step.",
-        points=["the survivors overload", "people HIT (estimate) is the counter; people WITHOUT POWER is a smaller number: never say the hit number 'lose power'"])
+        points=["the survivors overload", "the estimated people HIT count is the counter; people WITHOUT POWER is a smaller number: never say the hit number 'lose power'"])
 
     if n_h:
         hp = _hospital_points(code, rep)
@@ -1140,9 +1140,9 @@ def build_hurricane(code: str, lang: str) -> Board:
     B.scene("toll", T(lang, "The toll", "El saldo"), region_bounds(code), [
         grid_layer("dim"),
         {"type": "zones", "style": "blackout", "animate": "none", "items": _hit_zones(geo, steps)},
-        counter(T(lang, "People without power (estimate)", "Personas sin luz (estimación)"), 0, people_out, "people", "loss"),
+        counter(T(lang, "An estimated number of people without power", "Un estimado de personas sin luz"), 0, people_out, "people", "loss"),
         counter(T(lang, "Cost of the blackout (high end)", "Costo del apagón (extremo alto)"), 0, round(cost["blackout_high"]), "usd", "loss"),
-        {"type": "bars", "title": T(lang, "Hardest-hit areas (people without power, estimate)", "Zonas más afectadas (personas sin luz, estimación)"), "format": "people",
+        {"type": "bars", "title": T(lang, "Hardest-hit areas: an estimated number of people without power", "Zonas más afectadas: un estimado de personas sin luz"), "format": "people",
          "items": [{"label": a["area"], "value": int(a["people"]), "tone": "loss"} for a in areas]},
     ], [
         ("presenter", T(lang, f"The lights stay out {hours_say(cost['hours'], lang)}, and the blackout costs up to {usd_text(cost['blackout_high'], lang)}.",
@@ -1379,7 +1379,7 @@ def _boom_board(code: str, lang: str, res: dict) -> Board:
         *([{"type": "points", "kind": "station", "style": "over", "animate": "pulse", "stagger_ms": 500, "items": over_stations[:12]}] if over_stations else []),
         compare("loss", (T(lang, "Fits with no upgrades", "Cabe sin mejoras"), mw_text(wo_mw, lang) if wo_mw else "—"),
                 (T(lang, "Asked for", "Pedido"), mw_text(total, lang))),
-        counter(T(lang, "People hit if it ran anyway (estimate)", "Personas afectadas si funcionara igual (estimación)"), 0, broke_people, "people", "loss"),
+        counter(T(lang, "An estimated number of people hit if it ran anyway", "Un estimado de personas afectadas si funcionara igual"), 0, broke_people, "people", "loss"),
     ], [
         ("presenter", T(lang, f"But here's the catch. With no upgrades, these sites take only {mw_text(wo_mw, lang)}. Push the full {mw_text(total, lang)} through, and {count_text(int(len(over)), lang)} lines or transformers go over their limit." if wo_mw else
                         f"Push the full {mw_text(total, lang)} through with no upgrades, and {count_text(int(len(over)), lang)} lines or transformers go over their limit.",
@@ -2074,7 +2074,7 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
     items_es = {"mobilization": "Movilizar cuadrillas y equipos una vez", "laydown_yard": "Un solo patio de acopio", "access_roads": "Un solo camino de acceso", "crossing": "Estructuras donde se unen, diseñadas una vez"}
     B.scene("agreement", T(lang, "The agreement", "El acuerdo"), area, [
         grid_layer("hidden"),
-        {"type": "bars", "title": T(lang, "What they could share (high end of the rough estimate)", "Lo que podrían compartir (extremo alto de la estimación)"), "format": "usd",
+        {"type": "bars", "title": T(lang, "An estimated high end of what they could share", "Un estimado del extremo alto de lo que podrían compartir"), "format": "usd",
          "items": [{"label": s.get("label") if lang == "en" else items_es.get(s.get("id"), s.get("label")), "value": round(float(s.get("high") or 0)), "tone": "gain"} for s in scope]},
         *([compare("neutral", ("DESC", f"{half_up(shares[0])}%", T(lang, "of shared costs", "de los costos compartidos")),
                    ("Georgia Power", f"{half_up(shares[1])}%", T(lang, "of shared costs", "de los costos compartidos")))] if len(shares) == 2 else []),
@@ -2088,7 +2088,7 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
         ("analyst", T(lang, f"A rough estimate of what that could save: up to {usd_text(hi_sum, lang)}, if the schedules line up. A draft for people to discuss, not a decision.",
                       f"Una estimación aproximada de lo que podría ahorrar: hasta {usd_text(hi_sum, lang)}, si los calendarios coinciden. Un borrador para discutir, no una decisión."),
          ["save_high"]),
-    ], 9500, brief="Bars of the shared items (high end of the rough estimate); the split as a split-screen.",
+    ], 9500, brief="Bars of the shared items (an estimated high end); the split as a split-screen.",
         points=["the drafted scope and split (a draft the agents wrote, never what a utility agreed or pays)", "savings as a rough range, high end (say 'up to')", "a draft, not a decision"])
 
     B.scene("close", T(lang, "Bottom line", "En resumen"), area, [
@@ -2409,7 +2409,7 @@ TOOLS = [
      "parameters": {"type": "object", "properties": {"scene_id": {"type": "string"}}, "required": ["scene_id"]}},
     {"name": "get_fact", "description": "One fact by id: its value, unit, how to say it, and its source.",
      "parameters": {"type": "object", "properties": {"fact_id": {"type": "string"}}, "required": ["fact_id"]}},
-    {"name": "towns_hit", "description": "The towns that lose power in a scene, in the order they go dark, with the people in each (estimates).",
+    {"name": "towns_hit", "description": "The towns that lose power in a scene, in the order they go dark, with an estimated people count for each.",
      "parameters": {"type": "object", "properties": {"scene_id": {"type": "string"}}, "required": ["scene_id"]}},
     {"name": "line_detail", "description": "Details of the lines and transformers the show names (the first to fail, the weak points, the upgrades): loading, ratings, costs. Optional filter by words in the label.",
      "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}},

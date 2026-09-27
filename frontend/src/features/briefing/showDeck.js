@@ -369,9 +369,9 @@ export function tickerItems(report, deck, lang) {
   const L = LABEL[lang] || LABEL.en
   // the panel's two figures, with the panel's labels (the peak is not one of them: it is not shown)
   const { hit, stillOut } = reportPeople(report)
-  if (hit) items.push(`${L.hit.replace(/ \((estimate|estimación)\)$/, '')}: ${fmt(hit)} (${es ? 'estimación' : 'estimate'})`)
-  if (stillOut && stillOut < hit) items.push(`${L.stillOutK.replace(/ \((estimate|estimación)\)$/, '')}: ${fmt(stillOut)} (${es ? 'estimación' : 'estimate'})`)
-  if (ev.lost_mw) items.push(es ? `${fmt(ev.lost_mw)} MW de hogares y negocios sin luz (estimación)` : `${fmt(ev.lost_mw)} MW of homes and businesses lost (estimate)`)
+  if (hit) items.push(es ? `${L.hit.replace(/ \((estimate|estimación)\)$/, '')}: un estimado de ${fmt(hit)}` : `${L.hit.replace(/ \((estimate|estimación)\)$/, '')}: an estimated ${fmt(hit)}`)
+  if (stillOut && stillOut < hit) items.push(es ? `${L.stillOutK.replace(/ \((estimate|estimación)\)$/, '')}: un estimado de ${fmt(stillOut)}` : `${L.stillOutK.replace(/ \((estimate|estimación)\)$/, '')}: an estimated ${fmt(stillOut)}`)
+  if (ev.lost_mw) items.push(es ? `Un estimado de ${fmt(ev.lost_mw)} MW de hogares y negocios sin luz` : `An estimated ${fmt(ev.lost_mw)} MW of homes and businesses lost`)
   if (ev.steps) items.push(es ? `${ev.steps} pasos de cascada` : `${ev.steps} cascade steps`)
   const rc = report?.root_cause
   // the grid's weak point first: how loaded it already was, then with the new load; the share of any new load there
@@ -386,18 +386,18 @@ export function tickerItems(report, deck, lang) {
   }
   if (rc?.path_share_pct >= 5) items.push(es ? `El ${Math.round(rc.path_share_pct)}% de cualquier carga nueva aquí pasa por el punto débil` : `${Math.round(rc.path_share_pct)}% of any new load here flows through the weak point`)
   const hos = report?.hospitals
-  if (hos?.count) items.push(es ? `${hos.count} hospitales en zonas sin luz (estimación; se supone que con respaldo)` : `${hos.count} hospitals in dark areas (estimate; assumed on backup)`)
+  if (hos?.count) items.push(es ? `Un estimado de ${hos.count} hospitales en zonas sin luz (se supone que con respaldo)` : `An estimated ${hos.count} hospitals in dark areas (assumed on backup)`)
   const areas = (report?.areas || []).slice(0, 3)
   // the areas' figures are the people still without power (not the people hit): say so, or they read as a third number
-  if (areas.length) items.push((es ? 'Aún sin luz: ' : 'Still without power: ') + areas.map((a) => `${a.area} ${fmt(a.people)}`).join(' · ') + (es ? ' personas (estimación)' : ' people (estimate)'))
+  if (areas.length) items.push((es ? 'Aún sin luz (un estimado): ' : 'Still without power (an estimated): ') + areas.map((a) => `${a.area} ${fmt(a.people)}`).join(' · ') + (es ? ' personas' : ' people'))
   const c = report?.cost
   const hi = Number(c?.blackout_high_usd) || Number(c?.ranges?.blackout_usd?.[1]) || 0
   if (hi) {
     const lo = Number(c?.ranges?.blackout_usd?.[0]) || 0
     const range = lo && lo < hi ? (es ? `; rango ${usdCompact(lo, lang)} a ${usdCompact(hi, lang)}` : `; range ${usdCompact(lo, lang)} to ${usdCompact(hi, lang)}`) : ''
-    items.push(es ? `Costo esperado: ${usdCompact(hi, lang)} (extremo alto${range}; estimación)` : `Expected cost: ${usdCompact(hi, lang)} (high end${range}; estimate)`)
+    items.push(es ? `Costo esperado: un estimado de ${usdCompact(hi, lang)} (extremo alto${range})` : `Expected cost: an estimated ${usdCompact(hi, lang)} (high end${range})`)
   }
-  if (c?.duration_h_assumed > 0) items.push(es ? `Tiempo sin luz: ${outageText(c.duration_h_assumed, 'es')} (estimación)` : `Time without power: ${outageText(c.duration_h_assumed, 'en')} (estimate)`)
+  if (c?.duration_h_assumed > 0) items.push(es ? `Tiempo sin luz: un estimado de ${outageText(c.duration_h_assumed, 'es')}` : `Time without power: an estimated ${outageText(c.duration_h_assumed, 'en')}`)
   const fixSlide = (deck?.slides || []).find((x) => (x.kind || x.id) === 'fix')
   for (const o of report?.no_fix ? [] : mainOptions(optionsOf(report, fixSlide)).slice(0, 3)) {
     const tag = o.by === 'gemini' ? s.verifiedAI : s.verifiedEngine

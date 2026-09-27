@@ -36,7 +36,7 @@ export default function BriefingSummary({ scenario }) {
       {r.root_cause?.sentence && <p>{r.root_cause.sentence}</p>}
       {r.no_fix ? (
         <p className="rs-summary__nofix">
-          No fix exists for about {people(r.no_fix.people)} people (estimate): whatever the campus does, and even with unlimited line ratings, they stay cut off.
+          No fix exists for about {people(r.no_fix.people)} people: whatever the campus does, and even with unlimited line ratings, they stay cut off.
           Only rebuilding lines brings them back.
         </p>
       ) : (
@@ -54,7 +54,7 @@ export default function BriefingSummary({ scenario }) {
       {r.recovery?.waves?.length > 0 && (
         <p>
           Rebuilding the first {num(r.recovery.waves[0].lines?.length || r.recovery.waves[0].line_count)} lines brings about{' '}
-          {people(r.recovery.waves[0].people_back)} people back (estimate).
+          {people(r.recovery.waves[0].people_back)} people back.
         </p>
       )}
       <p className="muted">Each fix was re-run on the synthetic grid model; people are estimates.</p>

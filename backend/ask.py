@@ -283,7 +283,7 @@ def fact(key, label, value, unit=None, estimate=False, source="engine", display=
         display = str(value) if display is None else display
     unit_txt = "" if unit in (None, "%") else f" {unit}"
     # the engine's format: `text` is the value as shown; the sheet prints "[key] label: text"
-    text = f"{display}{unit_txt}{' (estimate)' if estimate else ''}"
+    text = f"{'an estimated ' if estimate else ''}{display}{unit_txt}"
     return {"key": key, "label": label, "value": value, "unit": unit, "text": text, "estimate": bool(estimate), "source": source}
 
 
@@ -1447,8 +1447,8 @@ def pattern_answer(ctx: _Ctx) -> dict:
     area_hit = next((x for x in areas if x["area"] == _mentioned_area(ctx)), None)
     if intent == "people" and area_hit:
         s = _slug(area_hit["area"])
-        a = (f"En {area_hit['area']}, {_n(area_hit['people'])} personas quedan sin electricidad al final (estimación)." if es
-             else f"In {area_hit['area']}, {_n(area_hit['people'])} people are without power at the end (estimate).")
+        a = (f"En {area_hit['area']}, un estimado de {_n(area_hit['people'])} personas quedan sin electricidad al final." if es
+             else f"In {area_hit['area']}, an estimated {_n(area_hit['people'])} people are without power at the end.")
         return {"answer": a, "cited": [f"area.{s}.people", f"area.{s}.first_step"], "tool_calls": [], "tool_facts": [], "declined": False}
     if intent in (None, "areas", "happened") and _mentioned_area(ctx) and re.search(r"dark|lost|lose|power|luz|apag|oscur", _fold(ctx.question)):
         intent = "why"
@@ -1507,7 +1507,7 @@ def pattern_answer(ctx: _Ctx) -> dict:
                 lead = parts[0][0].upper() + parts[0][1:]
                 a = (f"Primero se quedan sin luz, {parts[0]}" if parts[0].startswith("en el paso") else lead)
                 a += ("; después, " + "; ".join(parts[1:]) if len(parts) > 1 else "") + "."
-                a += f" La más afectada es {top['area']}, con unas {_n(top['people'])} personas sin electricidad (estimación)."
+                a += f" La más afectada es {top['area']}, con un estimado de {_n(top['people'])} personas sin electricidad."
             else:
                 lead = parts[0][0].upper() + parts[0][1:]
                 a = f"First to go dark: {parts[0]}" if parts[0].startswith("at step") else lead
@@ -1625,8 +1625,8 @@ def pattern_answer(ctx: _Ctx) -> dict:
         if h and h.get("count"):
             top = [x for x in h.get("areas") or [] if x.get("area")][:3]
             where = _join([f"{x['area']} ({x.get('count')})" for x in top], ctx.lang)
-            a = (f"En esta simulación, {_n(h['count'])} hospitales estarían con energía de respaldo, porque su subestación más cercana perdió la mayor parte de su carga (estimación)"
-                 if es else f"In this simulation, {_n(h['count'])} hospitals would be on backup power because the substation nearest each one lost most of its load (estimate)")
+            a = (f"En esta simulación, un estimado de {_n(h['count'])} hospitales estarían con energía de respaldo, porque su subestación más cercana perdió la mayor parte de su carga"
+                 if es else f"In this simulation, an estimated {_n(h['count'])} hospitals would be on backup power because the substation nearest each one lost most of its load")
             a += (f": {where}." if where else ".")
             cited = ["hospitals.count", "hospitals.areas"]
         else:
@@ -1650,8 +1650,8 @@ def pattern_answer(ctx: _Ctx) -> dict:
             km_txt = f" ({_mw(km)} km)" if km else ""
             of_txt = (f" de las {_n(dmg)} fuera de servicio" if es else f" of the {_n(dmg)} lines out") if dmg else ""
             if es:
-                how = ", con los límites de las líneas comprobados)." if lp else "; sin aplicar los límites de las líneas)."
-                a = f"El plan de reparación empieza por {nl} líneas{of_txt}{km_txt}: reconstruirlas devuelve la luz a unas {_n(back)} personas (estimación{how}"
+                how = ", con los límites de las líneas comprobados." if lp else "; sin aplicar los límites de las líneas."
+                a = f"El plan de reparación empieza por {nl} líneas{of_txt}{km_txt}: reconstruirlas devuelve la luz a un estimado de {_n(back)} personas{how}"
             else:
                 how = " (line limits checked)." if lp else " (line limits not applied)."
                 what = f"{nl}{of_txt}" if dmg else f"{nl} lines"
@@ -1712,10 +1712,10 @@ def pattern_answer(ctx: _Ctx) -> dict:
             if rs == 0 and rp == 0:
                 a = (f"{lead}: ninguna línea se desconecta y nadie se queda sin luz." if es else f"{lead}: no line trips and no one loses power.")
             elif rs == 0:
-                a = (f"{lead}: ninguna línea más se desconecta, pero unas {_n(rp)} personas siguen sin electricidad (estimación)." if es
+                a = (f"{lead}: ninguna línea más se desconecta, pero un estimado de {_n(rp)} personas siguen sin electricidad." if es
                      else f"{lead}: no further line trips, but an estimated {_n(rp)} people are still without power.")
             else:
-                a = (f"{lead}: la cascada dura {_steps(rs, 'es')} y deja sin electricidad a unas {_n(rp)} personas (estimación)." if es
+                a = (f"{lead}: la cascada dura {_steps(rs, 'es')} y deja sin electricidad a un estimado de {_n(rp)} personas." if es
                      else f"{lead}: the cascade runs {_steps(rs)} and leaves an estimated {_n(rp)} people without power.")
             # the comparison with the scenario on screen (its people figure is a fact)
             c0 = r.get("case") or {}
@@ -1751,8 +1751,8 @@ def pattern_answer(ctx: _Ctx) -> dict:
         c = r.get("case") or {}
         if ctx.has_main and c.get("headroom_mw") is not None:
             sub = _cap(c.get("sub_name") or "")
-            a = (f"La subestación {sub} puede recibir unos {_mw(c['headroom_mw'])} MW antes de que la primera línea se sobrecargue, {level_when(ctx.case['load_factor'], 'es')} (estimación)." if es
-                 else f"The {sub} substation can take about {_mw(c['headroom_mw'])} MW before the first line overloads {level_when(ctx.case['load_factor'])} (estimate).")
+            a = (f"La subestación {sub} puede recibir unos {_mw(c['headroom_mw'])} MW antes de que la primera línea se sobrecargue, {level_when(ctx.case['load_factor'], 'es')}." if es
+                 else f"The {sub} substation can take about {_mw(c['headroom_mw'])} MW before the first line overloads {level_when(ctx.case['load_factor'])}.")
             cited = ["site.headroom_mw", "case.time"]
             if ctx.case.get("mw") and float(ctx.case["mw"]) > float(c["headroom_mw"]):
                 a += (f" Este centro de datos pide {_mw(ctx.case['mw'])} MW." if es else f" This data center asks for {_mw(ctx.case['mw'])} MW.")
@@ -1764,7 +1764,7 @@ def pattern_answer(ctx: _Ctx) -> dict:
             nf = r["no_fix"]
             big = nf["people"] >= 1_000_000
             if es:
-                a = (f"No existe solución para {'unos' if big else 'unas'} {_about(nf['people'], 'es')}{' de' if big else ''} personas (estimación): "
+                a = (f"No existe solución para un estimado de {_about(nf['people'], 'es')}{' de' if big else ''} personas: "
                      "aun con líneas de capacidad ilimitada y sin el centro de datos, siguen aisladas. Solo reconstruir las líneas dañadas les devuelve la luz.")
             else:
                 a = (f"No fix exists for an estimated {_about(nf['people'])} people: even with unlimited line ratings and no data center, "
@@ -1784,7 +1784,7 @@ def pattern_answer(ctx: _Ctx) -> dict:
             o = best.get("outcome") or {}
             op, os_ = int(o.get("people", 0) or 0), int(o.get("steps", 0) or 0)
             if es:
-                res_txt = "ninguna línea se desconecta y nadie se queda sin luz" if (op == 0 and os_ == 0) else f"{_steps(os_, 'es')} y unas {_n(op)} personas sin luz (estimación)"
+                res_txt = "ninguna línea se desconecta y nadie se queda sin luz" if (op == 0 and os_ == 0) else f"{_steps(os_, 'es')} y un estimado de {_n(op)} personas sin luz"
                 a = (f"La única solución verificada es no construir el centro de datos aquí: sin él, {res_txt}." if best["family"] == "remove"
                      else f"La mejor solución verificada es {fix_action(best, 'es')}: al volver a simularlo, {res_txt}.")
             else:
@@ -1818,7 +1818,7 @@ def pattern_answer(ctx: _Ctx) -> dict:
                      else f"Una cascada de {_steps(steps, 'es')}")
                 if lab:
                     a += f": primero se desconectó {lab}" + (f", al {_pct(pct)}% de su capacidad" if pct else "") + ", y su flujo sobrecargó la siguiente línea, y la siguiente"
-                a += f". Al final, unas {_n(people)} personas quedan sin electricidad (estimación)"
+                a += f". Al final, un estimado de {_n(people)} personas quedan sin electricidad"
                 a += (f", sobre todo en {_join(top, 'es')}." if top else ".")
                 if ev.get("capped"):
                     a += f" Las protecciones seguían desconectando líneas cuando el modelo se detuvo en el paso {steps}."
@@ -1852,7 +1852,7 @@ SYSTEM = """You answer ONE question about ONE simulated power-grid scenario, usi
 Rules:
 - This is a simulation on a synthetic grid model, not any real utility's network. Never name a real utility, company, agency, storm or past event. Never give safety or evacuation advice. Never mention dates, years, or how long an outage lasts unless a fact states it.
 - Every number you write must appear in the facts or tool results. You may round the way a newspaper does (783,883 -> about 784,000; 1,500 MW -> 1.5 GW). Never compute new numbers yourself (no sums, differences or percentages of your own).
-- People counts are estimates: say "about" or "an estimated" (in Spanish "unas" or "estimación").
+- People counts are estimates: say "about" or "an estimated <figure>" (in Spanish "unas" or "un estimado de <figure>"). Never write "(estimate)" or "(estimación)" as a parenthetical tag.
 - Write numbers with digits, commas between thousands and a period for decimals (783,883 and 1.5), in Spanish too. Write "million" only right after a figure (1.5 million).
 - If the question needs the engine re-run (another size, another time of day, another town, the best fix, what to rebuild first), request exactly one tool instead of guessing. Use a tool only when the facts don't already answer it.
 - Once TOOL RESULTS are given, answer with THAT run: state its size or change, its cascade steps and its people without power, even when the result is surprising (a smaller data center can set off a bigger cascade). Never present a fix's numbers, or any other fact, as the tool's result; you may compare with the scenario afterwards.

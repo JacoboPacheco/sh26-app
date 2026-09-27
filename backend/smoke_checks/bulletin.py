@@ -169,7 +169,7 @@ def register(ctx):
             assert not re.search(r"\d\s*(%|percent|por ciento)", " ".join(g["text"] for g in segs)), "no loading percentage is spoken or printed in the chain"
             assert not label.search(" ".join(chain["lines"][lang]) + chain["headline"][lang]), (chain["lines"][lang], chain["headline"][lang])
             assert all(len(x) <= 90 and not x.endswith("…") for x in chain["lines"][lang]), chain["lines"][lang]
-        assert "(estimate)" in arc[0]["text"]["en"] and "(estimates)" in arc[-1]["text"]["en"], (arc[0]["text"]["en"], arc[-1]["text"]["en"])
+        assert "an estimated" in arc[0]["text"]["en"] and "(estimate" not in arc[0]["text"]["en"] and "(estimate" not in arc[-1]["text"]["en"], (arc[0]["text"]["en"], arc[-1]["text"]["en"])
         fix = next(s for s in d["slides"] if s["id"] == "fix")
         for o in (o for o in fix["options"] if o["role"] in ("lead", "alt")):
             for lang in ("en", "es"):
@@ -289,7 +289,7 @@ def register(ctx):
         assert toll["people"] == {"hit": hit, "still_out": still}, (toll.get("people"), hit, still)
         assert event["big"]["value"] == hit and "hit" in event["big"]["label"]["en"], event["big"]
         assert f"{hit:,} people hit" in event["headline"]["en"], event["headline"]["en"]
-        assert f"{hit:,}" in " ".join(toll["lines"]["en"]) and f"still without power when it settled: {still:,}" in " ".join(toll["lines"]["en"]), toll["lines"]["en"]
+        assert f"{hit:,}" in " ".join(toll["lines"]["en"]) and f"still out when it settled: an estimated {still:,}" in " ".join(toll["lines"]["en"]), toll["lines"]["en"]
         assert toll["big2"]["display"]["en"] == panel["outage_label"] and re.fullmatch(r"about \d+ (hours|days)|about an hour", panel["outage_label"]), (toll["big2"]["display"], panel["outage_label"])
         assert toll["headline"]["en"].endswith(f"{panel['outage_label']} without power"), toll["headline"]["en"]
         blob = " ".join(" ".join([s["headline"]["en"], *s["lines"]["en"], *(g["text"] for g in s["narration"]["en"])]) for s in d["slides"])
