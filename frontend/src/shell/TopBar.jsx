@@ -13,7 +13,7 @@ const PAGES = [
   { id: 'strengthen', label: 'Strengthen the grid', href: '#/strengthen', title: 'Find the weak points and the cheapest upgrades that let more data centers connect' },
   { id: 'agreement', label: 'Build together', href: '#/plans', title: "Where two utilities' planned projects overlap, and how they could build them together" },
   { id: 'proposals', label: 'Proposed data centers', href: '#/vote', title: 'Look up a real proposed data center: what it could do to a grid, what it could cost, what to ask before it is approved' },
-  { id: 'views', label: 'Data', href: '#/views', title: 'Where data centers are; population and energy by state' },
+  { id: 'views', label: 'Data', href: '#/views', title: 'Where data centers are; population by state' },
 ]
 
 export default function TopBar({ active, onPick, withState = false }) {

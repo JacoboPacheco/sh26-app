@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react'
 import DataCentersTab from './DataCentersTab'
-import EnergyTab from './EnergyTab'
 import JudgesGuide from './JudgesGuide'
 import PopulationTab from './PopulationTab'
 import SourcesTab from './SourcesTab'
 import './views.css'
 
-// Views (#/views): the data-center locator (filter by state, company, status and size), population graphs and
-// energy graphs. Read-only, from committed data; nothing runs on the grid engine here. Tabs are hash routes
-// (#/views/datacenters, #/views/population, #/views/energy) so a view can be linked; a tab stays mounted once
-// opened, so its filters and map position survive a visit to another tab.
+// Views (#/views): the data-center locator (filter by state, company, status and size) and population graphs.
+// Read-only, from committed data; nothing runs on the grid engine here. Tabs are hash routes
+// (#/views/datacenters, #/views/population, #/views/sources) so a view can be linked; a tab stays mounted once
+// opened, so its filters and map position survive a visit to another tab. There is no Energy tab (hidden Sun 01:57:
+// it charted the SYNTHETIC models' generation, which reads as real capacity): an old #/views/energy link is not a
+// tab any more, so readHash falls back to the default one.
 
 const TABS = [
   { id: 'datacenters', label: 'Data centers' },
   { id: 'population', label: 'Population' },
-  { id: 'energy', label: 'Energy' },
   { id: 'sources', label: 'Sources and licenses' },
 ]
 
@@ -41,7 +41,7 @@ export default function ViewsPage() {
 
   useEffect(() => {
     const prev = document.title
-    document.title = 'Data: data centers, population, energy | Overload'
+    document.title = 'Data: data centers and population | Overload'
     return () => {
       document.title = prev
     }
@@ -82,7 +82,6 @@ export default function ViewsPage() {
           )}
         </div>
         <div hidden={tab !== 'population'}>{seen.has('population') && <PopulationTab />}</div>
-        <div hidden={tab !== 'energy'}>{seen.has('energy') && <EnergyTab />}</div>
         <div hidden={tab !== 'sources'}>{seen.has('sources') && <SourcesTab />}</div>
       </main>
 

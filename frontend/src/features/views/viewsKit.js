@@ -88,7 +88,7 @@ export function niceTicks(max, want = 4) {
   return out
 }
 
-// A GET the page reads once and keeps for the visit (population and energy never change while it is open)
+// A GET the page reads once and keeps for the visit (population never changes while it is open)
 // (`retry` asks again after an error).
 const memo = new Map()
 export function useCached(path) {
