@@ -1,7 +1,12 @@
 """
 Quick pass/fail check against a running backend (default http://localhost:8000).
-Run this after starting the server to confirm health, auth, and upload
-validation all actually work — don't just eyeball it.
+Run this after starting the server to confirm health, auth, the removed template routes
+(upload, saved scenarios, share links: 404) and every feature actually work — don't just eyeball it.
+
+Sign-up is open on a local backend (the checks act as a throwaway user) and off on a deployed one
+(Render sets RENDER; see ALLOW_SIGNUP in backend/.env.example): against a deployed backend the
+script expects sign-up to answer 403 and skips the checks that need a signed-in throwaway user.
+SMOKE_SIGNUP_OPEN=1 tells it a deployed backend has sign-up on (a one-off seed).
 
 Usage:
   venv/Scripts/python smoke_test.py                              # local server on :8000
@@ -10,7 +15,6 @@ Usage:
   (SMOKE_BASE_URL / SMOKE_ORIGIN env vars also work)
 """
 
-import base64
 import json
 import math
 import os
@@ -22,23 +26,26 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-# smallest possible valid PNG (1x1 transparent pixel)
-TINY_PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-)
-
 BASE = (sys.argv[1] if len(sys.argv) > 1 else os.getenv("SMOKE_BASE_URL", "http://localhost:8000")).rstrip("/")
 # Second argument (or SMOKE_ORIGIN): the deployed frontend's origin, e.g. https://yourapp.vercel.app.
 # When given, also verifies CORS and that the deployed frontend was built with THIS backend's URL.
 ORIGIN = (sys.argv[2] if len(sys.argv) > 2 else os.getenv("SMOKE_ORIGIN", "")).rstrip("/") or None
 TIMEOUT = 30
 failures = []
+# Sign-up is open on a local backend and off on a deployed one (auth.py signup_allowed).
+SIGNUP_OPEN = urllib.parse.urlparse(BASE).hostname in ("localhost", "127.0.0.1", "::1") or os.getenv("SMOKE_SIGNUP_OPEN") == "1"
+
+
+class Skip(Exception):
+    """A check that can't run here (say why in the message); printed as SKIP, not counted as a failure."""
 
 
 def check(name, fn):
     try:
         fn()
         print(f"PASS  {name}")
+    except Skip as e:
+        print(f"SKIP  {name}: {e}")
     except Exception as e:
         print(f"FAIL  {name}: {e}")
         failures.append(name)
@@ -66,21 +73,6 @@ def request(method, path, data=None, headers=None, expect=200):
     req = urllib.request.Request(BASE + path, data=body, method=method, headers=headers or {})
     if data is not None:
         req.add_header("Content-Type", "application/json")
-    payload, _ = send(req, expect)
-    return payload
-
-
-def upload(filename, content_type, data_bytes, token=None, expect=200):
-    boundary = uuid.uuid4().hex
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'
-        f"Content-Type: {content_type}\r\n\r\n"
-    ).encode() + data_bytes + f"\r\n--{boundary}--\r\n".encode()
-    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(BASE + "/api/upload", data=body, method="POST", headers=headers)
     payload, _ = send(req, expect)
     return payload
 
@@ -130,13 +122,26 @@ def test_frontend_points_at_this_backend():
     assert BASE in bundle, f"the frontend at {ORIGIN} was built for a different backend (expected {BASE} in its bundle)"
 
 
+def need_user():
+    if not token.get("value"):
+        raise Skip("sign-up is off on this backend, so there is no throwaway user")
+
+
 def test_signup():
-    payload = request("POST", "/api/auth/signup", {"email": email, "password": "smoketest123"})
-    assert "access_token" in payload
-    token["value"] = payload["access_token"]
+    if SIGNUP_OPEN:
+        payload = request("POST", "/api/auth/signup", {"email": email, "password": "smoketest123"})
+        assert "access_token" in payload
+        token["value"] = payload["access_token"]
+        return
+    # a hosted backend: nobody can make an account, and the answer is the same 403 whatever the body
+    payload = request("POST", "/api/auth/signup", {"email": email, "password": "smoketest123"}, expect=403)
+    assert "turned off" in payload["detail"], payload
+    request("POST", "/api/auth/signup", {"email": "not-an-email", "password": "x"}, expect=403)
+    request("POST", "/api/auth/signup", {}, expect=403)
 
 
 def test_me_authenticated():
+    need_user()
     payload = request("GET", "/api/auth/me", headers={"Authorization": f"Bearer {token['value']}"})
     assert payload["email"] == email
 
@@ -146,55 +151,53 @@ def test_me_unauthenticated():
 
 
 def test_signup_duplicate_rejected():
+    need_user()
     request("POST", "/api/auth/signup", {"email": email, "password": "smoketest123"}, expect=400)
 
 
 def test_signup_rejects_short_password():
+    need_user()
     request("POST", "/api/auth/signup", {"email": f"x{email}", "password": "short"}, expect=422)
 
 
 def test_signup_rejects_bad_email():
+    need_user()
     request("POST", "/api/auth/signup", {"email": "not-an-email", "password": "longenough123"}, expect=422)
 
 
 def test_login_email_case_insensitive():
+    need_user()
     body = urllib.parse.urlencode({"username": f"  {email.upper()} ", "password": "smoketest123"}).encode()
     req = urllib.request.Request(BASE + "/api/auth/login", data=body, method="POST")
     with urllib.request.urlopen(req) as resp:
         assert "access_token" in json.loads(resp.read())
 
 
-def test_upload_requires_auth():
-    upload("test.png", "image/png", TINY_PNG, expect=401)
-
-
-def test_upload_valid_image():
-    payload = upload("test.png", "image/png", TINY_PNG, token=token["value"])
-    assert payload["filename"].endswith(".png")
-    # the file must be served back with the right type and identical bytes
-    req = urllib.request.Request(BASE + payload["url"])
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-        assert resp.headers.get("content-type", "").startswith("image/png"), resp.headers.get("content-type")
-        assert resp.read() == TINY_PNG, "served bytes differ from the upload"
-
-
-def test_upload_wrong_type_rejected():
-    upload("test.txt", "text/plain", b"hello world", token=token["value"], expect=400)
+def test_removed_template_routes():
+    # the template's upload, saved-scenarios and share-link routes were cut (nothing in the app used them, and on a
+    # public host they were open write surface): they must stay gone, not merely need a login
+    for method, path, data in (
+        ("POST", "/api/upload", None),
+        ("GET", "/uploads/abc.png", None),
+        ("GET", "/api/scenarios", None),
+        ("POST", "/api/scenarios", {"name": "x", "lat": 28.5, "lon": -81.4, "mw": 500}),
+        ("POST", "/api/scenarios/examples", None),
+        ("GET", "/api/share/abcdefgh", None),
+    ):
+        request(method, path, data, expect=404)
 
 
 check("health check", test_health)
 check("CORS allows the frontend origin (when SMOKE_ORIGIN is set)", test_cors_for_frontend_origin)
 check("deployed frontend was built for this backend (when SMOKE_ORIGIN is set)", test_frontend_points_at_this_backend)
-check("signup returns token", test_signup)
+check("signup returns a token here (open locally) or answers 403 (off on a deployed backend)", test_signup)
 check("authenticated /me returns correct user", test_me_authenticated)
 check("unauthenticated /me is rejected", test_me_unauthenticated)
 check("duplicate signup is rejected", test_signup_duplicate_rejected)
 check("short password is rejected", test_signup_rejects_short_password)
 check("malformed email is rejected", test_signup_rejects_bad_email)
 check("login ignores email case/whitespace", test_login_email_case_insensitive)
-check("upload requires auth", test_upload_requires_auth)
-check("valid image upload accepted", test_upload_valid_image)
-check("non-image upload rejected", test_upload_wrong_type_rejected)
+check("removed routes (upload, uploads, saved scenarios, share links) answer 404", test_removed_template_routes)
 
 
 def test_ai_status():
@@ -208,6 +211,7 @@ def test_ai_ask_requires_auth():
 
 
 def test_ai_ask_path():
+    need_user()
     configured = request("GET", "/api/ai/status")["configured"]
     payload = request(
         "POST", "/api/ai/ask", {"prompt": "Reply with the single word OK."},
@@ -303,62 +307,6 @@ check("cascade on the Orlando site terminates, homes monotone, matches expected"
 check("headroom: one finite value per substation, agrees with the what-if", test_headroom)
 
 
-# Scenarios (scenarios.py) — every check acts as this run's own throwaway user and deletes
-# what it created, so it's safe against the deployed backend too.
-auth_headers = {}
-scenario = {}
-
-
-def test_scenarios_require_auth():
-    request("GET", "/api/scenarios", expect=401)
-    request("POST", "/api/scenarios", {"name": "x", **ORLANDO}, expect=401)
-
-
-def test_scenario_create_and_list():
-    auth_headers["value"] = {"Authorization": f"Bearer {token['value']}"}
-    created = request("POST", "/api/scenarios", {"name": "Smoke scenario", **ORLANDO}, headers=auth_headers["value"])
-    assert created["name"] == "Smoke scenario" and created["mw"] == ORLANDO["mw"], created
-    assert created["summary"]["overloaded"] == len(EXPECTED["overloaded_ids"]), created["summary"]
-    scenario["id"] = created["id"]
-    listed = request("GET", "/api/scenarios", headers=auth_headers["value"])
-    assert any(s["id"] == scenario["id"] for s in listed), "created scenario missing from list"
-
-
-def test_scenario_validation():
-    h = auth_headers["value"]
-    request("POST", "/api/scenarios", {"name": "", **ORLANDO}, headers=h, expect=422)
-    request("POST", "/api/scenarios", {"name": "   ", **ORLANDO}, headers=h, expect=422)
-    request("POST", "/api/scenarios", {"name": "x" * 81, **ORLANDO}, headers=h, expect=422)
-    request("POST", "/api/scenarios", {"name": "NYC", "lat": 40.7, "lon": -74.0, "mw": 500}, headers=h, expect=422)
-    request("POST", "/api/scenarios", {"name": "Too big", **ORLANDO, "mw": 50001}, headers=h, expect=422)
-    # malformed numbers are a 422, never a 500
-    request("POST", "/api/scenarios", {"name": "Huge", **ORLANDO, "mw": 10**400}, headers=h, expect=422)
-    request("POST", "/api/scenarios", {"name": "NaN", **ORLANDO, "mw": float("nan")}, headers=h, expect=422)
-    request("DELETE", f"/api/scenarios/{10**30}", headers=h, expect=422)
-
-
-def test_scenario_owner_only():
-    # a second throwaway user must not see or delete the first user's scenario
-    other = request("POST", "/api/auth/signup", {"email": f"other-{email}", "password": "smoketest123"})
-    other_headers = {"Authorization": f"Bearer {other['access_token']}"}
-    request("DELETE", f"/api/scenarios/{scenario['id']}", headers=other_headers, expect=404)
-    assert not any(s["id"] == scenario["id"] for s in request("GET", "/api/scenarios", headers=other_headers)), "leaked"
-
-
-def test_scenario_delete():
-    request("DELETE", f"/api/scenarios/{scenario['id']}", headers=auth_headers["value"])
-    request("DELETE", f"/api/scenarios/{scenario['id']}", headers=auth_headers["value"], expect=404)
-    listed = request("GET", "/api/scenarios", headers=auth_headers["value"])
-    assert not any(s["id"] == scenario["id"] for s in listed), "deleted scenario still listed"
-
-
-check("scenarios require auth", test_scenarios_require_auth)
-check("scenario create + list roundtrip", test_scenario_create_and_list)
-check("scenario validation rejects blank/long names, points outside Florida, bad sizes", test_scenario_validation)
-check("scenarios are owner-only", test_scenario_owner_only)
-check("scenario delete works", test_scenario_delete)
-
-
 # Feature checks: each backend/smoke_checks/<feature>.py defines register(ctx) and adds its own
 # checks through ctx.check — one file per feature, so parallel work never edits this file.
 import importlib.util  # noqa: E402
@@ -368,7 +316,7 @@ ctx = types.SimpleNamespace(
     check=check,
     request=request,
     expected=EXPECTED,
-    auth=lambda: {"Authorization": f"Bearer {token['value']}"},
+    auth=lambda: {"Authorization": f"Bearer {token['value']}"} if token.get("value") else {},
 )
 for _path in sorted((Path(__file__).parent / "smoke_checks").glob("*.py")):
     _spec = importlib.util.spec_from_file_location(f"smoke_checks_{_path.stem}", _path)

@@ -82,10 +82,29 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     return user
 
 
+def signup_allowed() -> bool:
+    """Open sign-up is for local dev, seed.py and the smoke tests. The app itself never needs it: it signs in
+    as the demo account, which seed.py creates once. So on a hosted deploy (Render sets RENDER) it is off unless
+    ALLOW_SIGNUP is set on purpose (a one-off seed of a fresh database); ALLOW_SIGNUP=0 turns it off anywhere."""
+    flag = os.getenv("ALLOW_SIGNUP", "").strip().lower()
+    if flag:
+        return flag in ("1", "true", "yes", "on")
+    return not os.getenv("RENDER")
+
+
+def require_signup_open() -> None:
+    # a dependency, not a check inside signup(): it answers 403 before the body is even validated
+    if not signup_allowed():
+        raise HTTPException(
+            status_code=403,
+            detail="Sign-up is turned off on this server. The app signs in as its demo account on its own.",
+        )
+
+
 # Limits are per client IP, and everyone on the venue wifi shares ONE public IP —
 # so these are effectively per-venue. Keep them high enough for a crowd; they
 # exist to stop scripts, not people.
-@router.post("/signup", response_model=TokenResponse)
+@router.post("/signup", response_model=TokenResponse, dependencies=[Depends(require_signup_open)])
 @limiter.limit("30/minute")
 def signup(request: Request, body: SignupRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == body.email).first():

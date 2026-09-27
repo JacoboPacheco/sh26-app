@@ -1,6 +1,6 @@
 // Every backend call goes through here so auth headers and the prod API URL
 // are handled in one place. In dev VITE_API_URL is empty and Vite proxies
-// /api and /uploads to the backend; in prod it's the Render URL.
+// /api to the backend; in prod it's the Render URL.
 const BASE = import.meta.env.VITE_API_URL || ''
 const TOKEN_KEY = 'token'
 
@@ -14,7 +14,7 @@ export const getToken = () => localStorage.getItem(TOKEN_KEY)
 export const setToken = (token) => localStorage.setItem(TOKEN_KEY, token)
 export const clearToken = () => localStorage.removeItem(TOKEN_KEY)
 
-// Turns a backend-relative path like "/uploads/abc.png" into a usable src/href.
+// Turns a backend-relative path like "/api/voice/audio/abc.mp3" into a usable src/href.
 export const assetUrl = (path) => `${BASE}${path}`
 
 export async function api(path, { method = 'GET', body, form } = {}) {
@@ -84,9 +84,3 @@ export const getHeadroom = (loadFactor = 1) => api(`/api/grid/headroom?load_fact
 
 // Ask the backend's LLM helper (needs GEMINI_API_KEY on the backend; 503 otherwise).
 export const ask = (prompt) => api('/api/ai/ask', { method: 'POST', body: { prompt } })
-
-export async function uploadFile(file) {
-  const form = new FormData()
-  form.append('file', file)
-  return api('/api/upload', { method: 'POST', form })
-}

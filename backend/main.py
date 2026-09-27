@@ -56,7 +56,6 @@ import narrate
 import negotiate
 import plan_agents
 import planner
-import scenarios
 import service_rules
 import sitereport
 import show
@@ -64,7 +63,6 @@ import sources
 import timelapse
 import towns
 import unlock
-import uploads
 import views
 import vote
 import voice
@@ -104,17 +102,6 @@ def validation_handler(request: Request, exc: RequestValidationError):
 app.add_exception_handler(RequestValidationError, validation_handler)
 
 
-# Runs before routing and body parsing, so a huge upload is refused without being
-# downloaded. Defined before CORSMiddleware is added so the 413 still gets CORS headers.
-@app.middleware("http")
-async def reject_oversized_uploads(request: Request, call_next):
-    if request.url.path == "/api/upload":
-        declared = request.headers.get("content-length", "")
-        if declared.isdigit() and int(declared) > uploads.MAX_UPLOAD_BYTES + 4096:
-            return JSONResponse({"detail": "File too large (max 5MB)"}, status_code=413)
-    return await call_next(request)
-
-
 # /api/grid/headroom builds a whole model per load level, and grid.py is fingerprinted (a change
 # there means a rebake), so its per-visitor limit lives here: 120 a minute, like the cascade's.
 _HEADROOM_LIMIT = 120
@@ -148,12 +135,10 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
-app.include_router(uploads.router)
 app.include_router(llm.router)
 app.include_router(grid.router)
 app.include_router(evidence.router)
 app.include_router(grid_operator.router)
-app.include_router(scenarios.router)
 app.include_router(hurricane.router)
 app.include_router(harden.router)
 app.include_router(fixit.router)

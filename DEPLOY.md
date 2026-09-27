@@ -8,7 +8,7 @@ After the practice run, delete the practice services (Render: service → Settin
 ## 1. Backend + database → Render (about 5 clicks — `render.yaml` does the rest)
 
 1. Push this repo to GitHub.
-2. render.com → New → **Blueprint** → connect the repo. Render reads `render.yaml` and shows two things: the `shellhacks-backend` web service and a free `shellhacks-db` Postgres. Accounts, uploads, and everything else live in that database, so **nothing is lost on deploys or restarts**. (Render's free Postgres expires 30 days after creation — plenty for the event.)
+2. render.com → New → **Blueprint** → connect the repo. Render reads `render.yaml` and shows two things: the `shellhacks-backend` web service and a free `shellhacks-db` Postgres. Accounts and everything else live in that database, so **nothing is lost on deploys or restarts**. (Render's free Postgres expires 30 days after creation — plenty for the event.)
 3. It asks for `ALLOWED_ORIGINS` — put `http://localhost:5173` for now (you'll change it in section 3) — and for `GEMINI_API_KEY` and `ELEVENLABS_API_KEY`: paste the same values as in `backend/.env` (left blank, the app runs its labeled plain versions and the browser voice). `JWT_SECRET` and `DATABASE_URL` are filled in for you; `DANGER_WARM=0`, `FORECAST_PREWARM=0`, `PLANTS_WARM=` (empty), `UNLOCK_WARM=0`, `TIMELAPSE_WARM=0` and `NARRATE_WARM=0` are set by `render.yaml` so the free tier's small CPU isn't spent on startup warm-ups (each is computed on first use). Memory: measured Sat 08:50 at a 236 MB peak through every heavy path, under the free tier's 512 MB.
 
    Every backend variable, for reference: `DATABASE_URL`, `JWT_SECRET`, `ALLOWED_ORIGINS`, `GEMINI_API_KEY`, `GEMINI_MODEL` (default gemini-3.5-flash-lite), `GEMINI_AGENT_MODEL` (render.yaml: gemini-3.5-flash-lite), `GEMINI_AGENT_THINKING` (default minimal), `GEMINI_FALLBACK_MODELS`, `AI_CACHE_FILE`, `AI_DAILY_LIMIT` (default 400/day), `ELEVENLABS_API_KEY`, `ELEVENLABS_MODEL`, `ELEVENLABS_VOICE_PRESENTER`, `ELEVENLABS_VOICE_ANALYST`, `VOICE_DAILY_CHARS` (default 8000), `DANGER_WARM`, `FORECAST_PREWARM`, `PLANTS_WARM`, `UNLOCK_WARM`, `TIMELAPSE_WARM`, `NARRATE_WARM`; optional tuning: `GEMINI_COMMENT_MODEL`, `ELEVENLABS_TIMEOUT_S`, `DANGER_BUDGET_S`, `VOICE_CACHE_DIR`, `GRIDLOCK_DATA_DIR`, `LOG_FILE`.
@@ -36,6 +36,8 @@ Prove the deployed pair works, not just that it's up — the backend answers, it
 backend\venv\Scripts\python backend\smoke_test.py https://<your-render-url> https://<your-vercel-url>
 backend\venv\Scripts\python backend\seed.py https://<your-render-url>
 ```
+
+Open sign-up is off on Render by default (Render sets `RENDER`; the app only ever signs in as the demo account), so the smoke test expects `POST /api/auth/signup` to answer 403 there and skips its throwaway-user checks. To create the demo account on a FRESH Render database, set `ALLOW_SIGNUP=1` under Environment for one deploy, run `seed.py`, then remove `ALLOW_SIGNUP` again. An account made earlier keeps working (login is unchanged).
 
 Then warm the AI caches once (the Render disk is wiped on every deploy and restart, so Gemini's cached answers are gone), and confirm Strengthen's baked Florida study loaded:
 

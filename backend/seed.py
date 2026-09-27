@@ -10,6 +10,10 @@ Demo login (change via env DEMO_EMAIL / DEMO_PASSWORD, and write it on paper):
 
 Add the project's own demo data in `seed_project_data` below, through the API
 (so it works everywhere), using the demo user's token.
+
+Sign-up is off by default on a hosted backend (Render sets RENDER): to create the demo account on a FRESH
+hosted database, set ALLOW_SIGNUP=1 on the backend for one deploy, run this, then remove it again. Locally
+and against an existing account nothing extra is needed.
 """
 
 import json
@@ -52,35 +56,29 @@ def get_token() -> str:
     if status == 200:
         print(f"created demo account {EMAIL}")
         return payload["access_token"]
-    if status == 400:
-        status, payload = call("POST", "/api/auth/login", form={"username": EMAIL, "password": PASSWORD})
-        if status == 200:
+    # 400: the account exists. 403: sign-up is switched off (a hosted deploy: see ALLOW_SIGNUP in
+    # backend/.env.example), so an account made earlier is all there is to sign in as.
+    if status in (400, 403):
+        status2, payload2 = call("POST", "/api/auth/login", form={"username": EMAIL, "password": PASSWORD})
+        if status2 == 200:
             print(f"demo account {EMAIL} already exists, logged in")
-            return payload["access_token"]
+            return payload2["access_token"]
+        if status == 403:
+            print(
+                f"sign-up is off on {BASE} and {EMAIL} could not log in ({status2}). To create the demo account once on a "
+                "fresh hosted database: set ALLOW_SIGNUP=1 on the backend (Render -> Environment), redeploy, run this "
+                "script, then remove ALLOW_SIGNUP again."
+            )
+            sys.exit(1)
     print(f"could not sign up or log in as {EMAIL}: {status} {payload}")
     sys.exit(1)
 
 
-SEED_MARK = "(demo scenario)"  # marks the built-in examples (backend/scenarios.py)
-# The examples themselves live in backend/scenarios.py → examples(): the server owns them, so nobody
-# can edit or delete them through the API (403), and only the server can bring them back to canonical.
-# The hero, "Fort Myers · 1,500 MW", matches expected_whatif.json → hero; demo_path.py clicks it.
-
-
 def seed_project_data(token: str) -> None:
-    """Write the Library's built-in examples into the demo account, via the API. Idempotent: the
-    server creates the missing ones, brings changed ones back to their canonical case (numbers
-    recomputed on the current engine), and removes retired ones (their versions are kept)."""
-    status, payload = call("POST", "/api/scenarios/examples", token=token)
-    if status != 200:
-        print(f"could not write the example scenarios: {status} {payload}")
-        sys.exit(1)
-    for verb in ("created", "updated", "removed"):
-        for name in payload.get(verb, []):
-            print(f"{verb} example {ascii(name)}")
-    for sc in payload["examples"]:
-        r = sc.get("result") or {}
-        print(f"  {ascii(sc['name'])}: {r.get('verdict')}, {r.get('people', 0):,} people without power (estimate), {r.get('steps', 0)} steps")
+    """The project's own demo data, written through the API with the demo user's token. Idempotent.
+    Nothing to write today: the demo cases (the Fort Myers hero and the rest) open by link and are computed by
+    the engine, and the saved-scenarios routes that used to hold them were removed (Sun 01:55)."""
+    return
 
 
 if __name__ == "__main__":

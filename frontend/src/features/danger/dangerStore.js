@@ -75,10 +75,10 @@ function schedulePoll(key, params) {
 // the data is the previous answer for this region (a new size or level is still computing).
 // Mounted by both the panel and the layer; requests are shared, never doubled.
 export function useDangerZones() {
-  const { region, mw, loadFactor, firm, mode } = useOverload()
+  const { region, mw, loadFactor, firm } = useOverload()
   const { on } = useStore(ui)
   const all = useStore(answers)
-  const enabled = on && region !== 'US' && mode === 'campus' // the toggle lives in the Data center panel: no rings in any other mode
+  const enabled = on && region !== 'US'
   const size = sizeFor(mw)
   const key = keyOf({ region, mw, loadFactor, firm })
 
@@ -123,16 +123,15 @@ export function useDangerZones() {
   }
 }
 
-// "Start over" turns the zones off (like the heatmap), and so does leaving Data center mode (Hurricane, AI boom, Strengthen have
-// no toggle to turn them off again); a region change keeps them on for the new state.
+// "Start over" turns the zones off (like the heatmap); a region change keeps them on for the new state.
 export function useResetOff() {
-  const { resetCount, region, mode } = useOverload()
-  const prev = useRef({ resetCount, region, mode })
+  const { resetCount, region } = useOverload()
+  const prev = useRef({ resetCount, region })
   useEffect(() => {
     const p = prev.current
-    if ((p.resetCount !== resetCount && p.region === region) || (p.mode !== mode && mode !== 'campus')) setDangerOn(false)
-    prev.current = { resetCount, region, mode }
-  }, [resetCount, region, mode])
+    if (p.resetCount !== resetCount && p.region === region) setDangerOn(false)
+    prev.current = { resetCount, region }
+  }, [resetCount, region])
 }
 
 // ------------------------------------------------------------------ numbers

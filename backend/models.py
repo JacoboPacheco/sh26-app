@@ -15,8 +15,8 @@ class User(Base):
 
 
 class Upload(Base):
-    # Files live in the database, not on disk, so they survive redeploys on hosts
-    # with no persistent filesystem (Render free tier). 5MB max each — see uploads.py.
+    # No route reads or writes this any more (the upload routes were cut Sun 01:55: nothing used them and on a
+    # public host they were open write surface). The table stays so an existing database still starts.
     __tablename__ = "uploads"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -27,8 +27,9 @@ class Upload(Base):
 
 
 class Scenario(Base):
-    # A saved data-center drop (site + size) the demo can replay. Everything but the key
-    # fields is `X | None`: a column added mid-event arrives as NULL on old rows.
+    # A saved data-center drop (site + size). No route reads or writes this any more (the saved-scenarios and
+    # share routes were cut Sun 01:55; the page stopped using them earlier). The table stays so an existing
+    # database still starts. Everything but the key fields is `X | None`: a column added mid-event arrives as NULL.
     __tablename__ = "scenarios"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -39,13 +40,13 @@ class Scenario(Base):
     note: Mapped[str | None] = mapped_column(String(280), default="")
     summary: Mapped[dict | None] = mapped_column(JSON, default=None)  # last what-if: overloads, headroom
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    # The Library (scenarios.py), added Sat 03:00 — all nullable: old rows have NULL here.
+    # The Library columns (scenarios.py, since removed), added Sat 03:00 — all nullable: old rows have NULL here.
     # case_json: the full case (grid.CaseIn: region, campuses, load level, lines out, upgrades, firm);
     # NULL on an old row means {region: FL, lat, lon, mw}. Named case_json because CASE is SQL.
     case_json: Mapped[dict | None] = mapped_column(JSON, default=None)
     result: Mapped[dict | None] = mapped_column(JSON, default=None)  # what the case does, computed server-side
     parent_id: Mapped[int | None] = mapped_column(Integer, default=None, index=True)  # a version: its original
     # A random, url-safe public link id. unique= only takes on a fresh database (ALTER TABLE ADD
-    # COLUMN can't add the constraint), so scenarios.py also checks before it hands one out.
+    # COLUMN can't add the constraint), so the (removed) scenarios.py also checked before it handed one out.
     share_slug: Mapped[str | None] = mapped_column(String(32), default=None, unique=True, index=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)  # naive UTC

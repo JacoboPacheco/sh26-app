@@ -1,8 +1,8 @@
 # Shellhacks starter
 
-**This is a template, not a project.** It holds plumbing (auth, uploads, deploy, checks, an LLM helper), a small UI kit, and one clearly-labelled example feature that exists to be copied and then deleted. The hackathon project is generated from it at kickoff and built from that point on; the first commit after generation is "Start ShellHacks project".
+**This is a template, not a project.** It holds plumbing (auth, deploy, checks, an LLM helper), a small UI kit, and one clearly-labelled example feature that exists to be copied and then deleted. The hackathon project is generated from it at kickoff and built from that point on; the first commit after generation is "Start ShellHacks project".
 
-FastAPI backend (SQLite locally, Postgres on Render — uploads live in the database too, so nothing is lost on deploys) + React (Vite) frontend with a small UI kit and one example feature, wired together and verified working end to end, plus a `.claude/` setup that makes Claude Code faster and more reliable on this repo.
+FastAPI backend (SQLite locally, Postgres on Render — accounts live in the database, so nothing is lost on deploys) + React (Vite) frontend with a small UI kit and one example feature, wired together and verified working end to end, plus a `.claude/` setup that makes Claude Code faster and more reliable on this repo.
 At kickoff, generate the project's repo from this template, run `/ideas` (no idea yet, or candidates to score) and `/spec` in Claude Code, and start building features instead of plumbing.
 
 > **"Running scripts is disabled on this system"?** Fresh Windows blocks `.ps1` files. Run any of this repo's scripts as `powershell -ExecutionPolicy Bypass -File .\script.ps1`, or allow them for your account once with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
@@ -45,7 +45,7 @@ Demo account and demo data (recreate any time, locally or on Render): `backend\v
 .\check.ps1
 ```
 
-(From Git Bash or inside Claude Code: `bash scripts/check.sh` — same thing.) Lints and builds the frontend, starts a throwaway backend, runs the smoke test (health, signup, auth, validation, uploads, AI status/auth), then opens the built app in headless Chromium and checks it rendered, didn't crash, logged no errors, has alt text and labels everywhere, and fits a phone screen (needs `python -m pip install playwright` + `python -m playwright install chromium`; skipped otherwise). Prints `ALL CHECKS PASSED` or names what failed, and saves a screenshot to `.claude/tmp/e2e.png`. CI runs the same script on every push.
+(From Git Bash or inside Claude Code: `bash scripts/check.sh` — same thing.) Lints and builds the frontend, starts a throwaway backend, runs the smoke test (health, signup, auth, validation, the removed template routes, AI status/auth), then opens the built app in headless Chromium and checks it rendered, didn't crash, logged no errors, has alt text and labels everywhere, and fits a phone screen (needs `python -m pip install playwright` + `python -m playwright install chromium`; skipped otherwise). Prints `ALL CHECKS PASSED` or names what failed, and saves a screenshot to `.claude/tmp/e2e.png`. CI runs the same script on every push.
 
 ## The Claude Code setup (CLAUDE.md, PLAYBOOK.md, `.claude/`, `scripts/` — picked up automatically)
 

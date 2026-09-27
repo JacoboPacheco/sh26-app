@@ -227,10 +227,9 @@ def main():
             time.sleep(2.1)
 
     # Let a Gemini operator fight it (grid_operator.py): the Fort Myers hero, fought with no operator, the engine's operator
-    # and Gemini's. The two hero sizes are committed runs (backend/demo/operator/, scripts/bake_operator.py) that answer at
-    # once while their fingerprint matches the code, so here they time that answer; any other case is cached in memory (six
-    # hours) and in the answer cache call by call. Two sizes: the hero's 1,500 MW (where Gemini can honestly tie doing nothing)
-    # and 1,000 MW (where it visibly helps: the judges' guide and the demo point there). A job: POST, then poll to the end.
+    # and Gemini's. Cached in memory (six hours) and in the answer cache call by call: rerun after a backend restart.
+    # Two sizes: the hero's 1,500 MW (where Gemini can honestly tie doing nothing) and 1,000 MW (where it visibly helps: the
+    # judges' guide and the demo point there). A job: POST, then poll to the end.
     for mw in (1500, 1000):
         t0 = time.time()
         j, dt, code = call("POST", "/api/operator/run", {"lat": 26.6406, "lon": -81.8723, "mw": mw})
@@ -239,7 +238,7 @@ def main():
             j, _, code = call("GET", f"/api/operator/jobs/{j['job']}")
         r = (j or {}).get("result") or {}
         toll = lambda k: ((r.get("runs") or {}).get(k) or {}).get("toll", {}).get("people_hit")  # noqa: E731
-        note(f"operator: hero at {mw} MW" + (" (committed run)" if r.get("baked") else ""), (f"{r.get('by')}: none {toll('none')}, engine {toll('engine')}, gemini {toll('gemini')}" if r else f"HTTP {code}"), time.time() - t0)
+        note(f"operator: hero at {mw} MW", (f"{r.get('by')}: none {toll('none')}, engine {toll('engine')}, gemini {toll('gemini')}" if r else f"HTTP {code}"), time.time() - t0)
 
     st, _, _ = call("GET", "/api/ai/status")
     print(f"\nDone: {len(rows)} steps. AI used today {st and st.get('used_today')}/{st and st.get('cap')}; cached answers {st and st.get('cached_answers')}; models out today {st and st.get('models_out_today')}")

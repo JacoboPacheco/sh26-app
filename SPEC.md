@@ -90,7 +90,7 @@ Endpoints (all JSON; what-if and cascade rate-limited `120/minute` — one spars
 - `POST /api/grid/whatif` `{lat, lon, mw}` → `{bus, sub_name, loading_pct: [per branch], overloaded: [{id, pct, from, to, kv}], headroom_mw}`. 422 with a clear message when the point is outside Florida's bounding box or `mw` is outside 1–5,000.
 - `POST /api/grid/cascade` `{lat, lon, mw}` → `{steps: [{n, tripped: [ids], dark_subs: [ids], hot: [{id, pct}], lost_mw, homes}], final_loading_pct: [...], outcome: "settled" | "islanded", total_steps}`.
 - `GET /api/grid/headroom` → `{by_sub: {sub_id: mw}}` (the headroom at the substation's connect bus — the bus a drop there connects to — so it equals the what-if headroom; changed Sat 00:25 from "min over the substation's buses", which disagreed at 266 of 1,329 substations).
-- `GET /api/scenarios`, `POST /api/scenarios` `{name, lat, lon, mw}`, `DELETE /api/scenarios/{id}` — `Depends(get_current_user)`, owner-only 404 on delete, validation like `items.py`.
+- **[Removed Sun 01:55: nothing in the app used it, and on a public host it was open write surface. The tables stay so an old database starts.]** `GET /api/scenarios`, `POST /api/scenarios` `{name, lat, lon, mw}`, `DELETE /api/scenarios/{id}` — `Depends(get_current_user)`, owner-only 404 on delete, validation like `items.py`.
 - Nice-to-have 3 adds `POST /api/grid/explain`; nice-to-have 2 adds an optional `trip: [branch_id]` field to `cascade`.
 
 Tables (`backend/models.py`):
@@ -102,9 +102,9 @@ Memory rule (Render free tier is 512 MB): never build a dense PTDF or B′⁻¹ 
 
 ## Starter pieces touched
 
-- `uploads.py` — reused as-is (unused by the demo; stays for the smoke checks).
+- **[Removed Sun 01:55: nothing in the app used it, and on a public host it was open write surface. The tables stay so an old database starts.]** `uploads.py` — reused as-is (unused by the demo; stays for the smoke checks).
 - `llm.py` — reused as-is; only nice-to-have 3 calls `complete(prompt, fallback=..., timeout=10)`.
-- `seed.py` — `seed_project_data` extended: creates the two scenarios through `POST /api/scenarios` if no scenario with that name exists (idempotent). Milestone 1.
+- `seed.py` [now only creates the demo account; the scenarios call was removed Sun 01:55] — `seed_project_data` extended: creates the two scenarios through `POST /api/scenarios` if no scenario with that name exists (idempotent). Milestone 1.
 - `smoke_test.py` — extended with the checks below. Milestone 1.
 - The EXAMPLE feature (`Item`, `items.py`, its router line, smoke checks, seed rows, `ItemsPanel.jsx`, its use in `App.jsx`) is copied for `scenarios.py` and then removed before milestone 1.
 - `frontend/src/api.js` — add `grid()`, `whatIf()`, `cascade()`, `headroom()` and scenario helpers; nothing calls `fetch` directly. `useAuth()` stays in `App.jsx`; no login screen.
@@ -117,7 +117,7 @@ Memory rule (Render free tier is 512 MB): never build a dense PTDF or B′⁻¹ 
 - what-if outside Florida → 422; `mw = 0` and `mw = 9999` → 422.
 - cascade on the Orlando site: terminates ≤ 30 steps, `lost_mw` ≤ total load, homes monotone, outcome is one of the two strings.
 - headroom: one finite value ≥ 0 per substation; the Orlando substation's value equals the what-if headroom within 1 MW.
-- scenarios: unauthenticated → 401; create + list + delete roundtrip; another user's scenario → 404 on delete; blank or 81-character name → 422.
+- **[Removed Sun 01:55: nothing in the app used it, and on a public host it was open write surface. The tables stay so an old database starts.]** scenarios: unauthenticated → 401; create + list + delete roundtrip; another user's scenario → 404 on delete; blank or 81-character name → 422.
 - (nice-to-have 3) explain returns text and a boolean `fallback` whether or not the key is present.
 
 `frontend/e2e/demo_path.py` (URL as argv[1]; creates nothing): open → "Signed in as" and the synthetic pill visible → click "Fort Myers · 1,500 MW" → "over limit" and a red line → "Run the cascade" → "Homes without power", an outcome line, a dark substation → slider to 500 MW by keyboard → "No line over limit." → "Where can 500 MW go?" → legend and a green substation.

@@ -42,22 +42,18 @@ Three runs of every case:
 Each run: the steps (the operator's actions, what the engine did, the lines tripped, people hit so far), the final toll
 (people hit incl. the load cut, people still without power, the blackout's cost: the same value-of-lost-load formula as
 costs.estimate, high end) and, for Gemini, the agent trace (every tool call, every rejected action with the reason).
-Nothing here is a real utility's or grid operator's procedure: a test on an open, synthetic model.
+Nothing here is a real utility's or grid operator's procedure: a game played on an open, synthetic model.
 
 Public (no login, nothing stored but the in-memory cache); POST 30/minute per visitor. A finished case is cached for six
 hours (a fallback run while a key is set, for two minutes); each Gemini turn is also in llm's answer cache, so a replay
-is the same run call by call. The two Fort Myers hero runs (1,000 and 1,500 MW, 4 PM) are also committed as
-backend/demo/operator/*.json (scripts/bake_operator.py, real Gemini runs recorded from a local backend), like the Strengthen
-studies of backend/baked.py: a file is used only while its fingerprint (this file, the engine, the costs and the plants
-module) matches this code, and then those two cases answer at once on any host, key or no key; any other case runs live.
-A job runs in its own thread with its own event loop, so the engine's solves never hold the server's loop.
+is the same run call by call (scripts/prewarm_ai.py pre-runs the Fort Myers hero). A job runs in its own thread with its
+own event loop, so the engine's solves never hold the server's loop.
 """
 
 from __future__ import annotations
 
 import asyncio
 import copy
-import hashlib
 import itertools
 import json
 import logging
@@ -68,7 +64,6 @@ import threading
 import time
 import weakref
 from collections import OrderedDict
-from pathlib import Path
 
 import os
 
@@ -118,7 +113,7 @@ RUNNING_MAX = 3
 THOUGHT_MAX = 220
 _EPS = 1e-9
 
-FRAME = ("A test on a SYNTHETIC grid model (Breakthrough Energy / Texas A&M), not any utility's network or any grid operator's "
+FRAME = ("A game on a SYNTHETIC grid model (Breakthrough Energy / Texas A&M), not any utility's network or any grid operator's "
          "procedures. People counts and costs are estimates.")
 RULES = [
     "Move power between plants (redispatch): raise one plant, lower another by the same MW, within their limits. Nobody loses power.",
@@ -869,17 +864,6 @@ def _engine_act_factory(recs: list[dict], job: "_Job | None" = None):
 
 
 # ------------------------------------------------------------------------------------ the case
-def case_key(code: str, load_factor: float, sites, trip, upgrades) -> str:
-    """The identity of a case (what a cached or baked run is stored under): site positions to 4 decimals, MW to 1."""
-    return json.dumps([code, round(float(load_factor), 2), [[round(float(a), 4), round(float(b), 4), round(float(c), 1)] for a, b, c in sites], sorted(int(t) for t in trip),
-                       sorted((int(k), round(float(v), 1)) for k, v in dict(upgrades).items())])
-
-
-def key_of_header(h: dict) -> str:
-    """case_key from a finished result's `case` header (scripts/bake_operator.py)."""
-    return case_key(h["region"], h["load_factor"], [(s["lat"], s["lon"], s["mw"]) for s in h["sites"]], h["trip"], h["upgrades"])
-
-
 class _Case:
     def __init__(self, body: CaseIn):
         if body.firm:
@@ -903,7 +887,8 @@ class _Case:
             "trip": trip,
             "upgrades": {str(k): v for k, v in upgrades.items()},
         }
-        self.key = case_key(self.code, g.load_factor, [(s.lat, s.lon, s.mw) for s in sites], trip, upgrades)
+        self.key = json.dumps([self.code, round(g.load_factor, 2), [[round(s.lat, 4), round(s.lon, 4), round(s.mw, 1)] for s in sites], sorted(trip),
+                               sorted((int(k), round(float(v), 1)) for k, v in upgrades.items())])
         self.plants: Plants | None = None
 
     def sim(self) -> Sim:
@@ -1532,64 +1517,17 @@ def _ckey(c: _Case) -> str:
     return json.dumps([c.key, configured()])
 
 
-BAKED_DIR = Path(__file__).parent / "demo" / "operator"
-BAKED_ENGINE_FILES = ("grid_operator.py", "powerflow.py", "grid.py", "costs.py", "plants.py")
-_baked: dict[str, dict] | None = None
-_baked_lock = threading.Lock()
-
-
-def fingerprint() -> str:
-    """A hash of the code a baked run came from (line endings normalized, like baked.py's): a run recorded by other code is never served."""
-    h = hashlib.sha256()
-    here = Path(__file__).parent
-    for name in BAKED_ENGINE_FILES:
-        h.update(name.encode())
-        if (here / name).is_file():
-            h.update((here / name).read_bytes().replace(b"\r\n", b"\n"))
-    return h.hexdigest()[:16]
-
-
-def baked_runs() -> dict[str, dict]:
-    """Case key -> the finished run committed in backend/demo/operator/ (loaded once, on the first case asked for)."""
-    global _baked
-    with _baked_lock:
-        if _baked is None:
-            out: dict[str, dict] = {}
-            if BAKED_DIR.is_dir():
-                fp = fingerprint()
-                for p in sorted(BAKED_DIR.glob("*.json")):
-                    try:
-                        d = json.loads(p.read_text(encoding="utf-8"))
-                        key, res = str(d["key"]), d["result"]
-                        if not isinstance(res, dict) or not res.get("runs") or not res.get("trace"):
-                            raise ValueError("not a finished run")
-                    except (OSError, ValueError, KeyError, TypeError) as e:
-                        log.warning("baked operator run %s unreadable: %s", p.name, e)
-                        continue
-                    if d.get("fingerprint") != fp:
-                        log.info("baked operator run %s is from other code (%s, now %s): the case runs live instead", p.name, d.get("fingerprint"), fp)
-                        continue
-                    out[key] = res
-                if out:
-                    log.info("loaded %d baked operator runs", len(out))
-            _baked = out
-        return _baked
-
-
 def cached(c: _Case) -> dict | None:
     with _cache_lock:
         hit = _cache.get(_ckey(c))
-        if hit is not None:
-            ts, ttl, out = hit
-            if time.time() - ts > ttl:
-                _cache.pop(_ckey(c), None)
-            else:
-                _cache.move_to_end(_ckey(c))
-                return {**copy.deepcopy(out), "cached": True}
-    recorded = baked_runs().get(c.key)  # a recorded run: the same answer on any host, whether or not it has a Gemini key
-    if recorded is not None:
-        return {**copy.deepcopy(recorded), "cached": True, "baked": True}
-    return None
+        if hit is None:
+            return None
+        ts, ttl, out = hit
+        if time.time() - ts > ttl:
+            _cache.pop(_ckey(c), None)
+            return None
+        _cache.move_to_end(_ckey(c))
+    return {**copy.deepcopy(out), "cached": True}
 
 
 def _store(c: _Case, out: dict) -> None:
