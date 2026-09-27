@@ -17,6 +17,27 @@ export const PRESETS = [
   { id: 'wave', label: 'Heat wave', factor: HEAT_WAVE, hint: 'A heat wave pushes every load past the summer peak' },
 ]
 
+// What each hour stands for (user, Sat 20:20: hovering an hour should say why the time of day matters and what
+// temperature it represents). The temperatures are a typical Florida summer day, rounded ("about"); the model
+// scales demand for the hour, it does not model weather. Other states get the demand and the reason only.
+const FL_TEMP = { night: 'about 76°F', morning: 'about 83°F', afternoon: 'about 92°F', wave: '97°F and up' }
+const WHY = {
+  night: 'Air conditioning is mostly idle, so demand is at its lowest and the lines have the most room for a new data center.',
+  morning: 'Air conditioning is starting up: demand is climbing toward the afternoon peak.',
+  afternoon: 'Air conditioning runs flat out, so the grid carries its daily peak and a new data center has the least room left. This is the model’s own snapshot.',
+  wave: 'Days of extreme heat push demand past the usual peak: a data center that fits at 4 PM can set off a blackout.',
+}
+/** the hover card for one hour: {head, demand, why, note} */
+export function hourTip(p, region) {
+  const fl = region === 'FL'
+  return {
+    head: fl ? `${p.label} · ${FL_TEMP[p.id]}` : p.label,
+    demand: `Demand: ${peakPhrase(p.factor)}`,
+    why: WHY[p.id],
+    note: fl ? 'A typical Florida summer day. The model changes demand for the hour, not the weather.' : 'The model changes demand for the hour, not the weather.',
+  }
+}
+
 export const presetFor = (factor) => PRESETS.find((p) => p.factor.toFixed(2) === Number(factor).toFixed(2)) || null
 
 // The light over the map for any level, so a level set elsewhere (not a preset) still gets a mood.

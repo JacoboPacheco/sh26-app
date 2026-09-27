@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo } from 'react'
 import { getHeadroom } from '../../api'
 import { useOverload } from '../../store'
 import './heat.css'
-import { HEAT_HINT, HEAT_WAVE, PRESETS, ambienceFor, peakPhrase, presetFor } from './presets'
+import { HEAT_HINT, HEAT_WAVE, PRESETS, ambienceFor, hourTip, peakPhrase, presetFor } from './presets'
 import useTween from './useTween'
 
 const METER_MAX = 1.1 // the meter's full width, a little past the heat wave; its tick is the summer peak
@@ -19,7 +19,7 @@ const WARM_ORDER = PRESETS.map((p) => p.factor)
 // `compact`: just the hours as a small segmented control, for the scenario strip (the time of day is part of
 // the scenario; the big clock left the top bar, user Sat 08:16).
 export default function HeatClock({ compact = false }) {
-  const { grid, result, loadFactor, setLoadFactor } = useOverload()
+  const { grid, result, loadFactor, setLoadFactor, region } = useOverload()
   const id = useId()
   const active = presetFor(loadFactor)
   const national = grid?.meta?.region === 'US'
@@ -69,9 +69,18 @@ export default function HeatClock({ compact = false }) {
   const hours = (
     <div className="heat__seg" role="radiogroup" aria-labelledby={`${id}-label`} aria-describedby={`${id}-hint`}>
       {PRESETS.map((p) => (
-        <label key={p.id} className={`heat__opt heat__opt--${p.id}`} title={p.hint}>
-          <input type="radio" name={`${id}-hour`} value={p.id} checked={active?.id === p.id} onChange={() => setLoadFactor(p.factor)} />
+        <label key={p.id} className={`heat__opt heat__opt--${p.id}`}>
+          <input
+            type="radio"
+            name={`${id}-hour`}
+            value={p.id}
+            checked={active?.id === p.id}
+            onChange={() => setLoadFactor(p.factor)}
+            aria-describedby={`${id}-tip-${p.id}`}
+          />
           <span>{p.label}</span>
+          {/* on hover and keyboard focus: why the hour matters and what it stands for (presets.js hourTip) */}
+          <HourTip id={`${id}-tip-${p.id}`} tip={hourTip(p, region)} />
         </label>
       ))}
     </div>
@@ -88,7 +97,7 @@ export default function HeatClock({ compact = false }) {
   )
   if (compact)
     return (
-      <div className={`heat heat--compact heat--${mood}`} title={`${HEAT_HINT}${Number.isFinite(gw) && !national ? ` ${regionName}'s load: ${gw.toFixed(1)} GW, ${peakPhrase(loadFactor)}.` : ''}`}>
+      <div className={`heat heat--compact heat--${mood}`}>
         <span className="heat__label" id={`${id}-label`}>
           Time of day
         </span>
@@ -133,5 +142,16 @@ export default function HeatClock({ compact = false }) {
         {HEAT_HINT}
       </span>
     </div>
+  )
+}
+
+function HourTip({ id, tip }) {
+  return (
+    <span className="heat__tip" role="tooltip" id={id}>
+      <span className="heat__tip-head">{tip.head}</span>
+      <span className="heat__tip-demand">{tip.demand}</span>
+      <span className="heat__tip-why">{tip.why}</span>
+      <span className="heat__tip-note">{tip.note}</span>
+    </span>
   )
 }

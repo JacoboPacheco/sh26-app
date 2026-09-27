@@ -314,3 +314,61 @@ html[data-heat] .map:has(.map-svg--headroom)::before {
   padding-block: 0.2rem;
   font-size: 0.78rem;
 }
+
+/* the hour's card on hover and keyboard focus (HeatClock HourTip): why the time of day matters, and what it stands
+   for. Its spans are reset from .heat__opt span (the segment's look). */
+.heat__opt .heat__tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 30;
+  display: none;
+  width: 260px;
+  padding: 10px 12px;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.45);
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+}
+.heat__opt:hover .heat__tip,
+.heat__opt:focus-within .heat__tip {
+  display: grid;
+  gap: 4px;
+}
+.heat__opt .heat__tip span {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+  font-weight: 400;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+.heat__opt .heat__tip .heat__tip-head {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+.heat__opt .heat__tip .heat__tip-demand {
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.heat__opt .heat__tip .heat__tip-note {
+  font-size: 0.72rem;
+  opacity: 0.85;
+}
+/* the heat wave sits at the right end: its card opens leftward so it stays on screen */
+.heat__opt--wave .heat__tip {
+  left: auto;
+  right: 0;
+  transform: none;
+}

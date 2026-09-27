@@ -561,17 +561,23 @@ function CapBudget({ m, budget, onChange }) {
   return (
     <label className="st-ctl st-bud" title={v ? `${moneyRange(c.low, c.high)}: the low to high end of the estimates` : 'No upgrades: today’s grid'}>
       <span className="st-ctl__k">Budget</span>
-      <input
-        type="range"
-        min={0}
-        max={stops.length - 1}
-        step={1}
-        value={i}
-        onChange={(e) => onChange(stops[Number(e.target.value)])}
-        aria-valuetext={`${v ? money(v) : 'No upgrades'}: ${n} ${n === 1 ? 'campus' : 'campuses'} at once`}
-        style={{ '--st-bud-at': `${(i / Math.max(1, stops.length - 1)) * 100}%` }}
-      />
-      <span className="st-bud__v">{v ? money(v) : 'No upgrades'}</span>
+      {/* the amount rides under the handle; the end of the slider is the cap (user, Sat 20:20) */}
+      <span className="st-bud__track" style={{ '--st-bud-f': i / Math.max(1, stops.length - 1) }}>
+        <input
+          type="range"
+          min={0}
+          max={stops.length - 1}
+          step={1}
+          value={i}
+          onChange={(e) => onChange(stops[Number(e.target.value)])}
+          aria-valuetext={`${v ? money(v) : 'No upgrades'}: ${n} ${n === 1 ? 'campus' : 'campuses'} at once`}
+          style={{ '--st-bud-at': `${(i / Math.max(1, stops.length - 1)) * 100}%` }}
+        />
+        <span className="st-bud__v" aria-hidden="true">
+          {v ? money(v) : 'No upgrades'}
+        </span>
+      </span>
+      <span className="st-bud__cap">up to {money(stops.at(-1))}</span>
     </label>
   )
 }
