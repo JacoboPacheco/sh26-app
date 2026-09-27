@@ -5,8 +5,16 @@ A public POST that stores nothing. With a Gemini key the comment is Gemini's (ch
 without one (GEMINI_API_KEY blank) the labeled template runs. ?ai=false always asks for the template, so the
 template's own checks run on every server."""
 
+import asyncio
+import io
+import json
 import math
+import os
 import re
+import sys
+import time
+import urllib.error
+from pathlib import Path
 
 PID = "stonebridge-fort-meade"
 PATH = f"/api/vote/proposal/{PID}/comment"
@@ -177,9 +185,83 @@ def register(ctx):
         ctx.request("POST", "/api/vote/proposal/UPPER-case/comment", ok, expect=422)
         ctx.request("POST", "/api/vote/proposal/no-such-campus/comment", ok, expect=404)
 
+    def busy_model_falls_to_the_fast_one():
+        """In process, no network: the stronger model answers 503 "high demand" (seen Sat night on gemini-3.5-flash: every Render
+        comment fell back to the plain template), the same prompt goes to the fast model, and the checked comment is Gemini's."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        os.environ.setdefault("JWT_SECRET", "smoke-check-only-not-a-secret")  # llm.py imports auth.py; this process only
+        try:
+            import comment
+            import llm
+        except ImportError as e:  # a deployed run without the backend folder on the path
+            raise AssertionError(f"comment.py not importable here: {e}") from e
+        order = comment._model_order()
+        assert len(order) == 2 and order[0] != order[1], order
+        primary, fast = order
+        body = comment.CommentIn(concerns=["blackouts", "bill"], stance="questions", minutes=2, lang="en")
+        sh = comment._sheet(PID, body.concerns)
+        paras = comment.template(sh, body).split("\n\n")  # the plain version passes the same checks: a stand-in for a good Gemini draft
+        calls: list = []
+
+        def post(url, req, key, timeout):
+            model = url.split("/models/")[1].split(":")[0]
+            calls.append(model)
+            if model == primary:
+                raise urllib.error.HTTPError(url, 503, "UNAVAILABLE", {}, io.BytesIO(b'{"error": {"code": 503, "status": "UNAVAILABLE"}}'))
+            return {"candidates": [{"content": {"parts": [{"text": json.dumps({"paragraphs": paras})}]}}]}
+
+        saved = {"key": os.environ.get("GEMINI_API_KEY"), "post": llm._post_json, "file": llm.CACHE_FILE, "cache": llm._cache}
+        os.environ["GEMINI_API_KEY"] = "stub-not-a-key"  # never sent: _post_json is stubbed
+        llm.CACHE_FILE = ""  # stubbed replies never reach the disk cache
+        llm._cache = type(saved["cache"])()
+        llm._post_json = post
+        comment._busy_until.clear()
+        try:
+            text, why, _ = asyncio.run(comment._gemini(sh, body, time.perf_counter()))
+            assert text and why is None, (why, text and text[:80])
+            assert calls == [primary, fast], calls
+            assert comment._busy_until.get(primary, 0) > time.time(), "the model that just failed is skipped for a while"
+            calls.clear()
+            llm._cache = type(saved["cache"])()
+            asyncio.run(comment._gemini(sh, body, time.perf_counter()))
+            assert calls == [fast], calls  # while it cools down, straight to the fast model
+            # both busy: the labeled plain version (why says Gemini was unavailable), never an error
+            comment._busy_until.clear()
+            llm._cache = type(saved["cache"])()
+            llm._post_json = lambda url, req, key, timeout: (_ for _ in ()).throw(urllib.error.HTTPError(url, 503, "UNAVAILABLE", {}, io.BytesIO(b"{}")))
+            text, why, _ = asyncio.run(comment._gemini(sh, body, time.perf_counter()))
+            assert text is None and why == "Gemini unavailable", (text, why)
+        finally:
+            llm._post_json, llm.CACHE_FILE, llm._cache = saved["post"], saved["file"], saved["cache"]
+            comment._busy_until.clear()
+            if saved["key"] is None:
+                os.environ.pop("GEMINI_API_KEY", None)
+            else:
+                os.environ["GEMINI_API_KEY"] = saved["key"]
+
+    def disclaimer_is_not_a_claim():
+        """The checker accepts the plain disclaimer the prompt asks for ("not the real grid") and still refuses a claim about "our" grid."""
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        os.environ.setdefault("JWT_SECRET", "smoke-check-only-not-a-secret")
+        try:
+            import comment
+        except ImportError as e:
+            raise AssertionError(f"comment.py not importable here: {e}") from e
+        body = comment.CommentIn(concerns=["blackouts", "bill"], stance="questions", minutes=2, lang="en")
+        sh = comment._sheet(PID, body.concerns)
+        base = comment.template(sh, body)
+        assert comment.check(base, sh, body)[0], "the plain version passes its own checks"
+        ok, findings, _, _ = comment.check(base + " These results are on an open, synthetic grid model, not the real grid.", sh, body)
+        assert ok, findings
+        for bad in ("On an open, synthetic grid model, the campus strains our infrastructure.", "The campus strains our grid."):
+            ok, findings, _, checks = comment.check(base + " " + bad, sh, body)
+            assert not ok and any(c["id"] == "framed" and not c["ok"] for c in checks), (bad, findings)
+
     ctx.check("comment: English, two concerns: every number checked, framed, addressed (Gemini or labeled)", gemini_or_labeled_en)
     ctx.check("comment: Spanish, oppose: every number checked, framed, addressed (Gemini or labeled)", gemini_or_labeled_es)
     ctx.check("comment: the labeled template passes the same checks (ai=false, 1-3 minutes, EN and ES)", template_runs_labeled)
     ctx.check("comment: withdrawn, denied, never filed: says where it stands, no vote asked for now (template and Gemini)", not_pending_says_where_it_stands)
     ctx.check("comment: without a key the labeled template runs; listed in How AI is used", blank_key_is_the_labeled_template)
     ctx.check("comment: bad bodies 422, bad id 422, unknown id 404", refuses_bad_input)
+    ctx.check("comment: a busy first model falls to the fast one, and Gemini still answers (in process, stubbed)", busy_model_falls_to_the_fast_one)
+    ctx.check("comment: a plain 'not the real grid' disclaimer passes, a claim about our grid is still refused (in process)", disclaimer_is_not_a_claim)

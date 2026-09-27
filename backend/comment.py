@@ -24,7 +24,7 @@ estimates, the questions with their sources, the state's rules, the decision bod
 
 A draft that fails goes back to Gemini once with the findings; if the rewrite fails too (or Gemini is unavailable,
 unconfigured or slow), the plain template comment, built from the same facts and passing the same checks, is
-returned and labeled. The findings quote the draft, so they stay in the rewrite prompt and the log: the page gets only
+returned and labeled. A busy stronger model (503, a slow reply) hands the same prompt to the fast model first. The findings quote the draft, so they stay in the rewrite prompt and the log: the page gets only
 the ids of the checks a draft failed. Nothing is stored; the answer is cached per case and choices.
 
   POST /api/vote/proposal/{id}/comment?ai=true   {concerns: [...0-5], stance, minutes: 1-3, lang: en|es}
@@ -63,6 +63,14 @@ AI_TIMEOUT_S = 10
 # the writer: one call, not an agent loop, so the stronger model at minimal thinking (~3 s measured Sat) is worth it; its Spanish
 # and its questions read far better than Flash-Lite's. The llm.py 429 chain still applies. GEMINI_COMMENT_MODEL= overrides.
 COMMENT_MODEL = os.getenv("GEMINI_COMMENT_MODEL", "gemini-3.5-flash").strip() or None
+# ... but that model answers 503 "high demand" or takes past its timeout for hours at a time (Sat night: 11 of 11 Render calls fell
+# back to the plain template, "comment ok 0"), and llm.py's own chain moves on only for a 429. So the same prompt goes to the fast
+# model next (Flash-Lite, ~2-3 s, passed the checker on 25 of 30 first drafts), and a model that just failed is skipped for 45 s.
+# GEMINI_COMMENT_FALLBACK_MODEL= overrides; the same as the first model = no second try.
+COMMENT_FAST_MODEL = os.getenv("GEMINI_COMMENT_FALLBACK_MODEL", "").strip() or None
+FIRST_TRY_S = 8.0  # the stronger model's HTTP timeout (its wait is capped a second past it)
+FAST_TRY_S = 12.0
+COOLDOWN_S = 45.0
 COMMENT_THINKING = "minimal"
 DEADLINE_S = 22.0  # the whole AI step (a draft and one rewrite), then the template
 CACHE_MAX = 256
@@ -917,6 +925,17 @@ _REAL_GRID = {
         r"\bnuestr[ao]s?\s+(?:propi[ao]s?\s+)?(?:red|infraestructura|sistema\s+el[eé]ctrico|l[ií]neas|subestaci\w+)"
         r"|\bla\s+red\s+(?:el[eé]ctrica\s+)?(?:real|local|actual|existente)\b|\bla\s+red\s+(?:el[eé]ctrica\s+)?(?:de\s+(?:nuestr\w+|la\s+ciudad|el\s+condado|la\s+regi[oó]n|Florida))", re.I),
 }
+# A plain disclaimer is not a claim about the real grid: "on the model, not the real grid", "not a prediction about the local grid",
+# "no en la red real". The words just before the mention must be a negation (and a few filler words), and the sentence must
+# carry no claim or harm word of its own (checked where it is used).
+_NEGATED_BEFORE = {
+    "en": re.compile(
+        r"(?:\bnot|\bnor|n['’]t|\brather\s+than|\binstead\s+of)\s+(?:(?:a|an|the|any|about|of|for|on|to)\s+){0,3}"
+        r"(?:(?:prediction|forecast|claim|statement|picture|study|test|result)s?\s+(?:about|of|for|on)\s+)?$", re.I),
+    "es": re.compile(
+        r"(?:\bno\s+(?:(?:es|son|se\s+trata\s+de|de|una?|la|el)\s+){0,3}|\by\s+no\s+(?:de\s+)?|\ben\s+(?:lugar|vez)\s+de\s+)"
+        r"(?:(?:predicci[oó]n|pron[oó]stico|afirmaci[oó]n|prueba)\s+(?:sobre|de|acerca\s+de)\s+)?$", re.I),
+}
 _GRID_CLAIM = {
     "en": re.compile(
         r"\bover\s+(?:its|their|the|a)\s+(?:\w+\s+)?limits?\b|\bexceed\w*|\boverload\w*|\bover\s?capacity|\bcan(?:not|'t|’t)?\s+(?:\w+\s+)?(?:handle|withstand|cope)"
@@ -1201,8 +1220,13 @@ def check(text: str, sh: Sheet, body: CommentIn) -> tuple[bool, list, list, list
             break
     for i, sg in enumerate(seg_of):
         rg = _REAL_GRID[lang].search(sg)
-        if rg and not is_q[i] and (_GRID_CLAIM[lang].search(sg) or _HARM[lang].search(sg) or MODEL_WORD[lang].search(sg) or i in model_num):
-            frame_fails.append(f"treats the model's result as the real grid ({rg.group(0)!r}): {quote(i)!r} (Overload tested a model, not the real grid: never write '{rg.group(0)}')")
+        if not rg or is_q[i]:
+            continue
+        claim_word = _GRID_CLAIM[lang].search(sg) or _HARM[lang].search(sg)
+        if not claim_word and _NEGATED_BEFORE[lang].search(sg[: rg.start()]):
+            continue  # a plain disclaimer ("on the model, not the real grid"), the very framing the comment is asked to give
+        if claim_word or MODEL_WORD[lang].search(sg) or i in model_num:
+            frame_fails.append(f"treats the model's result as the real grid ({rg.group(0)!r}): {quote(i)!r} (Overload tested a model, not the real grid: never write '{rg.group(0)}' in a statement; ask it as a question, or say the model is not the real grid)")
             break
     for i, sg in enumerate(seg_of):
         if i in model_num or MODEL_WORD[lang].search(sg) or (_GRID_CLAIM[lang].search(sg) and not is_q[i]):
@@ -1228,7 +1252,8 @@ def check(text: str, sh: Sheet, body: CommentIn) -> tuple[bool, list, list, list
     # 7. the resident's own comment: addressed, their stance, their concerns, their length
     addressed = re.sub(r"\s+", " ", sh.addressee).lower() in re.sub(r"\s+", " ", text).lower()
     if not addressed:
-        fails.append(("addressed", f"is not addressed to the {sh.addressee} by that exact name"))
+        fails.append(("addressed", f"is not addressed to the {sh.addressee} by that exact name (copy it letter for letter, in English, even in a Spanish comment: no 'de', no translation)"
+                      if lang == "es" else f"is not addressed to the {sh.addressee} by that exact name"))
     if not NAME_SLOT_RX[lang].search(text):
         fails.append(("yours", f"does not say '{_SYS_WORDS[lang]['greet'].split(' and ')[0].split(' y ')[0]}' with the placeholder for the resident to fill in"))
     if not STANCE_RX[body.stance].search(text):
@@ -1558,11 +1583,24 @@ def template(sh: Sheet, body: CommentIn) -> str:
 
 # ------------------------------------------------------------------------------------ Gemini
 _SYS_WORDS = {
-    "en": {"frame": FRAME_EN, "on": "on the model", "no": "'will cause', 'would cause', 'caused', 'led to', 'is going to', 'responsible for', 'will black out', 'will raise my bill', 'plans to raise', 'will make us pay'",
-           "greet": f"my name is {NAME_SLOT['en']} and I live in {PLACE_SLOT['en']}", "lang": "English", "ours": "'our grid', 'the local grid' or 'the real grid'",
+    # "no": the phrases the checker refuses anywhere, a question included (_FORBID_ALWAYS); "ask" / "now": wording it accepts instead;
+    # "ours": what it refuses as a statement about the real grid (_REAL_GRID); "disc": the one mention of the real grid it accepts in a statement
+    "en": {"frame": FRAME_EN, "on": "on the model",
+           "no": "'will cause', 'would cause', 'caused', 'causes', 'responsible for', 'to blame', 'led to', 'leading to' or 'results in' before blackouts, outages or failures, 'is going to', "
+                 "'will black out', 'will raise my bill', 'plans to raise' (or to increase, or to charge), 'will make us pay'",
+           "ask": "'Who pays for the upgrades?', 'What would it take to keep the campus from leaving neighbors without power?'",
+           "now": "'on the model, the campus is cut off first'",
+           "disc": "'on the model, not the real grid'",
+           "greet": f"my name is {NAME_SLOT['en']} and I live in {PLACE_SLOT['en']}", "lang": "English",
+           "ours": "'our grid', 'our infrastructure', 'our power lines', 'our substations', 'the local grid', 'the real grid', 'the existing grid', 'the county's grid', 'Florida's grid'",
            "only": "Write in plain English."},
-    "es": {"frame": FRAME_ES, "on": "en el modelo", "no": "'causará', 'causaría', 'provocaría', 'causó', 'causa apagones', 'va a', 'responsable de', 'dejará sin luz', 'subirá mi factura', 'nos hará pagar', 'planea subir'",
-           "greet": f"me llamo {NAME_SLOT['es']} y vivo en {PLACE_SLOT['es']}", "lang": "Spanish", "ours": "'nuestra red', 'nuestra infraestructura' or 'la red local'",
+    "es": {"frame": FRAME_ES, "on": "en el modelo",
+           "no": "'causará', 'causaría', 'provocaría', 'causó', 'causa apagones', 'llevó a apagones', 'va a', 'responsable de', 'culpa', 'dejará sin luz', 'subirá mi factura', 'nos hará pagar', 'planea subir'",
+           "ask": "'¿Quién paga las mejoras?', '¿Qué haría falta para que el campus no deje a los vecinos sin luz?'",
+           "now": "'en el modelo, el campus se desconecta primero'",
+           "disc": "'en el modelo, no en la red real'",
+           "greet": f"me llamo {NAME_SLOT['es']} y vivo en {PLACE_SLOT['es']}", "lang": "Spanish",
+           "ours": "'nuestra red', 'nuestra infraestructura', 'nuestras líneas', 'nuestras subestaciones', 'la red local', 'la red real', 'la red actual', 'la red de la ciudad'",
            "only": "Write every word in Spanish ('9 líneas y 2 transformadores', never 'transformers'); only proper names stay as given. Never write vague multitudes such as 'miles' or 'cientos'. "
                    "Write numbers the Spanish way, with a period for thousands and a comma for decimals: 1.200 MW, 11.700 personas, 100.000 hogares, 9,19 dólares, entre 1,1 y 2,7 millones de dólares."},
 }
@@ -1581,10 +1619,13 @@ def _system(lang: str) -> str:
         "many questions you have.\n"
         f"2. Results from the grid test are on an OPEN, SYNTHETIC grid model, not the real grid: before the first one, say '{w['frame']}', and "
         f"put '{w['on']}' in the SAME sentence as every number from the model. It is not a prediction about the real project, its developer or its "
-        f"utility. Only the model's lines go over their limits: never write {w['ours']}, and never compare the reported size with what a real grid "
-        "can take. A number keeps its meaning: '4 hours' only where the fact sheet says hours, '2 transformers' only where it says transformers.\n"
-        f"3. Never say what the real project, its developer or its utility will do or did: none of {w['no']}. Ask questions and say what the model showed; "
-        "never make the developer or the utility the subject of a model result.\n"
+        f"utility. Only the model's lines go over their limits: never write {w['ours']} in a statement (you may ask about the real grid only as a "
+        f"question; the one mention a statement may carry is a plain disclaimer such as {w['disc']}), and never compare the reported size with what a "
+        "real grid can take. A number keeps its meaning: '4 hours' only where the fact sheet says hours, '2 transformers' only where it says transformers.\n"
+        f"3. Never say what the real project, its developer or its utility will do or did. The checker refuses these words anywhere, even inside a question: "
+        f"{w['no']}. Ask a real question instead ({w['ask']}) or say what the model showed, in the present tense ({w['now']}): outside a question, "
+        "'will' or 'would' before a verb of harm or change (cause, cut, leave, fail, raise, strain, overload, trigger, harm) is refused too, so keep "
+        "'will' and 'would' inside questions. Never make the developer or the utility the subject of a model result.\n"
         "4. Name no company, tenant, utility or person except those in the fact sheet, and never name any company, developer or utility in a sentence "
         "about the model. Name no officials, neighbors or family members, and no streets.\n"
         "5. No insults, accusations or claims of wrongdoing (nothing like misled, lied, deceptive, greedy, profiteering, gouging); no links, emails, "
@@ -1656,6 +1697,13 @@ def _prompt(sh: Sheet, body: CommentIn) -> str:
                  "or a campus like it, comes back: every request to the body starts with 'If it, or a campus like it, comes back'. Never ask the body to "
                  "vote on it now, and never say 'as it stands'.")
         back = " (if it, or a campus like it, comes back)"
+    if es and kind != "pending":
+        # the phrases above are English: gemini-3.5-flash-lite copied "If it, or a campus like it, comes back" word for word into
+        # Spanish drafts (the English-word check then sent them back), so the Spanish wording is given too
+        where += (" In this Spanish comment write that phrase in Spanish, never in English: '" + {
+            "built": "sobre cualquier ampliación o campus nuevo como este",
+            "not_filed": "si se presenta una solicitud",
+        }.get(kind, "si vuelve, o si llega un campus como este") + "'.")
     if sh.situation["moratorium"]:
         where += " The status note mentions a moratorium: you may mention it neutrally, as reported."
     shape = {
@@ -1751,6 +1799,16 @@ def _respond(sh: Sheet, body: CommentIn, text: str, by: str, why: str | None, dr
     }
 
 
+_busy_until: dict[str, float] = {}  # model -> when to try it again after a 503, a timeout or a dropped connection
+
+
+def _model_order() -> list[str]:
+    """The writer's models in the order they are tried: the stronger one, then the fast one (the same when only one is set)."""
+    first = COMMENT_MODEL or llm.MODEL
+    fast = COMMENT_FAST_MODEL or llm.MODEL
+    return [first] if fast == first else [first, fast]
+
+
 async def _gemini(sh: Sheet, body: CommentIn, t0: float) -> tuple[str | None, str | None, list]:
     """(checked Gemini text or None, why not, the ids of the checks the first draft failed when it was sent back)."""
     prompt = _prompt(sh, body)
@@ -1758,12 +1816,41 @@ async def _gemini(sh: Sheet, body: CommentIn, t0: float) -> tuple[str | None, st
     schema = SCHEMA_FOR[body.lang]
 
     async def ask(p: str, budget: float):
-        keys.append(llm._cache_key(p, SYSTEM[body.lang], True, schema, COMMENT_MODEL))
-        return await asyncio.wait_for(
-            llm.complete_json(p, system=SYSTEM[body.lang], fallback=OFF, timeout=AI_TIMEOUT_S, schema=schema, surface="comment", cache=True,
-                              model=COMMENT_MODEL, thinking=COMMENT_THINKING),
-            timeout=budget,
-        )
+        """(reply, offline): the same prompt on each model in turn until one answers; only the last try is allowed to end as a
+        fallback, so the AI panel's counters say what the visitor got (a busy first model isn't a fallback if the fast one answers)."""
+        t_ask = time.perf_counter()
+        order = _model_order()
+        if not llm.configured():
+            order = order[-1:]
+        else:
+            now = time.time()
+            order = [m for m in order if _busy_until.get(m, 0.0) <= now] or order[-1:]  # every model cooling down: the fast one anyway
+        for n, m in enumerate(order):
+            last = n == len(order) - 1
+            left = budget - (time.perf_counter() - t_ask)
+            if left <= 1.0:
+                raise asyncio.TimeoutError()
+            try_s = min(FAST_TRY_S if last else FIRST_TRY_S, left)
+            keys.append(llm._cache_key(p, SYSTEM[body.lang], True, schema, m))
+            try:
+                return await asyncio.wait_for(
+                    llm.complete_json(p, system=SYSTEM[body.lang], fallback=OFF if last else None, timeout=try_s, schema=schema, surface="comment",
+                                      cache=True, model=m, thinking=COMMENT_THINKING),
+                    timeout=left if last else min(left, try_s + 1.0),
+                )
+            except asyncio.TimeoutError:
+                if last:
+                    raise
+                why, busy = f"no answer in {try_s:.0f} s", True
+            except HTTPException as e:  # a try that may not fall back raises: not configured, a quota, a 5xx, a dropped connection, bad JSON
+                if last:
+                    return OFF, True
+                why = " ".join(str(e.detail)[:160].split())[:120]
+                busy = "invalid JSON" not in why
+            if busy:
+                _busy_until[m] = time.time() + COOLDOWN_S
+            log.warning("comment: %s failed (%s), trying %s", m, why, order[n + 1])
+        raise asyncio.TimeoutError()  # unreachable: the last try returns or raises above
 
     try:
         raw, off = await ask(prompt, DEADLINE_S)
