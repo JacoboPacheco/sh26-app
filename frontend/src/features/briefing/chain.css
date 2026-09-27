@@ -43,7 +43,10 @@
   padding-bottom: 2px;
 }
 
-/* the rail: one segment per part, stacked without a gap, so it reads as one line that fills from the top */
+/* the rail: one segment per part, stacked without a gap, so it reads as one line that fills from the top.
+   z-index: 0 so the part's own square (::before, a later paint order with no z-index of its own would otherwise
+   land on top of it) stays behind the square instead of cutting into it (user, Sun 04:33: "squares... are below
+   the line instead of above"). */
 .ch-rail {
   position: absolute;
   left: 0;
@@ -52,6 +55,7 @@
   width: 2px;
   overflow: hidden;
   background: var(--glass-edge);
+  z-index: 0;
 }
 
 .ch-rail i {
@@ -67,6 +71,7 @@
 .ch-part::before {
   content: '';
   position: absolute;
+  z-index: 1;
   left: -3px;
   top: 5px;
   width: 8px;
