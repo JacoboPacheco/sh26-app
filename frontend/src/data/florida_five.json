@@ -16,8 +16,8 @@
      "url": "https://www.fox13news.com/news/fort-meade-data-center-project-community-opposition"
     },
     {
-     "title": "Proposals for massive data centers are popping up across Florida (WUSF)",
-     "url": "https://www.wusf.org/environment/2026-02-16/proposals-massive-data-centers-across-florida-are-local-governments-prepared"
+     "title": "Fort Meade is one step closer to building Florida's first hyperscale AI data center (WUSF)",
+     "url": "https://www.wusf.org/environment/2026-04-08/fort-meade-is-one-step-closer-to-building-floridas-first-hysperscale-ai-data-center"
     }
    ]
   },
@@ -38,8 +38,8 @@
      "url": "https://www.globenewswire.com/news-release/2025/11/06/3182873/0/en/Atlas-Compute-Secures-Land-and-Utilities-for-240-MW-AI-Data-Center-Campus-in-Central-Florida-with-1-GW-Expansion-Capacity.html"
     },
     {
-     "title": "Atlas Compute - project overview",
-     "url": "https://atlascompute.ai/project-overview"
+     "title": "Atlas Compute (company site)",
+     "url": "https://atlascompute.ai/"
     }
    ]
   },
@@ -91,7 +91,7 @@
    "lon": -81.6879,
    "mw": 200,
    "status": "paused/canceled",
-   "status_reported": "paused",
+   "status_reported": "CEO says solar, not a data center",
    "sources": [
     {
      "title": "Concerns grow over proposed AI data center in Nassau County | Jacksonville Today",
@@ -101,7 +101,8 @@
      "title": "NextNRG Nassau County Data Center & Energy Campus \u2014 Florida (Compute Atlas)",
      "url": "https://www.compute-atlas.com/facilities/nextnrg-nassau-county-data-center-energy-campus-fl"
     }
-   ]
+   ],
+   "mw_reported": "200 MW (microgrid)"
   }
  ]
 }

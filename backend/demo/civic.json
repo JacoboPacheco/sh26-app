@@ -687,10 +687,10 @@
           "number": "20260064-EI",
           "title": "Duke Energy Florida: petition to approve a large load tariff",
           "url": "https://www.floridapsc.com/clerks-office-dockets-level2?DocketNo=20260064",
-          "why": "Duke Energy is reported as the utility for this facility; this docket decides the large load policy (50 MW or more) Duke proposes under Florida's SB 484. A hearing was held Aug. 25-26, 2026 and a vote was expected after mid-September."
+          "why": "Duke Energy is reported as the utility for this facility; this docket decides the large load policy (50 MW or more) Duke proposes under Florida's SB 484. A hearing was held Aug. 25, 2026 and the commission took no vote then (Florida Trib); as of Sept. 16 the commission's meeting on it was scheduled for Nov. 3 (WFTV)."
         }
       ],
-      "status_note": "As reported by FOX 13 and WUSF, the Fort Meade City Commission unanimously approved a development agreement with the developer in April 2026 (April 14 per FOX 13). The Florida Department of Commerce then wrote to the city about energy, water and transportation risks, and the Southwest Florida Water Management District told the city its current water permit does not cover the facility. Residents filed two lawsuits on May 14, 2026 (The Citrus Tea). Permits from the water management district and others were still required as of the latest reports found.",
+      "status_note": "As reported by FOX 13 and The Citrus Tea, the Fort Meade City Commission unanimously approved a 20-year development agreement with the developer on April 14, 2026. The Florida Department of Commerce then wrote to the city (letter dated April 15, 2026) about energy, water and transportation risks (WUSF), and the Southwest Florida Water Management District told the city its current water permit does not cover the facility (The Citrus Tea). The Citrus Tea reported on June 23, 2026 that residents had filed two lawsuits in Polk County on May 14, 2026, asking a judge to void the city's approval. Permits from the water management district and others were still required as of the latest reports found.",
       "sources": [
         {
           "title": "FOX 13: Fort Meade moves forward with $2.6B data center project despite community opposition",
@@ -705,15 +705,23 @@
           "url": "https://www.wusf.org/economy-business/2026-04-20/florida-commerce-secretary-opposes-proposed-ai-data-center"
         },
         {
-          "title": "Florida Department of Commerce letter to the Fort Meade City Commission (April 2026, PDF)",
+          "title": "Florida Department of Commerce letter to Fort Meade's mayor about the April 14 approval (dated April 15, 2026, PDF)",
           "url": "https://npr.brightspotcdn.com/c1/05/48b3f71a4de98d2aa86e5dede270/fort-meade-data-center-4-15-26.pdf"
         },
         {
-          "title": "The Citrus Tea: Fort Meade residents file two lawsuits (June 23, 2026)",
+          "title": "The Citrus Tea: Fort Meade residents file two lawsuits (published June 23, 2026; lawsuits filed May 14, 2026)",
           "url": "https://thecitrustea.com/2026/06/23/fort-meade-residents-file-two-lawsuits-to-block-stonebridge-data-center-as-watchdogs-launch-recall-push/"
+        },
+        {
+          "title": "The Florida Trib: New state law to protect consumers from data center costs faces its first test (Aug. 25, 2026)",
+          "url": "https://floridatrib.org/2026/08/25/new-state-law-to-protect-consumers-from-data-center-costs-faces-its-first-test/"
+        },
+        {
+          "title": "WFTV: Florida filing questions whether billions in data center costs could fall on Duke Energy customers (Sept. 16, 2026)",
+          "url": "https://www.wftv.com/news/local/florida-filing-questions-whether-billions-data-center-costs-could-fall-duke-energy-customers/7HMYUKC66VERNCBK35YTAGAUAI/"
         }
       ],
-      "checked": "2026-09-26"
+      "checked": "2026-09-27"
     },
     "atlas-compute-fort-pierce": {
       "county": "St. Lucie County",
@@ -726,7 +734,7 @@
       },
       "utility": null,
       "cases": [],
-      "status_note": "As reported by WPTV and WFLX (March 2026), St. Lucie County officials said no application had been filed for the Atlas Compute site at Midway Industrial Park; the county issued a zoning verification letter for four parcels in December 2025. The company's Nov. 6, 2025 release describes a 240 MW first phase with expansion capacity to 1 GW. No later filing was found as of the check date.",
+      "status_note": "As reported by WPTV and WFLX (March 2026), St. Lucie County leaders said no application proposals for the project had been submitted; county staff provided a zoning verification letter, dated December, issued to a person seeking zoning confirmation for four parcels at Midway Industrial Park on Post Office Road for a proposed data center. The company's Nov. 6, 2025 release describes a 240 MW first phase with expansion capacity to 1 GW. No later filing was found as of the check date.",
       "sources": [
         {
           "title": "Atlas Compute release: 240 MW campus with 1 GW expansion capacity (Nov. 6, 2025, company press release)",
@@ -741,7 +749,7 @@
           "url": "https://www.wflx.com/2026/03/12/florida-based-company-announced-plans-build-ai-data-center-fort-pierce/"
         }
       ],
-      "checked": "2026-09-26"
+      "checked": "2026-09-27"
     },
     "sentinel-grove-fort-pierce": {
       "county": "St. Lucie County",
@@ -754,8 +762,12 @@
       },
       "utility": null,
       "cases": [],
-      "status_note": "As reported by WPTV and Port St. Lucie Talks, the county Planning and Zoning Commission voted 4-2 to recommend against the comprehensive plan amendment, and the applicants voluntarily withdrew the land-use application on Feb. 26, 2026, saying they were watching the outcome of state data center bills. The County Commission never voted on it.",
+      "status_note": "As reported by DCD and WPTV, the county Planning and Zoning Commission voted 4-2 in October 2025 to recommend against the comprehensive plan amendment. As reported by Port St. Lucie Talks and WPTV, the applicants voluntarily withdrew the land-use application, and county records listed the project as canceled as of Feb. 26, 2026; county officials said the withdrawal came as state data center legislation advanced, and Port St. Lucie Talks says the developers were monitoring the bills. The County Commission did not take a final vote on it.",
       "sources": [
+        {
+          "title": "DCD: Officials fail to back plans for 1GW data center campus in Florida (Oct. 23, 2025)",
+          "url": "https://www.datacenterdynamics.com/en/news/officials-fail-to-back-plans-for-1gw-data-center-campus-in-florida/"
+        },
         {
           "title": "WPTV: Proposed AI data center in St. Lucie County faces pushback",
           "url": "https://www.wptv.com/news/treasure-coast/region-st-lucie-county/proposed-15-million-square-feet-ai-data-center-in-st-lucie-county-faces-push-back"
@@ -765,7 +777,7 @@
           "url": "https://portstlucietalks.com/sentinel-grove-data-center-project-paused-near-fort-pierce-amid-florida-ai-legislation/"
         }
       ],
-      "checked": "2026-09-26"
+      "checked": "2026-09-27"
     },
     "pba-holdings-loxahatchee": {
       "county": "Palm Beach County",
@@ -778,7 +790,7 @@
       },
       "utility": null,
       "cases": [],
-      "status_note": "As reported by WLRN, the Board of County Commissioners voted 5-1 on July 15, 2026 to deny the requested development order amendment for a data center campus at 20125 Southern Blvd. On Aug. 27, 2026 the board gave initial approval, 7-0, to a one-year moratorium on new large-scale (50 MW or more) data centers; a second and final vote was tentatively planned for the end of September (WFLX).",
+      "status_note": "As reported by WLRN, the Board of County Commissioners voted 5-1 on July 15, 2026 to deny the requested development order amendment for a data center campus at 20125 Southern Blvd. On Aug. 27, 2026 the board gave initial approval, 7-0, to a one-year moratorium on new large-scale (50 MW or more) data centers, and on Sept. 24, 2026 it gave final, unanimous approval to the one-year moratorium (WFLX).",
       "sources": [
         {
           "title": "WLRN: Palm Beach County rejects controversial Project Tango AI data center (July 16, 2026)",
@@ -791,9 +803,13 @@
         {
           "title": "WFLX: Palm Beach County commissioners give initial approval to 1-year moratorium (Aug. 28, 2026)",
           "url": "https://www.wflx.com/2026/08/28/palm-beach-county-commissioners-give-initial-approval-1-year-moratorium-new-hyperscale-ai-data-centers/"
+        },
+        {
+          "title": "WFLX: Palm Beach County commissioners unanimously approve moratorium on new hyperscale AI data centers (Sept. 24, 2026)",
+          "url": "https://www.wflx.com/2026/09/24/palm-beach-county-commissioners-unanimously-approve-moratorium-new-hyperscale-ai-data-centers/"
         }
       ],
-      "checked": "2026-09-26"
+      "checked": "2026-09-27"
     },
     "nextnrg-near-jacksonville-international-airport": {
       "county": "Nassau County",
@@ -806,11 +822,15 @@
       },
       "utility": null,
       "cases": [],
-      "status_note": "As reported by the Jax Daily Record (April 2026), Nassau County said no application of any kind had been filed and its staff knew of the project only from the company's September 2025 press release. The commissioners approved a 12-month moratorium on accepting or reviewing data center applications in June 2026 (News4Jax, June 9, 2026) and formed a fact-finding committee. The company's CEO told First Coast News he is not in the data center business and wants to build a solar farm rather than a data center.",
+      "status_note": "As reported by the Jax Daily Record (April 2026), Nassau County said it had no information about the project, including any potential rezoning requests or design approvals, and knew of it only from the company's September 2025 press release; a county release on April 14 said there were no active or pending applications for data center development in unincorporated Nassau County (that is, no application on file). The commissioners approved a 12-month moratorium on accepting, reviewing or approving data center applications in June 2026 (News4Jax, June 9, 2026) and formed a fact-finding committee. The company's CEO told First Coast News (April 2026) that he is not in the data center business and wants to build a solar farm rather than a data center.",
       "sources": [
         {
           "title": "Jax Daily Record: Proposed Nassau County data center details remain unknown to county (April 6, 2026)",
           "url": "https://www.jaxdailyrecord.com/news/2026/apr/06/announced-nassau-county-data-center-details-remain-unknown-to-county/"
+        },
+        {
+          "title": "Jax Daily Record: Nassau County pursuing 12-month moratorium on data center development (April 14, 2026)",
+          "url": "https://www.jaxdailyrecord.com/news/2026/apr/14/nassau-county-pursuing-12-month-moratorium-on-data-center-development/"
         },
         {
           "title": "News4Jax: Nassau County approves data center moratorium (June 9, 2026)",
@@ -829,7 +849,7 @@
           "url": "https://www.nassaucountyfl.com/1531/Fact-Finding-Committee"
         }
       ],
-      "checked": "2026-09-26"
+      "checked": "2026-09-27"
     },
     "qts-gainesville": {
       "county": "Prince William County",
@@ -1461,8 +1481,8 @@
   },
   "verification": {
     "checked": "2026-09-26",
-    "urls_total": 218,
-    "http_200_by_script": 187,
+    "urls_total": 223,
+    "http_200_by_script": 192,
     "fetched_by_fetch_tool": [
       "https://dps.ny.gov/",
       "https://mn.gov/puc/get-involved/public-comments/",

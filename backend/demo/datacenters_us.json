@@ -1464,42 +1464,47 @@
       "state": "FL",
       "lat": 27.752,
       "lon": -81.8018,
-      "location_basis": "Town of Fort Meade. The site is about 1,163 to 1,300 acres west of US-98 (DCD), near US-17 and Broadway, about 50 miles east of Tampa.",
+      "location_basis": "Town of Fort Meade, Polk County, about 50 miles east of Tampa (DCD). The site is west of US-98 (DCD), near US-17 and Broadway (WUSF): about 1,163 acres in the 2025 rezoning filing (DCD) and about 1,300 acres in 2026 coverage (FOX 13, WUSF). The map pin is the town, not the parcel.",
       "mw": 1200,
-      "mw_basis": "News reports say the campus will need 1.2 GW (WUSF, FOX 13); Cleanview/dcmap list 1,300 MW. The plan is 8 buildings and up to 4.4M sq ft, $2.6B. A 20-year development agreement was approved. Groundbreaking is expected in late 2026 and operations in 2028.",
+      "mw_basis": "WUSF (April 2026) reports the campus would require 1.2 GW of electricity; its February 2026 story said 'over a gigawatt'. FOX 13 reports a $2.6B project of 4.4M sq ft, and up to eight buildings are reported (The Citrus Tea, FloridaDataCenters.org). The Fort Meade City Commission unanimously approved a 20-year development agreement on April 14, 2026 (FOX 13); other permits were still required. The developer's stated targets are groundbreaking by late 2026 and operations in 2028 (as reported by FloridaDataCenters.org).",
       "status": "announced",
-      "year": "2028",
+      "year": "2028 (developer's target)",
       "ai": true,
       "sources": [
         {
           "title": "Fort Meade moves forward with controversial $2.6B data center project despite community opposition | FOX 13 Tampa Bay",
           "url": "https://www.fox13news.com/news/fort-meade-data-center-project-community-opposition",
-          "supports": "status (development agreement approved), developer, $2.6B, timeline"
+          "supports": "status (commissioners unanimously approved a developer agreement, Apr 14 2026), $2.6B, 4.4M sq ft, about 1,300 acres, Duke Energy expected as the power supplier"
+        },
+        {
+          "title": "Fort Meade is one step closer to building Florida's first hyperscale AI data center (WUSF, April 8, 2026)",
+          "url": "https://www.wusf.org/environment/2026-04-08/fort-meade-is-one-step-closer-to-building-floridas-first-hysperscale-ai-data-center",
+          "supports": "mw 1.2 GW (1.2 gigawatts of electricity), described as a hyperscale AI data center, developer Stonebridge, planning commission recommended the development agreement"
         },
         {
           "title": "Proposals for massive data centers are popping up across Florida (WUSF)",
           "url": "https://www.wusf.org/environment/2026-02-16/proposals-massive-data-centers-across-florida-are-local-governments-prepared",
-          "supports": "mw 1.2 GW"
+          "supports": "location (near US-17 and Broadway), about 1,330 acres, 'over a gigawatt'"
         },
         {
           "title": "4.4 million sq ft data center campus gets zoning approval in Fort Meade, Florida - DCD",
           "url": "https://www.datacenterdynamics.com/en/news/44-million-sq-ft-data-center-campus-gets-zoning-approval-in-fort-meade-florida/",
-          "supports": "Bohler Places LLC rezoning, 1,163 acres west of US-98, location"
+          "supports": "Bohler Places LLC rezoning, 1,163 acres west of US-98, up to 4.4M sq ft, about 50 miles east of Tampa (June 2025)"
         },
         {
           "title": "Fort Meade Florida Campus (Cleanview)",
           "url": "https://cleanview.co/data-centers/florida/1693/fort-meade-florida-campus",
-          "supports": "alternate 1,300 MW figure"
+          "supports": "developer listed as Bohler Places LLC, 1,163 acres, listed as planned (its capacity figure is behind a paywall)"
         },
         {
           "title": "Polk County AI Data Center — Fort Meade $2.6B Hyperscale Campus | FloridaDataCenters.org",
           "url": "https://floridadatacenters.org/polk-county",
-          "supports": "ai (described as AI hyperscale campus)"
+          "supports": "ai (described as an AI hyperscale campus), timeline (groundbreaking targeted late 2026, operations 2028), lawsuits filed May 14 2026"
         }
       ],
       "seg": "southeast",
       "confidence": "medium",
-      "verification": "uncertain: No new searches were possible (budget used up). The cited sources disagree on MW: WUSF and FOX 13 give 1.2 GW, while Cleanview and dcmap give 1,300 MW. The entry sensibly uses the news figure, 1,200 MW. Location is well supported: the DCD rezoning story (Bohler Places, 1,163 acres west of US-98) puts it in Fort Meade, Polk County, and the town coordinates are within 30 km. The status label is also debatable: the development agreement is approved and groundbreaking is expected late 2026, so it sits between 'announced' and pre-construction. The ai=true flag rests on an advocacy/aggregator site (FloridaDataCenters.org), not the developer, so it is soft. Otherwise the entry is usable."
+      "verification": "checked 2026-09-27 against the cited pages: WUSF (Apr 8, 2026) gives 1.2 GW; FOX 13 gives $2.6B, 4.4M sq ft, the unanimous approval on Tuesday Apr 14 and Duke Energy as the expected power supplier; DCD gives Bohler Places LLC, 1,163 acres west of US-98 and the 50-mile distance from Tampa; FloridaDataCenters.org gives the late-2026 groundbreaking and 2028 operations targets. Cleanview's capacity figure is behind its paywall, so the 1,300 MW it was cited for could not be confirmed and was removed. Status stays 'announced' (approved by the city, with lawsuits and permits pending)."
     },
     {
       "id": "meta-new-albany",
@@ -1838,11 +1843,11 @@
       "state": "FL",
       "lat": 27.4467,
       "lon": -80.3256,
-      "location_basis": "Town of Fort Pierce, as stated in the company release. The exact parcel was not given.",
+      "location_basis": "Fort Pierce: the company release is datelined Fort Pierce, Fla. (its headline says Central Florida) and gives no parcel. WPTV and WFLX report a county zoning verification letter for four parcels at Midway Industrial Park on Post Office Road in St. Lucie County. The map pin is the town, not those parcels.",
       "mw": 1000,
-      "mw_basis": "Announced full build-out is up to 1 GW. Phase 1 is 240 MW: three 80 MW liquid-cooled buildings on 22 acres, targeting operational readiness in Q4 2026 to Q1 2027. Land and utilities were secured in Nov 2025.",
+      "mw_basis": "The company's Nov 6, 2025 release announces a 240 MW campus with planned expansion of up to 1 GW. Phase 1 is 240 MW of operational capacity, with full build-out to 1 GW across multiple buildings, and the release targets operational readiness between Q4 2026 and Q1 2027. In that release the company said it had secured land and utility infrastructure.",
       "status": "announced",
-      "year": "2026-2027 (phase 1)",
+      "year": "2026-2027 (phase 1, company target)",
       "ai": true,
       "sources": [
         {
@@ -1851,19 +1856,24 @@
           "supports": "mw (240 MW phase 1, 1 GW build-out), Fort Pierce location, AI/GPU focus, timeline"
         },
         {
-          "title": "Atlas Compute - project overview",
-          "url": "https://atlascompute.ai/project-overview",
-          "supports": "company, project"
+          "title": "Atlas Compute (company site)",
+          "url": "https://atlascompute.ai/",
+          "supports": "company, project (the site states a 240 MW AI-ready data center campus in Florida)"
         },
         {
           "title": "St. Lucie County Data Centers — Sentinel Grove, Project Jarvis, Atlas Compute | FloridaDataCenters.org",
           "url": "https://floridadatacenters.org/st-lucie-county",
           "supports": "county (St. Lucie)"
+        },
+        {
+          "title": "Florida-based company announced plans to build AI data center in Fort Pierce (WFLX, March 12, 2026)",
+          "url": "https://www.wflx.com/2026/03/12/florida-based-company-announced-plans-build-ai-data-center-fort-pierce/",
+          "supports": "county leaders said no application proposals had been submitted; zoning verification letter for four parcels at Midway Industrial Park"
         }
       ],
       "seg": "southeast",
       "confidence": "medium",
-      "verification": "uncertain: No new searches were possible (budget used up). The cited GlobeNewswire release title itself states 240 MW for the AI campus with 1 GW expansion capacity, which supports mw=1000 as the full announced figure, phase 1 of 240 MW, and ai=true. One thing to check: the release headline says 'Central Florida', while the entry places it in Fort Pierce (St. Lucie County, Treasure Coast). The entry's location_basis says the release names Fort Pierce, and FloridaDataCenters.org lists Atlas under St. Lucie County, so the location is probably right, but I couldn't re-confirm it. The 'Q4 2026 to Q1 2027 readiness' date is a company target. With land and utilities secured but no construction reported, 'announced' is a reasonable status. It is not a duplicate of Sentinel Grove / Project Jarvis, a separate withdrawn proposal in the same county."
+      "verification": "checked 2026-09-27: the company's Nov 6, 2025 release (GlobeNewswire, datelined Fort Pierce) gives the 240 MW first phase, up to 1 GW, and the Q4 2026 to Q1 2027 readiness target. An earlier note of three 80 MW buildings on 22 acres came from the company's project-overview page, which now returns 404 and is not archived, so it was removed. County staff told WPTV and WFLX in March 2026 that no application had been submitted. Status stays 'announced'."
     },
     {
       "id": "sentinel-grove-fort-pierce",
@@ -1874,9 +1884,9 @@
       "state": "FL",
       "lat": 27.4467,
       "lon": -80.3256,
-      "location_basis": "Town of Fort Pierce. The site was a 1,218-acre former citrus grove outside Fort Pierce, not pinned here.",
+      "location_basis": "Town of Fort Pierce. The reported site is 1,218 acres of former citrus grove outside Fort Pierce, on the east side of Minute Maid Road about 2,600 feet north of Orange Avenue (SR 68) (DCD). The map pin is the town of Fort Pierce, not the site, which is well west of it (roughly 20 km).",
       "mw": 1000,
-      "mw_basis": "$13.5B estimated for the 'first 1,000 MW' of data center capacity. The overall plan was up to 15M sq ft. The planning commission recommended denial 4-2, and the proposal was voluntarily withdrawn on Feb 26, 2026.",
+      "mw_basis": "$13.5B was reported as the long-term private capital investment for the first 1,000 MW of data center capacity (DCD, quoting the application). The overall plan was up to 15M sq ft. The county planning and zoning commission voted 4-2 in October 2025 to recommend against the comprehensive plan amendment (WPTV, DCD); the applicants voluntarily withdrew the land-use application, and county records listed the project as canceled as of Feb 26, 2026 (Port St. Lucie Talks).",
       "status": "paused/canceled",
       "year": "withdrawn 2026",
       "ai": false,
@@ -1884,7 +1894,7 @@
         {
           "title": "Officials fail to back plans for 1GW data center campus in Florida - DCD",
           "url": "https://www.datacenterdynamics.com/en/news/officials-fail-to-back-plans-for-1gw-data-center-campus-in-florida/",
-          "supports": "mw (1 GW / first 1,000 MW), planning commission vote"
+          "supports": "mw (1 GW / first 1,000 MW), planning commission 4-2 vote (Oct 2025), 1,218 acres, up to 15M sq ft"
         },
         {
           "title": "St. Lucie County Data Centers — Sentinel Grove, Project Jarvis, Atlas Compute | FloridaDataCenters.org",
@@ -1894,12 +1904,12 @@
         {
           "title": "Sentinel Grove Data Center Paused Over Florida AI Laws (Port St. Lucie Talks)",
           "url": "https://portstlucietalks.com/sentinel-grove-data-center-project-paused-near-fort-pierce-amid-florida-ai-legislation/",
-          "supports": "status (paused/withdrawn), near Fort Pierce"
+          "supports": "status (paused; application withdrawn; listed as canceled in county records as of Feb 26, 2026), near Fort Pierce"
         }
       ],
       "seg": "southeast",
       "confidence": "medium",
-      "verification": "uncertain: No new searches were possible (budget used up). According to the cited sources, the DCD headline says 1GW and a planning-commission failure, FloridaDataCenters.org says it was withdrawn on Feb 26, 2026, and Port St. Lucie Talks says it was paused. That supports mw=1000 as the 'first 1,000 MW' and the status 'paused/canceled'. The coordinates are Fort Pierce town, and the 1,218-acre grove site outside town is almost certainly within 30 km. Two caveats. First, 'first 1,000 MW' suggests the full 15M sq ft plan could be larger, so 1,000 MW is a lower bound. Second, Sentinel Grove and Project Jarvis being one proposal comes from a single aggregator page title, which I couldn't re-check. It is fine to keep as a withdrawn reference, but not as a live project."
+      "verification": "checked 2026-09-27: DCD (Oct 23, 2025) reports the 4-2 planning-commission vote, 1,218 acres, up to 15M sq ft, the $13.5B figure for the first 1,000 MW, and names it 'Sentinel Grove Technology Park (also known as Project Jarvis)'. Port St. Lucie Talks (Mar 12, 2026) and FloridaDataCenters.org report the voluntary withdrawal and the Feb 26, 2026 date; WPTV quotes a county commissioner, not the applicants, on why. The 1,000 MW is the 'first 1,000 MW' figure, a lower bound on a larger plan. Kept as a withdrawn reference, not a live project."
     },
     {
       "id": "meta-platforms-new-albany",
@@ -2464,9 +2474,9 @@
       "state": "FL",
       "lat": 26.7,
       "lon": -80.37,
-      "location_basis": "Approximate. Reported site is 202 acres at the Central Park Commerce Center next to FPL's West County Energy Center near Loxahatchee. The coordinates approximate that plant area.",
+      "location_basis": "Approximate. WLRN reports a 202-acre site at 20125 Southern Boulevard (State Road 80) in western Palm Beach County, within the Central Park Commerce Center; FloridaDataCenters.org places it next to FPL's West County Energy Center near Loxahatchee. The map pin is approximate, not the parcel.",
       "mw": 600,
-      "mw_basis": "Projected 600 MW draw across 5 buildings, about 1.03M sq ft of data center space. The county denied the expansion 5-1 without prejudice on Jul 15, 2026. Older entitlements, including a 206,000 sq ft data center, remain.",
+      "mw_basis": "WLRN reports the project was projected to draw 600 MW, with 1.03M sq ft of AI data center space in a request of nearly 3.6M sq ft; the developer's project manager described 600 MW across five buildings to Local 10 (CBS12 reported four data center buildings and five warehouses). The county Board of Commissioners denied the requested amendment 5-1 on Jul 15, 2026; FloridaDataCenters.org reports the denial was without prejudice, so the developer could refile. Older entitlements, including a 206,000 sq ft data center, remain (WLRN).",
       "status": "paused/canceled",
       "year": "denied Jul 2026 (may be resubmitted)",
       "ai": true,
@@ -2479,7 +2489,12 @@
         {
           "title": "Project Tango fuels debate over Florida's first hyperscale AI data center (Local 10)",
           "url": "https://www.local10.com/news/local/2026/07/15/project-tango-fuels-debate-over-floridas-first-hyperscale-ai-data-center/",
-          "supports": "mw 600 MW across five buildings, ai"
+          "supports": "mw (the developer's project manager: 600 MW across five buildings, about a million sq ft), AI data center"
+        },
+        {
+          "title": "Palm Beach Co. commissioners to decide fate of controversial Project Tango AI data center (CBS12, July 13, 2026)",
+          "url": "https://cbs12.com/news/local/palm-beach-co-commissioners-to-decide-fate-of-controversial-project-tango-ai-data-center-commissioners-noise-pba-holdings-july-13-2026",
+          "supports": "four AI data center buildings and five warehouses proposed (the developer's project manager on a site tour)"
         },
         {
           "title": "Project Tango AI Data Center Campus — PBA Holdings in Loxahatchee, FL (Compute Atlas)",
@@ -2489,12 +2504,12 @@
         {
           "title": "Palm Beach County: Project Tango AI Data Center | FloridaDataCenters.org",
           "url": "https://floridadatacenters.org/palm-beach-county",
-          "supports": "202 acres next to FPL West County Energy Center; remaining entitlements"
+          "supports": "202 acres next to FPL West County Energy Center; remaining entitlements; denied without prejudice (may be revised and refiled)"
         }
       ],
       "seg": "southeast",
       "confidence": "low",
-      "verification": "uncertain: Could not re-verify: this session's WebSearch budget was used up (200 of 200) before the fresh searches ran, and WebFetch is off-limits. The coordinates fit the reported site: FPL's West County Energy Center is about 26.70, -80.37, near Loxahatchee. The facts that matter all come from mid-2026 news I could not independently check: 600 MW, five buildings, and the 5-1 denial on Jul 15, 2026. Keep it at low confidence until someone confirms the WLRN and Local 10 articles. Status 'paused/canceled' matches a denial without prejudice."
+      "verification": "checked 2026-09-27: WLRN (Jul 16, 2026) reports the 5-1 denial on Jul 15, the 600 MW projection, 1.03M sq ft of AI data center space and the 2016 entitlements (a 206,000 sq ft data center); Local 10 quotes the project manager on 600 MW across five buildings; FloridaDataCenters.org reports 'without prejudice'. CBS12 reports four data center buildings and five warehouses, so the building count varies by source. Palm Beach County gave final approval to a one-year moratorium on Sept 24, 2026 (WFLX)."
     },
     {
       "id": "beale-infrastructure-tucson",
@@ -3988,9 +4003,9 @@
       "state": "FL",
       "lat": 30.4941,
       "lon": -81.6879,
-      "location_basis": "Approximate: Jacksonville International Airport coordinates. The property was reported only as roughly 1,200 acres 'near Jacksonville International Airport' in Nassau County, parcel unspecified.",
+      "location_basis": "Approximate: Jacksonville International Airport coordinates. The company's release describes 1,600 acres under a lease option in Nassau County, near Jacksonville International Airport, and gives no parcel (Jacksonville Today, Jax Daily Record); the county said it had no details.",
       "mw": 200,
-      "mw_basis": "A 200 MW smart microgrid paired with hyperscale data center land, built out in 50 MW modules scaling to 200 MW or more. By Apr 2026 the CEO said the company wanted a solar farm instead. Nassau County adopted a 12-month data center moratorium in Jun 2026.",
+      "mw_basis": "NextNRG's September 2025 release (as reported by Jacksonville Today and DCD) describes a 200 MW smart microgrid on about 1,200 of 1,600 acres under a lease option, with the other 400 acres for hyperscale data center development; DCD adds the company's plan to start with 50 MW facilities before scaling toward 200 MW or more. No data center load was reported, so this test uses 200 MW as the size. In April 2026 the CEO told First Coast News he wants a solar farm, not a data center, and Nassau County adopted a 12-month data center moratorium in June 2026.",
       "status": "paused/canceled",
       "year": "not reported",
       "ai": true,
@@ -4008,17 +4023,27 @@
         {
           "title": "Proposed Nassau County data center details remain unknown to county | Jax Daily Record",
           "url": "https://www.jaxdailyrecord.com/news/2026/apr/06/announced-nassau-county-data-center-details-remain-unknown-to-county/",
-          "supports": "parcel unspecified, status"
+          "supports": "parcel unspecified, status (county had no details on the project)"
         },
         {
           "title": "Nassau County data center moratorium advances | Jax Daily Record",
           "url": "https://www.jaxdailyrecord.com/news/2026/apr/28/nassau-county-data-center-moratorium-advances/",
-          "supports": "status (moratorium)"
+          "supports": "moratorium advancing (first reading Apr 27, 2026)"
+        },
+        {
+          "title": "NextNRG secures lease for energy and data center campus in Nassau County, Florida (DCD, Sept 23, 2025)",
+          "url": "https://www.datacenterdynamics.com/en/news/nextnrg-secures-lease-for-energy-and-data-center-campus-in-nassau-county-florida/",
+          "supports": "200 MW smart microgrid, 1,600 acres under a lease option, 400 acres for a hyperscale data center, 50 MW starter facilities"
+        },
+        {
+          "title": "Nassau County approves data center moratorium (News4Jax, June 9, 2026)",
+          "url": "https://www.news4jax.com/news/local/2026/06/09/nassau-county-approves-data-center-moratorium/",
+          "supports": "status (12-month moratorium approved June 8, 2026)"
         }
       ],
       "seg": "southeast",
       "confidence": "low",
-      "verification": "uncertain: Not re-verified because the WebSearch budget was exhausted. The 200 MW is a microgrid and generation figure, built in 50 MW modules. It is not a reported data center load, so the size basis is weak. The parcel is unspecified and the coordinates are the airport's, so the placement is only approximate (Nassau County, within about 30 km, is plausible). By the entry's own sources the project is paused or pivoting to solar under a county moratorium. Keep at low confidence, or drop it if the catalog needs a firm data center load figure."
+      "verification": "checked 2026-09-27: Jacksonville Today and DCD report the Sept 2025 release (a 200 MW microgrid on 1,200 acres, 400 acres for a hyperscale data center, 1,600 acres under a lease option). The 200 MW is a microgrid figure, not a reported data center load, so the size basis is weak. Jax Daily Record (Apr 6 and Apr 14, 2026) reports the county had no details and no active or pending data center applications; the CEO told First Coast News (Apr 20) that the company is 'not in the data center business' and wants a solar farm; News4Jax (Jun 9) reports the 12-month moratorium. Nothing found says the project is paused."
     },
     {
       "id": "stack-infrastructure-hillsboro",
