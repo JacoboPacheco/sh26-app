@@ -11,12 +11,10 @@ import HardenLayer from './features/harden/HardenLayer'
 import HurricaneLayer from './features/hurricane/HurricaneLayer'
 import HurricanePanel from './features/hurricane/HurricanePanel'
 import ImpactLayer from './features/impact/ImpactLayer'
-import PlantsLayer from './features/plants/PlantsLayer'
 import ProposalRings from './features/proposals/ProposalRings'
 import UnlockLayer from './features/unlock/UnlockLayer'
 import StrengthenPage from './features/unlock/StrengthenPage'
 import { NO_SUBS, strengthenClick, useStayOnStrengthen, useStrengthenLines } from './features/unlock/strengthenMap'
-import PlantsPanel from './features/plants/PlantsPanel'
 import GridMap from './GridMap'
 import CampusPanel from './shell/CampusPanel'
 import TopBar from './shell/TopBar'
@@ -74,7 +72,6 @@ const MODES = [
   { id: 'hurricane', label: 'Hurricane', Panel: HurricanePanel },
   { id: 'boom', label: 'AI boom', Panel: BoomPanel },
   { id: 'fix', label: 'Fix it', Panel: FixPanel },
-  { id: 'plants', label: 'Plants', Panel: PlantsPanel },
 ]
 
 function App() {
@@ -215,7 +212,6 @@ function MissionControl() {
             <HardenLayer />
             <BoomLayer />
             <BestSitesLayer />
-            <PlantsLayer />
             {/* last: Gemini's recorded plans replayed over everything ("Let Gemini fix it") */}
             <GeminiDuelLayer />
           </g>

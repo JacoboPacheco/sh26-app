@@ -197,7 +197,6 @@ const SECTIONS = [
   { id: 'hurricane', title: 'Storm' },
   { id: 'boom', title: 'More campuses' },
   { id: 'fix', title: 'Upgrades' },
-  { id: 'plants', title: 'Power plants', module: 'plants/PlantsPanel' },
   { id: 'planner', title: 'Plan campuses', module: 'planner/PlannerPanel' },
 ]
 
@@ -244,7 +243,6 @@ export function RecipeSidebar({ route }) {
               {s.id === 'hurricane' && <HurricanePanel />}
               {s.id === 'boom' && <BoomPanel />}
               {s.id === 'fix' && <FixPanel />}
-              {s.id === 'plants' && <Optional from="plants/PlantsPanel" fallback={<p className="nx-pad muted">Power plants are coming online.</p>} />}
               {s.id === 'planner' && <Optional from="planner/PlannerPanel" fallback={<p className="nx-pad muted">The planner is coming online.</p>} />}
             </Section>
           )
@@ -298,7 +296,6 @@ function Section({ id, title, summary, open, disabled, onOpen, children }) {
 
 function Summary({ id }) {
   const { trip, extraSites, upgrades } = useOverload()
-  if (id === 'plants') return 'Take one out'
   if (id === 'planner') return 'Fit MW without a blackout'
   if (id === 'hurricane') return trip.length ? `${fmt(trip.length)} lines knocked out` : 'None'
   if (id === 'boom') {

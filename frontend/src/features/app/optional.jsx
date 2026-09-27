@@ -2,7 +2,7 @@ import { Component, useEffect, useState } from 'react'
 import { Loading } from '../../ui'
 
 // Components other tracks build (catalog, forecast, cost, hospitals, areas, library, briefing,
-// planner, plants), loaded lazily and only if the file exists. A missing file, a file that fails to
+// planner), loaded lazily and only if the file exists. A missing file, a file that fails to
 // compile while someone is still writing it, or a component that throws while rendering all show
 // the caller's fallback — they never take the app down.
 const MODS = import.meta.glob([
@@ -14,7 +14,6 @@ const MODS = import.meta.glob([
   '../library/*.jsx',
   '../briefing/*.jsx',
   '../planner/*.jsx',
-  '../plants/*.jsx',
   '../ask/*.jsx',
   '!../*/Preview.jsx',
 ])

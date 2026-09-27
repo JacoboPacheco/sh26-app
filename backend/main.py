@@ -55,7 +55,6 @@ import narrate
 import negotiate
 import plan_agents
 import planner
-import plants
 import scenarios
 import service_rules
 import sitereport
@@ -166,7 +165,6 @@ app.include_router(hospitals.router)
 app.include_router(hospital_agent.router)
 app.include_router(briefing.router)
 app.include_router(voice.router)
-app.include_router(plants.router)
 app.include_router(ask.router)
 app.include_router(gridlock.router)
 app.include_router(gridreader.router)

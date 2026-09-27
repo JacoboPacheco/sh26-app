@@ -161,7 +161,6 @@ function MapCanvas({ route, national, onPlace, home }) {
               <BoomLayer />
               <BestSitesLayer />
               <Optional from="hospitals/HospitalsLayer" loading={null} />
-              <Optional from="plants/PlantsLayer" loading={null} />
               <Optional from="town/AreaLayer" loading={null} />
               <Optional from="town/AreaHover" loading={null} />
             </>
