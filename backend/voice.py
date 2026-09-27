@@ -30,7 +30,8 @@ ElevenLabs API (docs fetched Sat 26 Sep 2026):
        https://elevenlabs.io/docs/api-reference/voices/search
   GET  https://api.elevenlabs.io/v1/voices/{voice_id} → {voice_id, name, category, labels} (a configured
        voice's name; fetched Sat 26 Sep 2026) https://elevenlabs.io/docs/api-reference/voices/get
-  Models: eleven_flash_v2_5 (default here: low latency, half the credits, Spanish included)
+  Models: eleven_multilingual_v2 (default here since Sat 23:41: the most natural of the three we auditioned, Spanish included, twice the credits of
+         eleven_flash_v2_5, which is the cheap low-latency option: set ELEVENLABS_MODEL to switch)
        https://elevenlabs.io/docs/models
 Cache lookup order: backend/demo/voice/ (pinned hero audio, committed) → backend/.voice_cache/ (LRU
 100 MB) → render. Premade voices only; no cloning; no hardcoded voice ids.
@@ -67,13 +68,13 @@ VERSION = "v1"
 ROLES = ("presenter", "analyst")
 LANGS = ("en", "es")
 # stability 0.6 keeps a steady newsreader delivery; style 0 = no exaggeration (voice_settings in the docs above)
-VOICE_SETTINGS = {"stability": 0.6, "similarity_boost": 0.75, "style": 0.0}
+VOICE_SETTINGS = {"stability": 0.45, "similarity_boost": 0.75, "style": 0.1, "use_speaker_boost": True}  # tuned by ear (Sat 23:41)
 OUTPUT_FORMAT = "mp3_44100_64"
 LANGUAGE_MODELS = ("eleven_flash_v2_5", "eleven_turbo_v2_5")  # models that take language_code
 # premade voices, by first name, in order of preference (resolved once from the account's default voices)
 PREFER = {
     "presenter": ("George", "Brian", "Daniel", "Adam", "Eric", "Chris", "Roger", "Will", "Liam", "Bill"),
-    "analyst": ("Sarah", "Alice", "Matilda", "Laura", "Jessica", "Charlotte", "Lily", "Aria", "River"),
+    "analyst": ("Matilda", "Sarah", "Alice", "Laura", "Jessica", "Charlotte", "Lily", "Aria", "River"),
 }
 ATTRIBUTION = "Voice: ElevenLabs"
 
@@ -109,7 +110,7 @@ def api_base() -> str:
 
 
 def model_id() -> str:
-    return os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5").strip() or "eleven_flash_v2_5"
+    return os.getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2").strip() or "eleven_multilingual_v2"
 
 
 def daily_chars() -> int:
