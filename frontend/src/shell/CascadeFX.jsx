@@ -130,17 +130,43 @@ export default function CascadeFX() {
       const t1 = c.until + FADE_OUT
       const box = (y) => ({ x0: c.x - w / 2, x1: c.x + w / 2, y0: y - h, y1: y + 5 * upx, t0, t1 })
       const free = (b) => !alive.some((a) => a.t0 < b.t1 && b.t0 < a.t1 && a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1)
+      // at most LABELS_PER_TIER town labels on screen at once (REVIEW-1 #6: 14 stacked rows mid-replay)
+      if (c.kind === 'hit' && !force && alive.filter((a) => a.hit && a.t0 < t1 && t0 < a.t1).length >= LABELS_PER_TIER) return null
       for (const n of [0, -1, 1, -2, 2, -3, 3, -4]) {
         const y = c.y + n * (h + 3 * upx)
-        const b = box(y)
+        const b = { ...box(y), hit: c.kind === 'hit' }
         if (free(b)) {
           alive.push(b)
-          return { ...c, y, lead: n !== 0 ? c.y : null }
+          return { ...c, y, lead: n !== 0 ? c.y : null, box: b }
         }
       }
       // no room: a small hit waits for the counter and the feed; a step's biggest hit (and a failed line) is drawn anyway
       if (!force || c.people < CROWD_MIN) return null
-      alive.push(box(c.y))
+      const b = { ...box(c.y), hit: c.kind === 'hit' }
+      alive.push(b)
+      return { ...c, box: b }
+    }
+    // ONE label per town (REVIEW-1 #6: the same town twice with different numbers): a town's label reads
+    // its running total, and a later hit on a town whose label is still up replaces it on the same spot
+    const townSum = new Map()
+    const townLabel = new Map()
+    const townHit = (area, people, I, x, y, t, until, force) => {
+      const sum = (townSum.get(area) || 0) + people
+      townSum.set(area, sum)
+      const prev = townLabel.get(area)
+      if (prev && prev.until + FADE_OUT > t) {
+        prev.until = Math.max(prev.t, t - FADE_OUT)
+        if (prev.box) prev.box.t1 = t
+        const c = { ...hitLabel(area, sum, I), x: prev.x, y: prev.y, lead: prev.lead, t, until: Math.max(until, t) }
+        const w = c.wPx * upx + 16 * upx
+        const b = { x0: c.x - w / 2, x1: c.x + w / 2, y0: c.y - 17 * upx, y1: c.y + 5 * upx, t0: t, t1: c.until + FADE_OUT, hit: true }
+        alive.push(b)
+        const out = { ...c, box: b }
+        townLabel.set(area, out)
+        return out
+      }
+      const c = place({ ...hitLabel(area, sum, I), x, y, t, until }, force)
+      if (c) townLabel.set(area, c)
       return c
     }
     // a hit's label: the town, its people and (once priced) their share of the cost — measured with room for the money
@@ -239,7 +265,7 @@ export default function CascadeFX() {
           if (!spot || load > spot.load) spot = { p, load }
         })
         if (!spot || !(h.people > 0) || !top.has(h.area)) return
-        const c = place({ ...hitLabel(h.area, h.people, leapIntensity(h.people, total)), x: spot.p[0], y: spot.p[1] - 8 * upx, t: h.t, until: tier.t1 }, h === biggest)
+        const c = townHit(h.area, h.people, leapIntensity(h.people, total), spot.p[0], spot.p[1] - 8 * upx, h.t, tier.t1, h === biggest)
         if (c) labels.push(c)
       })
       // the darkness: sparks run along the real lines, the land is hatched as it arrives; a wave that
@@ -259,7 +285,7 @@ export default function CascadeFX() {
         })
         const added = wv.hitDelta > 0 ? wv.hitDelta : wv.zoneDelta
         if (!main || !(added > 0)) return
-        const c = place({ ...hitLabel(main.area, added, leapIntensity(added, total)), x: main.p[0], y: main.p[1] - 6 * upx, t: wv.t1, until: tier.t1 })
+        const c = townHit(main.area, added, leapIntensity(added, total), main.p[0], main.p[1] - 6 * upx, wv.t1, tier.t1, false)
         if (c) labels.push(c)
       })
       tier.darken.forEach((d) => dark(`${key}-k${d.id}`, d.id, d.t))
