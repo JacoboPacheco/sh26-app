@@ -42,7 +42,6 @@ import costs
 import danger
 import evidence
 import fixit
-import forecast
 import grid
 import grid_operator
 import gridlock
@@ -160,7 +159,6 @@ app.include_router(harden.router)
 app.include_router(fixit.router)
 app.include_router(bulletin.router)
 app.include_router(towns.router)
-app.include_router(forecast.router)
 app.include_router(planner.router)
 app.include_router(catalog.router)
 app.include_router(costs.router)
