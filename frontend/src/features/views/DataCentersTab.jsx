@@ -359,7 +359,7 @@ export default function DataCentersTab({ initialSite }) {
                     <th scope="col" className="num">
                       Reported MW
                     </th>
-                    <th scope="col" className="num">
+                    <th scope="col" className="num" title="Reported campus MW as a share of the synthetic model's load, so it can exceed 100%">
                       Of model load
                     </th>
                   </tr>
@@ -395,7 +395,9 @@ export default function DataCentersTab({ initialSite }) {
                   The 10 largest of {fmt(totals.states)} {placesWord(totals.by_state.map((s) => s.state), totals.states)}.
                 </p>
               )}
-              <p className="vw-fine">A share above 100% only means the reported MW is larger than that model&apos;s base load; the models hold no real campus, so this is a scale, not an effect.</p>
+              <p className="vw-fine">
+                Of model load is the reported campus MW as a share of the synthetic model&apos;s base load, so it can exceed 100% when a state&apos;s reported MW is larger than its model&apos;s load. The models hold no real campus, so this is a scale, not an effect.
+              </p>
             </section>
           )}
         </aside>

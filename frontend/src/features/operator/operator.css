@@ -87,6 +87,12 @@
   transition: transform 1.4s linear;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .op__bar span {
+    transition: none;
+  }
+}
+
 .op__trace {
   max-height: 14rem;
   overflow-y: auto;
