@@ -22,7 +22,10 @@ export default function BoomLayer() {
   const { k, project } = useMapView()
   const p = usePlanner()
   const version = useShownVersion()
-  const agent = agentMarks(p, region, grid, version)
+  // no campuses on the map: never show a run's rings/upgrade labels, however that emptied out (Start over bumps
+  // resetCount and clears the planner itself, but removing sites one at a time to zero doesn't — this is the
+  // backstop so a cleared scenario is always actually clear; user, Sun 04:37)
+  const agent = extraSites.length ? agentMarks(p, region, grid, version) : null
   if (!extraSites.length && !agent) return null
   const u = 1 / k // one screen-ish unit at this zoom
 
