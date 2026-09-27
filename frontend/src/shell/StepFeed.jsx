@@ -1,5 +1,4 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useReducedMotion } from '../features/impact/towns'
 import { fmt } from '../geo'
 import { useOverload } from '../store'
 import { buildSchedule, SNAP_MS, titleCase } from './cascadeSchedule'
@@ -12,6 +11,12 @@ import './steps.css'
 // counter's and the map's), so the row, the number and the blast agree. Paused mid-way: the steps so far.
 // After the replay the whole list sits in the column's closed "More" fold (`all`).
 // Incident-room look: plain rows, tabular figures, red only for people hit; the row's fade-in is the only motion.
+
+// the least the box may be (the current step, with its reason, and one played row) and the most (15rem)
+const BOX_MIN = 80
+const BOX_MAX_REM = 15
+// sent by features/component3d when it has re-shared the column's lane with the 3D panel
+const LANE_EVENT = 'overload:live-lane'
 
 // why each step's element went out (backend powerflow.cascade_case: step.action)
 const CAUSE = {
@@ -57,7 +62,6 @@ function landings(schedule) {
 
 export default function StepFeed({ all = false }) {
   const { cascade, step, fx, playing, subById, branchById, subName, focus, subPos } = useOverload()
-  const reduced = useReducedMotion()
   const headId = useId()
   const boxRef = useRef(null)
   const n = cascade?.steps?.length || 0
@@ -99,13 +103,52 @@ export default function StepFeed({ all = false }) {
     return out
   }, [all, base, live, step, clock, fx, marks])
 
-  // the newest step stays in view: the box scrolls itself, never the column
-  const last = rows.length
+  // The box is as tall as the column has room for, and only WHOLE rows show: the newest at the bottom, older ones step
+  // out at the top, never a row cut in half (user, Sat 23:15: live events "get cropped out"). Room = the column's own max
+  // height (features/component3d shares the lane with the 3D panel and trims the column's extras when it is short) less
+  // everything else in it. Re-fit when a row lands, on a resize and when the lane is re-shared.
   useLayoutEffect(() => {
     const box = boxRef.current
-    if (!box || all) return
-    box.scrollTo({ top: box.scrollHeight, behavior: reduced ? 'auto' : 'smooth' })
-  }, [last, all, reduced])
+    if (!box || all) return undefined
+    const col = box.closest('.mc-right')
+    const fit = () => {
+      if (window.innerWidth <= 860 || !col) {
+        box.style.height = '' // phones: the column is in the page flow, the stylesheet's height stands
+      } else {
+        const max = parseFloat(getComputedStyle(col).maxHeight)
+        const others = col.scrollHeight - box.offsetHeight
+        const chrome = col.offsetHeight - col.clientHeight
+        const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+        if (Number.isFinite(max)) {
+          const h = Math.max(BOX_MIN, Math.min(rem * BOX_MAX_REM, Math.floor(max - chrome - others)))
+          if (box.style.height !== `${h}px`) box.style.height = `${h}px`
+        }
+      }
+      const items = [...box.querySelectorAll('.stp__item')]
+      items.forEach((li) => {
+        li.hidden = false
+      })
+      let used = 0
+      let first = items.length
+      for (let i = items.length - 1; i >= 0; i--) {
+        used += items[i].offsetHeight
+        if (used > box.clientHeight + 0.5 && first < items.length) break
+        first = i
+      }
+      items.forEach((li, i) => {
+        li.hidden = i < first
+      })
+      box.classList.toggle('stp__box--full', first > 0) // older rows stepped out: the rest sit on the box's floor
+      box.scrollTop = box.scrollHeight // (only if even the newest row is taller than the box)
+    }
+    fit()
+    window.addEventListener('resize', fit)
+    window.addEventListener(LANE_EVENT, fit)
+    return () => {
+      window.removeEventListener('resize', fit)
+      window.removeEventListener(LANE_EVENT, fit)
+    }
+  }, [rows, all])
 
   // pointing at a row lights its line on the map (CascadeFX listens); the light must not outlive the list
   const aimed = useRef(false)

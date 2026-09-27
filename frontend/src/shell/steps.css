@@ -28,10 +28,11 @@
   white-space: nowrap;
 }
 
-/* the live list's own scroll box, a fixed height so nothing in the column moves as steps land: three steps on a
-   900 px screen (the 3D component still fits under the column), more on a taller one */
+/* the live list's own box, a fixed height so nothing in the column moves as steps land. StepFeed.jsx sets the real
+   height: what the column has room for (its max height less everything else in it), between 80 px and 15rem, and shows
+   only whole rows, the newest at the bottom. This is the first paint's guess, and the phones' height. */
 .stp__box {
-  height: clamp(6.6rem, calc(100dvh - 54rem), 15rem);
+  height: clamp(5.6rem, calc(100dvh - 54rem), 15rem);
   overflow-y: auto;
   overscroll-behavior: contain;
   margin: 0 calc(-1 * var(--space-2));
@@ -42,6 +43,16 @@
 .stp--all .stp__box {
   height: auto;
   overflow: visible;
+}
+
+/* once older rows have stepped out, the rest sit on the box's floor: the newest is always the last thing in the box */
+.stp__box--full {
+  display: flex;
+  flex-direction: column;
+}
+
+.stp__box--full .stp__list {
+  margin-top: auto;
 }
 
 .stp__of {
@@ -62,7 +73,8 @@
   border-top: 1px solid var(--glass-hi);
 }
 
-.stp__item:first-child {
+.stp__item:first-child,
+.stp__item[hidden] + .stp__item {
   border-top: 0;
 }
 
@@ -190,5 +202,24 @@
 @media (max-width: 860px) {
   .stp__box {
     height: 10rem;
+  }
+}
+
+/* Short windows: the results column is 100vh less 196 px, and once the cascade has ended it has to hold the toll, the
+   outage line and the buttons (Run it again with the fix, Present the damage, Fix it in Strengthen) without a scroll
+   (user, Sat 23:15; measured: on a 768 px window "Fix it in Strengthen" sat 88 px below the column). The wording that only
+   explains what is already on screen steps out, each still one click away (the briefing, How we know); the folded
+   "More" below the buttons is what scrolls. While the replay plays, features/component3d does the same by measuring. */
+@media (min-width: 861px) and (max-height: 940px) {
+  .mc-right .toll__why {
+    display: none;
+  }
+}
+
+@media (min-width: 861px) and (max-height: 800px) {
+  .mc-right .loss__how,
+  .mc-right .flip__what,
+  .mc-right .to-solution__q {
+    display: none;
   }
 }

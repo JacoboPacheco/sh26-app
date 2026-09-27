@@ -1547,8 +1547,11 @@
 }
 
 /* ------------------------------------------------------------------ the progress head */
+/* the knob rides on top of the fill at its leading edge: the segment's ::after fill is painted after this child, so
+   without a z-index the blue fill covered the knob's left half (user, Sat 23:15) */
 .rs-progress__head {
   position: absolute;
+  z-index: 2;
   top: 3px;
   left: calc(var(--fill, 0) * 100%);
   width: 10px;

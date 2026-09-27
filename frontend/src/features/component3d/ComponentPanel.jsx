@@ -74,6 +74,51 @@ export default function ComponentPanel() {
  */
 const FULL_H = 250 // px the float needs in full (the drawing, the name, the loading, why and the small print)
 const COMPACT_H = 128 // ... compact: the drawing, the name and the loading
+const GAP = 8 // px between the results column and the panel, and between the panel and the timeline
+const BOX_MIN = 80 // px the step list needs at the least (StepFeed.jsx BOX_MIN): the current step, with its reason, and a played row
+const LANE_EVENT = 'overload:live-lane' // StepFeed re-fits its box when this is sent
+
+// The results column and this panel share one lane, from the column's top down to the timeline. While the replay plays
+// (or sits paused part-way) the column shows the live step list; the lane is shared so nothing live is cropped or hidden
+// (user, Sat 23:15: "why do the live events like the breakers and power lines not show sometimes; it gets cropped out"):
+// the panel takes the biggest size that fits under the column at its tightest, the column's max height gives up that much
+// (--c3d-h), and when the column still has no room for its extras (the cost note, "How we got this", Present the damage,
+// More) they step out until the replay ends (html[data-live-squeeze], component3d.css); the step list fills what is
+// left. Returns the panel's placement, or null when the column's parts are not on screen. `wantPanel`: not closed by the viewer.
+function shareLane(wantPanel) {
+  const html = document.documentElement
+  const col = document.querySelector('.mc-right')
+  const foot = document.querySelector('.mc-bottom')
+  const box = col?.querySelector('.stp__box')
+  if (!col || !foot || !box || !col.offsetWidth) return null
+  const set = (squeeze, reserve) => {
+    html.setAttribute('data-live-col', '')
+    if (squeeze) html.setAttribute('data-live-squeeze', '')
+    else html.removeAttribute('data-live-squeeze')
+    html.style.setProperty('--c3d-h', `${reserve}px`)
+  }
+  const size = () => {
+    const cs = getComputedStyle(col)
+    const others = col.scrollHeight - box.offsetHeight + (col.offsetHeight - col.clientHeight)
+    return { max: parseFloat(cs.maxHeight), need: others + BOX_MIN }
+  }
+  set(false, 0)
+  const open = size() // the column's usual max height, and what it needs with everything in it
+  set(true, 0)
+  const tight = size() // ... and squeezed to the live parts
+  const room = (h) => open.max - (h ? h + GAP : 0)
+  const h = !wantPanel ? 0 : room(FULL_H) >= tight.need ? FULL_H : room(COMPACT_H) >= tight.need ? COMPACT_H : 0
+  set(room(h) < open.need, h ? h + GAP : 0)
+  const floor = foot.getBoundingClientRect().top - GAP
+  const c = col.getBoundingClientRect()
+  return { left: Math.round(c.left), bottom: Math.round(window.innerHeight - floor), width: Math.round(c.width), mode: h === FULL_H ? 'full' : h === COMPACT_H ? 'compact' : 'none' }
+}
+function clearLane() {
+  const html = document.documentElement
+  html.removeAttribute('data-live-col')
+  html.removeAttribute('data-live-squeeze')
+  html.style.removeProperty('--c3d-h')
+}
 
 // on the map (the float dock): the drawing is cleared, not painted on a panel, and solid faces use the map's own dark
 function floatPal(dock) {
@@ -97,6 +142,8 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
   const shots = useMemo(() => (fx ? shotsFor(fx.schedule, elements) : null), [fx, elements])
   const n = cascade?.steps?.length || 0
   const live = !!(fx && playing && shots?.length)
+  // the results column is showing its live step list (ImpactPanel `feed`): playing, or paused part-way
+  const feedNow = n > 0 && (!!(fx && playing) || (step > 0 && step < n))
 
   // the element the loop shows ({el, cascade}), and where the replay stopped ({step, cascade, scope,
   // paused: the step is the one it played at, so Pause; a jump on the timeline or the end moves it})
@@ -243,9 +290,20 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
   // the page flow (CSS).
   const [pos, setPos] = useState(null)
   useLayoutEffect(() => {
-    if (dock !== 'float' || !visible) return undefined
+    if (dock !== 'float') return undefined
     const place = () => {
-      if (window.innerWidth <= 860) return setPos(null)
+      if (window.innerWidth <= 860 || covered) {
+        clearLane()
+        return setPos(null)
+      }
+      // while the step list is live, the lane is shared with the column (shareLane); the panel is drawn when it fits
+      const shared = feedNow ? shareLane(!hidden) : null
+      if (shared) {
+        window.dispatchEvent(new Event(LANE_EVENT))
+        return setPos((prev) => (prev && Object.keys(shared).every((k) => prev[k] === shared[k]) ? prev : shared))
+      }
+      clearLane()
+      if (!visible) return undefined
       const vh = window.innerHeight
       const foot = document.querySelector('.mc-bottom')?.getBoundingClientRect()
       const floor = foot && foot.height ? foot.top - 12 : vh - 140
@@ -253,18 +311,20 @@ export function ComponentPanelView({ cascade, fx, playing, step, lookups, dock =
       if (!col || !col.width) return setPos({ mode: 'none' })
       const room = floor - col.bottom - 12
       const mode = room >= FULL_H ? 'full' : room >= COMPACT_H ? 'compact' : 'none'
-      setPos({ left: Math.round(col.left), bottom: Math.round(vh - floor), width: Math.round(col.width), mode })
+      return setPos({ left: Math.round(col.left), bottom: Math.round(vh - floor), width: Math.round(col.width), mode })
     }
     place()
     window.addEventListener('resize', place)
-    const watch = ['.mc-bottom', '.mc-right'].map((q) => document.querySelector(q)).filter(Boolean)
+    // (.impact: the column's content grows past its max height without the column itself changing size)
+    const watch = ['.mc-bottom', '.mc-right', '.mc-right .impact'].map((q) => document.querySelector(q)).filter(Boolean)
     const ro = watch.length && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(place) : null
     watch.forEach((e) => ro?.observe(e))
     return () => {
       window.removeEventListener('resize', place)
       ro?.disconnect()
+      clearLane()
     }
-  }, [dock, visible, covered])
+  }, [dock, visible, covered, feedNow, hidden])
 
   if (!visible) return null
   if (dock === 'float' && pos?.mode === 'none') return null

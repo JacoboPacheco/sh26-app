@@ -74,6 +74,21 @@
   position: relative;
 }
 
+/* While the replay plays, the results column and this panel share one lane (ComponentPanel.jsx shareLane): the column's
+   max height gives up the panel's height, and when it still has no room for its extras (the cost note, "How we got
+   this", Present the damage, More) those wait until the replay ends, so the toll, the time without power and the
+   current step are never cut off. */
+html[data-live-col] .mc-right.glass {
+  max-height: calc(100vh - var(--appbar-h) - var(--gutter) - 128px - var(--c3d-h, 0px));
+}
+
+html[data-live-squeeze] .mc-right .toll__why,
+html[data-live-squeeze] .mc-right .loss__how,
+html[data-live-squeeze] .mc-right .impact > .present,
+html[data-live-squeeze] .mc-right .impact > details.more {
+  display: none;
+}
+
 /* the last element stays a moment after the replay, then the panel leaves (shots.js END_HOLD) */
 .c3d--ending {
   animation: c3d-out 380ms ease-in 3820ms both;
