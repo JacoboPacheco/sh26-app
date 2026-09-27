@@ -17,6 +17,10 @@ import { useElapsed } from './useShowClock'
 // their own components; every other slide keeps the same words and figures with things that move: the big
 // number counts up, the lines rise in one after another, bars draw in, gauges fill. `animate` is true while
 // the show runs; a paused or scrubbed slide (animate false) is the finished picture.
+// the slides whose words stay the engine's template even in Gemini's deck (bulletin.AI_KEEP_TEMPLATE: the numbers and the
+// plans are the engine's): not a fallback, so they don't wear the fallback's warning
+const ENGINE_WORDS = new Set(['event', 'toll', 'fix'])
+
 export default function Slide({ slide, report, deck, lang, wave, onApply, fixture, stage, live, animate = false, options = [] }) {
   const t = T[lang]
   const kind = slide.kind || slide.id
@@ -115,6 +119,8 @@ export default function Slide({ slide, report, deck, lang, wave, onApply, fixtur
           <Badge tone="warn">{t.fixture}</Badge>
         ) : written === 'gemini' ? (
           <Badge>{t.byGemini(checked)}</Badge>
+        ) : deck?.ai?.by === 'gemini' && !deck.ai.fallback && ENGINE_WORDS.has(slide.id) ? (
+          <Badge>{t.engineWords}</Badge>
         ) : (
           <Badge tone="warn">{t.template}</Badge>
         )}

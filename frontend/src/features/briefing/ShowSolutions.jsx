@@ -1,8 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
-import AgentTrace, { AgentTraceToggle } from '../ai/AgentTrace'
-import AiBadge from '../ai/AiBadge'
 import { reportPeople } from '../cost/figures'
 import { flexPin, keepsText, oftenText, pinsOf, rangeText, workText } from './beatMaps'
 import { Kicker } from './ShowBits'
@@ -23,6 +21,7 @@ import {
   optionSay,
   usdCompact,
   usdShort,
+  variantsOf,
 } from './showDeck'
 import { P, S, levelName } from './showText'
 import { clamp01, easeInOut, useElapsed } from './useShowClock'
@@ -35,11 +34,26 @@ function troubleLines(report, result) {
   return (t?.lines || []).map((l) => l.id)
 }
 
-// what the beat's heading says an option is: the lead (the cheapest way at full size; an operating rule with no new
-// equipment; or, when nothing keeps the full campus, the closest way), the no-step-down alternative after an operating
-// rule, another way
-function roleOf(o, i, main, lang) {
+// what the beat's heading says an option is. DISTINCT OPTIONS (user, Sat 19:12): its KIND first (upgrade the weak point,
+// a different set of upgrades, power of its own, an operating rule, with deep step-downs when it needs them); a deck
+// without kinds: the lead (the cheapest way at full size; an operating rule with no new equipment; or, when nothing
+// keeps the full campus, the closest way), the no-step-down alternative after an operating rule, another way
+function roleOf(o, i, main, lang, weakId = null) {
   const T = P[lang]
+  if (o.kind === 'upgrade') {
+    const ids = [...(o.cost?.items || []).map((it) => it.id), ...(o.lines || []).map((l) => l.id)]
+    const k = weakId != null && ids.includes(weakId) ? T.kindWeak : T.kindGrid
+    // "cheapest" only when it is: another option priced lower (the same elements for less, with less margin) takes it away
+    const hi = Number(o.cost?.high) || 0
+    const undercut = main.some((x, j) => j !== i && Number(x.cost?.high) > 0 && Number(x.cost.high) < hi)
+    return i === 0 && main.length > 1 && (o.kept_pct ?? 0) >= 99.5 && !undercut ? `${k} · ${T.cheapestFull}` : k
+  }
+  if (o.kind === 'upgrade_other') return T.kindOther
+  if (o.kind === 'upgrade_cheaper') return T.kindCheaper
+  if (o.kind === 'onsite') return T.kindOnsite
+  if (o.kind === 'flexible') return T.kindFlex
+  if (o.kind === 'flexible_deep') return T.kindDeep
+  if (o.kind === 'closest') return T.leadClosest
   if (i === 0) {
     if (o.flex?.peak_only) return T.leadFlex
     if ((o.kept_pct ?? 0) < 99.5) return T.leadClosest
@@ -65,18 +79,29 @@ function optionLayer(O, o, { key, trouble, lang, at, step, green, still, present
     layer.marks.push({ at: here, tone: 'fix', r: 16 })
     layer.tags.push({ at: here, ...flexPin(o.flex, lang), tone: 'fix', delay: still ? 0 : at })
   }
+  // power of its own: a plant at the campus, what it makes and what the grid still supplies
+  if (o.family === 'onsite' && o.gen?.onsite_mw && present?.site) {
+    const here = [present.site.lon, present.site.lat]
+    const T = P[lang]
+    layer.marks.push({ at: here, tone: 'fix', r: 16 })
+    layer.tags.push({ at: here, text: T.onsitePin(fmt(o.gen.onsite_mw)), sub: o.gen.net_mw != null ? T.onsitePinSub(fmt(o.gen.net_mw)) : null, tone: 'fix', side: 'nw', delay: still ? 0 : at })
+  }
   return layer
 }
 
 // The solutions, the proportionate way (PRESENT V2): the cheapest verified way to keep the campus at full size first,
 // placed on the map where it goes, each element's price pinned on it and the total adding up as they land; the re-run
 // counts the people out down to zero; then the price is weighed against the blackout it prevents and how often the
-// overload happens. Pricier full-size plans come after ("if you want no step-downs"); a smaller campus, another site
-// or on-site generation only under "More options". Then, when the AI proposer has run, "Watch the AI work".
+// overload happens. DISTINCT OPTIONS (user, Sat 19:12): each option after it is another KIND of fix (a different set of
+// upgrades, power of its own, an operating rule); plans that raise the same elements for about the same price are
+// folded into the option as its variants; a smaller campus or another site only under "More options". Then, when the AI
+// proposer has run, the options stay on screen side by side for review while "How the AI found them" plays in the
+// right-hand panel (stage.ai), never over them.
 export default function ShowSolutions({ slide, report, lang, animate, options, stage, live, agentic }) {
   const t = S[lang]
   const T = P[lang]
   const O = useOverload()
+  const weakId = report?.root_cause?.line?.id ?? null
   const main = useMemo(() => mainOptions(options), [options])
   const more = useMemo(() => moreOptions(options), [options])
   const n = main.length
@@ -138,6 +163,12 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
     stage.say({ key: 'ai-work', text: t.aiWorkSay(ag.asked || 0, ag.verified || 0, ag.rounds || 1) }) // "sent back what still failed" only when it did
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiOn, lang])
+  // the AI's run plays in the right-hand panel, step by step on this beat's clock, while the options stay readable here
+  useEffect(() => {
+    if (!aiOn) return
+    stage.ai({ shown: aiShown, auto: true })
+  }, [aiOn, aiShown, stage])
+  useEffect(() => () => stage.ai(null), [stage])
 
   const opt = cur >= 0 ? main[cur] : null
   const tg = opt ? greenAt(opt, lang) : 0
@@ -184,15 +215,18 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
     },
     [stage],
   )
-  // the finished picture (paused, or reduced motion): the lead is in where it goes, its prices pinned, the trouble cooled
+  // the finished picture (paused, reduced motion, or the options under review beside the AI panel): the lead is in where
+  // it goes, its prices pinned, the trouble cooled
   const top = main[0]
+  const still = !animate || aiOn
   useEffect(() => {
-    if (animate || !top) return
+    if (!still || !top) return
     stage.layer(optionLayer(O, top, { key: 'still', trouble, lang, at: 0, step: 0, green: true, still: true, present }))
     const ids = top.cost?.items?.length ? top.cost.items.map((it) => it.id) : top.lines.map((l) => l.id)
     stage.camera({ line_ids: top.family === 'flexible' || top.family === 'move' ? [] : ids, points: present.site ? [[present.site.lon, present.site.lat]] : [] })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animate, top, trouble, stage, lang])
+  }, [still, top, trouble, stage, lang])
+  const openAi = run || agentic?.status === 'running' ? () => stage.openAi() : null
 
   if (!animate) {
     // a paused slide is the whole comparison at once
@@ -207,41 +241,39 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
         </h2>
         <ol className="sh-plan">
           {main.map((o, i) => (
-            <PlanRow key={i} o={o} i={i} main={main} lang={lang} />
+            <PlanRow key={i} o={o} i={i} main={main} lang={lang} weakId={weakId} onHow={openAi} />
           ))}
         </ol>
         {top && <Weigh opt={top} blackout={blackout} often={often} lang={lang} animate={false} />}
         <MoreOptions more={more} lang={lang} />
         <Frame agentic={run || agentic} options={main} lang={lang} />
-        {run && (
-          <AgentTraceToggle
-            trace={run.trace}
-            lang={lang}
-            label={run.asked > 0 ? `${t.aiWork} · ${t.aiWorkCount(run.asked, run.verified || 0, run.rounds || 1)}` : t.aiWork}
-            heading={false}
-            stepMs={420}
-            follow
-            className="sh-aitrace"
-          />
+        {openAi && (
+          <button type="button" className="sh-howai" onClick={openAi}>
+            {run?.asked > 0 ? `${T.howAi} · ${t.aiWorkCount(run.asked, run.verified || 0, run.rounds || 1)}` : T.howAi}
+            <span aria-hidden="true"> →</span>
+          </button>
         )}
       </>
     )
   }
 
   if (aiOn) {
+    // the options, side by side, for review; the AI's run plays beside them in the right-hand panel
     return (
-      <div className="sh-aiwork">
+      <div className="sh-review">
         <div className="sh-headrow">
-          <Kicker tone="green">{t.aiWork}</Kicker>
+          <Kicker tone="green">{T.compareHead}</Kicker>
           <span className="sh-count">{t.aiWorkCount(ag.asked || 0, ag.verified || 0, ag.rounds || 1)}</span>
         </div>
-        <h2 className="rs-headline sh-aiwork__h" id={`rs-h-${slide.id}`}>
-          {(ag.rounds || 1) > 1 ? t.aiWorkHead : t.aiWorkHead1}
+        <h2 className="rs-headline" id={`rs-h-${slide.id}`}>
+          {headline}
         </h2>
-        <AgentTrace trace={ag.trace} lang={lang} shown={aiShown} max={AI_BEAT.items} heading={false} stepMs={AI_BEAT.step} follow brief className="sh-aitrace" />
-        <p className="sh-aiwork__foot">
-          <AiBadge by="gemini" verified lang={lang} />
-        </p>
+        <ol className="sh-plan sh-plan--review">
+          {main.map((o, i) => (
+            <PlanRow key={i} o={o} i={i} main={main} lang={lang} weakId={weakId} onHow={openAi} anim />
+          ))}
+        </ol>
+        <MoreOptions more={more} lang={lang} compact />
       </div>
     )
   }
@@ -269,7 +301,7 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
                 {t.rank(i + 1)}
                 {x.by === 'gemini' && <em className="sh-ai">AI</em>}
               </span>
-              <b>{x.cost?.high ? usdShort(x.cost.high) : x.family === 'flexible' ? '$0' : `${Math.round(x.kept_pct)}%`}</b>
+              <b>{x.cost?.high ? usdShort(x.cost.high) : x.family === 'flexible' && x.kind !== 'flexible_deep' ? '$0' : x.family === 'onsite' || x.family === 'flexible' ? '–' : `${Math.round(x.kept_pct)}%`}</b>
             </li>
           ))}
         </ol>
@@ -283,6 +315,7 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
           <ul className="sh-overview">
             {main.map((x, i) => (
               <li key={i} style={{ '--i': i }}>
+                {x.kind && <span className="sh-overview__kind">{roleOf(x, i, main, lang, weakId)}</span>}
                 {x.name[lang]}
                 {x.by === 'gemini' && <em className="sh-ai">AI</em>}
               </li>
@@ -294,12 +327,13 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
 
       {opt && (
         <div className="sh-opt" key={cur}>
-          <p className="sh-opt__have">{roleOf(opt, cur, main, lang)}</p>
+          <p className="sh-opt__have">{roleOf(opt, cur, main, lang, weakId)}</p>
           <h2 className="sh-opt__name" id={`rs-h-${slide.id}`}>
             {ai && <em className="sh-ai sh-ai--big">{t.aiPlan}</em>}
             {opt.name[lang]}
           </h2>
           {opt.sub?.[lang] && <p className="sh-opt__sub">{opt.sub[lang]}</p>}
+          {opt.note?.[lang] && <p className="sh-opt__note">{opt.note[lang]}</p>}
           <OptionDetail o={opt} shown={shownRows} lang={lang} />
 
           <div className={`sh-rerun${local >= tg - 250 ? ' sh-rerun--go' : ''}${runDone ? ' sh-rerun--done' : ''}`} style={{ '--g': g }}>
@@ -322,6 +356,7 @@ export default function ShowSolutions({ slide, report, lang, animate, options, s
                 {ai ? t.verifiedAI : t.verifiedEngine}
                 {` · ${keepsText(opt, T)}`}
               </p>
+              <Variants o={opt} lang={lang} onHow={openAi} />
             </>
           )}
           {cur === n - 1 && revealed && more.length > 0 && <MoreOptions more={more} lang={lang} compact />}
@@ -358,7 +393,7 @@ function OptionDetail({ o, shown, lang }) {
       </div>
     )
   }
-  if (o.flex?.levels?.length) return <FlexStrip flex={o.flex} total={o.from_mw} shown={shown} lang={lang} />
+  if (o.flex?.levels?.length) return <FlexStrip flex={o.flex} total={o.from_mw} shown={shown} lang={lang} deep={o.kind === 'flexible_deep'} />
   const list = mustRows(o, lang)
   return (
     <ul className="sh-must">
@@ -373,7 +408,9 @@ function OptionDetail({ o, shown, lang }) {
 
 // the operating rule: what the campus can run at each load level the engine checked (full size marked), no new
 // equipment; its cost is compute, under a sourced, labeled assumption
-function FlexStrip({ flex, total, shown, lang }) {
+// `deep`: it steps down at other hours too, every day: the national figure of about 85 hours a year does not describe it,
+// so no compute estimate is built on it (the option's note says what it gives up, in the engine's sizes)
+function FlexStrip({ flex, total, shown, lang, deep = false }) {
   const T = P[lang]
   const levels = flex.levels
   const tot = Number(total) || Math.max(...levels.map((x) => x.runs_mw), 1)
@@ -392,9 +429,9 @@ function FlexStrip({ flex, total, shown, lang }) {
         ))}
       </ol>
       <p className="sh-flex__cost">
-        <b>{T.noEquipment}.</b> {T.flexCompute(flex.mwh_year, flex.energy_share_pct, flex.hours_assumed)}
+        <b>{T.noEquipment}.</b> {!deep && T.flexCompute(flex.mwh_year, flex.energy_share_pct, flex.hours_assumed)}
       </p>
-      <p className="sh-flex__assume">{T.flexAssume(flex.hours_assumed)}</p>
+      {!deep && <p className="sh-flex__assume">{T.flexAssume(flex.hours_assumed)}</p>}
     </div>
   )
 }
@@ -428,14 +465,16 @@ function Weigh({ opt, blackout, often, lang, animate }) {
   )
 }
 
-// one main option in the paused comparison: its role, name, price, what it keeps
-function PlanRow({ o, i, main, lang }) {
+// one main option in the comparison (paused, or under review beside the AI panel): its kind, name, price, what it
+// keeps, its plain caveat, and the variants folded into it
+function PlanRow({ o, i, main, lang, weakId, onHow, anim = false }) {
   const t = S[lang]
   const T = P[lang]
   return (
-    <li className={`sh-planrow${i === 0 ? ' sh-planrow--lead' : ''}`}>
+    <li className={`sh-planrow${i === 0 ? ' sh-planrow--lead' : ''}${anim ? ' sh-planrow--anim' : ''}`} style={{ '--i': i }}>
       <p className="sh-planrow__role">
-        {roleOf(o, i, main, lang)}
+        <span className="sh-planrow__n">{i + 1}</span>
+        {roleOf(o, i, main, lang, weakId)}
         {o.by === 'gemini' && <em className="sh-ai">{t.aiPlan}</em>}
       </p>
       <p className="sh-planrow__name">{o.name[lang]}</p>
@@ -444,7 +483,48 @@ function PlanRow({ o, i, main, lang }) {
         <span>{keepsText(o, T)}</span>
         <span className={Number(o.outcome?.people) ? '' : 'sh-ok'}>{Number(o.outcome?.people) ? t.peopleOutN(fmt(o.outcome.people)) : t.zeroOut}</span>
       </p>
+      {o.note?.[lang] && <p className="sh-planrow__note">{o.note[lang]}</p>}
+      <Variants o={o} lang={lang} onHow={onHow} compact />
     </li>
+  )
+}
+
+// the plans folded into an option (the same elements for about the same price): "Gemini found 3 variants of this plan
+// · $22.7M–$78.4M", what they add, and the way to how the AI found them (the right-hand panel)
+function Variants({ o, lang, onHow, compact = false }) {
+  const v = variantsOf(o)
+  if (!v) return null
+  const T = P[lang]
+  return (
+    <div className={`sh-variants${compact ? ' sh-variants--compact' : ''}`}>
+      <p className="sh-variants__head">
+        {v.ai && <em className="sh-ai">AI</em>}
+        <span>{T.variants(v.n, v.ai)}</span>
+        {v.high ? <b>{rangeText(v.low, v.high)}</b> : null}
+      </p>
+      {!compact && (
+        <ul className="sh-variants__list">
+          {v.list.slice(0, 4).map((x, j) => (
+            <li key={j}>
+              <span>{x.extra?.length ? x.extra.map((e) => T.variantsPlus(String(e.label || '').replace(/^the /i, ''))).join(', ') : x.name[lang]}</span>
+              <b>{x.cost?.high ? usdShort(x.cost.high) : '–'}</b>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="sh-variants__how">
+        {o.variants_how?.[lang] || T.variantsHow(v.n, v.pricier)}
+        {onHow && (
+          <>
+            {' · '}
+            <button type="button" className="sh-variants__btn" onClick={onHow}>
+              {T.howAiShort}
+              <span aria-hidden="true"> →</span>
+            </button>
+          </>
+        )}
+      </p>
+    </div>
   )
 }
 

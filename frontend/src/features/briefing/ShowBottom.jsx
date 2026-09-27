@@ -40,6 +40,13 @@ export default function ShowBottom({ fixSlide, report, lang, animate, options, s
       marks.push({ at: here, tone: 'fix', r: 16 })
       if (lead.flex) tags.push({ at: here, ...flexPin(lead.flex, lang), tone: 'fix', delay: animate ? 700 : 0 }) // its step-down, where it runs
     }
+    // power of its own leads (nothing keeps the full campus on the grid alone): the plant at the campus, and what the grid supplies
+    if (lead.family === 'onsite' && lead.gen?.onsite_mw && report?.case?.sub_lon != null) {
+      const here = [report.case.sub_lon, report.case.sub_lat]
+      marks.push({ at: here, tone: 'fix', r: 16 })
+      const W = P[lang]
+      tags.push({ at: here, text: W.onsitePin(fmt(lead.gen.onsite_mw)), sub: lead.gen.net_mw != null ? W.onsitePinSub(fmt(lead.gen.net_mw)) : null, tone: 'fix', side: 'nw', delay: animate ? 700 : 0 })
+    }
     stage.layer({ key: 'bottom', still: !animate, hulls, lines, tags, marks })
     const pts = [...leadPoints({ branchById, subPos }, lead), ...areas.map((a) => a.center).filter(Boolean)]
     if (report?.case?.sub_lon != null) pts.push([report.case.sub_lon, report.case.sub_lat])

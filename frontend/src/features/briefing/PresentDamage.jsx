@@ -16,19 +16,22 @@ export default function PresentDamage() {
   // Florida (the demo state) warms the briefing ahead of the click; every other state is lazy: nothing is asked
   // of the server until the button is pressed (user, Sat 06:24: only calculate during the cascade, nothing else).
   const key = result && region === 'FL' ? JSON.stringify(body) : ''
+  const ran = !!cascade
 
-  // Warm the briefing once the case has held still, so the click opens on data that is already in
-  // (the template deck only: no AI quota is spent until someone presents).
+  // Warm the briefing once the case has held still, so the click opens on data that is already in: the template deck,
+  // and once a cascade has run, Gemini's deck too (REVIEW-1 #1: asked for only on the click, it arrived a moment after
+  // the template had started playing and was dropped; the stage still holds its autoplay briefly for it)
   useEffect(() => {
     if (!key) return undefined
     const t = setTimeout(() => {
       const b = JSON.parse(key)
       getReport(b).catch(() => {})
       getDeck(b, { ai: false }).catch(() => {})
+      if (ran) getDeck(b, { ai: true }).catch(() => {})
       getVoiceStatus() // who narrates (the stage's sound chip and speaker names): a small GET, asked once per page
     }, 1500)
     return () => clearTimeout(t)
-  }, [key])
+  }, [key, ran])
 
   if (!result) return null
   return (

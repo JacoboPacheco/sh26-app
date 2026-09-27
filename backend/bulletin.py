@@ -1696,10 +1696,20 @@ def s_fix(w: Writer, lv: Level) -> dict:
     plan = solutions.present_plan(w.r) or {"main": [], "more": []}
     main = [w.fixes[i] for i in plan["main"] if isinstance(i, int) and 0 <= i < len(w.fixes)] or [best]
     more = [w.fixes[i] for i in plan.get("more") or [] if isinstance(i, int) and 0 <= i < len(w.fixes) and w.fixes[i] not in main]
-    sol = main + more
+    # DISTINCT OPTIONS (user, Sat 19:12): each option walked through is a different kind or a different set of elements;
+    # the plans that raise the same elements for about the same price are folded into it as variants
+    kind_of = {id(w.fixes[int(i)]): k for i, k in (plan.get("kinds") or {}).items() if 0 <= int(i) < len(w.fixes)}
+    variants_of = {id(w.fixes[int(h)]): [w.fixes[int(v)] for v in vs if 0 <= int(v) < len(w.fixes)]
+                   for h, vs in (plan.get("variants") or {}).items() if 0 <= int(h) < len(w.fixes)}
+    folded = [v for vs in variants_of.values() for v in vs]
+    # an 'upgrade_cheaper' option -> the walked upgrade whose elements it raises for less
+    undercut_of = {id(w.fixes[int(h)]): w.fixes[int(u)] for h, u in (plan.get("undercuts") or {}).items()
+                   if 0 <= int(h) < len(w.fixes) and 0 <= int(u) < len(w.fixes)}
+    sol = main + more + [v for v in folded if v not in main and v not in more]
     ordered = sorted(w.fixes, key=lambda f: (f not in sol, sol.index(f) if f in sol else 0, FAMILY_ORDER.index(f["family"]) if f.get("family") in FAMILY_ORDER else 99))
     listed = [f for f in ordered if f.get("verdict") in ("holds", "partly", "fails") and f.get("family") != "remove"][:5]
     opts = main[: max(2, 1 + lv.checks)]  # the options narrated one by one (the lead, then the alternatives)
+    unwalked = [x for x in main if not any(x is y for y in opts)]  # no room to narrate them: "More options"
     flex_lead = main[0].get("family") == "flexible"
     strain0 = (w.r.get("strain") or {}).get("with_campus")  # the grid's strain with the campus and no fix
     agent = _agentic_block(w.r.get("agentic"))
@@ -1747,14 +1757,24 @@ def s_fix(w: Writer, lv: Level) -> dict:
         for k, fx in enumerate(opts):
             o = fx.get("outcome") or {}
             ph = _fix_phrase(w, fx, lang)
+            if kind_of.get(id(fx)) == "flexible_deep":  # its step-downs are said once, plainly, right after
+                ph = _deep_name(w, lang)
             if k > 0 and flex_lead and fx.get("family") in ("upgrade", "agentic"):
                 ph = (f"if you want no step-downs, {ph}" if en else f"si no quieres recortes, {ph[:1].lower() + ph[1:]}")
             kept, pct, cost = fx.get("kept_mw"), fx.get("kept_pct"), fx.get("cost")
             fl = plan.get("flex") or {}
+            kind = kind_of.get(id(fx))
+            gen = fx.get("detail") or {}
             if fx.get("family") == "flexible" and fl.get("peak_only") and fl.get("steps"):
                 # an operating rule, not a smaller campus: full size at every level but the ones the engine found over
                 ex = join([level_at(float(s_["level"]), lang) for s_ in fl["steps"]], lang)
                 keeps = (f"It runs all {size} except {ex}." if en else f"Opera los {size} completos salvo {ex}.")
+            elif kind == "flexible_deep" and fl.get("steps"):
+                keeps = _deep_say(fl, lang, lead=False)  # its name already says it steps down at other hours too: the sizes
+            elif kind == "onsite" and gen.get("onsite_mw") and gen.get("net_mw") is not None:
+                # power of its own: the campus runs in full, the grid supplies less (the same verified run as that size)
+                keeps = (f"The campus runs all {size}: the grid supplies {mw_say(gen['net_mw'], lang)} and it makes the rest itself." if en
+                         else f"El campus opera los {size} completos: la red aporta {mw_say(gen['net_mw'], lang)} y el resto lo genera él mismo.")
             elif not w.sites:
                 keeps = ""  # no campus: nothing to keep
             elif pct is not None and pct >= 99.5:
@@ -1769,30 +1789,42 @@ def s_fix(w: Writer, lv: Level) -> dict:
                 money = (f"It costs an estimated {usd}." if en else f"Cuesta unos {usd}, según la estimación.")
             elif fx.get("family") == "flexible":
                 money = ("It needs no new equipment." if en else "No necesita equipos nuevos.")
+            elif kind == "onsite":
+                money = ("Its cost is not estimated in this model." if en else "Su costo no se estima en este modelo.")
             works = ("With it, no line trips." if en else "Con ella, ninguna línea se dispara.") if int(o.get("steps") or 0) == 0 else (
                 f"With it, {people_say(o.get('people') or 0, 'en')} still lose power." if en else f"Con ella, {people_say(o.get('people') or 0, 'es')} siguen sin luz.")
             by = (" The AI proposed this one, and the engine checked it." if en else " La IA propuso esta, y el motor la comprobó.") if fx.get("by") == "gemini" else ""
+            var = _variants_say(fx, variants_of.get(id(fx)) or [], lang)  # the same elements, about the same price: folded in
+            if kind == "upgrade_cheaper":  # the same elements as an earlier option for much less: said so, with its margin
+                home = undercut_of.get(id(fx))
+                k_home = next((j for j, y in enumerate(opts) if y is home), None)
+                keeps = " ".join(f"{keeps} {_cheaper_say(fx, k_home, lang)}".split())
             relief = _relief_say(strain0, fx.get("strain"), lang)  # the grid strain it removes (user, Sat 07:43)
             if relief and relief == said_relief:
                 relief = ("It relieves the same lines." if en else "Alivia las mismas líneas.")
             elif relief:
                 said_relief = relief
-            text = (f"Option {words(k + 1, 'en')}: {ph}. {keeps} {relief} {money} {works}{by}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {relief} {money} {works}{by}")
-            text = " ".join(text.split())
+            head = f"Option {words(k + 1, 'en')}: {ph}." if en else f"Opción {words(k + 1, 'es')}: {ph}."
+            if not lv.opt:  # the short version: the variants are on screen; an alternative says what it is, what it keeps, that it holds
+                var = ""
+                if k > 0:
+                    relief = money = ""
+            elif kind_of.get(id(fx)) == "onsite" and not (fx.get("strain") or {}).get("peak_pct", 100) < 99.5:
+                relief = ""  # it leaves the busiest line at its rating: nothing to boast about
+            text = " ".join(f"{head} {keeps} {relief} {money} {works}{by} {var}".split())
             if plain_len(text) > ANALYST_MAX[lang]:  # too long: drop the money and the provenance, keep the strain relief
-                text = " ".join((f"Option {words(k + 1, 'en')}: {ph}. {keeps} {relief} {works}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {relief} {works}").split())
+                text = " ".join(f"{head} {keeps} {relief} {works} {var}".split())
             if plain_len(text) > ANALYST_MAX[lang]:
-                text = " ".join((f"Option {words(k + 1, 'en')}: {ph}. {keeps} {works}" if en else f"Opción {words(k + 1, 'es')}: {ph}. {keeps} {works}").split())
+                text = " ".join(f"{head} {keeps} {works}".split())
             segs.append(_seg("analyst", cue("option", k) + text))
         out["narr"][lang] = segs
         pre = ("Preventable" if en else "Evitable") if w.verdict == "preventable" else ("Partly preventable" if en else "Evitable en parte")
-        # the headline counts the options walked through (the ones that keep the campus at full size, or only step down
-        # at the peak), never the folded "More options"; "cheapest first" only when their prices do go up
-        walked = [f for f in main if f.get("verdict") == "holds" and (not w.sites or
-            (f.get("kept_pct") or 0) >= 99.5 or (f.get("family") == "flexible" and (plan.get("flex") or {}).get("peak_only")))]
+        # the headline counts the options walked through (each a different kind of fix), never the variants folded into
+        # them or the "More options"; "cheapest first" only when every one is priced and their prices do go up
+        walked = [f for f in opts if f.get("verdict") == "holds"]
         n_hold = len(walked)
         highs = [float((f.get("cost") or {}).get("high") or 0) for f in walked]
-        rising = n_hold > 1 and all(a <= b for a, b in zip(highs, highs[1:]))
+        rising = n_hold > 1 and all(highs) and all(a <= b for a, b in zip(highs, highs[1:]))
         size_word = (" full-size" if en else "") if all((f.get("kept_pct") or 0) >= 99.5 for f in walked) else ""
         target = (mw_show(w.mw) + (f" at {where}" if where and not w.multi else "")) if en else (mw_show(w.mw) + (f" en {where}" if where and not w.multi else ""))
         if w.verdict == "preventable" and n_hold and not w.sites:
@@ -1810,7 +1842,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
         shown = [f for f in listed if f in main][:3] or listed[:1]
         out["lines"][lang] = [f"{(f.get('action') if en else None) or cap(_fix_phrase(w, f, lang))} · {VERDICT_CHIP.get(f.get('verdict'), ('', ''))[0 if en else 1]}"[:LINE_MAX]
                               for f in shown]
-        n_more = len([f for f in more if f.get("verdict") == "holds"])
+        n_more = len([f for f in more if f.get("verdict") == "holds"]) + len(unwalked)
         if n_more:  # the rest are listed on screen under "More options", never read out as the answer
             out["lines"][lang].append((f"More options: {n_more} more verified" if en else f"Más opciones: {n_more} verificadas más"))
     ap = best.get("apply") or {}
@@ -1824,18 +1856,52 @@ def s_fix(w: Writer, lv: Level) -> dict:
                      "label": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
                      "people": (f.get("outcome") or {}).get("people")} for f in ordered]
     # every verified option, in the presentation's order: role 'lead' (the first), 'alt' (walked through after it),
-    # 'more' (listed under "More options", never a beat of its own)
-    out["options"] = [{
-        "fix": w.fixes.index(f), "family": f.get("family"),
-        "role": "lead" if k == 0 else "alt" if f in opts else "more",
-        "name": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
-        "kept_mw": f.get("kept_mw"), "kept_pct": f.get("kept_pct"), "must": f.get("must") or {"en": [], "es": []},
-        "cost": f.get("cost"), "by": f.get("by") or "engine", "verdict": f.get("verdict"), "outcome": f.get("outcome"), "strain": f.get("strain"),
-        "lines": [{"id": x["id"], "label": x.get("label"), "old_mva": x.get("old_mva"), "new_mva": x.get("new_mva"), "transformer": bool(x.get("transformer")), "km": x.get("km")}
-                  for x in ((f.get("detail") or {}).get("list") or [])[:20]],
-        "apply": f.get("apply"),
-        "sites": [{"town": s.get("town"), "lat": s.get("lat"), "lon": s.get("lon")} for s in ((f.get("detail") or {}).get("sites") or [])[:3] if isinstance(s, dict)],
-    } for k, f in enumerate(opts + [x for x in main + more if x not in opts])]
+    # 'more' (listed under "More options", never a beat of its own), 'variant' (the same elements as the walked option
+    # `variant_of` for about the same price: folded into it, "Gemini found 3 variants of this"). `kind` says what kind
+    # of fix a walked option is (solutions.present_plan); `note` is its plain caveat (an operating rule's deep step-downs,
+    # on-site power's unpriced plant).
+    def opt_row(k: int, f: dict, role: str, head: dict | None = None) -> dict:
+        row = {
+            "fix": w.fixes.index(f), "family": f.get("family"), "role": role,
+            "name": {"en": cap(_fix_phrase(w, f, "en")), "es": cap(_fix_phrase(w, f, "es"))},
+            "kept_mw": f.get("kept_mw"), "kept_pct": f.get("kept_pct"), "must": f.get("must") or {"en": [], "es": []},
+            "cost": f.get("cost"), "by": f.get("by") or "engine", "verdict": f.get("verdict"), "outcome": f.get("outcome"), "strain": f.get("strain"),
+            "lines": [{"id": x["id"], "label": x.get("label"), "old_mva": x.get("old_mva"), "new_mva": x.get("new_mva"), "transformer": bool(x.get("transformer")), "km": x.get("km")}
+                      for x in ((f.get("detail") or {}).get("list") or [])[:20]],
+            "apply": f.get("apply"),
+            "sites": [{"town": s.get("town"), "lat": s.get("lat"), "lon": s.get("lon")} for s in ((f.get("detail") or {}).get("sites") or [])[:3] if isinstance(s, dict)],
+            "kind": kind_of.get(id(f)) if role in ("lead", "alt") else None,
+        }
+        if row["kind"] == "flexible_deep" and plan.get("flex"):
+            row["name"] = {lang: cap(_deep_name(w, lang)) for lang in LANGS}
+            row["note"] = {lang: _deep_say(plan["flex"], lang, show=True) for lang in LANGS}
+        elif row["kind"] == "onsite":
+            d = f.get("detail") or {}
+            if d.get("onsite_mw") and d.get("net_mw") is not None:
+                row["gen"] = {"onsite_mw": d["onsite_mw"], "net_mw": d["net_mw"]}
+            row["note"] = {"en": "A power plant of its own at the campus; its cost is not estimated in this model.",
+                           "es": "Una planta propia en el campus; su costo no se estima en este modelo."}
+        elif row["kind"] == "upgrade_cheaper":
+            home = undercut_of.get(id(f))
+            k_home = next((j for j, y in enumerate(opts) if y is home), None)
+            row["note"] = {lang: _cheaper_say(f, k_home, lang) for lang in LANGS}
+            row["undercuts"] = w.fixes.index(home) if home is not None else None
+        vs_here = (variants_of.get(id(f)) or []) if role in ("lead", "alt") else []
+        if vs_here:  # what its variants raise next to it, exactly ("the same line and transformer, each with one more line")
+            row["variants_how"] = {lang: _variants_say(f, vs_here, lang, show=True) for lang in LANGS}
+        if head is not None:
+            hi, hh = (f.get("cost") or {}).get("high"), (head.get("cost") or {}).get("high")
+            new = sorted(solutions.extra_elements(head, f))
+            row["variant_of"] = w.fixes.index(head)
+            row["vs_pct"] = round(100.0 * (float(hi) - float(hh)) / float(hh), 1) if hi and hh else None
+            row["extra"] = [{"id": x["id"], "label": x.get("label")} for x in ((f.get("detail") or {}).get("list") or []) if int(x["id"]) in new][:4]
+        return row
+
+    walked_rows = [opt_row(k, f, "lead" if k == 0 else "alt") for k, f in enumerate(opts)]
+    var_rows = [opt_row(0, v, "variant", head=h) for h in opts for v in variants_of.get(id(h)) or []]
+    # an option the narration had no room for goes under "More options", and so do the variants folded into it
+    more_rows = [opt_row(0, x, "more") for x in unwalked + [v for h in unwalked for v in variants_of.get(id(h)) or []] + more]
+    out["options"] = walked_rows + var_rows + more_rows
     # what the options are weighed against (solutions.present_plan): how often the full campus overloads the grid, the
     # blackout's estimated cost, and the operating rule's per-level sizes with its labeled, sourced assumption
     out["present"] = {k: plan.get(k) for k in ("often", "blackout", "flex", "total_mw")}
@@ -1881,6 +1947,145 @@ def _agent_say(agent: dict | None, lang: str) -> str | None:
                 f"the engine re-ran every one and verified {words(ok, 'en') if ok else 'none'}.")
     return (f"Gemini propuso {words(asked, 'es', before_noun=True)} {'plan' if asked == 1 else 'planes'} en {words(rounds, 'es', fem=True)} {'ronda' if rounds == 1 else 'rondas'}; "
             f"el motor probó cada uno y verificó {words(ok, 'es') if ok else 'ninguno'}.")
+
+
+def _deep_name(w: Writer, lang: str) -> str:
+    """An operating rule that steps down at other hours too, as an action (its sizes follow in _deep_say)."""
+    if lang == "en":
+        return "make them flexible, stepping down at other hours too" if w.multi else "make it flexible, stepping down at other hours too"
+    return "hacerlos flexibles, recortando también a otras horas" if w.multi else "hacerlo flexible, recortando también a otras horas"
+
+
+def _deep_say(fl: dict, lang: str, show: bool = False, lead: bool = True) -> str:
+    """An operating rule that steps down at other hours too, said plainly (user, Sat 19:12: distinct options, honest):
+    'It has to step down at other hours too, not only at the peak: by 280 megawatts overnight and by 950 megawatts at
+    the summer peak.' The engine's per-level sizes (solutions._flex_info). `show`: on screen ('280 MW'). `lead=False`:
+    right after _deep_name, which already says it steps down at other hours: only the sizes ('It steps down by ...')."""
+    steps = sorted((s for s in (fl.get("steps") or []) if s.get("step_mw")), key=lambda s: float(s["level"]))
+    if not steps:
+        return ""
+    low = steps[0]
+    peak = next((s for s in steps if abs(float(s["level"]) - 1.0) < 0.005), steps[-1])
+    parts = [(low["step_mw"], float(low["level"]))] + ([(peak["step_mw"], float(peak["level"]))] if peak is not low else [])
+    mw = (lambda v, _l: mw_show(v)) if show else mw_say
+    if lang == "en":
+        said = " and ".join(f"by {mw(v, 'en')} {level_at(lv_, 'en')}" for v, lv_ in parts)
+        return f"It has to step down at other hours too, not only at the peak: {said}." if lead else f"It steps down {said}."
+    said = " y ".join(f"{mw(v, 'es')} menos {level_at(lv_, 'es')}" for v, lv_ in parts)
+    return f"Tiene que recortar también a otras horas, no solo en el pico: {said}." if lead else f"Opera {said}."
+
+
+def _elem_split(fx: dict, ids) -> tuple[int, int, int]:
+    """(lines, transformers, unknown) among the element ids `ids`, from the fix's own element list."""
+    kind: dict[int, bool] = {}
+    for x in (fx.get("detail") or {}).get("list") or []:
+        try:
+            kind[int(x["id"])] = bool(x.get("transformer"))
+        except (KeyError, TypeError, ValueError):
+            continue
+    ids = [int(i) for i in ids]
+    t = sum(1 for i in ids if kind.get(i) is True)
+    ln = sum(1 for i in ids if kind.get(i) is False)
+    return ln, t, len(ids) - ln - t
+
+
+def _same_what(split: tuple[int, int, int], lang: str) -> str:
+    """'the same line and transformer' / 'la misma línea y el mismo transformador' (counts spelled out)."""
+    ln, t, u = split
+    en = lang == "en"
+    if u or not (ln or t) or ln > 3 or t > 3:
+        n = ln + t + u
+        return f"the same {words(n, 'en')} elements" if en else f"los mismos {words(n, 'es', before_noun=True)} elementos"
+    if en:
+        parts = ([("line" if ln == 1 else f"{words(ln, 'en')} lines")] if ln else []) + ([("transformer" if t == 1 else f"{words(t, 'en')} transformers")] if t else [])
+        return "the same " + " and ".join(parts)
+    parts = (([("la misma línea" if ln == 1 else f"las mismas {words(ln, 'es', fem=True)} líneas")] if ln else [])
+             + ([("el mismo transformador" if t == 1 else f"los mismos {words(t, 'es', before_noun=True)} transformadores")] if t else []))
+    return " y ".join(parts)
+
+
+def _more_what(splits: list[tuple[int, int, int]], lang: str) -> str:
+    """What each variant adds: 'one more line' / 'una línea más' when they all add the same number of one kind."""
+    en = lang == "en"
+    if len(set(splits)) != 1:
+        return "more elements" if en else "más elementos"
+    ln, t, u = splits[0]
+    n = ln + t + u
+    if ln == n:
+        noun, fem = (("line" if n == 1 else "lines"), ("línea" if n == 1 else "líneas")), True
+    elif t == n:
+        noun, fem = (("transformer" if n == 1 else "transformers"), ("transformador" if n == 1 else "transformadores")), False
+    else:
+        noun, fem = (("element" if n == 1 else "elements"), ("elemento" if n == 1 else "elementos")), False
+    return f"{words(n, 'en')} more {noun[0]}" if en else f"{words(n, 'es', fem=fem, before_noun=True)} {noun[1]} más"
+
+
+def _variants_what(head: dict, vs: list[dict], lang: str) -> str:
+    """What the variants raise next to the plan they are folded into, exactly (review, Sat 20:30: 'the same elements'
+    invites 'why does the same work cost more?'): 'the same line and transformer, each with one more line' when each
+    adds to the plan; 'the same line and transformer, sized differently' when each raises exactly the same set; else
+    'most of the same elements'."""
+    import solutions  # noqa: PLC0415 — late: solutions imports briefing
+
+    en = lang == "en"
+    n = len(vs)
+    adds = [sorted(solutions.extra_elements(head, v)) for v in vs]
+    drops = [solutions.extra_elements(v, head) for v in vs]
+    every = solutions.extra_elements({}, head)  # every element the plan itself raises (what it adds to nothing)
+    same = _same_what(_elem_split(head, every), lang)
+    if not any(drops) and all(adds):
+        more = _more_what([_elem_split(v, a) for v, a in zip(vs, adds)], lang)
+        return f"{same}, {'each ' if n > 1 else ''}with {more}" if en else f"{same}, {'cada una ' if n > 1 else ''}con {more}"
+    if not any(drops) and not any(adds):
+        return f"{same}, sized differently" if en else f"{same}, con otra capacidad"
+    if all(drops) and not any(adds):
+        return "some of the same elements" if en else "parte de los mismos elementos"
+    # each variant = (the plan's elements - what it drops) + what it adds: shared / union, as solutions.same_core reads it
+    if every and all(len(every - d) / len(every | set(a)) >= solutions.SAME_CORE_JACCARD for a, d in zip(adds, drops)):
+        return "mostly the same elements" if en else "casi los mismos elementos"
+    return "overlapping elements" if en else "elementos en común"
+
+
+def _variants_say(head: dict, vs: list[dict], lang: str, show: bool = False) -> str:
+    """The plans folded into an option (the same elements for about the same price), in one sentence: 'Gemini found
+    three variants of this plan: the same line and transformer, each with one more line; the engine verified each, and
+    each costs more.' Counts in words. `show`: the on-screen line under the variants' heading, which already says who
+    found how many ('The same line and transformer, each with one more line; each verified, each costs more.')."""
+    n = len(vs)
+    if not n:
+        return ""
+    hh = float((head.get("cost") or {}).get("high") or 0)
+    pricier = bool(hh) and all(float((v.get("cost") or {}).get("high") or 0) >= hh for v in vs)
+    ai = all(v.get("by") == "gemini" for v in vs)
+    what = _variants_what(head, vs, lang)
+    if show:
+        if lang == "en":
+            tail = ("verified, and it costs more" if n == 1 else "each verified, each costs more") if pricier else ("verified" if n == 1 else "each verified")
+        else:
+            tail = ("verificada, y cuesta más" if n == 1 else "todas verificadas, todas cuestan más") if pricier else ("verificada" if n == 1 else "todas verificadas")
+        return f"{cap(what)}; {tail}"  # no full stop: the link to how the AI found them follows on the line
+    if lang == "en":
+        who = "Gemini found" if ai else "There are"
+        tail = ("it costs more" if n == 1 else "each costs more") if pricier else "at about the same price"
+        return (f"{who} {words(n, 'en')} {'variant' if n == 1 else 'variants'} of this plan: {what}; "
+                f"the engine verified {'it' if n == 1 else 'each'}, {'and ' if pricier else ''}{tail}.")
+    who = "Gemini encontró" if ai else "Hay"
+    tail = ("cuesta más" if n == 1 else "cada una cuesta más") if pricier else "por un precio parecido"
+    return (f"{who} {words(n, 'es', fem=True, before_noun=True)} {'variante' if n == 1 else 'variantes'} de este plan: {what}; "
+            f"el motor {'la verificó' if n == 1 else 'verificó cada una'}{', y ' if pricier else ', '}{tail}.")
+
+
+def _cheaper_say(fx: dict, k_home: int | None, lang: str) -> str:
+    """An option that raises the same elements as an earlier one for much less (solutions: 'upgrade_cheaper'), said
+    plainly: it ranks after it because it leaves a line closer to its limit (the ranking's 'thin')."""
+    d = fx.get("detail") or {}
+    thin = bool(d.get("thin") or d.get("vs") == "thin")
+    en = lang == "en"
+    ref = (f"option {words(k_home + 1, 'en')}" if en else f"la opción {words(k_home + 1, 'es')}") if k_home is not None else (
+        "the plan above" if en else "el plan anterior")
+    if en:
+        return f"It raises the same elements as {ref} for less" + ("; it leaves a line closer to its limit." if thin else ".")
+    return f"Refuerza lo mismo que {ref} por menos" + ("; deja una línea más cerca de su límite." if thin else ".")
 
 
 FAMILY_SAY = {
@@ -2697,7 +2902,11 @@ def ai_data(w: Writer, sid: str) -> dict:
             plan = solutions.present_plan(r) or {}
             if plan.get("main"):
                 lead = w.fixes[plan["main"][0]]
-                d["cheapest_verified_way_to_keep_it_full_size"] = _both(lambda lang: _fix_phrase(w, lead, lang))
+                if plan.get("undercuts"):  # a later option raises the same elements for less, with less margin: not "cheapest"
+                    d["verified_way_to_keep_it_full_size_with_margin"] = _both(lambda lang: _fix_phrase(w, lead, lang))
+                    d["a_later_option_raises_the_same_elements_for_less"] = True
+                else:
+                    d["cheapest_verified_way_to_keep_it_full_size"] = _both(lambda lang: _fix_phrase(w, lead, lang))
                 if (lead.get("cost") or {}).get("high"):
                     d["its_cost_high_end"] = _both(lambda lang: usd_say(lead["cost"]["high"], lang)[0])
             if (plan.get("blackout") or {}).get("high"):

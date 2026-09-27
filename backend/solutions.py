@@ -426,7 +426,17 @@ def best_fix(fixes: list[dict]) -> int | None:
 # pricier full-size plans follow ("if you want no step-downs"). A smaller campus, another site or on-site generation are
 # listed only under "More options", and lead only when no full-size option verifies; "don't build it" never shows.
 # report.solutions / best_fix stay as they are (the results panel's "Run it again with the fix" applies best_fix).
-PRESENT_MAIN = 3  # options the presentation walks through one by one
+#
+# DISTINCT OPTIONS (user, Sat 19:12: "3 of the options are the same? try to have clear distinctions between the options,
+# and it doesn't necessarily have to be 4"): the options walked through differ in KIND or materially. Upgrade plans that
+# raise the same elements (one set inside the other, or most of them shared) within 25 % of a listed plan's price are
+# VARIANTS of it ("Gemini found 3 variants of this"), not options of their own; the same elements for much more go under
+# "More options"; a different set of elements, or the same for much less, is an option of its own. On-site power and an
+# operating rule are kinds of their own (an operating rule that has to step down at every hour says so: "deep").
+PRESENT_MAIN = 4  # distinct options the presentation walks through one by one (2-4 as the data supports)
+UPGRADE_HEADS = 2  # of which at most two different upgrade sets
+VARIANT_FRAC = 0.25  # a plan raising the same elements within this share of a listed plan's price is a variant of it
+SAME_CORE_JACCARD = 0.6  # "the same elements": one set inside the other, or at least this share of the union shared
 MORE_ORDER = ("combo", "flexible", "onsite", "move", "shrink")  # "More options", in this order
 HOURS_YEAR = 8760.0
 PEAK_LF = 1.0  # the 4 PM summer peak: "only at the peak" means full size at every level below it
@@ -438,6 +448,58 @@ FLEX_HOURS = 85
 
 def _near(a: float, b: float) -> bool:
     return abs(a - b) < 0.005
+
+
+def _ups(fx: dict) -> set[int]:
+    return {int(k) for k in ((fx.get("apply") or {}).get("upgrades") or {})}
+
+
+def same_core(a: set[int], b: set[int]) -> bool:
+    """Two upgrade plans raise the same elements: one set inside the other, or most of the union shared."""
+    if not a or not b:
+        return False
+    inter = len(a & b)
+    return inter == min(len(a), len(b)) or inter / len(a | b) >= SAME_CORE_JACCARD
+
+
+def extra_elements(head: dict, fx: dict) -> set[int]:
+    """The elements a variant raises beyond the plan it is folded into."""
+    return _ups(fx) - _ups(head)
+
+
+def _high(fx: dict) -> float | None:
+    v = (fx.get("cost") or {}).get("high")
+    return float(v) if v else None
+
+
+def _group_upgrades(fixes: list[dict], full: list[int]) -> tuple[list[int], dict[int, list[int]], list[int], dict[int, int]]:
+    """The full-size upgrade plans (in the ranking's order) grouped by what they raise: (heads, variants, pricier, cheaper).
+    heads     distinct plans: the first of each set of elements, or the same set for much less (VARIANT_FRAC cheaper)
+    variants  head -> the plans raising the same elements within VARIANT_FRAC of the head's price
+    pricier   the same elements for much more: "More options", never a beat of their own
+    cheaper   head -> the earlier head it undercuts: the same elements for much less, ranked after it only because it
+              leaves a line closer to its limit (solutions._key's "thin"); its own kind, never "a different set\""""
+    heads: list[int] = []
+    variants: dict[int, list[int]] = {}
+    pricier: list[int] = []
+    cheaper: dict[int, int] = {}
+    for i in full:
+        ups, c = _ups(fixes[i]), _high(fixes[i])
+        home = next((h for h in heads if same_core(_ups(fixes[h]), ups)), None)
+        if home is None:
+            heads.append(i)
+            variants[i] = []
+            continue
+        hc = _high(fixes[home])
+        if hc and c is not None and c < hc * (1 - VARIANT_FRAC):
+            heads.append(i)  # the same elements for much less (a plan the ranking put after on margin): its own option
+            variants[i] = []
+            cheaper[i] = home
+        elif hc and c is not None and abs(c - hc) <= VARIANT_FRAC * hc:
+            variants[home].append(i)
+        else:
+            pricier.append(i)
+    return heads, variants, pricier, cheaper
 
 
 # the load levels the engine checks, at the end of a sentence (briefing.LEVELS), EN / ES
@@ -493,8 +555,14 @@ def _flex_info(i: int, fx: dict, total: float, lf: float) -> dict:
 
 def present_plan(rep: dict) -> dict | None:
     """The presentation's order of the verified fixes and what to weigh them against. None when nothing holds.
-        main   fix indices walked through one by one (<= PRESENT_MAIN), the first is the lead
+        main   fix indices walked through one by one (<= PRESENT_MAIN, each a different kind or set), the first leads
         more   the other verified fixes, listed under "More options"
+        variants  main fix index -> the plans that raise the same elements for about the same price (folded into it)
+        undercuts main fix index of an 'upgrade_cheaper' option -> the walked upgrade whose elements it raises for less
+        kinds  main fix index -> 'upgrade' (the first set of elements) | 'upgrade_other' (a different set)
+               | 'upgrade_cheaper' (the same set for much less, leaving a line closer to its limit) | 'onsite'
+               | 'flexible' (steps down only at the peak or in a heat wave) | 'flexible_deep' (at other hours too)
+               | 'closest' (nothing keeps the full campus: the nearest to it)
         flex   the operating rule (_flex_info), when the flexible fix holds
         often  at which load levels the full campus overloads the grid (the engine's per-level check), so a price is
                weighed against how often the condition occurs: every_level (even 3 AM), peak_only (only at the 4 PM
@@ -512,20 +580,45 @@ def present_plan(rep: dict) -> dict | None:
                   key=lambda i: _key(fixes[i]))
     flex_i = next((i for i in holds if fixes[i].get("family") == "flexible"), None)
     flex = _flex_info(flex_i, fixes[flex_i], total, lf) if flex_i is not None and total else None
+    onsite_i = next((i for i in holds if fixes[i].get("family") == "onsite" and (fixes[i].get("detail") or {}).get("onsite_mw")), None) if sites else None
+    heads, variants, _pricier, cheaper = _group_upgrades(fixes, full)
+    kinds: dict[int, str] = {}
     main: list[int] = []
     if flex and flex["peak_only"]:
         main.append(flex_i)  # no new equipment: it only steps down on the hottest afternoons
-    main += full[: PRESENT_MAIN - len(main)]
+        kinds[flex_i] = "flexible"
+    for j, h in enumerate(heads[:UPGRADE_HEADS]):
+        main.append(h)
+        # after the first: the same elements for much less with less margin, or a different set of elements
+        kinds[h] = "upgrade" if j == 0 else "upgrade_cheaper" if h in cheaper else "upgrade_other"
 
     def rest_key(i: int) -> tuple:
         f = fixes[i]
         fam = f.get("family")
         return (0 if fam in ("upgrade", "agentic") else 1 + (MORE_ORDER.index(fam) if fam in MORE_ORDER else 9), _key(f))
 
-    rest = sorted((i for i in holds if i not in main), key=rest_key)
-    if not main and rest:
-        main = rest[:1]  # nothing keeps the full campus: the closest to it leads (a small lowering first)
-        rest = rest[1:]
+    if not main:
+        # nothing keeps the full campus on the grid at full size: a small lowering with upgrades (at least FULL_KEEP_PCT of
+        # the campus) leads; otherwise on-site power or an operating rule does, and a much smaller campus or another site
+        # stays under "More options" (PRESENT V2: "lower the amount that it says NO DATA CENTER")
+        near = sorted((i for i in holds if fixes[i].get("family") == "combo" and (fixes[i].get("kept_pct") or 0) >= FULL_KEEP_PCT), key=_key)[:1]
+        main += near
+        kinds.update({i: "closest" for i in near})
+    # kinds of their own: power of its own (the campus runs in full, the grid supplies less), and an operating rule that
+    # steps down at other hours too ("deep": said plainly, never dressed up as a peak-only rule)
+    if onsite_i is not None and onsite_i not in main:
+        main.append(onsite_i)
+        kinds[onsite_i] = "onsite"
+    if flex_i is not None and flex_i not in main:
+        main.append(flex_i)
+        kinds[flex_i] = "flexible_deep" if flex and not flex["peak_only"] and not flex["heat_only"] else "flexible"
+    main = main[:PRESENT_MAIN]
+    if not main and holds:
+        main = sorted(holds, key=rest_key)[:1]
+        kinds[main[0]] = "closest"
+    variants = {h: vs for h, vs in variants.items() if h in main and vs}
+    folded = {v for vs in variants.values() for v in vs}
+    rest = sorted((i for i in holds if i not in main and i not in folded), key=rest_key)
     often = None
     tod = next((f for f in fixes if f.get("family") == "time_of_day"), None)
     lv = [x for x in ((tod or {}).get("detail") or {}).get("levels") or [] if isinstance(x, dict) and x.get("level") is not None]
@@ -546,7 +639,9 @@ def present_plan(rep: dict) -> dict | None:
     blackout = None
     if cost.get("blackout_high_usd") or rng:
         blackout = {"low": float(rng[0]) if rng else None, "high": float(cost.get("blackout_high_usd") or (rng[1] if len(rng) > 1 else 0))}
-    return {"main": main, "more": rest, "flex": flex, "often": often, "blackout": blackout, "total_mw": total}
+    undercuts = {h: home for h, home in cheaper.items() if h in main}  # 'upgrade_cheaper' -> the option it undercuts
+    return {"main": main, "more": rest, "variants": variants, "kinds": kinds, "undercuts": undercuts, "flex": flex, "often": often,
+            "blackout": blackout, "total_mw": total}
 
 
 # ------------------------------------------------------------------------------------------ the AI proposer

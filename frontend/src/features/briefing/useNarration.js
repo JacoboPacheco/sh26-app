@@ -57,6 +57,22 @@ function sentencesOf(text) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// How far through its slide the narration clock is, 0..1 (short of 1 until the slide really ends): the time the slide
+// has run against the time it is expected to take. Time only, never the words themselves (they arrive a word at a
+// time: that is the chunking); the words re-time the clock instead (useNarration's retime). Past 90 % it eases toward
+// the end instead of reaching it (a voice slower than its estimate, a beat running long): the bar slows, it never
+// stops dead and never jumps.
+const KNEE = 0.9
+const CAP = 0.985
+export function slideFrac(c, now = performance.now()) {
+  if (!c || c.idx < 0 || !c.expected) return 0
+  if (c.done) return 1
+  if (c.pausedAt != null) return c.pausedAt // paused: the clock stands where the bar stood (the wall clock runs on)
+  const f = Math.max(0, (now - c.start) / c.expected)
+  return f <= KNEE ? f : KNEE + (CAP - KNEE) * (1 - Math.exp(-(f - KNEE) / (CAP - KNEE)))
+}
+const unknee = (v) => (v <= KNEE ? v : KNEE - (CAP - KNEE) * Math.log(Math.max(1e-6, 1 - (v - KNEE) / (CAP - KNEE))))
 // dev-only trace for browser checks: set window.__nl = [] and read it back
 const dbg = (...a) => import.meta.env.DEV && window.__nl?.push([Math.round(performance.now()), ...a])
 
@@ -98,6 +114,12 @@ function cpsFor(slide, lang) {
 
 // `holdFor(slide, elapsedMs)` (optional): how much longer to keep a slide up after its narration ends (the show's
 // beats run longer than their words); 0 to move on. `run` counts the slides entered while playing (0 = not playing).
+//
+// `clock` (a ref, never a re-render): the slide being played, for a progress bar that fills continuously (user, Sat
+// 19:09: "make sure progress bars flow smoothly instead of chunking"): {idx, start, expected (ms: the longer of the
+// words and the show's own beat), done}. The words and the beat re-time it as they go (retime): it is re-anchored where
+// the bar stands, so only its speed changes. `slideFrac(clock)` reads it at any moment.
+// `progress` (state) is the current slide's fraction only when it changes hands: 0 on entry, where it stood on a pause, 1 at the end.
 export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
   const slides = deck?.slides || []
   const [idx, setIdx] = useState(0)
@@ -126,6 +148,7 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
   const enterRef = useRef(onEnter)
   const holdRef = useRef(holdFor)
   const slideStart = useRef(0)
+  const clock = useRef({ idx: -1, start: 0, expected: 0, done: false, retimed: 0 })
   useEffect(() => {
     deckRef.current = deck
     langRef.current = lang
@@ -450,35 +473,49 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
         setSlideRun((r) => r + 1)
         prefetch(i)
         if (s === 0) setProgress(0)
-        // the bar follows the words, or the show's own clock when the beat runs longer than they do
-        const frac = { text: 0, time: 0 }
-        const bump = () => setProgress(Math.max(frac.text, frac.time))
-        const dwell = holdRef.current?.(slide, 0) || 0
-        const iv = dwell ? setInterval(() => ((frac.time = Math.min(1, (performance.now() - slideStart.current) / dwell)), bump()), 200) : 0
+        // the bar's clock: the slide lasts the longer of its words (at the deck's own pace until the voice shows its
+        // own) and the show's beat; a slide resumed mid-way carries on from where its bar stood
+        const lens = segs.map((g) => (g.text || '').length)
+        const words = { t0: performance.now(), from: s, chars: lens.slice(s).reduce((a, b) => a + b, 0), cps: cpsFor(slide, langRef.current) }
+        const wordsLeft = (k, f) => {
+          // ms of words (and the gaps and the hold after them) still to come, from how fast they have come so far
+          const done = lens.slice(words.from, k).reduce((a, b) => a + b, 0) + f * (lens[k] || 0)
+          const since = performance.now() - words.t0
+          const perMs = done > 24 && since > 700 ? done / since : words.cps / 1000
+          return Math.max(0, words.chars - done) / perMs + (done > 24 && since > 700 ? 0 : GAP_MS * Math.max(0, segs.length - k - 1)) + HOLD_MS
+        }
+        {
+          // a resume carries on from where the bar stood at the pause (frozen then: slideFrac reads pausedAt), never from
+          // the wall clock, which ran on while paused. `gen` counts the clocks: a restart of the same slide (a new
+          // language) is a new one, so the bar starts over with it instead of holding its old place
+          const was = clock.current.idx === i && s > 0 && !clock.current.done ? Math.min(0.95, slideFrac(clock.current)) : 0
+          clock.current = { idx: i, start: 0, expected: 1, done: false, retimed: 0, pausedAt: null, gen: (clock.current.gen || 0) + 1 }
+          retime(i, slide, segs.length > s ? wordsLeft(s, 0) : 2500, was, true)
+        }
         try {
           for (; s < segs.length; s++) {
             segRef.current = s
             const k = s
             dbg('seg', i, s, segs[s].text.length)
-            await speak(segs[s], slide, token, (f) => ((frac.text = (k + f) / segs.length), bump()))
+            await speak(segs[s], slide, token, (f) => retime(i, slide, wordsLeft(k, f)))
             dbg('seg end', i, s, token === run.current)
             if (token !== run.current) return
             if (s < segs.length - 1) await sleep(GAP_MS)
             if (token !== run.current) return
           }
-          frac.text = 1
-          bump()
+          retime(i, slide, segs.length ? HOLD_MS : 2500, null, true)
           await sleep(segs.length ? HOLD_MS : 2500)
           // the beat's own length: keep the slide up until its show has played (the words are done: the show's own
           // play-by-play line takes the captions)
           let more = holdRef.current?.(slide, performance.now() - slideStart.current) || 0
           if (more > 0 && token === run.current) setCaption(null)
           for (; more > 0 && token === run.current; ) {
+            retime(i, slide, 0)
             await sleep(Math.min(more, 250))
             more = holdRef.current?.(slide, performance.now() - slideStart.current) || 0
           }
         } finally {
-          if (iv) clearInterval(iv)
+          if (clock.current.idx === i && token === run.current) clock.current.done = true
         }
         if (token !== run.current) return
         setProgress(1)
@@ -499,9 +536,32 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
     [decide, prefetch, speak, stopMedia],
   )
 
+  // Re-time the bar's clock: the slide has the longer of `wordsMs` (the words still to come, with their hold) and the
+  // show's own beat left. It is re-anchored where the bar stands now (`at` on entry), so it carries on from there over
+  // the time that is left: its speed changes, its position never jumps or goes back. At most every 400 ms unless `now`.
+  function retime(i, slide, wordsMs, at = null, now = false) {
+    const c = clock.current
+    if (c.idx !== i || c.done) return
+    const t = performance.now()
+    if (!now && t - c.retimed < 400) return
+    c.retimed = t
+    const beat = holdRef.current?.(slide, t - slideStart.current) || 0
+    const left = Math.max(1, beat, wordsMs || 0)
+    const f = at != null ? at : Math.min(0.97, unknee(slideFrac(c, t)))
+    c.expected = left / (1 - f)
+    c.start = t - f * c.expected
+  }
+
   const pause = useCallback(() => {
     run.current++
     stopMedia()
+    if (playingRef.current) {
+      // the bar stays where it was, and so does the clock: a resume carries on from here, not from the time spent paused
+      const c = clock.current
+      const f = slideFrac(c)
+      if (c && !c.done) c.pausedAt = f
+      setProgress(f)
+    }
     setPlay(false)
     setSlideRun(0)
   }, [stopMedia])
@@ -574,6 +634,7 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
     idx,
     playing,
     playingRef,
+    clock,
     run: slideRun,
     provider,
     segFellBack,

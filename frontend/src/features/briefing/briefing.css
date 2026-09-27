@@ -200,10 +200,13 @@ html.review-open [data-review-hide] {
   background: var(--glass-edge);
 }
 
+/* the fill is written every frame from the narration's clock (Progress.jsx): a transform, no transition to lag behind */
 .rs-progress__seg::after {
-  width: calc(var(--fill, 0) * 100%);
+  right: 0;
   background: var(--accent);
-  transition: width 120ms linear;
+  transform: scaleX(var(--fill, 0));
+  transform-origin: left center;
+  will-change: transform;
 }
 
 .rs-progress__seg--now::before {

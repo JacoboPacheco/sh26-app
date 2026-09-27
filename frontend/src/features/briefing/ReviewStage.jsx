@@ -4,6 +4,7 @@ import { assetUrl } from '../../api'
 import { useOverload } from '../../store'
 import { Badge, ErrorBanner, Loading } from '../../ui'
 import { describeFix, plantsOut, runWithFix } from '../fix/flipCase'
+import AiPanel from './AiPanel'
 import AskSlot from './AskSlot'
 import BriefingDoc from './BriefingDoc'
 import Captions from './Captions'
@@ -14,7 +15,7 @@ import ShowProblem from './ShowProblem'
 import Slide from './Slide'
 import './briefing.css'
 import { cleanBody, notLive, rememberReplay } from './briefingApi'
-import { dwellMs, mergeSolutions, optionsOf, quietDeck, withShow } from './showDeck'
+import { dwellMs, mergeSolutions, optionsOf, quietDeck, swapUnplayed, withShow } from './showDeck'
 import { P } from './showText'
 import './show.css'
 import './present.css'
@@ -39,7 +40,12 @@ import { getDownload } from './voiceApi'
 // header, its own scroll (a bottom sheet on a phone); on a wide screen it is open from the start (null = decide by the
 // width). The captions, language, sound, transcript, download, short/full and view fold into a compact three-line
 // options block with "More options".
+// OPTIONS PANEL (user, Sat 19:12): "How the AI found them" opens in that same right-hand slot as a second tab, beside
+// the options and never over them: the options' review beat opens it by itself (wide screens; a phone keeps it one tap
+// away as a bottom sheet), and leaving the solutions puts the sidebar back the way it was.
 const WIDE_ASK = 1200
+const NARROW = 860
+const AI_HOLD_MS = 1500 // autoplay waits up to this long for Gemini's deck when it is not in yet (REVIEW-1 #1)
 // the beats that draw their own picture on the map and move the camera themselves (the slide's older highlight and
 // camera stay out of their way)
 const OWN_PICTURE = new Set(['toll', 'areas', 'cause', 'fix', 'bottom_line', 'event', 'hospitals', 'cost', 'no_fix'])
@@ -49,7 +55,12 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   const [lang, setLang] = useState('en')
   const [cc, setCc] = useState(true)
   const [view, setView] = useState(startView)
-  const [askOpen, setAskOpen] = useState(() => (startAsk == null ? typeof window !== 'undefined' && window.innerWidth >= WIDE_ASK : !!startAsk))
+  // the right-hand sidebar: open or not, and which tab (Ask, or how the AI found the plans)
+  const [side, setSide] = useState(() => ({ open: startAsk == null ? typeof window !== 'undefined' && window.innerWidth >= WIDE_ASK : !!startAsk, tab: 'ask' }))
+  const askOpen = side.open && side.tab === 'ask'
+  const setAskOpen = useCallback((on) => setSide(on ? { open: true, tab: 'ask' } : (sd) => ({ ...sd, open: false })), [])
+  const sideBefore = useRef(null) // the sidebar as it was before the show opened the AI tab by itself
+  const [aiMode, setAiMode] = useState('manual') // the AI tab: 'auto' (the show drives it), 'done' (its beat ended), 'manual'
   const [optsOpen, setOptsOpen] = useState(false)
   const [transcript, setTranscript] = useState(false)
   const [dl, setDl] = useState({ open: false, data: null, error: null, busy: false })
@@ -57,7 +68,11 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   const reduced = useMemo(() => reducedMotion(), [])
   const locked = useRef(false)
   const rootRef = useRef(null)
-  const { report: baseReport, deck: baseDeck, error, fixture, retry, late } = useDeck(body, { allowFixture, locked })
+  const { report: baseReport, deck: templateDeck, aiDeck, aiSettled, error, fixture, retry, late } = useDeck(body, { allowFixture })
+  // Gemini's deck: the whole deck when it is in before playback starts; after that, the slides not played yet
+  // (REVIEW-1 #1: it used to arrive a moment after the template had started and be dropped)
+  const played = useRef(new Set()) // slide ids entered while playing
+  const baseDeck = aiDeck?.slides?.length && !locked.current ? aiDeck : templateDeck || aiDeck
   // the AI proposer's verified plans arrive after the stage opens: they replace the solutions (and the report's
   // fixes) until the show has reached them; after that the slides on screen stay as they are
   const reached = useRef(false)
@@ -71,9 +86,12 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   // the show's own beats (the chain, "the problem") are added to the deck; once it plays its slides stay put
   const frozen = useRef(null)
   const fullDeck = useMemo(() => {
-    if (!(frozen.current && locked.current)) frozen.current = withShow(baseDeck, report)
+    if (!(frozen.current && locked.current)) {
+      frozen.current = withShow(baseDeck, report)
+      if (frozen.current && baseDeck === aiDeck) frozen.current = { ...frozen.current, gemini: aiDeck }
+    } else if (aiDeck?.slides?.length && frozen.current.gemini !== aiDeck) frozen.current = { ...swapUnplayed(frozen.current, aiDeck, played.current), gemini: aiDeck }
     return mergeSolutions(frozen.current, merged?.deck)
-  }, [baseDeck, report, merged])
+  }, [baseDeck, aiDeck, report, merged])
   // the short version (the presentation: the toll, the plays, the pause, the solutions, the bottom line) is the same deck, fewer slides
   const [short, setShort] = useState(startShort)
   const canShort = !!fullDeck?.short?.length && fullDeck.short.length < fullDeck.slides.length
@@ -124,6 +142,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     (i, playing) => {
       const slide = deckRef.current?.slides?.[i]
       if (!slide) return
+      if (playing) played.current.add(slide.id) // Gemini's deck, arriving late, leaves this one as it is
       const O = oRef.current
       const c = O.cascade
       const map = slide.map || {}
@@ -277,19 +296,27 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing])
 
-  // autoplay once the deck is in (Play briefing); the report follows the deck by a moment, so wait for it briefly
+  // autoplay once the deck is in (Play briefing); the report follows the deck by a moment, so wait for it briefly, and
+  // for Gemini's deck up to AI_HOLD_MS after the template's (it is usually in already: asked for when the cascade landed)
   const [waited, setWaited] = useState(false)
   useEffect(() => {
     const id = setTimeout(() => setWaited(true), 2500)
     return () => clearTimeout(id)
   }, [])
+  const haveDeck = !!templateDeck
+  const [aiWaited, setAiWaited] = useState(false)
+  useEffect(() => {
+    if (!haveDeck) return undefined
+    const id = setTimeout(() => setAiWaited(true), AI_HOLD_MS)
+    return () => clearTimeout(id)
+  }, [haveDeck])
   const autoDone = useRef(false)
   const { play } = narr
   useEffect(() => {
-    if (!autoPlay || autoDone.current || !deck || (!report && !waited)) return
+    if (!autoPlay || autoDone.current || !deck || (!report && !waited) || (!aiSettled && !aiWaited)) return
     autoDone.current = true
     play()
-  }, [autoPlay, deck, report, waited, play])
+  }, [autoPlay, deck, report, waited, aiSettled, aiWaited, play])
 
   // a preset / saved scenario / route: its cascade goes into the map, paused before it starts
   const replayKey = useRef(null)
@@ -368,6 +395,39 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     kindRef.current = slideKind
   })
 
+  // the options' review beat drives the AI tab: it opens beside the options by itself on a wide screen (remembering the
+  // sidebar as it was), shows the whole run once the beat is over, and leaving the solutions puts the sidebar back
+  const aiAuto = !!live.ai
+  useEffect(() => {
+    if (aiAuto) {
+      setAiMode('auto')
+      if (typeof window !== 'undefined' && window.innerWidth <= NARROW) return
+      setSide((sd) => {
+        if (sd.open && sd.tab === 'ai') return sd
+        if (!sideBefore.current) sideBefore.current = sd
+        return { open: true, tab: 'ai' }
+      })
+    } else setAiMode((m) => (m === 'auto' ? 'done' : m))
+  }, [aiAuto])
+  useEffect(() => {
+    if (slideKind === 'fix' || slideKind === 'bottom_line') return
+    if (sideBefore.current) setSide(sideBefore.current)
+    sideBefore.current = null
+    setAiMode('manual')
+  }, [slideKind])
+  const pickTab = useCallback((tab) => {
+    sideBefore.current = null
+    if (tab === 'ai') setAiMode((m) => (m === 'auto' ? m : 'manual'))
+    setSide({ open: true, tab })
+  }, [])
+  const closeSide = useCallback(() => {
+    sideBefore.current = null
+    setSide((sd) => ({ ...sd, open: false }))
+  }, [])
+  const fixSlide = useMemo(() => (deck?.slides || []).find((x) => (x.kind || x.id) === 'fix') || null, [deck])
+  const aiRun = fixSlide?.agentic || deck?.agentic || null
+  const hasAi = aiRun?.status === 'done' || aiRun?.status === 'running'
+
   // what the slides call back into: the scoreboard, the banner, the green layer on the map, the camera
   const stage = useMemo(
     () => ({
@@ -375,6 +435,13 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
       callout: (c) => setLive((l) => ({ ...l, callout: c })),
       say: (x) => setLive((l) => ({ ...l, say: x })),
       layer: (x) => setLive((l) => ({ ...l, layer: x })),
+      // "How the AI found them" in the right-hand panel: the options' review beat drives it ({shown}), null when it ends
+      ai: (x) => setLive((l) => (x == null ? (l.ai == null ? l : { ...l, ai: null }) : l.ai?.shown === x.shown ? l : { ...l, ai: x })),
+      openAi: () => {
+        sideBefore.current = null
+        setAiMode('manual')
+        setSide({ open: true, tab: 'ai' })
+      },
       wave: (n) => setFx((f) => (f.wave === n ? f : { ...f, wave: n })),
       camera,
       // the map's moment: 'start' (before anything failed) or 'final' (where the incident ended)
@@ -426,7 +493,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     askFocus.current = true
     setAskOpen(true)
     setTimeout(() => (askInput.current || rootRef.current?.querySelector('.rs-ask input, .rs-ask textarea'))?.focus(), 0)
-  }, [])
+  }, [setAskOpen])
 
   // keyboard: → / PageDown next · ← / PageUp previous · Space play/pause · Esc close · C captions · L language · / ask
   const { next, prev, toggle } = narr
@@ -499,7 +566,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   const caption = narr.caption
   return createPortal(
     <div
-      className={`rs${view === 'document' ? ' rs--doc' : ''}${narr.playing ? ' rs--playing' : ''}${slideKind ? ` rs--on-${slideKind}` : ''}${askOpen ? ' rs--ask' : ''}`}
+      className={`rs${view === 'document' ? ' rs--doc' : ''}${narr.playing ? ' rs--playing' : ''}${slideKind ? ` rs--on-${slideKind}` : ''}${side.open ? ' rs--ask' : ''}${side.open && side.tab === 'ai' ? ' rs--side-ai' : ''}`}
       ref={rootRef}
       role="dialog"
       aria-modal="true"
@@ -511,7 +578,11 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
             <span className="rs-sim">{t.sim}</span>
             <h1 className="rs-title">{deck?.title?.[lang] || (lang === 'es' ? 'Simulacro informativo' : 'Simulation briefing')}</h1>
           </div>
-          {slides.length > 0 && <Progress slides={slides} idx={idx} progress={narr.progress} lang={lang} onJump={narr.goto} playing={narr.playing} />}
+          {slides.length > 0 ? (
+            <Progress slides={slides} idx={idx} progress={narr.progress} lang={lang} onJump={narr.goto} playing={narr.playing} clock={narr.clock} reduced={reduced} />
+          ) : (
+            !error && !docOnly && <LoadBar reduced={reduced} label={t.preparing} />
+          )}
           <p className="rs-banner">{loc(deck, 'banner', lang) || report?.banner || 'SIMULATION · synthetic grid model · every people and cost number is an estimate.'}</p>
         </div>
         {/* the options, folded to three short lines: sound and captions, language and length, then "More options" */}
@@ -634,25 +705,50 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
           {slides.length ? `${idx + 1} / ${slides.length}` : ''}
         </span>
         <SoundChip narr={narr} t={t} />
-        <button type="button" className="rs-tool rs-tool--ask" aria-expanded={askOpen} aria-controls="rs-ask" onClick={() => (askOpen ? setAskOpen(false) : openAsk())}>
+        <button type="button" className="rs-tool rs-tool--ask" aria-expanded={askOpen} aria-controls="rs-ask" onClick={() => (askOpen ? closeSide() : openAsk())}>
           {t.ask}
         </button>
       </nav>
 
-      {askOpen && (
-        <aside className="rs-ask" id="rs-ask" aria-label={t.ask}>
+      {side.open && (
+        <aside className={`rs-ask${side.tab === 'ai' ? ' rs-ask--ai' : ''}`} id="rs-ask" aria-label={side.tab === 'ai' ? P[lang].tabAi : t.ask}>
           <div className="rs-ask__head">
-            <div>
-              <strong>{t.ask}</strong>
-              <p className="rs-ask__hint">{P[lang].sidebarHint}</p>
-            </div>
-            <button type="button" className="rs-close" onClick={() => setAskOpen(false)} aria-label={lang === 'es' ? 'Cerrar preguntas' : 'Close questions'}>
+            {hasAi ? (
+              <div className="rs-side__tabs" role="tablist" aria-label={P[lang].options}>
+                {['ask', 'ai'].map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    role="tab"
+                    id={`rs-tab-${tab}`}
+                    aria-selected={side.tab === tab}
+                    aria-controls={`rs-pane-${tab}`}
+                    className="rs-side__tab"
+                    onClick={() => pickTab(tab)}
+                  >
+                    {tab === 'ask' ? P[lang].tabAsk : P[lang].tabAi}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div>
+                <strong>{t.ask}</strong>
+                <p className="rs-ask__hint">{P[lang].sidebarHint}</p>
+              </div>
+            )}
+            <button type="button" className="rs-close" onClick={closeSide} aria-label={P[lang].closeSide}>
               ×
             </button>
           </div>
-          <div className="rs-ask__body">
+          <div className="rs-ask__body" id="rs-pane-ask" role={hasAi ? 'tabpanel' : undefined} aria-labelledby={hasAi ? 'rs-tab-ask' : undefined} hidden={side.tab !== 'ask'}>
+            {hasAi && <p className="rs-ask__hint">{P[lang].sidebarHint}</p>}
             <AskSlot caseBody={askBody} lang={lang} onLangChange={setLang} inputRef={askInput} note={t.askSoon} autoFocus={askFocus.current} />
           </div>
+          {side.tab === 'ai' && (
+            <div className="rs-ask__body" id="rs-pane-ai" role="tabpanel" aria-labelledby="rs-tab-ai">
+              <AiPanel fixSlide={fixSlide} deck={deck} options={options} lang={lang} mode={aiMode} shown={live.ai?.shown ?? null} />
+            </div>
+          )}
         </aside>
       )}
 
@@ -693,6 +789,16 @@ function SpeakerOff() {
       <path d="M2 6h2.6L8 3.2v9.6L4.6 10H2z" fill="currentColor" />
       <path d="M10.6 6.2l3.6 3.6M14.2 6.2l-3.6 3.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" fill="none" />
     </svg>
+  )
+}
+
+// while the deck builds: a bar that fills continuously (an ease toward the end over the usual build time; it is gone
+// the moment the deck is in); reduced motion: it fills in a few steps
+function LoadBar({ reduced, label }) {
+  return (
+    <div className={`rs-loadbar${reduced ? ' rs-loadbar--steps' : ''}`} role="progressbar" aria-label={label}>
+      <i />
+    </div>
   )
 }
 

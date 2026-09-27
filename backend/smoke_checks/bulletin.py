@@ -73,7 +73,39 @@ def register(ctx):
         flex_lead = first["family"] == "flexible" and ((fix.get("present") or {}).get("flex") or {}).get("peak_only")
         assert first["role"] == "lead" and (flex_lead or (first["family"] in ("upgrade", "agentic") and (first["kept_pct"] or 0) >= 99.5)), \
             f"the lead should keep the campus at full size: {first['family']} {first['kept_pct']}"
-        assert all(o["role"] == "more" for o in opts if o["family"] in ("shrink", "move", "onsite", "combo", "remove")), [(o["family"], o["role"]) for o in opts]
+        assert all(o["role"] == "more" for o in opts if o["family"] in ("shrink", "move", "combo", "remove")), [(o["family"], o["role"]) for o in opts]
+        # DISTINCT OPTIONS (user, Sat 19:12): the options walked through are different kinds of fix (on-site power may be
+        # one, never the lead while a full-size upgrade holds); plans raising the same elements for about the same price
+        # are folded into the option they vary (role 'variant'), never walked as options of their own
+        walked = [o for o in opts if o["role"] in ("lead", "alt")]
+        assert 2 <= len(walked) <= 4 and len({o.get("kind") for o in walked}) == len(walked), [(o["family"], o.get("kind")) for o in walked]
+        assert all(o["role"] != "lead" for o in opts if o["family"] == "onsite"), "on-site power never leads while a full-size upgrade holds"
+        ups = lambda o: set((o.get("apply") or {}).get("upgrades") or {})  # noqa: E731
+        by_fix = {o["fix"]: o for o in walked}
+        for v in (o for o in opts if o["role"] == "variant"):
+            head = by_fix.get(v.get("variant_of"))
+            assert head and head["cost"] and v["cost"], ("a variant is folded into a walked, priced option", v.get("variant_of"))
+            assert ups(head) <= ups(v) or ups(v) <= ups(head) or len(ups(head) & ups(v)) / len(ups(head) | ups(v)) >= 0.6, (ups(head), ups(v))
+            assert abs(v["cost"]["high"] - head["cost"]["high"]) <= 0.25 * head["cost"]["high"] + 1, (v["cost"], head["cost"])
+        # no two walked upgrade options raise the same elements at about the same price (with Gemini's plans in, the hero's
+        # three are variants of one): the same elements twice only when the later one costs much less ('upgrade_cheaper')
+        same_core = lambda a, b: bool(a and b) and (a <= b or b <= a or len(a & b) / len(a | b) >= 0.6)  # noqa: E731
+        priced = [o for o in walked if o["family"] in ("upgrade", "agentic") and (o.get("cost") or {}).get("high")]
+        for x, a in enumerate(priced):
+            for b in priced[x + 1:]:
+                if same_core(ups(a), ups(b)):
+                    assert b["cost"]["high"] < 0.75 * a["cost"]["high"] and b.get("kind") == "upgrade_cheaper", \
+                        ("two walked options raise the same elements", a["name"]["en"], a["cost"]["high"], b["name"]["en"], b["cost"]["high"], b.get("kind"))
+        # the variants say exactly what they raise next to their option: "the same line and transformer, each with one
+        # more line", never a bare "the same elements" (which invites "why does the same work cost more?")
+        for h in walked:
+            vs = [v for v in opts if v["role"] == "variant" and v.get("variant_of") == h["fix"]]
+            if vs:
+                how = (h.get("variants_how") or {}).get("en") or ""
+                assert how and (h.get("variants_how") or {}).get("es"), ("the variants' line", h["name"]["en"])
+                if all(ups(h) < ups(v) for v in vs):
+                    assert "with" in how and " more " in how, how
+        assert "raising the same elements" not in str(fix["narration"]) and "the same elements;" not in str(fix["narration"]), "say what the variants add"
         assert not any(o["family"] == "remove" for o in opts), "'don't build it' is never offered as a solution"
         pres = fix.get("present") or {}
         assert (pres.get("blackout") or {}).get("high", 0) > 0 and (pres.get("often") or {}).get("levels"), pres

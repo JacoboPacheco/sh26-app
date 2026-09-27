@@ -207,6 +207,8 @@ export function keepsText(o, T) {
   }
   // an operating rule that steps down at other hours too: its size is this case's hour's, not the campus it keeps
   if (o?.family === 'flexible' && (o?.kept_pct ?? 100) < 99.5) return T.keepsAtHour(Math.round(o.kept_pct))
+  // power of its own: the campus runs in full, the grid supplies less (its kept_mw is the grid's share)
+  if (o?.family === 'onsite' && o?.gen?.net_mw != null) return T.onsiteKeeps(fmt(o.gen.net_mw))
   return (o?.kept_pct ?? 0) >= 99.5 ? T.keepsAll : T.keeps(Math.round(o?.kept_pct ?? 0))
 }
 

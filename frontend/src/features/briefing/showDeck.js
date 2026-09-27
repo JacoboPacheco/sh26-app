@@ -189,12 +189,25 @@ export function scoreAt(plays, k) {
 }
 
 // ------------------------------------------------------------------ the options (one beat each)
+// DISTINCT OPTIONS (user, Sat 19:12): the backend walks through options of different kinds (kind: 'upgrade',
+// 'upgrade_other', 'upgrade_cheaper', 'onsite', 'flexible', 'flexible_deep', 'closest'); the plans that raise the same elements for about
+// the same price come as role 'variant' (variant_of = the walked option's fix) and are folded into it here
+// (option.variants), never options of their own.
 export function optionsOf(report, slide) {
   const fixes = report?.fixes || []
   const orig = Number(report?.case?.mw) || 0
   const flex = slide?.present?.flex || null
-  if (Array.isArray(slide?.options) && slide.options.length)
-    return slide.options.map((o, k) => ({ ...normOption(o, fixes[o.fix], orig, report, k), flex: flex && o.fix === flex.fix ? flex : null }))
+  if (Array.isArray(slide?.options) && slide.options.length) {
+    const all = slide.options.map((o, k) => ({ ...normOption(o, fixes[o.fix], orig, report, k), flex: flex && o.fix === flex.fix ? flex : null }))
+    const out = all.filter((o) => o.role !== 'variant')
+    for (const v of all.filter((o) => o.role === 'variant')) {
+      const head = out.find((o) => o.fix === v.variant_of)
+      if (head) head.variants.push(v)
+      else out.push({ ...v, role: 'more' }) // its option is not listed: the plan stands on its own under "More options"
+    }
+    out.forEach((o, k) => (o.k = k))
+    return out
+  }
   const order = Array.isArray(report?.solutions) && report.solutions.length ? report.solutions : rankFallback(fixes, orig)
   return order
     .map((i) => ({ i, f: fixes[i] }))
@@ -257,6 +270,14 @@ function normOption(o, f = {}, orig, report, k) {
     town: o.sites?.[0]?.town || d.sites?.[0]?.town || null,
     site: o.sites?.[0]?.lat != null ? { lat: o.sites[0].lat, lon: o.sites[0].lon } : d.sites?.[0] ? { lat: d.sites[0].lat, lon: d.sites[0].lon } : null,
     from_mw: orig,
+    kind: o.kind || null,
+    note: o.note || null,
+    gen: o.gen || (fam === 'onsite' && gen ? { onsite_mw: gen, net_mw: Number(d.net_mw) || null } : null),
+    variant_of: o.variant_of ?? null,
+    vs_pct: o.vs_pct ?? null,
+    extra: o.extra || [],
+    variants_how: o.variants_how || null, // what its variants raise next to it, in the backend's exact words
+    variants: [],
   }
 }
 
@@ -321,10 +342,28 @@ export const greenAt = (o, lang = 'en') => SOL.lineAt + SOL.lineStep * beatRows(
 export const optionBeatMs = (o, lang = 'en') => greenAt(o, lang) + SOL.run + SOL.read
 // the options the beats walk through one by one (the lead, then the alternatives); the rest go under "More options"
 export const mainOptions = (options) => {
-  const m = options.filter((o) => o.role !== 'more')
+  const m = options.filter((o) => o.role !== 'more' && o.role !== 'variant')
   return m.length ? m : options.slice(0, 1)
 }
 export const moreOptions = (options) => options.filter((o) => o.role === 'more')
+// the plans folded into an option (the same elements for about the same price): their price span, and whether they
+// all came from Gemini
+export function variantsOf(o) {
+  const vs = o?.variants || []
+  if (!vs.length) return null
+  const highs = vs.map((v) => Number(v.cost?.high) || 0).filter(Boolean)
+  const lows = vs.map((v) => Number(v.cost?.low) || 0).filter(Boolean)
+  const head = Number(o.cost?.high) || 0
+  return {
+    n: vs.length,
+    ai: vs.every((v) => v.by === 'gemini'),
+    low: lows.length ? Math.min(...lows) : null,
+    high: highs.length ? Math.max(...highs) : null,
+    minHigh: highs.length ? Math.min(...highs) : null,
+    pricier: !!head && highs.length === vs.length && highs.every((h) => h >= head),
+    list: vs,
+  }
+}
 
 // "Watch the AI work": after the options, a beat of the AI proposer's own run (the fix slide's agentic.trace), a few
 // of its steps: a plan that failed, the engine's findings going back, the revision that held. Only once the run is done.
@@ -461,7 +500,21 @@ export function tickerItems(report, deck, lang) {
   for (const o of report?.no_fix ? [] : mainOptions(optionsOf(report, fixSlide)).slice(0, 3)) {
     const tag = o.by === 'gemini' ? s.verifiedAI : s.verifiedEngine
     const cost = o.cost?.high ? ` · ${es ? 'hasta' : 'up to'} ${usdCompact(o.cost.high, lang)}` : ''
-    items.push(`${o.name[lang]} · ${o.kept_pct >= 99.5 ? s.fullSize.toLowerCase() : `${Math.round(o.kept_pct)}% ${s.kept}`}${cost} · ${tag}`)
+    // what it keeps, as the options say it: on-site power runs the full campus (its kept_mw is the grid's share); an
+    // operating rule's size is this hour's
+    const keep =
+      o.family === 'onsite' && o.gen?.net_mw != null
+        ? es
+          ? `campus completo, la red aporta ${fmt(o.gen.net_mw)} MW`
+          : `full campus, the grid supplies ${fmt(o.gen.net_mw)} MW`
+        : o.kept_pct >= 99.5
+          ? s.fullSize.toLowerCase()
+          : o.family === 'flexible'
+            ? es
+              ? `al ${Math.round(o.kept_pct)}% a esta hora`
+              : `${Math.round(o.kept_pct)}% at this hour`
+            : `${Math.round(o.kept_pct)}% ${s.kept}`
+    items.push(`${o.name[lang]} · ${keep}${cost} · ${tag}`)
   }
   const ag = deck?.agentic
   if (ag?.status === 'done' && ag.asked > 0) items.push(s.aiFound(ag.asked, ag.verified ?? ag.added ?? 0))
@@ -485,11 +538,20 @@ export function haveTo(report, lang = 'en') {
 // first, then, once the re-run has counted down, the result (never before the reveal)
 export function optionSay(o, k, n, lang = 'en', done = false) {
   const s = S[lang]
+  const of = o.from_mw ? fmt(o.from_mw) : null
+  // what it keeps, as the card, the ticker and the voice say it (keepsText, tickerItems): on-site power runs the full
+  // campus (its kept_mw is the grid's share); an operating rule's size is this hour's, and a deep one steps down at
+  // other hours too (said once: the backend's name for it already says so)
+  const deepSaid = /other hours|otras horas/i.test(o.name?.[lang] || '')
   const keep = o.flex?.peak_only
     ? s.sayFlexKeep(fmt(o.from_mw), flexWhen(o.flex, lang))
-    : o.kept_pct >= 99.5
-      ? s.sayKeepAll(fmt(o.kept_mw))
-      : s.sayKeep(fmt(o.kept_mw), fmt(o.from_mw))
+    : o.family === 'onsite' && o.gen?.net_mw != null
+      ? s.sayOnsiteKeep(of, fmt(o.gen.net_mw))
+      : o.family === 'flexible' && (o.kept_pct ?? 100) < 99.5
+        ? (o.kind === 'flexible_deep' && !deepSaid ? s.sayDeepKeep : s.sayHourKeep)(fmt(o.kept_mw), of)
+        : o.kept_pct >= 99.5
+          ? s.sayKeepAll(fmt(o.kept_mw))
+          : s.sayKeep(fmt(o.kept_mw), fmt(o.from_mw))
   if (!done) return s.sayPlan(k + 1, n, o.name[lang], keep)
   const cost = o.cost?.high ? `${s.costHigh(usdCompact(o.cost.high, lang))}.` : ''
   const after = Number(o.outcome?.people) || 0
@@ -511,6 +573,20 @@ export function quietDeck(deck) {
     return { ...sl, narration: Object.fromEntries(Object.keys(sl.narration).map((lang) => [lang, []])), est_s: undefined }
   })
   return changed ? { ...deck, slides } : deck
+}
+
+// ------------------------------------------------------------------ Gemini's deck, arriving after playback started
+// Its slides replace the ones not played yet (same ids, so the order never shifts); a slide already entered, and the
+// show's own synthetic beats, stay as they are. The deck-level `ai` block (numbers checked) and key come with it.
+export function swapUnplayed(deck, ai, played) {
+  if (!deck?.slides?.length || !ai?.slides?.length) return deck
+  const byId = new Map(ai.slides.map((x) => [x.id, x]))
+  return {
+    ...deck,
+    ai: ai.ai ?? deck.ai,
+    deck_key: ai.deck_key ?? deck.deck_key,
+    slides: deck.slides.map((x) => (x.synthetic || played?.has(x.id) ? x : byId.get(x.id) || x)),
+  }
 }
 
 // ------------------------------------------------------------------ the AI proposer's late plans
