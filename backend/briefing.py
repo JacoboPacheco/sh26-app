@@ -68,6 +68,8 @@ VERSION = 1
 DEMO = Path(__file__).parent / "demo"
 CREDIT = "Breakthrough Energy / Texas A&M, CC-BY 4.0"
 MAX_PRESET_TRIPS = 2500
+LP_TIME_LIMIT_S = 8.0  # BUG 1: HiGHS holds the GIL for its whole solve; bound every linprog call so a hard/degenerate
+# network (a statewide catastrophe) can never hold the backend for minutes — see _lp_served
 BUDGET_MIN, BUDGET_MAX = 300, 1800
 TOP_AREAS = 8
 STORM_LISTED = 12
@@ -2070,7 +2072,11 @@ def _lp_served(g: Grid, active: np.ndarray, rate: np.ndarray) -> np.ndarray | No
     cost[o_t:] = np.where(g.tie[Tb] < 0, EXPORT_PENALTY, 0.0)
     for method in ("highs-ds", "highs-ipm"):
         try:
-            res = linprog(cost, A_eq=Aeq, b_eq=np.zeros(n), bounds=np.column_stack([lb, ub]), method=method)
+            # bounded: HiGHS is native code that does not release the GIL, so an unbounded solve on a
+            # degenerate statewide-storm network can block the whole event loop for minutes (BUG 1). A
+            # timeout here is just another way for the solve to fail; the code below already falls
+            # through to the next method, and to None (a labeled connectivity fallback) if both time out.
+            res = linprog(cost, A_eq=Aeq, b_eq=np.zeros(n), bounds=np.column_stack([lb, ub]), method=method, options={"time_limit": LP_TIME_LIMIT_S})
         except Exception as e:  # noqa: BLE001
             log.warning("briefing: LP %s raised %s", method, e)
             continue
@@ -2432,6 +2438,58 @@ def _hospitals(c: _Case, inc: dict) -> dict | None:
         return None
 
 
+# ------------------------------------------------------------------ baked catastrophe presets (BUG 1)
+# A statewide catastrophe preset (fl-cat5-statewide and friends) can take real wall time to solve live: several
+# LP waves (_recovery) over a storm-shattered network, each holding the GIL the whole time HiGHS runs (native
+# code). scripts/bake_briefing_presets.py writes every preset's finished report to backend/demo/briefing/*.json
+# (loaded once, like backend/baked.py's Strengthen studies and grid_operator.py's baked hero runs), so a fresh
+# process — a judge's first request, a just-restarted Render instance — answers instantly instead of computing
+# it live. A file is served only when its engine fingerprint matches this code; nothing here changes a number.
+BAKED_DIR = DEMO / "briefing"
+BAKED_ENGINE_FILES = ("briefing.py", "powerflow.py", "grid.py", "costs.py", "solutions.py")
+_baked_reports: dict[str, dict] | None = None
+_baked_lock = threading.Lock()
+
+
+def fingerprint() -> str:
+    h = hashlib.sha256()
+    here = Path(__file__).parent
+    for name in BAKED_ENGINE_FILES:
+        h.update(name.encode())
+        if (here / name).is_file():
+            h.update((here / name).read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()[:16]
+
+
+def baked_reports() -> dict[str, dict]:
+    """Case key -> the finished report committed in backend/demo/briefing/ (loaded once, on the first
+    request that asks). A report baked by other code (the fingerprint mismatches) is never served —
+    the preset then computes live, exactly as before this cycle."""
+    global _baked_reports
+    with _baked_lock:
+        if _baked_reports is None:
+            out: dict[str, dict] = {}
+            if BAKED_DIR.is_dir():
+                fp = fingerprint()
+                for p in sorted(BAKED_DIR.glob("*.json")):
+                    try:
+                        d = json.loads(p.read_text(encoding="utf-8"))
+                        key, res = str(d["key"]), d["result"]
+                        if not isinstance(res, dict) or not res.get("facts"):
+                            raise ValueError("not a finished report")
+                    except (OSError, ValueError, KeyError, TypeError) as e:
+                        log.warning("baked briefing report %s unreadable: %s", p.name, e)
+                        continue
+                    if d.get("fingerprint") != fp:
+                        log.info("baked briefing report %s is from other code (%s, now %s): computed live instead", p.name, d.get("fingerprint"), fp)
+                        continue
+                    out[key] = res
+                if out:
+                    log.info("loaded %d baked briefing reports", len(out))
+            _baked_reports = out
+        return _baked_reports
+
+
 # ----------------------------------------------------------------------------- the report
 _cache: "OrderedDict[str, dict]" = OrderedDict()
 _ctx: "OrderedDict[str, _Case]" = OrderedDict()
@@ -2502,6 +2560,12 @@ def report_for(body: BriefingIn) -> dict:
             with _cache_lock:
                 _cache.move_to_end(c.key)
             return {**hit, "cached": True, "timing_ms": {**hit["timing_ms"], "cached_total": _ms(t_all)}}
+        if c.preset:  # BUG 1: a committed preset report answers instantly instead of running the LP waves live
+            baked = baked_reports().get(c.key)
+            if baked is not None:
+                rep = {**baked, "cached": True, "baked": True, "timing_ms": {**baked.get("timing_ms", {}), "cached_total": _ms(t_all)}}
+                _remember(c.key, rep, c)
+                return rep
         try:
             rep = _build(c, budget_ms, t_all)
         except EngineGap as e:
