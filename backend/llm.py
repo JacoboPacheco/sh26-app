@@ -437,6 +437,102 @@ def _mark_out(m: str, detail: str = "") -> None:
     else:
         _out_until[m] = time.time() + BURST_OUT_S
 
+
+# A busy model hands the request to the next one, like a 429 does. Google answers 503 "high demand" on a stronger model for hours
+# at a time (measured Sat night on gemini-3.5-flash: every comment fell to its template), and a 500, 502 or 504, a dropped
+# connection or a reply that doesn't come in time is the same story: the next model in the chain is often fine. A model that just
+# failed like that is skipped for BUSY_S seconds (the same memory a per-minute 429 uses), so the calls after it don't each wait on
+# it first; the last model in the chain is always tried. A 4xx other than 429 (a bad body, a key without permission) is the
+# request's own fault: the next model would refuse it too, so it is raised exactly as before. Never a loop: one pass over the chain.
+# The caller's `timeout` is the ceiling for the whole pass (_Budget): an attempt gets what is left of it, and while a later model
+# could still answer, an attempt keeps CHAIN_RESERVE_S of the budget back for it (a hung model must not eat all of it).
+# GEMINI_CHAIN_RESERVE_S=0 gives the first model the whole budget again.
+ADVANCE_CODES = (500, 502, 503, 504)
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(0.0, float(os.getenv(name, default)))
+    except ValueError:
+        return default
+
+
+BUSY_S = _env_float("GEMINI_BUSY_SECONDS", 45.0)
+CHAIN_RESERVE_S = _env_float("GEMINI_CHAIN_RESERVE_S", 8.0)
+CHAIN_SHARE = 0.65  # the least share of the budget a model with a later model behind it is given
+MIN_ATTEMPT_S = 1.0  # after a busy model, less than this left is not worth another request
+
+
+def _mark_busy(m: str) -> None:
+    """A 5xx, a timeout or a dropped connection: skip this model for BUSY_S seconds (never shortens a longer 429 wait)."""
+    _out_until[m] = max(_out_until.get(m, 0.0), time.time() + BUSY_S)
+
+
+def _chain(first: str) -> list[str]:
+    """The models one call walks in order: its own, then the app's default model (the one every prompt was written and measured
+    on: a stronger model that is busy or out of quota hands over to it first, the step comment.py used to take on its own), then
+    FALLBACK_MODELS.
+    A call on the default model walks exactly FALLBACK_MODELS behind it, as before."""
+    return list(dict.fromkeys([first, MODEL, *FALLBACK_MODELS]))
+
+
+class _ModelBusy(Exception):
+    """One model failed in a way the next one may not (a 5xx, a timeout, a dropped connection): the caller moves on."""
+
+
+class _Budget:
+    """The caller's timeout as one ceiling for a whole pass over the chain."""
+
+    def __init__(self, timeout: float | None):
+        self.end = time.monotonic() + float(timeout or TIMEOUT_SECONDS)
+        self.busy = ""  # how the last model failed, as the tail of the 502 the call raises if no model is left to answer
+
+    def left(self) -> float:
+        return self.end - time.monotonic()
+
+    def attempt_s(self, more: bool) -> float:
+        """The HTTP timeout for the next request: what is left, less the reserve when another model is behind this one."""
+        left = self.left()
+        if more and CHAIN_RESERVE_S > 0:
+            left = min(left, max(left * CHAIN_SHARE, left - CHAIN_RESERVE_S))
+        return max(left, 0.1)
+
+
+def _transient(e: BaseException) -> bool:
+    """A failure of the connection or of the wait (a timeout, a reset, a truncated reply), not of the request."""
+    if isinstance(e, urllib.error.URLError) and not isinstance(e, urllib.error.HTTPError) and isinstance(e.reason, BaseException):
+        e = e.reason
+    return isinstance(e, (TimeoutError, ConnectionError, http.client.HTTPException))
+
+
+async def _post_model(m: str, nxt: str | None, body: dict, key: str, budget: _Budget) -> dict:
+    """One request to model `m` inside the budget; `nxt` is the model behind it in the chain (None on the last). Returns
+    Google's reply. Raises urllib.error.HTTPError for a 4xx (the caller reads a 429's quota, retries a 400 plainer) and, on the
+    last model, for a 5xx too; _ModelBusy when `m` failed like a busy model and `nxt` is there to try; HTTPException(502)
+    for anything else (an unreachable network, a reply that isn't JSON, or no time left for the model after a busy one)."""
+    if budget.busy and budget.left() < MIN_ATTEMPT_S:
+        raise HTTPException(status_code=502, detail=f"AI request failed{budget.busy}")
+    log = logging.getLogger("uvicorn.error")
+    try:
+        return await asyncio.to_thread(_post_json, f"{API_BASE}/models/{m}:generateContent", body, key, budget.attempt_s(nxt is not None))
+    except urllib.error.HTTPError as e:
+        if e.code not in ADVANCE_CODES or nxt is None:
+            raise
+        budget.busy = f" ({e.code}): {e.read().decode(errors='replace')[:300]}"
+        why = str(e.code)
+    except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
+        # URLError: unreachable; OSError: dropped connection or a timeout; ValueError: non-JSON reply;
+        # HTTPException: truncated or malformed reply
+        if nxt is None or not _transient(e):
+            raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
+        budget.busy = f": {e}"
+        why = "no answer" if isinstance(e, TimeoutError) or isinstance(getattr(e, "reason", None), TimeoutError) else "a dropped connection"
+    _mark_busy(m)
+    _stats["failover"] = _stats.get("failover", 0) + 1
+    _stats["last_failover"] = f"{m} ({why}) -> {nxt}"
+    log.warning("AI: %s is busy (%s), trying %s", m, why, nxt)
+    raise _ModelBusy()
+
 router = APIRouter(prefix="/api/ai", tags=["ai"])
 router.add_event_handler("startup", arm_ledger)  # app.include_router(llm.router) carries it to the app
 
@@ -474,7 +570,10 @@ async def complete(
         text = await complete(prompt, fallback=FALLBACK, timeout=10)
         return {"text": text, "fallback": text == FALLBACK}
     The swallowed error is logged as a WARNING (see backend/server.log).
-    `timeout`: seconds to wait for Gemini (default 60) — use ~10 on the demo path.
+    `timeout`: seconds to wait for Gemini (default 60) — use ~10 on the demo path. It is the ceiling for the
+    whole call: a model that answers 429 (quota) or is busy (a 5xx such as 503 "high demand", a timeout, a dropped
+    connection) hands the same request to the next model in FALLBACK_MODELS within it; `fallback` is used only after
+    the chain is used up, and a call without one raises the last model's 502/429.
     `image`: (bytes, mime_type) to send alongside the prompt, e.g. the `contents`
     from an upload — Gemini reads photos, screenshots, whiteboards, receipts.
     `cache` (on by default): serve an identical earlier answer (same model, system and prompt) from memory
@@ -611,41 +710,37 @@ async def _complete(
 
     # Each Gemini model has its own free-tier quota: when this call's model answers 429 (quota used up for
     # the day), the same request goes to the next model in FALLBACK_MODELS, skipping models already known
-    # to be out today, so one exhausted model doesn't turn every AI feature into its plain version.
-    chain = [model or MODEL] + [m for m in FALLBACK_MODELS if m != (model or MODEL)]
+    # to be out today, so one exhausted model doesn't turn every AI feature into its plain version. A busy
+    # model (a 5xx, a timeout, a dropped connection) hands over the same way (see _post_model).
+    chain = _chain(model or MODEL)
+    budget = _Budget(timeout)
     data = None
     for i, m in enumerate(chain):
-        if _model_out(m) and i < len(chain) - 1:
+        nxt = chain[i + 1] if i < len(chain) - 1 else None
+        if _model_out(m) and nxt:
             continue
-        url = f"{API_BASE}/models/{m}:generateContent"
-        try:
-            data = await asyncio.to_thread(_post_json, url, body, key, timeout or TIMEOUT_SECONDS)
+        retried = False
+        while True:
+            try:
+                data = await _post_model(m, nxt, body, key, budget)
+            except _ModelBusy:
+                break  # the next model in the chain
+            except urllib.error.HTTPError as e:
+                full = e.read().decode(errors="replace")  # whole: a 429's quotaId ("...PerDay...") sits past the first lines
+                if e.code == 400 and not retried and (body.get("generationConfig") or {}).pop("thinkingConfig", None) is not None:
+                    # a model that doesn't take this thinking level (400): the same model again at its default thinking
+                    logging.getLogger("uvicorn.error").warning("AI: %s refused thinkingLevel=%s, retrying at its default", m, thinking)
+                    retried = True
+                    continue
+                if e.code == 429 and nxt:
+                    _mark_out(m, full)
+                    logging.getLogger("uvicorn.error").warning("AI: %s is out of quota, trying %s", m, nxt)
+                    break
+                raise HTTPException(status_code=502, detail=f"AI request failed ({e.code}): {full[:300]}")
             _stats["model_used"] = m
             break
-        except urllib.error.HTTPError as e:
-            full = e.read().decode(errors="replace")  # whole: a 429's quotaId ("...PerDay...") sits past the first lines
-            detail = full[:300]
-            if e.code == 400 and (body.get("generationConfig") or {}).pop("thinkingConfig", None) is not None:
-                # a model that doesn't take this thinking level (400): the same model again at its default thinking
-                logging.getLogger("uvicorn.error").warning("AI: %s refused thinkingLevel=%s, retrying at its default", m, thinking)
-                try:
-                    data = await asyncio.to_thread(_post_json, url, body, key, timeout or TIMEOUT_SECONDS)
-                    _stats["model_used"] = m
-                    break
-                except urllib.error.HTTPError as e2:
-                    full = e2.read().decode(errors="replace")
-                    e, detail = e2, full[:300]
-                except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e2:
-                    raise HTTPException(status_code=502, detail=f"AI request failed: {e2}")
-            if e.code == 429 and i < len(chain) - 1:
-                _mark_out(m, full)
-                logging.getLogger("uvicorn.error").warning("AI: %s is out of quota, trying %s", m, chain[i + 1])
-                continue
-            raise HTTPException(status_code=502, detail=f"AI request failed ({e.code}): {detail}")
-        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
-            # URLError: unreachable; OSError: dropped connection; ValueError: non-JSON reply;
-            # HTTPException: truncated or malformed reply
-            raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
+        if data is not None:
+            break
 
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -752,9 +847,10 @@ async def complete_tools(
     `fallback`: returned (a copy, used_fallback=True) instead of raising when the key, the day's cap
     (AI_DAILY_LIMIT), the network or the timeout fails. `cache` (on): the same conversation, tools and settings
     replay the stored reply (memory and disk, 48 h), so a replayed agent run is deterministic call by call.
-    `timeout`, `surface`, `model`, `thinking`: as in `complete`; a 429 moves to the next model in the chain, with the
-    history's thought signatures swapped for the documented dummy one. A model that refuses VALIDATED (400) is asked
-    once more on AUTO without the generation config; a MALFORMED_FUNCTION_CALL reply is asked once more."""
+    `timeout`, `surface`, `model`, `thinking`: as in `complete`; a 429 or a busy model (a 5xx, a timeout, a dropped
+    connection) moves to the next model in the chain, with the history's thought signatures swapped for the documented
+    dummy one. A model that refuses VALIDATED (400) is asked once more on AUTO without the generation config; a
+    MALFORMED_FUNCTION_CALL reply is asked once more."""
     log = logging.getLogger("uvicorn.error")
     mode = (tool_mode or "AUTO").upper()
     key = _tools_cache_key(contents, tools, system, mode, allowed, schema, model, thinking) if cache else None
@@ -811,19 +907,22 @@ async def _generate_tools(contents, tools, system, timeout, mode, allowed, schem
     if gen:
         body["generationConfig"] = gen
     first = model or AGENT_MODEL
-    chain = [first] + [m for m in FALLBACK_MODELS if m != first]
+    chain = _chain(first)
     log = logging.getLogger("uvicorn.error")
+    budget = _Budget(timeout)
     for i, m in enumerate(chain):
-        if _model_out(m) and i < len(chain) - 1:
+        nxt = chain[i + 1] if i < len(chain) - 1 else None
+        if _model_out(m) and nxt:
             continue
         # the history's signatures were written by `first`: another model gets the dummy one
         send = body if m == first else {**body, "contents": _with_dummy_signatures(contents)}
-        url = f"{API_BASE}/models/{m}:generateContent"
         data = None
         plainer = asked_again = False
         while True:
             try:
-                got = await asyncio.to_thread(_post_json, url, send, key, timeout or TIMEOUT_SECONDS)
+                got = await _post_model(m, nxt, send, key, budget)
+            except _ModelBusy:
+                break  # a busy model: the next one in the chain (data stays None)
             except urllib.error.HTTPError as e:
                 full = e.read().decode(errors="replace")
                 is_validated = send["toolConfig"]["functionCallingConfig"].get("mode") == "VALIDATED"
@@ -835,13 +934,11 @@ async def _generate_tools(contents, tools, system, timeout, mode, allowed, schem
                     if is_validated:
                         send["toolConfig"] = {"functionCallingConfig": {**send["toolConfig"]["functionCallingConfig"], "mode": "AUTO"}}
                     continue
-                if e.code == 429 and i < len(chain) - 1:
+                if e.code == 429 and nxt:
                     _mark_out(m, full)
-                    log.warning("AI: %s is out of quota, trying %s", m, chain[i + 1])
+                    log.warning("AI: %s is out of quota, trying %s", m, nxt)
                     break
                 raise HTTPException(status_code=502, detail=f"AI request failed ({e.code}): {full[:300]}")
-            except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
-                raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
             finish = ((got.get("candidates") or [{}])[0] or {}).get("finishReason") if isinstance(got, dict) else None
             if finish in RETRY_FINISH and not asked_again:
                 # a function call the model got wrong (bad JSON or a call outside the declarations): ask once more
@@ -851,7 +948,7 @@ async def _generate_tools(contents, tools, system, timeout, mode, allowed, schem
             data = got
             break
         if data is None:
-            continue  # 429: the next model in the chain
+            continue  # 429 or busy: the next model in the chain
         _stats["model_used"] = m
         try:
             cand = data["candidates"][0]
@@ -864,7 +961,7 @@ async def _generate_tools(contents, tools, system, timeout, mode, allowed, schem
             raise HTTPException(status_code=502, detail="AI returned an empty reply")
         content.setdefault("role", "model")
         return content, m
-    raise HTTPException(status_code=502, detail="AI request failed: every model in the chain is out of quota")
+    raise HTTPException(status_code=502, detail="AI request failed: every model in the chain is out of quota or busy")
 
 
 # ------------------------------------------------------------------ Grounding with Google Search
@@ -943,8 +1040,8 @@ async def complete_grounded(
     A support says which web pages Google tied to that stretch of the answer; the caller checks its own numbers
     against them. `fallback`: returned (a copy, used_fallback=True) instead of raising when the key, the day's cap
     (AI_DAILY_LIMIT), the network or the timeout fails. Never cached (the grounding terms). `system`, `surface`,
-    `timeout`, `model` (default AGENT_MODEL) and `thinking` as in `complete`; a 429 moves to the next model in the
-    chain, like every other call here."""
+    `timeout`, `model` (default AGENT_MODEL) and `thinking` as in `complete`; a 429 or a busy model (a 5xx, a timeout)
+    moves to the next model in the chain, like every other call here."""
     log = logging.getLogger("uvicorn.error")
     try:
         key = os.getenv("GEMINI_API_KEY")
@@ -958,37 +1055,36 @@ async def complete_grounded(
         if thinking:
             body["generationConfig"] = {"thinkingConfig": {"thinkingLevel": thinking}}
         first = model or AGENT_MODEL
-        chain = [first] + [m for m in FALLBACK_MODELS if m != first]
+        chain = _chain(first)
+        budget = _Budget(timeout)
         result = None
         for i, m in enumerate(chain):
-            if _model_out(m) and i < len(chain) - 1:
+            nxt = chain[i + 1] if i < len(chain) - 1 else None
+            if _model_out(m) and nxt:
                 continue
-            url = f"{API_BASE}/models/{m}:generateContent"
             send = body
             while True:
                 try:
-                    data = await asyncio.to_thread(_post_json, url, send, key, timeout or TIMEOUT_SECONDS)
+                    data = await _post_model(m, nxt, send, key, budget)
+                except _ModelBusy:
+                    break  # a busy model (measured Sat evening: gemini-3.5-flash answering 503): the next one
                 except urllib.error.HTTPError as e:
                     full = e.read().decode(errors="replace")
                     if e.code == 400 and send.get("generationConfig"):
                         send = {k: v for k, v in send.items() if k != "generationConfig"}  # a thinking level this model refuses
                         continue
-                    if e.code in (429, 503) and i < len(chain) - 1:
-                        if e.code == 429:
-                            _mark_out(m, full)
-                        # 503: this model is overloaded right now (measured Sat evening on gemini-3.5-flash): the next one
-                        log.warning("AI (grounded): %s answered %s, trying %s", m, e.code, chain[i + 1])
+                    if e.code == 429 and nxt:
+                        _mark_out(m, full)
+                        log.warning("AI (grounded): %s answered 429, trying %s", m, nxt)
                         break
                     raise HTTPException(status_code=502, detail=f"AI request failed ({e.code}): {full[:300]}")
-                except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
-                    raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
                 result = _parse_grounded(data, m)
                 break
             if result is not None:
                 _stats["model_used"] = m
                 break
         if result is None:
-            raise HTTPException(status_code=502, detail="AI request failed: every model in the chain is out of quota")
+            raise HTTPException(status_code=502, detail="AI request failed: every model in the chain is out of quota or busy")
     except HTTPException as e:
         _stats["last_error"] = str(e.detail)[:200]
         if fallback is not None:
@@ -1076,6 +1172,7 @@ SURFACES = [
 @router.get("/status")
 def status():
     return {"configured": configured(), "model": MODEL, "agent_model": AGENT_MODEL, "agent_thinking": AGENT_THINKING, "fallback_models": FALLBACK_MODELS, "models_out_today": sorted(m for m in _out_today if _model_out(m)),
+            "models_busy": sorted(m for m, t in _out_until.items() if t > time.time()), "failovers": _stats.get("failover", 0), "last_failover": _stats.get("last_failover"),
             "model_last_used": _stats.get("model_used"), **usage(), "served": {k: _stats[k] for k in ("ok", "fallback", "cached")},
             "by_surface": _stats["by_surface"], "cached_answers": len(_cache), "surfaces": SURFACES,
             "ledger": ledger(), "validation": validation_summary()}

@@ -66,7 +66,8 @@ COMMENT_MODEL = os.getenv("GEMINI_COMMENT_MODEL", "gemini-3.5-flash").strip() or
 # ... but that model answers 503 "high demand" or takes past its timeout for hours at a time (Sat night: 11 of 11 Render calls fell
 # back to the plain template, "comment ok 0"), and llm.py's own chain moves on only for a 429. So the same prompt goes to the fast
 # model next (Flash-Lite, ~2-3 s, passed the checker on 25 of 30 first drafts), and a model that just failed is skipped for 45 s.
-# GEMINI_COMMENT_FALLBACK_MODEL= overrides; the same as the first model = no second try.
+# GEMINI_COMMENT_FALLBACK_MODEL= overrides; the same as the first model = no second try. (llm.py's chain now also moves on for a 503, a 5xx or a
+# timeout and hands over to this same fast model first, so this second step runs only when that whole chain has failed.)
 COMMENT_FAST_MODEL = os.getenv("GEMINI_COMMENT_FALLBACK_MODEL", "").strip() or None
 FIRST_TRY_S = 8.0  # the stronger model's HTTP timeout (its wait is capped a second past it)
 FAST_TRY_S = 12.0

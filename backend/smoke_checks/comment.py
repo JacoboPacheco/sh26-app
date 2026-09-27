@@ -216,17 +216,20 @@ def register(ctx):
         llm._cache = type(saved["cache"])()
         llm._post_json = post
         comment._busy_until.clear()
+        saved_out = {m: llm._out_until.pop(m, None) for m in (primary, fast)}
         try:
             text, why, _ = asyncio.run(comment._gemini(sh, body, time.perf_counter()))
             assert text and why is None, (why, text and text[:80])
-            assert calls == [primary, fast], calls
-            assert comment._busy_until.get(primary, 0) > time.time(), "the model that just failed is skipped for a while"
+            assert calls == [primary, fast], calls  # llm.py's own chain now takes the 503 (its next model after the stronger one is the default fast model)
+            assert llm._out_until.get(primary, 0) > time.time(), "the model that just failed is skipped for a while"
             calls.clear()
             llm._cache = type(saved["cache"])()
             asyncio.run(comment._gemini(sh, body, time.perf_counter()))
             assert calls == [fast], calls  # while it cools down, straight to the fast model
             # both busy: the labeled plain version (why says Gemini was unavailable), never an error
             comment._busy_until.clear()
+            for m in (primary, fast):
+                llm._out_until.pop(m, None)
             llm._cache = type(saved["cache"])()
             llm._post_json = lambda url, req, key, timeout: (_ for _ in ()).throw(urllib.error.HTTPError(url, 503, "UNAVAILABLE", {}, io.BytesIO(b"{}")))
             text, why, _ = asyncio.run(comment._gemini(sh, body, time.perf_counter()))
@@ -234,6 +237,10 @@ def register(ctx):
         finally:
             llm._post_json, llm.CACHE_FILE, llm._cache = saved["post"], saved["file"], saved["cache"]
             comment._busy_until.clear()
+            for m, until in saved_out.items():
+                llm._out_until.pop(m, None)
+                if until is not None:
+                    llm._out_until[m] = until
             if saved["key"] is None:
                 os.environ.pop("GEMINI_API_KEY", None)
             else:
