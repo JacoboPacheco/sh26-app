@@ -996,8 +996,9 @@ export function fitCanvas(cv) {
 export function readout(fig, tag, st) {
   if (fig) {
     // a held line relieved to 99.5 % reads as under its rating, not "100 %"
+    // past ~300 % a DC-flow re-solve after an island is an artefact, not a reading: "over 300 %" (REVIEW-1)
     const v = st.L > 99 && st.L < 100 ? 99 : Math.round(st.L)
-    const text = `${v.toLocaleString('en-US')} %`
+    const text = v > 300 ? 'over 300 %' : `${v.toLocaleString('en-US')} %`
     if (fig.textContent !== text) fig.textContent = text
     const over = String(st.L > 100 && st.live)
     if (fig.dataset.over !== over) fig.dataset.over = over

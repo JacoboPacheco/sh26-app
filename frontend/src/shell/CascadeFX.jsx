@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { money } from '../features/cost/money'
 import { useLossRate } from '../features/impact/caseCost'
@@ -52,6 +52,7 @@ const PART_GAP = 7
 
 export default function CascadeFX() {
   const { fx: live, playing, subById, branchById, cascade, step, region, view } = useOverload()
+  const clean = useReviewOpen()
   const { k, project } = useMapView()
   const [aim, setAim] = useState(null) // a line the impact panel points at before the run (hover)
   const reduced = useReducedMotion()
@@ -130,8 +131,8 @@ export default function CascadeFX() {
       const t1 = c.until + FADE_OUT
       const box = (y) => ({ x0: c.x - w / 2, x1: c.x + w / 2, y0: y - h, y1: y + 5 * upx, t0, t1 })
       const free = (b) => !alive.some((a) => a.t0 < b.t1 && b.t0 < a.t1 && a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1)
-      // at most LABELS_PER_TIER town labels on screen at once (REVIEW-1 #6: 14 stacked rows mid-replay)
-      if (c.kind === 'hit' && !force && alive.filter((a) => a.hit && a.t0 < t1 && t0 < a.t1).length >= LABELS_PER_TIER) return null
+      // in the review: at most LABELS_PER_TIER town labels on screen at once
+      if (clean && c.kind === 'hit' && !force && alive.filter((a) => a.hit && a.t0 < t1 && t0 < a.t1).length >= LABELS_PER_TIER) return null
       for (const n of [0, -1, 1, -2, 2, -3, 3, -4]) {
         const y = c.y + n * (h + 3 * upx)
         const b = { ...box(y), hit: c.kind === 'hit' }
@@ -146,11 +147,13 @@ export default function CascadeFX() {
       alive.push(b)
       return { ...c, box: b }
     }
-    // ONE label per town (REVIEW-1 #6: the same town twice with different numbers): a town's label reads
-    // its running total, and a later hit on a town whose label is still up replaces it on the same spot
+    // The live cascade stays crowded on purpose (user, Sat 20:50: "keep the cascade messy and impactful").
+    // In the review (html.review-open) it is clean: ONE label per town reading its running total, and a later
+    // hit on a town whose label is still up replaces it on the same spot.
     const townSum = new Map()
     const townLabel = new Map()
     const townHit = (area, people, I, x, y, t, until, force) => {
+      if (!clean) return place({ ...hitLabel(area, people, I), x, y, t, until }, force)
       const sum = (townSum.get(area) || 0) + people
       townSum.set(area, sum)
       const prev = townLabel.get(area)
@@ -291,7 +294,7 @@ export default function CascadeFX() {
       tier.darken.forEach((d) => dark(`${key}-k${d.id}`, d.id, d.t))
     })
     return { snaps, hits, darks, canvas: { rings, flares, sparks, labels, lineFlares } }
-  }, [fx, lag, subById, branchById, cascade, project, k, host, darkAtStart])
+  }, [fx, lag, subById, branchById, cascade, project, k, host, darkAtStart, clean])
 
   // the hatch for areas that lose power (always defined: the base map's dark areas use it too, index.css)
   const hs = HATCH_PX / k
@@ -612,6 +615,18 @@ function drawLabels(ctx, ms, px, labels, o) {
     ctx.restore()
   }
   ctx.globalAlpha = 1
+}
+
+// The review stage (features/briefing/ReviewStage.jsx) marks <html class="review-open"> while it's up.
+function subscribeReview(cb) {
+  if (typeof MutationObserver === 'undefined') return () => {}
+  const mo = new MutationObserver(cb)
+  mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  return () => mo.disconnect()
+}
+const reviewOpenNow = () => document.documentElement.classList.contains('review-open')
+function useReviewOpen() {
+  return useSyncExternalStore(subscribeReview, reviewOpenNow, () => false)
 }
 
 // Before the run: the line a row of "Where the people are" points at, lit on the map.
