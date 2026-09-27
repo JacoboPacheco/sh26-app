@@ -21,7 +21,7 @@ import { money } from '../cost/money'
 import { useReducedMotion } from '../impact/towns'
 import './duel.css'
 import { closeDuel, outcomeOf, pauseDuel, pctText, resumeDuel, skipDuel, startDuel, useDuel } from './duel'
-import { fixLine, flipSide, plantsOut, runWithFix, showWith, useBestFix, useFlip } from './flipCase'
+import { describeFix, fixLine, flipSide, plantsOut, runWithFix, showWith, useBestFix, useFlip } from './flipCase'
 
 const bare = (label) => String(label || '').replace(/^the\s+/i, '')
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s)
@@ -309,7 +309,14 @@ function CardBody({ duel }) {
   const handOff = () => {
     closeDuel()
     if (known) showWith(O)
-    else runWithFix(O, duel.fix, { base: duel.body, report: duel.report, rate: duel.rate })
+    else runWithFix(O, { ...duel.fix, origin: 'duel' }, { base: duel.body, report: duel.report, rate: duel.rate })
+  }
+  // Gemini's own plan (the one the contest ends on), when the fix handed off is the engine's: one click runs the case
+  // again with it instead, so what it changes shows on the map and in the results column (What the fix changes)
+  const gem = done && fix && fix.by !== 'gemini' ? geminiPlanOf(duel.report, res) : null
+  const handOffGemini = () => {
+    closeDuel()
+    runWithFix(O, { ...gem, origin: 'duel' }, { base: duel.body, report: duel.report, rate: duel.rate })
   }
   const where = !beat
     ? ''
@@ -364,6 +371,14 @@ function CardBody({ duel }) {
         <div className="duel__hand">
           <Button onClick={handOff}>Run it again with the fix</Button>
           <p className="duel__fixline">{fixLine(fix)}</p>
+          {gem && (
+            <div className="duel__alt">
+              <Button variant="secondary" onClick={handOffGemini}>
+                Run it again with Gemini&apos;s plan
+              </Button>
+              <p className="duel__fixline">{fixLine(gem)}</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -374,6 +389,17 @@ function CardBody({ duel }) {
       </p>
     </>
   )
+}
+
+// Gemini's verified plan the contest ends on (the result names it by its price), as the report lists it among the
+// fixes (family 'agentic'); else its best-ranked verified plan. null when none held.
+function geminiPlanOf(report, res) {
+  const mine = (report?.fixes || []).filter((f) => f?.apply && f.family === 'agentic' && (f.verdict === 'holds' || f.verdict === 'partly'))
+  if (!mine.length) return null
+  const want = res?.best_cost_usd
+  const named = want != null ? mine.find((f) => Math.round(Number(f.cost?.high)) === Math.round(Number(want))) : null
+  const f = named || [...mine].sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))[0]
+  return describeFix(f, Number(report?.case?.mw) || 0)
 }
 
 function Who({ by }) {

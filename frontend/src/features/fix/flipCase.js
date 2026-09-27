@@ -85,7 +85,10 @@ export function fixWords(f, fromMw) {
   return f.action || f.label || 'The verified fix'
 }
 
-// the fix as the panels show it: what it is, what it costs (the high end), who proposed it
+// the fix as the panels show it: what it is, what it costs (the high end), who proposed it. It also keeps what
+// "What the fix changes" (FixChanges.jsx) describes, all as the report computed it: each element raised (detail.list:
+// label, MVA before and after, km), each element priced (cost.items: kind, kV, miles, the work, low and high), the
+// family's own numbers (detail: a flexible campus's size at each hour, on-site MW, the new site) and the strain after it.
 export function describeFix(f, fromMw) {
   if (!f?.apply) return null
   const cost = f.cost?.high > 0 ? { high: Number(f.cost.high), low: Number(f.cost.low) || 0 } : null
@@ -99,6 +102,13 @@ export function describeFix(f, fromMw) {
     words: fixWords(f, fromMw),
     upgrades: Object.keys(f.apply.upgrades || {}).map(Number),
     strainPct: f.strain?.peak_pct ?? null,
+    strain: f.strain || null,
+    list: Array.isArray(f.detail?.list) ? f.detail.list : null,
+    items: Array.isArray(f.cost?.items) ? f.cost.items : null,
+    detail: f.detail || null,
+    keptMw: f.kept_mw ?? null,
+    keptPct: f.kept_pct ?? null,
+    fromMw: Number(fromMw) || null,
   }
 }
 
@@ -209,7 +219,7 @@ export const plantsOut = (cascade) =>
 
 // ------------------------------------------------------------------ applying a case through the store's setters
 const sameNums = (a, b) => a.length === b.length && a.every((x, i) => Number(x) === Number(b[i]))
-const sameUps = (a, b) => {
+export const sameUps = (a, b) => {
   const ea = Object.entries(a || {})
   return ea.length === Object.keys(b || {}).length && ea.every(([id, v]) => Math.abs(Number(b[id]) - Number(v)) < 0.05)
 }
@@ -224,6 +234,69 @@ export function applyCase(O, full) {
   if (!sameUps(full.upgrades || {}, O.upgrades || {})) O.setUpgrades({ ...(full.upgrades || {}) })
   if (JSON.stringify(sitesOf(full.sites)) !== JSON.stringify(sitesOf(O.extraSites))) O.setExtraSites((full.sites || []).map((x, i) => ({ id: `fix-${i}`, lat: x.lat, lon: x.lon, mw: x.mw })))
   if (!!full.firm !== !!O.firm) O.setFirm(!!full.firm)
+}
+
+// ------------------------------------------------------------------ the case without the fix, measured
+/** The most loaded line of a what-if, in % of its rating. */
+export function busiest(result) {
+  let max = 0
+  for (const o of result?.overloaded || []) if (o.pct > max) max = o.pct
+  const all = result?.loading_pct || []
+  for (let i = 0; i < all.length; i++) if (all[i] > max) max = all[i]
+  return max
+}
+
+const sortedNums = (a) => [...(a || [])].map(Number).sort((p, q) => p - q)
+
+/** Is `result` the what-if of this case? Its header echoes the case (backend grid.py _case_header): the TOTAL size of
+ *  every campus, one entry per campus, the load level (rounded to 2 decimals), the trips, the upgrades and firm
+ *  service; the store tags it with the main site it answers (`forSite`), which a fix that moves the campus changes. */
+export function whatifOf(result, body) {
+  if (!result || !body) return false
+  if (!sameUps(result.upgrades || {}, body.upgrades || {})) return false
+  if (Math.abs(Number(result.load_factor ?? 1) - Number(body.load_factor ?? 1)) > 0.006) return false
+  if (!sameNums(sortedNums(result.trip), sortedNums(body.trip))) return false
+  if (result.firm != null && !!result.firm !== !!body.firm) return false
+  if (result.region && body.region && result.region !== body.region) return false
+  const extra = body.sites || []
+  const main = body.lat != null && body.lon != null && body.mw != null
+  const total = (main ? Number(body.mw) : 0) + extra.reduce((a, s) => a + (Number(s.mw) || 0), 0)
+  if (result.mw != null && Math.abs(Number(result.mw) - total) > 0.5) return false
+  if (Array.isArray(result.sites) && result.sites.length !== (main ? 1 : 0) + extra.length) return false
+  const f = result.forSite
+  if (f !== undefined) {
+    if (!main !== !f) return false
+    if (main && (Math.abs(Number(f.lat) - Number(body.lat)) > 1e-7 || Math.abs(Number(f.lon) - Number(body.lon)) > 1e-7)) return false
+  }
+  return true
+}
+
+/** A what-if as What the fix changes reads it: the busiest line, the lines over their limit, and the loading of each
+ *  element in `ids` (a Set of branch ids), all the engine's own numbers. */
+export function measureOf(r, ids, branchIndex) {
+  const loads = {}
+  ids.forEach((id) => {
+    const i = branchIndex?.get(id)
+    const v = i != null ? r.loading_pct?.[i] : null
+    if (v != null) loads[id] = Number(v)
+  })
+  ;(r.overloaded || []).forEach((o) => ids.has(Number(o.id)) && (loads[o.id] = Number(o.pct)))
+  return { peak: busiest(r), over: (r.overloaded || []).length, loads, by: 'whatif' }
+}
+
+/** The branch ids a fix raises (its upgrades, the report's list, Fix it's search). */
+export const fixIds = (fix) => new Set([...(fix.upgrades || []), ...(fix.list || []).map((x) => x.id), ...(fix.fixit || []).map((x) => x.id)].map(Number))
+
+// What "What the fix changes" compares against: the engine's what-if of the case without the fix, when the map's
+// what-if on screen is that case's (the busiest line, the lines over their limit, each element the fix raises at its
+// loading), else the briefing report's strain for it (the busiest line and the lines over, from the same kind of
+// solve). null when neither is on hand.
+function measureBase(O, base, fix, report, mapIsBase) {
+  const r = O.result
+  if (mapIsBase && r && !O.solving && whatifOf(r, base)) return measureOf(r, fixIds(fix), O.branchIndex)
+  const s = report?.strain?.with_campus
+  if (s && s.peak_pct != null) return { peak: Number(s.peak_pct), over: s.over ?? null, loads: {}, by: 'report' }
+  return null
 }
 
 // ------------------------------------------------------------------ the three actions
@@ -257,9 +330,11 @@ export async function runWithFix(O, fix, { base: baseIn, baseCascade, report, ra
         ? { high: Number(c.blackout_high_usd), low: Number(c.ranges?.blackout_usd?.[0]) || 0 }
         : null
   const over = flipKey(O.caseBody) === baseKey ? (O.result?.overloaded || []).map((o) => o.id) : st.base?.key === baseKey ? st.base.over : []
+  // the case without the fix as the engine measured it (What the fix changes: the before column)
+  const measure = measureBase(O, base, fix, report, mapIsBase) || (st.base?.key === baseKey ? st.base.measure : null)
   emit({
-    base: { key: baseKey, body: base, cascade: casc, ...people, cost, over },
-    fix: { ...fix, key: fixKey, body: full },
+    base: { key: baseKey, body: base, cascade: casc, ...people, cost, over, measure },
+    fix: { ...fix, key: fixKey, body: full, costSources: fix.costSources || report?.cost?.sources || null },
     fixed: st.fix?.key === fixKey ? st.fixed : null,
     status: 'running',
   })

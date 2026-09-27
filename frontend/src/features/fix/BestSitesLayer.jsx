@@ -9,6 +9,7 @@ import { useOverload } from '../../store'
 import { CITIES, project as projectLonLat } from '../../geo'
 import { useMapView } from '../../GridMap'
 import './fix.css'
+import { useFixLabelsShown } from './fixModel'
 import { shownSites, useBestSites, useFix, useHoverSite } from './fixStore'
 
 export default function BestSitesLayer() {
@@ -18,6 +19,9 @@ export default function BestSitesLayer() {
   const best = useBestSites(mw, loadFactor, on, region)
   const fix = useFix(caseBody)
   const hover = useHoverSite()
+  // the results column's What the fix changes labels each element on the map (FixLabels: after a flip, or with Fix
+  // it's upgrades applied), so the "+N MVA" labels here would say it twice
+  const labelled = useFixLabelsShown()
   if (!on) return null
 
   const { list, fits } = shownSites(best.data)
@@ -41,7 +45,7 @@ export default function BestSitesLayer() {
   const drawn = [...ups.entries()]
     .map(([id, u]) => ({ id, ...u, a: pos(u.from), b: pos(u.to) }))
     .filter((u) => u.a && u.b)
-  const labels = ups.size <= 6 ? placeLabels(drawn, k) : []
+  const labels = ups.size <= 6 && !labelled ? placeLabels(drawn, k) : []
 
   return (
     <g className="fix-layer" aria-hidden="true">

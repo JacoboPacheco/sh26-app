@@ -190,6 +190,8 @@
   overflow: auto;
   display: grid;
   align-content: start;
+  /* every row at its content's height: a full card scrolls, it never squeezes one block under the next */
+  grid-auto-rows: max-content;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4) var(--space-4);
   color: var(--ink);
@@ -393,6 +395,21 @@
   font-size: 0.78rem;
   line-height: 1.4;
   color: var(--ink-2);
+}
+/* Gemini's own plan, when the engine's is the one handed off: second, quieter (an outline, not the solution green) */
+.duel__alt {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+.duel__hand .duel__alt .btn {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--ink);
+  font-weight: 650;
+}
+.duel__hand .duel__alt .btn:hover {
+  border-color: var(--ink-2);
 }
 
 /* the rounds so far (AgentTrace, read-only) */

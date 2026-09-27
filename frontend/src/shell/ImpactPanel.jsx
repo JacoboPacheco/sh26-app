@@ -8,6 +8,7 @@ import { LABEL, cascadePeople, homesOf } from '../features/cost/figures'
 import { money, moneyParts, moneyRange } from '../features/cost/money'
 import DarkFirst from '../features/darkfirst/DarkFirst'
 import HowWeKnow from '../features/evidence/HowWeKnow'
+import ActiveFix from '../features/fix/ActiveFix'
 import { FlipOffer, FlipResult } from '../features/fix/Flip'
 import { GeminiDuelOffer } from '../features/fix/GeminiDuelLayer'
 import { flipSide, plantsOut, useFixFollowsCase, useFlip } from '../features/fix/flipCase'
@@ -70,6 +71,9 @@ export default function ImpactPanel() {
             ` ${(cascade.sites?.length || 1) === 1 ? "The data center's" : "The data centers'"} own ${fmt(cascade.site_dark_mw)} MW lost power too.`}
         </p>
       )}
+      {/* a fix on the case outside the flip (Fix it's upgrades applied, a flipped fix kept after the hour or the size
+          changed, a Strengthen plan tried on the map): what it changes, as the flip's result says it (features/fix) */}
+      {!fixed && !live && <ActiveFix rate={rate} settled={settled} />}
       {/* under the toll: how long the lights are out (and, before a run, what it would cost), then the flip (the
           same case again with the best verified fix), then one click to present it */}
       {result && !fixed && <OutageCost />}

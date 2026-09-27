@@ -78,7 +78,12 @@ function FixSection() {
     const runIt = () => {
       if (flip.fix && flipSide(flip, caseBody) === 'base' && target === flip.fix.key) return showWith(o)
       const described = same && describeFix(same, Number(report?.case?.mw) || 0)
-      runWithFix(o, { ...(described || {}), apply: up, words: described?.words || fixWords(fix.data), by: 'engine', verdict: fix.data.calm ? 'holds' : 'partly', upgrades: fix.data.upgrades.map((u) => u.id) }, { base: caseBody, rate, report })
+      // `fixit`: the search's own numbers per element (MVA, loading before and after), for What the fix changes
+      runWithFix(
+        o,
+        { ...(described || {}), apply: up, words: described?.words || fixWords(fix.data), by: 'engine', verdict: fix.data.calm ? 'holds' : 'partly', upgrades: fix.data.upgrades.map((u) => u.id), fixit: fix.data.upgrades, origin: 'fixit' },
+        { base: caseBody, rate, report },
+      )
     }
     body = (
       <FixResult
