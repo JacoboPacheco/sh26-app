@@ -57,6 +57,9 @@ export function GridlockProvider({ children }) {
   const [ov, setOv] = useState({ status: 'loading' })
   const [sel, setSel] = useState(null) // {kind: 'overlap', id, overlap} | {kind: 'project', id, back}
   const [hover, setHover] = useState(null) // {kind: 'overlap' | 'project', id}
+  // one language for the whole page: the pair sheet's EN/ES toggle sets it, so the rail's own mirrored
+  // step list (Intro.jsx's RailSteps) reads the same choice instead of always showing English
+  const [lang, setLang] = useState('en')
   // the rail's view: 'opportunities' (the ranked pairs), 'pipeline', 'projects', 'setaside' (the records the checks kept
   // out) or 'sperry' (Sperry's worked example alone, the start of the story)
   const [tab, setTabState] = useState(() => readRoute()?.tab || 'opportunities')
@@ -498,6 +501,8 @@ export function GridlockProvider({ children }) {
     openProject,
     close,
     back,
+    lang,
+    setLang,
     draft,
     openDraft,
     closeDraft,

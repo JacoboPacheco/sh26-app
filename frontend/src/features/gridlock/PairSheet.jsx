@@ -81,9 +81,8 @@ function useSettled(value, ms) {
 
 export default function PairSheet() {
   const g = useGridlock()
-  const { draft, closeDraft, client, sel, setCover, back } = g
+  const { draft, closeDraft, client, sel, setCover, back, lang, setLang } = g
   const months = useSettled(g.params.window_months, 450)
-  const [lang, setLang] = useState('en')
   const [tries, setTries] = useState(0)
   const [planTries, setPlanTries] = useState(0)
   const s = S[lang]

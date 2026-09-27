@@ -2120,6 +2120,14 @@ circle.gl-proj__hit {
     margin: 0 16px;
   }
 
+  /* .gl-side no longer scrolls on its own here (it's part of the one page scroll above), so a sticky
+     footer would float over the pair list for the whole scroll instead of sitting under it once
+     (confirmed: it stayed pinned across pairs #1-#19 in a mobile pass) - keep it in normal flow instead */
+  .gl-railfoot {
+    position: static;
+    margin-top: 4px;
+  }
+
   .gl-railfoot__main {
     padding-left: 16px;
   }

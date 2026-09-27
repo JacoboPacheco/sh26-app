@@ -10,13 +10,20 @@ import { localToday, rangeText, whenText, whereText } from './plain'
 // steps of the guided path. The example reads the pair's plain draft (the same answer step 2 opens with, so picking it
 // is instant); nothing on it is hardcoded.
 
+// kept in step with the pair sheet's own EN/ES step names (PairSheet.jsx's S.en.steps / S.es.steps), so choosing a
+// language inside a pair doesn't leave this mirrored list in the rail stuck in English
+const RAIL_STEPS = {
+  en: { steps: ['Find an overlap', 'See what it saves', 'Agree on a plan'], label: 'How it works' },
+  es: { steps: ['Encontrar una coincidencia', 'Ver cuánto ahorra', 'Acordar un plan'], label: 'Cómo funciona' },
+}
+
 export function RailSteps() {
   const g = useGridlock()
   const open = !!g.draft
   const step = !open ? 1 : g.pairStep === 'plans' ? 3 : 2
-  const steps = ['Find an overlap', 'See what it saves', 'Agree on a plan']
+  const { steps, label } = RAIL_STEPS[g.lang === 'es' ? 'es' : 'en']
   return (
-    <ol className="bt-railsteps" aria-label="How it works">
+    <ol className="bt-railsteps" aria-label={label}>
       {steps.map((s, i) => {
         const n = i + 1
         const state = n < step ? 'done' : n === step ? 'now' : 'next'
