@@ -33,6 +33,8 @@ import CapacityCard from './CapacityCard'
 import CapacityMeter from './CapacityMeter'
 import CapacityPlan from './CapacityPlan'
 import GeminiChallenge from './GeminiChallenge'
+import { useIncident } from './incident'
+import IncidentSolution from './IncidentSolution'
 import PlayByPlay from './PlayByPlay'
 import StudyProgress from './StudyProgress'
 import { ttpPlan, useTimeToPower } from './timeToPower'
@@ -67,6 +69,7 @@ import {
 } from './unlockStore'
 import './unlock.css'
 import './strengthen.css'
+import HowWeKnow from '../evidence/HowWeKnow'
 
 const BUSY = new Set(['starting', 'queued', 'running'])
 const cap1 = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s)
@@ -86,6 +89,10 @@ export default function StrengthenPage() {
   const view = m ? u.view : 'sites'
   const [sitesStart, setSitesStart] = useState({ view: 'plan', key: 0 })
   const [still] = useState(reducedMotion)
+  // one incident's solutions in depth (IncidentSolution.jsx), opened from Watch it fail or a deep link: shown in
+  // place of the statewide view, which keeps loading underneath so "How many more campuses…" opens at once
+  const inc = useIncident()
+  const stage = !!inc
 
   // the capacity view's numbers
   const target = m ? capTargetOf(u) : 0
@@ -106,10 +113,11 @@ export default function StrengthenPage() {
   useEffect(() => {
     if (!national) openStudy({ region, loadFactor, auto: florida })
   }, [region, loadFactor, u.size, national, florida])
-  // opening the page, and a new answer (another size or campus type): the whole state in view
+  // opening the page, and a new answer (another size or campus type): the whole state in view (the incident stage
+  // frames its own case; closing it brings the whole state back)
   useEffect(() => {
-    mapRef.current?.reset()
-  }, [mapRef, u.key, u.flex])
+    if (!stage) mapRef.current?.reset()
+  }, [mapRef, u.key, u.flex, stage])
   useEffect(
     () => () => {
       stopPlay()
@@ -215,6 +223,8 @@ export default function StrengthenPage() {
   const building = u.capPlaying
   const gemSummary = gm ? `Capacity meter showing Gemini’s plan, verified by the engine: ${fmt(gm.steps.length)} campuses at once for ${money(r.capacity.ai.cost.high)}.` : ''
 
+  if (stage) return <IncidentSolution inc={inc} />
+
   return (
     <>
       <header className={`st-head${away}`}>
@@ -237,6 +247,7 @@ export default function StrengthenPage() {
           />
         )}
         {hasPlan && !gm && <SureFold r={r} flex={u.flex} />}
+        {hasPlan && !gm && !national && <HowWeKnow region={region} figures={['capacity']} capacity={r.capacity} target={target} flex={u.flex} label="How we know this number" />}
         {!national && (
           <div className="st-controls">
             <Segmented

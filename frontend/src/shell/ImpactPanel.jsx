@@ -13,6 +13,7 @@ import { FlipOffer, FlipResult } from '../features/fix/Flip'
 import { GeminiDuelOffer } from '../features/fix/GeminiDuelLayer'
 import { flipSide, plantsOut, useFixFollowsCase, useFlip } from '../features/fix/flipCase'
 import TownsFeed from '../features/impact/TownsFeed'
+import FullSolutionButton from '../features/unlock/FullSolutionButton'
 import { useSteadyLossRate } from '../features/cost/steady'
 import { byIntensity, leapIntensity } from '../features/impact/intensity'
 import { hitTowns, roundPeople, useHitEvents, useReducedMotion } from '../features/impact/towns'
@@ -81,6 +82,7 @@ export default function ImpactPanel() {
       {/* secondary to the flip: Gemini's recorded plans replayed on the map, each re-run by the engine */}
       {done && !calm && !fixed && <GeminiDuelOffer rate={rate} />}
       {result && <PresentDamage />}
+      {done && !calm && !fixed && <FullSolutionButton />}
       {(done || (fixed && settled)) && <ToStrengthen />}
       {/* the same campus under three service rules: who is cut first (features/darkfirst); below the flip, the
           presentation and the hand-off, so the fix stays in view when the cascade ends */}

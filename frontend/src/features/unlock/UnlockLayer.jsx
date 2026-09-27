@@ -13,13 +13,15 @@
 //    the build-up the step being built carries a short caption; or one Gemini bundle's upgrades when shown;
 //  - the package picked in the table outlined, dashed when the budget doesn't buy it yet.
 // Sizes are map units divided by the zoom, so they stay the same on screen.
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useMapView } from '../../GridMap'
 import { WIDTH, citiesFor, fmt } from '../../geo'
 import { useOverload } from '../../store'
 import CapacityLayer from './CapacityLayer'
+import IncidentLayer from './IncidentLayer'
 import PbpLayer from './PbpLayer'
 import { pickCampus } from './capacityPick'
+import { closeIncident, consumeWant, markEntered, useIncident } from './incident'
 import './unlock.css'
 import { capNow, capTargetOf, compact, drawnUpgrades, gemNow, raceNow, reducedMotion, select, useUnlock } from './unlockStore'
 
@@ -30,9 +32,36 @@ const nameOf = (p) => p.short || p.label.replace(/^the /, '')
 
 export default function UnlockLayer() {
   const o = useOverload()
-  const { mode, region, focus, grid } = o
+  const { mode, region, focus, grid, setMode } = o
   const { k, project } = useMapView()
   const u = useUnlock()
+
+  // The incident solution stage (incident.js): opening one switches to Strengthen (this layer is always mounted with
+  // the map, so openIncidentSolution works from anywhere); once Strengthen has been on screen with it (loaded or still
+  // loading), leaving Strengthen closes it, so it never comes back on a later visit.
+  const inc = useIncident()
+  const want = !!inc?.want
+  const entered = !!inc && !!(inc.entered || inc.shown)
+  useEffect(() => {
+    if (!want) return
+    consumeWant()
+    if (mode !== 'unlock') setMode('unlock')
+  }, [want, mode, setMode])
+  useEffect(() => {
+    if (!inc || want) return undefined
+    if (mode === 'unlock') {
+      markEntered()
+      return undefined
+    }
+    if (!entered) return undefined
+    // a moment later: picking another state leaves Strengthen for one render (strengthenMap's useStayOnStrengthen puts
+    // it back, and this effect's cleanup then cancels the close)
+    const t = setTimeout(() => {
+      closeIncident()
+      if (/^#\/strengthen\?incident/.test(window.location.hash)) window.history.replaceState(null, '', '#/')
+    }, 0)
+    return () => clearTimeout(t)
+  }, [inc, want, entered, mode])
   const on = mode === 'unlock' && u.region === region
   const r = on && u.status === 'done' ? u.result : null
   const sites = r ? r.sites : on ? u.partial?.sites : null
@@ -55,6 +84,8 @@ export default function UnlockLayer() {
   const labels = on && points && !cap ? placeLabels(points, k, project, grid, u.selected) : new Map()
   // Gemini's verified plan ("Show it" on the Strengthen page): its campuses and raises, its new sites outlined in blue
   const gem = cap ? gemNow(u) : null
+  // the incident solution stage draws its own case (the weak point, the option on screen) in place of the study
+  if (mode === 'unlock' && inc?.status === 'done' && inc.report && inc.region === region && (grid?.meta?.region || 'FL') === region) return <IncidentLayer inc={inc} />
   // "Watch it get built": the play-by-play draws its own picture, beat by beat
   if (cap && u.pbp) return <PbpLayer m={cap} u={u} grid={grid} reduced={reducedMotion()} />
   // a plan-race competitor's verified plan (features/planrace, "Show on the map")
