@@ -68,15 +68,16 @@ export function whereText(o) {
 // windows overlap, which is not the same as both crews building then (J3)
 export const planningSide = (o) => Array.isArray(o?.window_kinds) && o.window_kinds.includes('planning')
 
-// when, in a few words: "both building Jan–Jun 2027", "build windows overlap Jun–Dec 2029", "build windows 8 months apart"
+// when, in a few words: "both building Jan–Jun 2027", "build windows overlap Jun–Dec 2029", "build windows overlap Jun 2025–Dec 2026, open now", "build windows 8 months apart"
 export function whenText(o) {
   const jw = jointWindowOf(o)
   if (o?.same_window || (o?.windows_overlap_months || 0) > 0) {
     const r = jw ? rangeText(jw.start, jw.end) : `${Math.round(o.windows_overlap_months || 0)} months`
     const plan = planningSide(o)
     if (o.ahead === 'past') return plan ? `build windows overlapped ${r}` : `both built ${r}, as filed`
-    if (plan) return jw ? `build windows overlap ${r}` : `build windows overlap for ${r}`
-    return jw ? `both building ${r}` : `both building for ${r}`
+    const now = o.ahead === 'open' ? ', open now' : '' // today is inside the shared window: it started and has not ended
+    if (plan) return (jw ? `build windows overlap ${r}` : `build windows overlap for ${r}`) + now
+    return (jw ? `both building ${r}` : `both building for ${r}`) + now
   }
   if (o?.window_gap_days != null) {
     if (o.window_gap_days === 0) return 'one build window starts as the other ends'

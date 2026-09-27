@@ -109,6 +109,24 @@ def register(ctx):
         assert again["status"] == "done" and again["result"]["cached"] is True, "a finished case was not served from the cache"
         assert again["result"]["runs"]["none"]["toll"] == first["runs"]["none"]["toll"], "the cached run differs"
 
+    def test_hero_runs_are_recorded():
+        """The two Fort Myers hero runs (1,000 and 1,500 MW, 4 PM) are committed (backend/demo/operator/, scripts/bake_operator.py) and
+        answer at once, on any host, with or without a Gemini key. A file baked from other engine code is ignored (the case would
+        run live, for minutes on a small server), so this fails first: rebake."""
+        for mw in (1000, 1500):
+            body = {"lat": 26.6406, "lon": -81.8723, "mw": mw}
+            t0 = time.time()
+            j = ctx.request("POST", RUN, body)
+            dt = time.time() - t0
+            assert j["status"] == "done" and j["job"] is None, f"{mw} MW: not answered at once (status {j['status']}): the baked file is missing or stale: rerun scripts/bake_operator.py"
+            r = j["result"]
+            assert r.get("baked") is True and r["cached"] is True, f"{mw} MW: not served from backend/demo/operator"
+            assert dt < 8, f"{mw} MW: {dt:.1f} s"
+            assert r["by"] == "gemini" and r["runs"]["gemini"] and r["matches_cascade"] is True, f"{mw} MW: the recorded run is not a complete Gemini run"
+            assert "game" not in r["frame"].lower() and "synthetic" in r["frame"].lower(), "frame wording"
+            c = ctx.request("POST", "/api/grid/cascade", body)
+            assert r["runs"]["none"]["toll"]["people_hit"] == c["people_hit"], f"{mw} MW: the recorded no-operator run differs from the cascade route: rebake"
+
     def test_bad_bodies():
         ctx.request("POST", RUN, {"load_factor": 1.0}, expect=422)  # nothing to fight
         ctx.request("POST", RUN, {**hero_body(), "firm": True}, expect=422)  # the operator plays the flexible case
@@ -123,4 +141,5 @@ def register(ctx):
     ctx.check("operator: every action re-solved by the engine, 3 a step, never worse than nothing", test_engine_resolves_each_action)
     ctx.check("operator: Gemini through function calls, or a labeled engine fallback", test_gemini_or_labeled_fallback)
     ctx.check("operator: a finished case comes back from the cache", test_cached_second_run)
+    ctx.check("operator: the two hero runs answer at once from their committed files", test_hero_runs_are_recorded)
     ctx.check("operator: 422 on a bad body, 404 on an unknown job", test_bad_bodies)

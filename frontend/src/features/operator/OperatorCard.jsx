@@ -7,7 +7,7 @@
 // shown as it is: the AI can do better than nothing, match it, or be beaten by the engine's operator.
 //
 // Props: lang 'en' | 'es'. Mounted once in shell/ImpactPanel.jsx (after DarkFirst). Nothing here plays audio.
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import AgentTrace, { AgentTraceToggle } from '../ai/AgentTrace'
@@ -20,10 +20,12 @@ import { useOperator } from './operatorApi'
 const T = {
   en: {
     h: 'Could an operator have stopped it?',
-    lead: 'A game on the synthetic model. An AI operator gets the alarm at each step and may move power between plants, cut load or open a line; the engine checks every move, re-solves, and trips what is still over its rating.',
+    lead: 'A test on the synthetic model. An AI operator gets the alarm at each step and may move power between plants, cut load or open a line; the engine checks every move, re-solves, and trips what is still over its rating.',
     go: 'Let an AI operator try',
     again: 'Try again',
     working: 'The engine is checking every move…',
+    slow: 'This can take a minute on this server.',
+    saved: 'A saved run of this exact case, recorded from a live Gemini run. Any other site or size runs live.',
     engineFirst: (n, z) => `Engine operator: ${fmt(n)} people hit (no operator: ${fmt(z)})`,
     step: (t, n) => `Gemini is fighting step ${t} of ${n}…`,
     calls: (n) => `${n} ${n === 1 ? 'call' : 'calls'} so far`,
@@ -50,10 +52,12 @@ const T = {
   },
   es: {
     h: '¿Pudo un operador haberlo detenido?',
-    lead: 'Un juego sobre el modelo sintético. Un operador de IA recibe la alarma en cada paso y puede mover potencia entre plantas, cortar carga o abrir una línea; el motor comprueba cada movimiento, recalcula y dispara lo que sigue sobre su límite.',
+    lead: 'Una prueba sobre el modelo sintético. Un operador de IA recibe la alarma en cada paso y puede mover potencia entre plantas, cortar carga o abrir una línea; el motor comprueba cada movimiento, recalcula y dispara lo que sigue sobre su límite.',
     go: 'Dejar que un operador de IA lo intente',
     again: 'Reintentar',
     working: 'El motor está comprobando cada movimiento…',
+    slow: 'Esto puede tardar un minuto en este servidor.',
+    saved: 'Una ejecución guardada de este caso exacto, grabada de una ejecución en vivo de Gemini. Cualquier otro sitio o tamaño se ejecuta en vivo.',
     engineFirst: (n, z) => `Operador del motor: ${fmt(n)} personas afectadas (sin operador: ${fmt(z)})`,
     step: (t, n) => `Gemini lucha en el paso ${t} de ${n}…`,
     calls: (n) => `${n} ${n === 1 ? 'llamada' : 'llamadas'} hasta ahora`,
@@ -105,7 +109,7 @@ export default function OperatorCard({ lang = 'en' }) {
   const body = useMemo(() => (!cascade || cascade.firm || plantsOut(cascade) ? null : rulesBody(caseBody, cascade)), [caseBody, cascade])
   const op = useOperator(body)
   if (!body) return null
-  const { status, progress, runs, trace, result } = op
+  const { status, progress, runs, trace, result, startedAt } = op
   return (
     <section className="op" aria-labelledby="op-h" aria-busy={status === 'running'}>
       <h2 className="panel-h" id="op-h">
@@ -119,7 +123,7 @@ export default function OperatorCard({ lang = 'en' }) {
           </button>
         </>
       )}
-      {status === 'running' && <Working t={t} progress={progress} runs={runs} trace={trace} />}
+      {status === 'running' && <Working t={t} progress={progress} runs={runs} trace={trace} startedAt={startedAt} />}
       {status === 'error' && (
         <p className="op__err" role="alert">
           {op.error?.message || t.err}{' '}
@@ -133,9 +137,25 @@ export default function OperatorCard({ lang = 'en' }) {
   )
 }
 
-function Working({ t, progress, runs, trace }) {
+// milliseconds since the run started, ticking once a second while the card is on screen
+function useElapsed(startedAt) {
+  const [now, setNow] = useState(startedAt || 0)
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return startedAt && now > startedAt ? now - startedAt : 0
+}
+
+const SLOW_MS = 60000 // past this the card says once that a live run can take a minute
+
+function Working({ t, progress, runs, trace, startedAt }) {
+  const ms = useElapsed(startedAt)
   const gem = progress.phase === 'gemini'
-  const share = gem ? Math.min(0.96, 0.1 + 0.86 * ((progress.turn || 0) / (progress.turns || 6))) : 0.06 + 0.04 * Math.min(1, (progress.engine_turn || 0) / 5)
+  // the steps the server has finished, and under them a floor that rises with the clock (never reaching the end), so the bar
+  // is always moving while a slow server works between two answers; the call count, the step and the trace say what is happening
+  const real = gem ? 0.1 + 0.86 * ((progress.turn || 0) / (progress.turns || 6)) : 0.06 + 0.04 * Math.min(1, (progress.engine_turn || 0) / 5)
+  const share = Math.min(0.96, Math.max(real, 0.05 + 0.9 * (1 - Math.exp(-ms / 45000))))
   return (
     <div className="op__work" role="status">
       <div className="op__bar" aria-hidden="true">
@@ -150,6 +170,7 @@ function Working({ t, progress, runs, trace }) {
           </>
         )}
       </p>
+      {ms >= SLOW_MS && <p className="op__wait">{t.slow}</p>}
       {trace.length > 0 && <AgentTrace trace={trace} lang="en" live follow brief heading={false} animate={false} className="op__trace" />}
     </div>
   )
@@ -218,6 +239,7 @@ function Result({ t, lang, r }) {
       </table>
       <p className="op__verdict">{r.verdict.text}</p>
       {r.verdict.note && <p className="op__note">{r.verdict.note}</p>}
+      {r.baked && <p className="op__note">{t.saved}</p>}
       {stoppedAt > 1 && <p className="op__note">{t.partial(stoppedAt - 1)}</p>}
       {list.length > 0 && (
         <div className="op__moves">
