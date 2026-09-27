@@ -382,7 +382,7 @@ def _sentence(e: dict, t: dict) -> str:
         s = f"{where} and pushes {t['over_text']} over {limits} ({room})."
         f = t["flexible"]
         if f["people"] > 0:
-            s += f" In the model's cascade about {_fmt(f['people'])} people lose power (estimate)"
+            s += f" In the model's cascade an estimated {_fmt(f['people'])} people lose power"
             s += ", and the campus itself is cut off." if f["site_cut_off"] else "."
         elif f["site_cut_off"]:
             s += " When they trip, the campus itself is cut off; no other customers lose power in the model."
@@ -408,20 +408,20 @@ def _why(t: dict) -> str | None:
             )
         elif big["people"] > f["people"]:
             parts.append(
-                f"{lead}. At twice the size ({_fmt(big['mw'])} MW) the model gives about {_fmt(big['people'])} people "
-                "(estimate): the cascade spreads further before it settles."
+                f"{lead}. At twice the size ({_fmt(big['mw'])} MW) the model gives an estimated {_fmt(big['people'])} people"
+                ": the cascade spreads further before it settles."
             )
         else:
             parts.append(
-                f"{lead}. At twice the size ({_fmt(big['mw'])} MW) the model gives fewer, about {_fmt(big['people'])} "
-                "people (estimate): the cascade takes a different path, so size alone doesn't set the count."
+                f"{lead}. At twice the size ({_fmt(big['mw'])} MW) the model gives fewer, an estimated {_fmt(big['people'])} "
+                "people: the cascade takes a different path, so size alone doesn't set the count."
             )
     elif f["site_cut_off"]:
         parts.append("In the flexible run the lines feeding the campus trip and cut off only the campus.")
     if m.get("firm_held"):
         parts.append(
             "On firm service the grid operator keeps the campus on and cuts other customers instead: "
-            + (f"about {_fmt(m['people'])} people (estimate)." if m["people"] > 0 else "here nobody else is cut.")
+            + (f"an estimated {_fmt(m['people'])} people." if m["people"] > 0 else "here nobody else is cut.")
         )
     elif m.get("firm_held") is False:
         parts.append(

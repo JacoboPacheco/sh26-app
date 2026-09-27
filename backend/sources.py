@@ -30,7 +30,7 @@ DATASETS = [
         "name": "U.S. Census Bureau, Vintage 2024 population estimates (NST-EST2024)",
         "license": "Public domain (U.S. government work)",
         "url": "https://www.census.gov/data/tables/time-series/demo/popest/2020s-state-total.html",
-        "used_for": "People without power and people hit (estimates): each state model's load stands for its residents.",
+        "used_for": "People without power and people hit, an estimated figure: each state model's load stands for its residents.",
     },
     {
         "id": "census_outline",
@@ -104,7 +104,7 @@ def _refs() -> list[dict]:
         import gridlock
 
         for k, s in gridlock.SOURCES.items():
-            out.append({"id": f"gridlock.{k}", "name": s["title"], "url": s.get("url"), "used_for": "Build together: what two projects building together could share (estimates)"})
+            out.append({"id": f"gridlock.{k}", "name": s["title"], "url": s.get("url"), "used_for": "Build together: an estimated figure for what two projects building together could share"})
     except Exception:  # noqa: BLE001
         pass
     return out

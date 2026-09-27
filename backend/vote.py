@@ -394,7 +394,7 @@ def _flex_text(t: dict, room: str) -> str:
         return f"At {mw} MW nothing goes over its limit on the model: the site has room for {room} MW before a line does."
     over = f"{t['over_text']} goes over its limit" if t["overloaded"] == 1 else f"{t['over_text']} go over their limits"
     if f["people"] > 0:
-        s = f"At {mw} MW {over} on the model and trip in turn; {_approx(f['people'])} people lose power in the cascade (estimate)"
+        s = f"At {mw} MW {over} on the model and trip in turn; an estimated {_approx(f['people']).removeprefix('about ')} people lose power in the cascade"
         return s + (", and the campus itself is cut off." if f["site_cut_off"] else ".")
     if f["site_cut_off"]:
         return f"At {mw} MW {over} on the model and the campus itself is cut off; no other customers lose power."
@@ -408,11 +408,11 @@ def _firm_text(t: dict) -> str:
         return "Nothing goes over its limit on the model, so firm service changes nothing here."
     if m.get("firm_held"):
         if m["people"] > 0:
-            return f"On the model the grid operator keeps the campus on and cuts other customers instead: {_approx(m['people'])} people lose power (estimate)."
+            return f"On the model the grid operator keeps the campus on and cuts other customers instead: an estimated {_approx(m['people']).removeprefix('about ')} people lose power."
         return "On the model the grid operator can keep the campus on, and no other customers lose power."
     if m.get("firm_held") is False:
         s = "On the model the campus cannot be kept on here: no nearby cut relieves the lines that feed it enough, so it is cut off as well"
-        return s + (f", with {_approx(m['people'])} people without power (estimate)." if m["people"] > 0 else ".")
+        return s + (f", with an estimated {_approx(m['people']).removeprefix('about ')} people without power." if m["people"] > 0 else ".")
     return "Not tested for this case."
 
 
@@ -446,7 +446,7 @@ def _simulation(e: dict) -> dict:
         headline = f"On the model this size goes past the site's room of {room} MW and pushes {t['over_text']} {over}, but no other customers lose power."
     else:
         headline = (
-            f"On the model the site has room for {room} MW; at {_n(t['tested_mw'])} MW the cascade leaves {_approx(f['people'])} people without power (estimate)."
+            f"On the model the site has room for {room} MW; at {_n(t['tested_mw'])} MW the cascade leaves an estimated {_approx(f['people']).removeprefix('about ')} people without power."
         )
     return {
         "tested": True,
@@ -558,7 +558,7 @@ def _upgrade_words(u: dict) -> tuple[str, str]:
     left = u.get("remaining") or 0
     parts = [raised + ("" if u["calm"] else (f", and {left} still over {'its' if left == 1 else 'their'} limit when the search stopped" if left else ", and some still over their limit when the search stopped"))]
     if not u["prevents"]:
-        parts.append(f"the cascade still leaves {_approx(u['people_after'])} people without power (estimate)" if u.get("people_after") else "the cascade still ends in a blackout")
+        parts.append(f"the cascade still leaves an estimated {_approx(u['people_after']).removeprefix('about ')} people without power" if u.get("people_after") else "the cascade still ends in a blackout")
     else:
         parts.append("with them the cascade darkens no one")
     label = "Upgrades against the overloads" + ("" if u["prevents"] else " (not enough on their own)")

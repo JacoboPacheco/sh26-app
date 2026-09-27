@@ -355,8 +355,8 @@ def _anyway(ctx: _Ctx, rows: list[dict], firm: bool) -> dict | None:
     if top["people_hit"] > 0:
         summary = (
             f"If a {_mw(ctx.mw)} campus is built at {top['substation']['name']} without the fix, the model's cascade runs {top['steps']} "
-            f"{'step' if top['steps'] == 1 else 'steps'} and hits about {top['people_hit']:,} people, with about {top['people_lost']:,} still without power where it "
-            "settles (estimates)."
+            f"{'step' if top['steps'] == 1 else 'steps'} and hits an estimated {top['people_hit']:,} people, with an estimated {top['people_lost']:,} still without power where it "
+            "settles."
         )
     else:
         summary = f"If a {_mw(ctx.mw)} campus is built at {top['substation']['name']} without the fix, the model's lines overload but the cascade leaves no one without power."

@@ -474,11 +474,11 @@ def estimate(body: CostIn) -> dict:
             else "re-rating lines alone isn't enough here; it would take new lines or power plants"
         )
         if items and partial_helps:
-            insights.append(f"Upgrading lines can't prevent all of it: about {people_after:,} people (estimate) stay dark even with them, because {cause}.")
+            insights.append(f"Upgrading lines can't prevent all of it: an estimated {people_after:,} people stay dark even with them, because {cause}.")
         elif items or remaining:
             insights.append(f"Upgrading lines can't prevent this blackout: {cause}.")
         else:
-            insights.append(f"No line goes over its limit, yet about {people_after:,} people (estimate) are dark: {cause}.")
+            insights.append(f"No line goes over its limit, yet an estimated {people_after:,} people are dark: {cause}.")
     elif items:
         pct = _mid(upgrades_line) / max(_mid(blackout), 1.0) * 100
         if pct < 95:
@@ -613,7 +613,7 @@ def _prompt(det: dict) -> str:
         f"State: {det['region_name']} (synthetic grid model). Load level: {det['load_factor']:g} x the model's summer-afternoon snapshot.",
         f"Case: {campus}; {det['trip_count']} lines knocked out first by a storm." if det["trip_count"] else f"Case: {campus}.",
         f"Cascade result: {det['outcome']} after {det['total_steps']} steps; {det['lost_mw']:,.0f} MW of existing customer load lost; "
-        f"about {det['people']:,} people without power (estimate)" + ("; the campus itself was cut off too." if det["site_cut_off"] else "."),
+        f"an estimated {det['people']:,} people without power" + ("; the campus itself was cut off too." if det["site_cut_off"] else "."),
         f"Assumed outage length: {det['hours_out']:g} hours, so {by['blackout']['mwh']:,.0f} MWh unserved.",
         (
             f"Upgrades that keep every line under its limit: {n_lines} line(s) ({miles:,.0f} miles total, voltages {', '.join(map(str, kvs))} kV) "
@@ -628,7 +628,7 @@ def _prompt(det: dict) -> str:
             else f" Even with these upgrades the cascade still leaves {up['lost_after_mw']:,.0f} MW dark, so they don't prevent the whole blackout."
         ),
         f"State facts: 2024 average industrial electricity price {by['power_bill']['price_cents_kwh']:.2f} cents/kWh (EIA); "
-        f"about {det['households']:,} households (estimate).",
+        f"an estimated {det['households']:,} households.",
     ]
     ours = "\n".join(f"- {k}: {_rng(by[k]['low'], by[k]['high'])} ({AI_UNITS[k]}). Basis: {by[k]['assumption']}" for k in AI_KEYS)
     shape = ", ".join(f'"{k}": {{"low": number, "high": number, "reasoning": "one sentence"}}' for k in AI_KEYS)

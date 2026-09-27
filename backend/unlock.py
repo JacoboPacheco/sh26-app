@@ -465,7 +465,7 @@ class Study:
                 why.append(f"goes over its limit with a campus at {int(blocks[i])} of {self.ns} sites")
             ppl = max(self.people_first[i], self.people_step[i])
             if ppl > 0:
-                why.append(f"the blackouts it starts reach up to {_n(ppl)} people (estimate)")
+                why.append(f"the blackouts it starts reach up to an estimated {_n(ppl)} people")
             reason = "; ".join(why)
             out.append(
                 {
@@ -921,7 +921,7 @@ class Study:
         strain["sentence"] = (
             f"Strain, with the whole plan: line overloads across the {self.ns} tested sites {strain['line_overloads_before']:,} to "
             f"{strain['line_overloads_after']:,}; sites that set off a blackout {before_bo:,} to {after_bo:,}"
-            + (f"; the worst blackout {_n(worst0['people_hit'])} to {_n(worst1['people_hit'])} people (estimate)." if worst0["people_hit"] else ".")
+            + (f"; the worst blackout an estimated {_n(worst0['people_hit'])} to {_n(worst1['people_hit'])} people." if worst0["people_hit"] else ".")
         )
         mw_unlocked = more * self.mw
         # site options, not capacity the grid carries together: the sum can exceed the state's whole load

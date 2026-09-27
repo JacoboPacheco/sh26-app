@@ -934,15 +934,15 @@ class Planner:
             text = (
                 f"Checked {who} with the engine: {_mw(v['total_mw'])} on {v['sites']} {'site' if v['sites'] == 1 else 'sites'}"
                 f"{' with ' + str(v['upgrades']) + (' upgrade' if v['upgrades'] == 1 else ' upgrades') if v['upgrades'] else ''}, "
-                f"no line over its limit (the busiest is at {_pct(v['busiest_pct'])}), the cascade: {steps}. 0 people without power (estimate)."
+                f"no line over its limit (the busiest is at {_pct(v['busiest_pct'])}), the cascade: {steps}. an estimated 0 people without power."
             )
-            result = f"passes: no line over its limit (busiest {_pct(v['busiest_pct'])}), cascade: {steps}, 0 people without power (estimate)"
+            result = f"passes: no line over its limit (busiest {_pct(v['busiest_pct'])}), cascade: {steps}, an estimated 0 people without power"
         else:
             bits = []
             if v["lines_over"]:
                 bits.append(f"{v['lines_over']} {'line' if v['lines_over'] == 1 else 'lines'} over {'its limit' if v['lines_over'] == 1 else 'their limits'}")
             if v["people"]:
-                bits.append(f"the cascade leaves {v['people']:,} people without power (estimate)")
+                bits.append(f"the cascade leaves an estimated {v['people']:,} people without power")
             if v["site_cut_off"]:
                 bits.append("a campus is cut off")
             text = f"Checked {who} with the engine: it does not pass — {_and(bits) or 'it fails the check'}."
@@ -1127,7 +1127,7 @@ class Planner:
         if action == "cascade":
             upg = self.fix(sites)["upgrades"] if use_up else {}
             v, _ = self.check(sites, upg)
-            res = "nothing trips" if v["cascade_steps"] == 0 else f"{v['cascade_steps']} steps, {v['people']:,} people without power (estimate)"
+            res = "nothing trips" if v["cascade_steps"] == 0 else f"{v['cascade_steps']} steps, an estimated {v['people']:,} people without power"
             text = f"Ran the cascade on {self.sites_text(sites)}{' with upgrades' if upg else ''}: {res}."
             self.emit("gemini", "cascade", text, ok=v["people"] == 0 and not v["site_cut_off"], thought=thought, sites=[c.out(m) for c, m in sites], call=call, result=res)
             return {"steps": v["cascade_steps"], "people_without_power": v["people"], "campus_cut_off": v["site_cut_off"], "lines_over_before": v["lines_over"]}, None

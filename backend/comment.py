@@ -388,15 +388,15 @@ def _facts(entry, civ, st, sim, cost, qs) -> list[Fact]:
         f, m = sim["flexible"], sim["firm"]
         F.append(Fact("flexible", "model", f"Flexible service (the campus can be cut off when its own lines trip), on the model: {f['text']}", values=[f["people"]], source=MODEL_SRC, section="grid"))
         for a in (f.get("areas") or [])[:3]:
-            F.append(Fact(f"area:{a['area']}", "model", f"On the model, {a['area']} loses power: {a['people_text']} people (estimate).", values=[a["people"]], source=MODEL_SRC, section="grid"))
+            F.append(Fact(f"area:{a['area']}", "model", f"On the model, {a['area']} loses power: an estimated {a['people_text'].removeprefix('about ')} people.", values=[a["people"]], source=MODEL_SRC, section="grid"))
         F.append(Fact("firm", "model", f"Firm service (the grid operator tries to keep the campus on by cutting other customers instead), on the model: {m['text']}", values=[m["people"]], source=MODEL_SRC, section="grid"))
     if cost:
         b, up, bill, who = cost.get("blackout"), cost.get("upgrades"), cost.get("power_bill"), cost.get("who_pays")
         if b and b["high"] > 0:
             F.append(Fact("outage", "model", f"On the model, the time without power in that blackout: {b['outage_label']} (a rule of thumb from the incident's size).", values=[b["hours"]], source=_cost_src(b), section="money"))
-            F.append(Fact("blackout_cost", "model", f"On the model, the cost of that blackout to the people and businesses without power: {b['range']} (estimate).", money=[b["low"], b["high"]], source=_cost_src(b), section="money"))
+            F.append(Fact("blackout_cost", "model", f"On the model, the cost of that blackout to the people and businesses without power: an estimated {b['range']}.", money=[b["low"], b["high"]], source=_cost_src(b), section="money"))
         if up and up["high"] > 0:
-            F.append(Fact("upgrades", "model", f"On the model, {up['label'].lower()}: {up['range']} (estimate). {up['meaning']}", values=[up.get("count") or 0], money=[up["low"], up["high"]], source=_cost_src(up), section="money"))
+            F.append(Fact("upgrades", "model", f"On the model, {up['label'].lower()}: an estimated {up['range']}. {up['meaning']}", values=[up.get("count") or 0], money=[up["low"], up["high"]], source=_cost_src(up), section="money"))
         if bill and bill["high"] > 0:
             F.append(Fact("power_bill", "estimate", f"The campus's own power bill: {bill['range']} a year (estimate at the state's average industrial price).", money=[bill["low"], bill["high"]], source=_cost_src(bill), section="money"))
         if who and who["high"] > 0:
@@ -1461,7 +1461,7 @@ def template(sh: Sheet, body: CommentIn) -> str:
                 what = ("líneas y transformadores", "una línea o transformador") if re.search(r"\bline", ot) and re.search(r"\btransformer", ot) else \
                        ("transformadores", "un transformador") if re.search(r"\btransformer", ot) else ("líneas", "una línea")
                 s = f"Con {_n_es(sim['tested_mw'])} MW, " + (f"{n} {what[0]} superan su límite en el modelo" if n > 1 else f"{what[1]} supera su límite en el modelo")
-                s += f", y unas {_n_es(_approx_n(f['people']))} personas se quedan sin luz en su cascada (estimación)." if f["people"] else ", y su cascada se detiene sin dejar a nadie sin luz."
+                s += f", y un estimado de {_n_es(_approx_n(f['people']))} personas se quedan sin luz en su cascada." if f["people"] else ", y su cascada se detiene sin dejar a nadie sin luz."
             else:
                 s = f"Con {_n_es(sim['tested_mw'])} MW, nada supera su límite en el modelo."
             g.append((0, s))
@@ -1475,7 +1475,7 @@ def template(sh: Sheet, body: CommentIn) -> str:
             g.append((2, f"On that model, the site has room for {vote._n(sim['room_mw'])} MW before a line goes over its limit."))
             if sim["overloaded"]:
                 s = f"At {vote._n(sim['tested_mw'])} MW, {sim['over_text']} go over their limits on the model"
-                s += f", and {f['people_text']} people lose power in its cascade (estimate)." if f["people"] else ", and its cascade settles without cutting anyone off."
+                s += f", and an estimated {f['people_text'].removeprefix('about ')} people lose power in its cascade." if f["people"] else ", and its cascade settles without cutting anyone off."
             else:
                 s = f"At {vote._n(sim['tested_mw'])} MW, nothing goes over its limit on the model."
             g.append((0, s))
@@ -1522,16 +1522,16 @@ def template(sh: Sheet, body: CommentIn) -> str:
             m = sim["firm"]
             if es:
                 if m.get("held"):
-                    s = (f"En el modelo, con servicio firme, el operador mantiene el campus encendido cortando a otros clientes: unas {_n_es(_approx_n(m['people']))} personas se quedan sin luz (estimación)."
+                    s = (f"En el modelo, con servicio firme, el operador mantiene el campus encendido cortando a otros clientes: un estimado de {_n_es(_approx_n(m['people']))} personas se quedan sin luz."
                          if m["people"] else "En el modelo, con servicio firme, el operador puede mantener el campus encendido sin dejar a otros clientes sin luz.")
                 else:
-                    s = "En el modelo, con servicio firme, el campus tampoco puede mantenerse encendido aquí" + (f", y unas {_n_es(_approx_n(m['people']))} personas se quedan sin luz (estimación)." if m["people"] else ".")
+                    s = "En el modelo, con servicio firme, el campus tampoco puede mantenerse encendido aquí" + (f", y un estimado de {_n_es(_approx_n(m['people']))} personas se quedan sin luz." if m["people"] else ".")
             else:
                 if m.get("held"):
-                    s = (f"On the model, with firm service the grid operator keeps the campus on by cutting other customers instead: {m['people_text']} people lose power (estimate)."
+                    s = (f"On the model, with firm service the grid operator keeps the campus on by cutting other customers instead: an estimated {m['people_text'].removeprefix('about ')} people lose power."
                          if m["people"] else "On the model, with firm service the grid operator can keep the campus on without cutting anyone else.")
                 else:
-                    s = "On the model, even firm service cannot keep the campus on here" + (f", and {m['people_text']} people are without power (estimate)." if m["people"] else ".")
+                    s = "On the model, even firm service cannot keep the campus on here" + (f", and an estimated {m['people_text'].removeprefix('about ')} people are without power." if m["people"] else ".")
             para.append((1, s))
         if len(qids) > 1:
             asked.append(qids[1])
