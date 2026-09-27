@@ -11,6 +11,23 @@ export default class ErrorBoundary extends Component {
 
   componentDidCatch(error, info) {
     console.error(error, info.componentStack)
+    // a lazy page from an older deploy (its file is gone after a new one): reload once for the new build
+    if (/dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(String(error?.message || error))) {
+      let last = 0
+      try {
+        last = Number(sessionStorage.getItem('overload.chunkReload')) || 0
+      } catch {
+        last = 0
+      }
+      if (Date.now() - last > 30000) {
+        try {
+          sessionStorage.setItem('overload.chunkReload', String(Date.now()))
+        } catch {
+          // storage blocked: reload anyway
+        }
+        window.location.reload()
+      }
+    }
   }
 
   render() {
