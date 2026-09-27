@@ -9,6 +9,9 @@ import './hurricane.css'
 import { getPresets, trackHits } from './hurricaneApi'
 import { runCascade } from '../../api'
 import HardenControl from '../harden/HardenControl'
+import { caseForCascade } from '../ask/askApi'
+import { prefetchBriefing } from '../briefing/briefingApi'
+import { startHospitalAgent } from '../hospitals/hospitalAgentApi'
 import {
   CATEGORY_REACH_KM,
   STORM_MS,
@@ -145,8 +148,22 @@ export default function HurricanePanel() {
     const landfallKm = landfallKmFor(res.total_km, preset?.id === s.presetId ? preset.landfall_km : null)
     setHurricane({ phase: 'storm', hits: res, stormAt: performance.now(), landfallKm })
     // the cascade computes while the storm crosses, so it's ready the moment it makes landfall
-    const pending = runCascade({ ...live.current.caseBody, trip: res.trip })
-    pending.catch(() => {}) // startCascade reports the error if it fails
+    const tripCaseBody = { ...live.current.caseBody, trip: res.trip }
+    const pending = runCascade(tripCaseBody)
+    pending
+      .then((cascadeResult) => {
+        // Present the damage prefetches the briefing the moment a cascade result lands (BRIEFING SPEED)
+        // — a hurricane's result lands mid-crossing, so start that same prefetch right now instead of
+        // waiting for landfall: caseForCascade is the exact body Present the damage keys its cache by,
+        // so its later request hits this prefetch instead of refetching (COMPLAINT 2).
+        if (stale()) return
+        prefetchBriefing(caseForCascade(cascadeResult, tripCaseBody), { ai: live.current.region === 'FL' })
+        // same for the hospital beds agent: it normally starts the moment the store's own `cascade` lands
+        // (HospitalAgentStarter), which for a hurricane is only after the crossing — start it on this
+        // earlier result instead, so it's done well before the presentation's hospitals beat
+        if (cascadeResult.affected) startHospitalAgent({ region: live.current.region, loadFactor: live.current.loadFactor, affected: cascadeResult.affected })
+      })
+      .catch(() => {}) // startCascade reports the error if it fails
     await sleep(quick ? 400 : STORM_MS + 800) // a beat after landfall before the cascade
     if (stale()) return
     // the storm has passed: its lines join the case, then the regular cascade plays out

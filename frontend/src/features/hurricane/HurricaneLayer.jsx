@@ -95,7 +95,7 @@ export default function HurricaneLayer() {
           <path className="hz-arrow" d="M-7 -5.5L2 0L-7 5.5" transform={`translate(${end[0]} ${end[1]}) rotate(${path.heading}) scale(${1 / k})`} />
         </>
       )}
-      {storming && (
+      {(storming || phase === 'landed') && (
         <g key={stormAt} className="hz-hits">
           {hitLines.map((l) => (
             <line key={l.id} className="hz-hit" x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} style={{ animationDelay: `${l.delay}ms` }} />
@@ -127,8 +127,10 @@ function Eye({ path, r, k, moving, spinning, stormAt, landfallKm, totalKm }) {
       g.setAttribute('transform', `translate(${x} ${y})`)
       const wind = windRef.current
       if (wind && totalKm > 0 && landfallKm != null) {
+        // the reach ring stays at the storm's full radius — the backend hits any line within it at
+        // any point along the track, so a hit must never land outside the ring the judge can see;
+        // only its opacity fades as the storm weakens past landfall
         const w = weakenAt(f * totalKm, landfallKm)
-        wind.setAttribute('r', String(r * (0.55 + 0.45 * w)))
         wind.style.opacity = String(0.18 + 0.32 * w)
       }
     }
