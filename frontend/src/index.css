@@ -526,13 +526,62 @@ select optgroup {
   margin-left: auto;
 }
 .scenario-bar__pieces {
-  flex: 1 1 14rem;
+  flex: 1 1 0;
   min-width: 0;
+}
+/* one row on a laptop (user, Sat 20:14: "not one line"): the pieces shrink and end in "…" (the full text is the
+   title), the time of day loses its visible label (the hours speak for themselves; screen readers keep it), and
+   the time of day and Start over hold their size */
+.scenario-bar {
+  flex-wrap: nowrap;
+}
+.scenario-bar__pieces {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.scenario-bar__pieces .piece {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.scenario-bar__pieces .piece > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scenario-bar__pieces .piece__x {
+  flex: none;
+}
+.scenario-bar__label,
+.scenario-bar__empty {
+  flex: none;
+  white-space: nowrap;
+}
+.scenario-bar .heat--compact .heat__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 .piece {
   max-width: 100%;
 }
 @container mc-top (max-width: 820px) {
+  .scenario-bar {
+    flex-wrap: wrap;
+  }
+  .scenario-bar__pieces {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .scenario-bar .heat--compact .heat__label {
+    position: static;
+    width: auto;
+    height: auto;
+    clip-path: none;
+  }
   .scenario-bar__end {
     display: contents;
   }

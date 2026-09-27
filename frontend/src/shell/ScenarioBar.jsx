@@ -10,7 +10,12 @@ export default function ScenarioBar() {
   const { site, mw, result, extraSites, loadFactor, trip, upgrades, setExtraSites, setTrip, setUpgrades, clearSite, resetAll, cascade, mapTool } = o
   const pieces = []
   if (site) {
-    pieces.push({ key: 'site', label: `${fmt(mw)} MW data center at ${result?.sub_name ? titleCase(result.sub_name) : 'your site'}`, remove: clearSite })
+    pieces.push({
+      key: 'site',
+      label: `${fmt(mw)} MW data center at ${result?.sub_name ? titleCase(result.sub_name) : 'your site'}`,
+      short: `${fmt(mw)} MW at ${result?.sub_name ? titleCase(result.sub_name) : 'your site'}`,
+      remove: clearSite,
+    })
   }
   if (extraSites.length) {
     const total = extraSites.reduce((a, s) => a + (Number(s.mw) || 0), 0)
@@ -37,7 +42,7 @@ export default function ScenarioBar() {
         <ul className="scenario-bar__pieces">
           {pieces.map((pc) => (
             <li key={pc.key} className="piece">
-              <span>{pc.label}</span>
+              <span title={pc.label}>{pc.short || pc.label}</span>
               <button type="button" className="piece__x" onClick={pc.remove} aria-label={`Remove ${pc.label}`}>
                 ×
               </button>
