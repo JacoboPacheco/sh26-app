@@ -191,7 +191,17 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
     return () => svg.removeEventListener('wheel', onWheel)
   }, [])
 
+  // the middle button always pans, even in a tool (e.g. hurricane draw mode): it never draws, never places, never
+  // adds a campus on release. preventDefault kills the browser's autoscroll circle; pointer capture keeps the drag
+  // going once the cursor leaves the map.
   function onPointerDown(e) {
+    if (e.button === 1) {
+      e.preventDefault()
+      e.currentTarget.setPointerCapture(e.pointerId)
+      const scale = svgRef.current.getScreenCTM()?.a || 1
+      drag.current = { x: e.clientX, y: e.clientY, tx: view.tx, ty: view.ty, scale, moved: false, middle: true }
+      return
+    }
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
     if (tool) {
@@ -206,6 +216,15 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
 
   function onPointerMove(e) {
     const d = drag.current
+    if (d?.middle) {
+      const dx = e.clientX - d.x
+      const dy = e.clientY - d.y
+      if (!d.moved && Math.hypot(dx, dy) < 5) return
+      if (!d.moved) setPanning(true)
+      d.moved = true
+      setView((v) => clampView({ ...v, tx: d.tx + dx / d.scale, ty: d.ty + dy / d.scale }))
+      return
+    }
     if (tool) {
       const p = toMap(e.clientX, e.clientY)
       if (p) tool.move?.(p, !!d)
@@ -232,6 +251,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
     const d = drag.current
     drag.current = null
     setPanning(false)
+    if (d?.middle) return // a middle-button pan never draws, places or clicks on release
     if (tool) {
       const p = toMap(e.clientX, e.clientY)
       if (p) tool.up?.(p)
@@ -269,6 +289,7 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onAuxClick={(e) => e.preventDefault()} // the middle button's own "click": never a browser default action
         onPointerCancel={() => {
           drag.current = null
           setPanning(false)

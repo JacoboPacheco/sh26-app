@@ -290,8 +290,12 @@ export default function PlansMap() {
   const ptrs = useRef(new Map())
   const drag = useRef(null)
   const suppressClick = useRef(false)
+  // the middle button pans the same single-pointer path as a left-drag or a touch (preventDefault kills the
+  // browser's autoscroll circle); "click" never fires for it, so nothing below (gated on suppressClick /
+  // moved.current, and native "click" itself) ever treats its release as a click.
   const onPointerDown = (e) => {
-    if (e.button !== undefined && e.button !== 0) return
+    if (e.button !== undefined && e.button !== 0 && e.button !== 1) return
+    if (e.button === 1) e.preventDefault()
     cancelAnimationFrame(anim.current)
     const r = svgRef.current.getBoundingClientRect()
     ptrs.current.set(e.pointerId, [e.clientX - r.left, e.clientY - r.top])
@@ -429,6 +433,7 @@ export default function PlansMap() {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onAuxClick={(e) => e.preventDefault()} // the middle button's own "click": never a browser default action
         onClickCapture={onClickCapture}
         // a click (or tap) anywhere else on the map closes a badge's list (the badge's own click doesn't reach here)
         onClick={() => cluster && setCluster(null)}

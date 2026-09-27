@@ -126,7 +126,16 @@ export default function UsMap({ sites, stateFilter, selectedId, onSelect, onTogg
     if (r) zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor)
   }
 
+  // the middle button always pans: preventDefault kills the browser's autoscroll circle, and since "click" never
+  // fires for it, the state/mark click handlers below (all gated on moved.current, and native "click" itself)
+  // never see a middle-button release.
   const onPointerDown = (e) => {
+    if (e.button === 1) {
+      e.preventDefault()
+      moved.current = false
+      drag.current = { x: e.clientX, y: e.clientY, vb: vbRef.current, captured: false, id: e.pointerId, middle: true }
+      return
+    }
     if (e.button !== 0) return
     moved.current = false
     drag.current = { x: e.clientX, y: e.clientY, vb: vbRef.current, captured: false, id: e.pointerId }
@@ -210,6 +219,7 @@ export default function UsMap({ sites, stateFilter, selectedId, onSelect, onTogg
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onPointerLeave={hide}
+        onAuxClick={(e) => e.preventDefault()} // the middle button's own "click": never a browser default action
       >
         <g className="vw-states">
           {STATE_SHAPES.map((s) => (
