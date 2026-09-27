@@ -353,7 +353,7 @@ def estimate(body: CostIn) -> dict:
         "low": round(mwh * v_low),
         "high": round(mwh * v_high),
         "formula": (
-            f"{lost_mw:,.0f} MW of customers dark ({int(casc.get('people') or 0):,} people still without power when it settles, estimate) × {hours:g} h "
+            f"{lost_mw:,.0f} MW of customers dark (an estimated {int(casc.get('people') or 0):,} people still without power when it settles) × {hours:g} h "
             f"= {mwh:,.0f} MWh unserved × {_rng(v_low, v_high)} per MWh"
             if lost_mw > 0
             else "No customer loses power in this case."
@@ -384,7 +384,7 @@ def estimate(body: CostIn) -> dict:
     formula = f"{' and '.join(what)} raised above their limits, priced by voltage class and length" if items else "No line goes over its limit, so nothing needs upgrading."
     if not prevents:
         formula += ("." if items else "") + (
-            f" {'Even with them' if items else 'Still'}, about {lost_after:,.0f} MW ({people_after:,} people, estimate) stay dark."
+            f" {'Even with them' if items else 'Still'}, about {lost_after:,.0f} MW (an estimated {people_after:,} people) stay dark."
             if partial_helps or not items
             else " Even with them the cascade still ends in a blackout."
         )
@@ -452,7 +452,7 @@ def estimate(body: CostIn) -> dict:
         ),
         "assumption": (
             f"Illustrative. The upgrades are paid back over {RECOVERY_YEARS} years at {RECOVERY_RATE:.0%} a year and spread over "
-            f"{name}'s households ({population:,} people ÷ {PEOPLE_PER_HOUSEHOLD:g} per household, estimates). Low: households pay "
+            f"{name}'s households (estimated from {population:,} people ÷ {PEOPLE_PER_HOUSEHOLD:g} per household). Low: households pay "
             f"their share of electricity sales ({RES_SHARE:.1%}); high: households pay it all. Who really pays is up to regulators."
         ),
         "sources": [SOURCES["census"], SOURCES["eia_sales"]],

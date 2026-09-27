@@ -877,7 +877,7 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
         items = []
         b, up, bill, who = cost.get("blackout"), cost.get("upgrades"), cost.get("power_bill"), cost.get("who_pays")
         if b:
-            items.append({"text": f"A blackout, if it happened: {b['range']} ({b['outage_label']} without power, estimate)" if b["high"] > 0 else "A blackout: none on the model at this size"})
+            items.append({"text": f"A blackout, if it happened: {b['range']} ({b['outage_label']} without power)" if b["high"] > 0 else "A blackout: none on the model at this size"})
         if up:
             if up["high"] > 0:
                 text = f"{up.get('label') or 'Upgrades'}: {up['range']}"

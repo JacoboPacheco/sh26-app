@@ -649,7 +649,7 @@ class Planner:
             return "no substation with room for a campus at this demand"
         first = ", ".join(f"{c.town} {_mw(c.room)}" for c in top[:3])
         more = f" and {len(top) - 3} more" if len(top) > 3 else ""
-        return f"{first}{more} (room alone, estimate)"
+        return f"{first}{more} (an estimate of room alone)"
 
     def fix_result(self, fx: dict) -> str:
         n = len(fx["lines"])

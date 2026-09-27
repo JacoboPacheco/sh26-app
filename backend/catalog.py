@@ -427,7 +427,7 @@ def _why(t: dict) -> str | None:
         parts.append(
             "Firm service can't hold it here: no load cut nearby relieves the lines feeding the campus enough, "
             "so it is cut off on firm service too"
-            + (f" (about {_fmt(m['people'])} people without power, estimate)." if m["people"] > 0 else ".")
+            + (f" (an estimated {_fmt(m['people'])} people without power)." if m["people"] > 0 else ".")
         )
     return " ".join(parts) or None
 
