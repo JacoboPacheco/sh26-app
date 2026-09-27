@@ -52,6 +52,8 @@ const live = {
   changes: () => api('/api/gridlock/changes'),
   // the committed fault test: bad records injected into real ones and pushed through the pipeline's checks (summary.caught / injected)
   faultTest: () => api('/api/gridlock/fault-test'),
+  // Reader C: Gemini's own read of the two filings' PDF pages, next to the two parsers (a committed file; no Gemini call at view time)
+  readerReport: () => api('/api/gridlock/reader'),
 }
 
 // A download the browser saves itself (a plain link): /api/gridlock/<path> at the settings on screen, e.g.

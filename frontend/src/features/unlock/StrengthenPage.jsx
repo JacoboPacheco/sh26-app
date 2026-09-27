@@ -27,7 +27,7 @@ import AiBadge from '../ai/AiBadge'
 import { narrationBody, useBuildNarration } from '../narrate'
 import { money, moneyRange } from '../cost/money'
 import { budgetOf, targetOf } from './unlockStore'
-import { capStopIndex, capStops, capWithin, costAt, count, levelPhrase, ordinal, sizeLabel, stopText, stopsClause } from './capacity'
+import { DEFAULT_CAP_BUDGET, capStopIndex, capStops, capWithin, costAt, count, levelPhrase, ordinal, sizeLabel, stopText, stopsClause } from './capacity'
 import { flyTo, pickCampus } from './capacityPick'
 import CapacityCard from './CapacityCard'
 import CapacityMeter from './CapacityMeter'
@@ -288,7 +288,10 @@ export default function StrengthenPage() {
         {m && (
           <p className="st-foot">
             <span>
-              Flexible: full power except on peak afternoons, half power then
+              {/* the second test wasn't said (HOW-IT-WORKS.md gap #16): full power isn't only "except at peak", it's
+                  measured back on at 90 % of peak, a step below the summer high, not the moment demand eases at all */}
+              Flexible: full power except on peak afternoons, half power then, measured back on again once load eases
+              to about 90 % of the summer peak
               {duke && (
                 <>
                   {' '}
@@ -301,6 +304,7 @@ export default function StrengthenPage() {
               )}
               .
             </span>
+            {hasPlan && <span className="st-foot__syn">{budgetCaption(m, target)}</span>}
             <span className="st-foot__syn">Estimates on a synthetic grid model, not any utility’s network.</span>
           </p>
         )}
@@ -509,7 +513,9 @@ function sentence(m, where, size, flex, target, lf, plantsN, reservePct) {
     sub = next ? `${cap1(stopsClause(m, today + 1))}; ${money(next.cum_cost.high)} of upgrades lets it in.` : `Then ${stopText(m.stop)}.`
     if (!peak) sub = `${cap1(level)}. ${sub}`
   } else {
-    main = `${where}’s grid model can carry ${count(n)} more ${size} ${dc(n)} at once with ${ups}. Today it carries ${count(today)}.`
+    // HOW-IT-WORKS.md gap #6: "seven more ... today it carries two" read as 7 more ON TOP OF today's 2 (9 in all).
+    // Say the total once, then split it: seven in all, two today, five more with the money.
+    main = `${where}’s grid model can carry ${count(n)} ${size} ${dc(n)} at once — ${count(today)} today, ${count(n - today)} more with ${ups}.`
     sub = `${cap1(stopsClause(m, today + 1))}.`
     if (!peak) sub = `${cap1(level)}. ${sub}`
   }
@@ -585,6 +591,20 @@ function CapBudget({ m, budget, onChange }) {
       <span className="st-bud__v">{v ? money(v) : 'No upgrades'}</span>
     </label>
   )
+}
+
+// Why the budget control opens where it does (HOW-IT-WORKS.md gap #11): the biggest step at or under
+// DEFAULT_CAP_BUDGET; when the very next campus alone costs noticeably more than the average bought so far, say so
+// (computed for this study from its own steps, never assumed).
+function budgetCaption(m, target) {
+  if (!m?.steps?.length || !target) return `Opens at the biggest step at or under ${money(DEFAULT_CAP_BUDGET)}.`
+  const c = costAt(m, target)
+  const next = target < m.steps.length ? m.steps[target] : null
+  const avg = c.high > 0 ? c.high / target : null
+  const ratio = next && !next.free && avg > 0 ? next.cost.high / avg : null
+  return `Opens at the biggest step at or under ${money(DEFAULT_CAP_BUDGET)}${
+    ratio >= 1.5 ? `: the next campus alone would cost ${money(next.cost.high)}, ${ratio.toFixed(1)}× the ${money(avg)} average so far.` : '.'
+  }`
 }
 
 function MapKey({ gem = false }) {

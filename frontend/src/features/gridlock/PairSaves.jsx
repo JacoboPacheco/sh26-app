@@ -17,6 +17,7 @@ const T = {
   en: {
     could: 'Building together could save',
     rough: 'Rough estimate from published unit costs, not a quote',
+    notCounted: 'Not counted here, and usually the biggest saving:',
     none: 'Nothing to save as filed',
     noneWhy: 'What these two could share needs their build windows to share months.',
     ifAhead: 'Only if both still have work ahead: the months they shared have passed, as filed.',
@@ -61,6 +62,7 @@ const T = {
   es: {
     could: 'Construir juntos podría ahorrar',
     rough: 'Estimación aproximada con costos unitarios publicados, no una cotización',
+    notCounted: 'No se cuenta aquí, y suele ser el mayor ahorro:',
     none: 'Nada que ahorrar según lo publicado',
     noneWhy: 'Lo que podrían compartir requiere que sus ventanas de obra compartan meses.',
     ifAhead: 'Solo si a ambos les queda obra: los meses en común ya pasaron, según lo publicado.',
@@ -170,6 +172,10 @@ export default function PairSaves({ o, base, lang, listed, onNext, onOpenProject
           <>
             <p className="bt-hero__fig">{fmtRange(sv.low, sv.high, sv.unit)}</p>
             <p className="bt-hero__note">{passed ? t.ifAhead : t.rough}</p>
+            {/* the figure above only prices what a cost guide prices; the outage saved isn't in it (HOW-IT-WORKS.md gap #8) */}
+            <p className="bt-hero__note">
+              {t.notCounted} {lang === 'es' ? 'una interrupción de obra en vez de dos' : <Gloss tip={GLOSS.outage}>one outage instead of two</Gloss>}
+            </p>
           </>
         ) : (
           <p className="bt-hero__note">{t.noneWhy}</p>

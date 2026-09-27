@@ -15,6 +15,7 @@ export default function MapLegend() {
   return (
     <section className="map-legend flow-key" aria-label="Map key">
       <h3 className="panel-h">What the map shows</h3>
+      <p className="flow-key__note">Placed on real population and real plant sites; the wiring between them is synthetic.</p>
       <ul className="flow-key__list">
         <li>
           <svg width="30" height="16" viewBox="0 0 30 16" aria-hidden="true">

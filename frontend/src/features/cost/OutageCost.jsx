@@ -54,8 +54,14 @@ export default function OutageCost() {
         <>
           <div className="loss__row">
             <span className="loss__k">Time without power</span>
-            {/* one format everywhere: "about 22 hours" (backend/costs.py outage_label; the same rule here) */}
-            <span className="loss__time">{h.outage_hours > 0 ? outageText(h.outage_hours) : h.outage_label}</span>
+            {/* one format everywhere: "about 22 hours" (backend/costs.py outage_label; the same rule here); "reads
+                like a forecast" (HOW-IT-WORKS.md gap #10) -> say plainly it's a rule of thumb, on the long side */}
+            <span className="loss__time">
+              {h.outage_hours > 0 ? outageText(h.outage_hours) : h.outage_label}{' '}
+              <span className="loss__unit" title="A stated rule of thumb by the incident's size, on the long side — not a forecast.">
+                (rule of thumb)
+              </span>
+            </span>
           </div>
           {!onToll && (
             <>

@@ -372,7 +372,7 @@ export function PanelFrame({ el, canvasRef, figRef, tagRef, onClose, className =
           <span className="c3d__tag" ref={tagRef} />
         </p>
         <p className="c3d__why">{why}</p>
-        <p className="c3d__fine">Synthetic grid model · a typical tower, not the real one</p>
+        <p className="c3d__fine">Synthetic grid model · illustration: a typical tower's sag and heat, not the real one</p>
         {past && (
           <p className="c3d__fine c3d__past">
             {past}{' '}

@@ -20,6 +20,8 @@ export const LABEL = {
     hitWhy: 'Everyone whose power ran through a failed line or went out, each person counted once.',
     stillOut: 'still without power when it settled',
     stillOutK: 'Still without power when it settled (estimate)',
+    // HOW-IT-WORKS.md gap #17: the two are never contrasted where they sit side by side
+    hitVsStillOut: '"People hit" counts everyone whose power ran through a failed part at any point, since rotating outages reach all of them; "still without power" is only who is dark once it settles — a part of the people hit, never more.',
     time: 'Time without power (estimate)',
     cost: 'Cost of the outage (estimate)',
   },
@@ -28,6 +30,7 @@ export const LABEL = {
     hitWhy: 'Todas las personas cuya electricidad pasaba por una línea caída o se cortó, cada una contada una vez.',
     stillOut: 'aún sin luz al estabilizarse',
     stillOutK: 'Aún sin luz al estabilizarse (estimación)',
+    hitVsStillOut: '"Personas afectadas" cuenta a todos cuya electricidad pasó por una parte fallida en algún momento, ya que los cortes rotativos los alcanzan a todos; "aún sin luz" es solo quien queda a oscuras al estabilizarse: una parte de las personas afectadas, nunca más.',
     time: 'Tiempo sin luz (estimación)',
     cost: 'Costo del apagón (estimación)',
   },

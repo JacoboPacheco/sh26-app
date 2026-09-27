@@ -28,6 +28,14 @@
   white-space: nowrap;
 }
 
+/* the cascade's rule, said once above the live list (HOW-IT-WORKS.md gap #3) */
+.stp__rule {
+  margin: -0.15rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
 /* the live list's own box, a fixed height so nothing in the column moves as steps land. StepFeed.jsx sets the real
    height: what the column has room for (its max height less everything else in it), between 80 px and 15rem, and shows
    only whole rows, the newest at the bottom. This is the first paint's guess, and the phones' height. */

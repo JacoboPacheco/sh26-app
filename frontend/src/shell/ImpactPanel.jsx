@@ -179,7 +179,11 @@ function Toll({ hit, rate, calm, children }) {
     <div className={`toll${calm ? ' toll--calm' : ''}${hit > 0 ? '' : ' toll--zero'}`}>
       <div className="toll__figs">
         <div className="toll__fig">
-          <span className="toll__k">{HIT_LABEL}</span>
+          {/* the line below (toll__why) explains this the same way, but a short window hides it to keep the buttons in
+              view (steps.css); the title keeps the explanation one hover away even then */}
+          <span className="toll__k" title={WHY}>
+            {HIT_LABEL}
+          </span>
           <span className="toll__n toll__n--people">{fmt(hit)}</span>
         </div>
         <div className={`toll__fig toll__fig--money${m?.pending ? ' toll__fig--pending' : ''}`} hidden={!m}>
@@ -246,7 +250,7 @@ function Counter({ view, done, ran, calm, rate }) {
         )}
         {done && calm && hit > 0 && <p className="toll__line">No one lost power: the grid rerouted around every failure.</p>}
         {stillOut > 0 && (
-          <p className="toll__line">
+          <p className="toll__line" title={LABEL.en.hitVsStillOut}>
             Of them, <b>{fmt(stillOut)}</b> {LABEL.en.stillOut} · <b>{fmt(homesOf(stillOut))}</b> homes{' '}
             <span className="muted">(estimates, 2.5 people per home)</span>
           </p>

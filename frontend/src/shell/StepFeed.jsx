@@ -187,6 +187,9 @@ export default function StepFeed({ all = false }) {
         </h2>
         <span className="stp__count">people hit (estimate)</span>
       </div>
+      {/* the rule itself, said once (HOW-IT-WORKS.md gap #3): the Timeline hint that says this before a run
+          (shell/Timeline.jsx) is gone by the time these rows are on screen */}
+      {!all && <p className="stp__rule">Each step: the busiest part trips and the engine re-solves. Slowed for viewing.</p>}
       <div className="stp__box" ref={boxRef}>
         {rows.length ? (
           <ol className="stp__list" aria-live={live ? 'polite' : 'off'} aria-relevant="additions">

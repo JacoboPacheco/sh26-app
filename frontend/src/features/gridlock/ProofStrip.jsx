@@ -3,6 +3,7 @@ import { useGridlock } from './context'
 import Gloss from './Gloss'
 import { fmtInt, limitMi } from './format'
 import { useFaultTotals } from './useFaultTotals'
+import { useReaderTotals } from './useReaderTotals'
 
 // The data pipeline as proof, always in view along the top of the map: how many projects were read from the public
 // filings, how many passed the checks and were placed on the map, how many pairs came within the distance and how many
@@ -20,6 +21,7 @@ function Tick() {
 export default function ProofStrip() {
   const g = useGridlock()
   const fault = useFaultTotals(g.client)
+  const reader = useReaderTotals(g.client)
   const f = g.summary?.funnel
   const ready = g.ov.status === 'ready' || g.ov.status === 'refreshing'
   const wait = g.ov.status === 'error' ? '–' : '…' // the pairs failed to load: a dash, not a count that is forever "coming"
@@ -105,6 +107,14 @@ export default function ProofStrip() {
               <Tick />
               <Gloss tip="Nine kinds of bad data (a wrong date, a place in another state, a duplicate id...) were injected into real records and run through the same checks. The ones that slip through are listed on the pipeline page.">
                 fault test: {fmtInt(fault.caught)} of {fmtInt(fault.injected)} injected errors caught
+              </Gloss>
+            </li>
+          )}
+          {reader && (
+            <li>
+              <Tick />
+              <Gloss tip="Gemini read the same PDF pages on its own, offline, and filled the same fields the two parsers extract: a third, independent check on what got read. It's advisory — the records on the map come from the parsers — and it's built once, not asked live.">
+                a second reader: Gemini agrees on {fmtInt(reader.matches)} of {fmtInt(reader.compared)} values
               </Gloss>
             </li>
           )}

@@ -48,8 +48,8 @@ export default function BriefingDoc({ report, deck, lang, stepIdx, onApply, fixt
       <section aria-labelledby="rs-doc-sum">
         <h3 id="rs-doc-sum">Summary</h3>
         <dl className="rs-facts">
-          <Fact k={LABEL.en.hit.replace(' (estimate)', '')} v={`${num(hit)} (estimate)`} />
-          <Fact k={LABEL.en.stillOutK.replace(' (estimate)', '')} v={`${num(stillOut)} (estimate)`} />
+          <Fact k={LABEL.en.hit.replace(' (estimate)', '')} v={`${num(hit)} (estimate)`} hint={LABEL.en.hitVsStillOut} />
+          <Fact k={LABEL.en.stillOutK.replace(' (estimate)', '')} v={`${num(stillOut)} (estimate)`} hint={LABEL.en.hitVsStillOut} />
           {report.cost?.duration_h_assumed > 0 && <Fact k="Time without power" v={`${outageText(report.cost.duration_h_assumed)} (estimate)`} />}
           {ev.people_share_pct != null && <Fact k={`Share of ${report.region_name || 'the state'}`} v={`${ev.people_share_pct}% (estimate)`} />}
           <Fact k="Existing load lost" v={`${num(ev.lost_mw)} MW`} />
@@ -298,10 +298,10 @@ const CAUSE = {
   none: 'None',
 }
 
-function Fact({ k, v }) {
+function Fact({ k, v, hint }) {
   return (
     <div className="rs-fact">
-      <dt>{k}</dt>
+      <dt title={hint}>{k}</dt>
       <dd>{v}</dd>
     </div>
   )

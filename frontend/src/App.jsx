@@ -254,9 +254,23 @@ function MissionControl() {
       )}
 
       <p className="mc-credit">
-        <span className="pill">Synthetic grid model (Breakthrough Energy / Texas A&amp;M), not any utility&apos;s network</span>
+        <span
+          className="pill"
+          title={
+            o.region === 'FL'
+              ? "Real towns and plant sites; the wiring between them is synthetic. This model has no line to the Florida Panhandle, so its people-per-MW figure (spread over the rest of the state) reads about 7-8 % high."
+              : 'Real towns and plant sites; the wiring between them is synthetic.'
+          }
+        >
+          Synthetic grid model (Breakthrough Energy / Texas A&amp;M), not any utility&apos;s network
+        </span>
         <span className="credit">
-          Grid: Breakthrough Energy Sciences U.S. Test System, from Texas A&amp;M ACTIVSg synthetic grids (CC-BY 4.0). DC power flow.
+          Grid: Breakthrough Energy Sciences U.S. Test System, from Texas A&amp;M ACTIVSg synthetic grids (CC-BY 4.0).{' '}
+          <span
+            title="A simplified calculation of how power splits across every path, like water through pipes; it skips voltages and losses. Planners use it for fast screening. The full engineering study (AC) comes later."
+          >
+            DC power flow.
+          </span>{' '}
           People counts are estimates. Outline: U.S. Census Bureau.
         </span>
       </p>

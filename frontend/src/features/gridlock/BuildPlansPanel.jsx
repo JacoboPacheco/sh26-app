@@ -507,6 +507,10 @@ function RankedList() {
           )}
           <SperryMarks onShow={showRow} />
           {ov.truncated && <p className="gl-fine">The engine sent the top {fmtInt(overlaps.length)}; narrow the distance to see the rest ranked.</p>}
+          {/* the rule itself, in view (HOW-IT-WORKS.md gap #12): "how they are ordered" above is a hover-only gloss */}
+          {flagged > 0 && order !== 'distance' && (
+            <p className="gl-fine">Ranked by timing first, then distance; Georgia&apos;s dates are multi-year planning windows, not a build schedule.</p>
+          )}
           {flagged > 0 && !g.draft && (
             <p className="gl-cta">
               Pick a pair below to see what building together saves.
