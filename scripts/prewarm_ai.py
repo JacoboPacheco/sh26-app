@@ -22,6 +22,8 @@ BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000").rstrip("/
 HERO = {"lat": 26.6406, "lon": -81.8723, "mw": 1500}
 FIVE = ["stonebridge-fort-meade", "atlas-compute-fort-pierce", "sentinel-grove-fort-pierce", "pba-holdings-loxahatchee", "nextnrg-near-jacksonville-international-airport"]
 rows: list[tuple[str, str, float]] = []
+ONLY = sys.argv[2] if len(sys.argv) > 2 else ""  # "storm": only the hurricane cases (quick after a demo move)
+REACH_KM = {1: 62, 2: 72, 3: 82, 4: 92, 5: 102}  # mirrors hurricane.py / hurricaneStore.js CATEGORY_REACH_KM
 
 
 def call(method, path, body=None, timeout=180):
@@ -79,12 +81,39 @@ def hospital_beds(case, label):
     note(f"{label}: hospital beds agent", who, time.time() - t0)
 
 
+def storm_cases():
+    """The hurricane demo: the Gulf preset exactly as HurricanePanel sends it (the preset's own category and radius
+    when picked; a category change sends REACH_KM's radius), with no campus, plus category 5 with the hero campus
+    on the map, so the storm's Present-the-damage deck is Gemini's and not the template (the Sun 05:30 review saw the
+    honest "Template narration" badge on this path because nothing had warmed it)."""
+    pre, _, code = call("GET", "/api/hurricane/presets")
+    gulf = next((p for p in ((pre or {}).get("presets") or []) if p.get("id") == "gulf-fort-myers"), None)
+    if not gulf:
+        note("storm: presets", f"HTTP {code}", 0)
+        return
+    runs = [(gulf["category"], gulf["radius_km"], False), (3, REACH_KM[3], False), (4, REACH_KM[4], False), (gulf["category"], gulf["radius_km"], True)]
+    for cat, radius, campus in runs:
+        hits, dt, code = call("POST", "/api/hurricane/track", {"points": gulf["points"], "radius_km": radius, "category": cat})
+        label = f"storm cat {cat}{' + hero campus' if campus else ''}"
+        if code != 200 or not (hits or {}).get("trip"):
+            note(f"{label}: track", f"HTTP {code}", dt)
+            continue
+        case = {"region": "FL", "load_factor": 1.0, "trip": hits["trip"], "sites": [], **(HERO if campus else {})}
+        rep, dt, code = call("POST", "/api/briefing", case)
+        note(f"{label}: briefing ({len(hits['trip'])} lines)", (rep or {}).get("verdict", "?") if code == 200 else f"HTTP {code}", dt)
+        d, dt, code = call("POST", "/api/briefing/deck", {**case, "length": "short"})
+        note(f"{label}: presentation (short)", who_deck(d) if code == 200 else f"HTTP {code}", dt)
+
+
 def main():
     up, _, code = call("GET", "/api/health", timeout=30)
     if code != 200:
         sys.exit(f"{BASE} is not answering /api/health ({code})")
     st, _, _ = call("GET", "/api/ai/status")
     print(f"AI configured: {st and st.get('configured')}, model {st and st.get('model')}, used today {st and st.get('used_today')}/{st and st.get('cap')}\n")
+    if ONLY == "storm":
+        storm_cases()
+        return
 
     # the hero
     proposer(HERO, "hero")
@@ -99,6 +128,8 @@ def main():
     for q in ((sug or {}).get("questions") or [])[:4]:
         a, dt, code = call("POST", "/api/ask", {"case": HERO, "question": q, "lang": "en"})
         note(f"hero ask: {q[:40]}", ((a or {}).get("source") or "?") if code == 200 else f"HTTP {code}", dt)
+
+    storm_cases()
 
     # the Florida five
     places, _, _ = call("GET", "/api/catalog/places?state=FL")
