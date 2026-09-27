@@ -21,6 +21,7 @@ import { townOf, useOverload } from '../store'
 import './bomb.css'
 import { leapIndexAt, titleCase } from './cascadeSchedule'
 import SiteVerdict from './SiteVerdict'
+import StepFeed from './StepFeed'
 
 // The right-hand column: who is affected and what it costs. Before the cascade runs, "Where the people
 // are": how hard the grid is strained, the overloaded lines and the people their power reaches. Once it
@@ -42,6 +43,10 @@ export default function ImpactPanel() {
   const flip = useFlip()
   const fixed = flipSide(flip, caseBody) === 'fixed' && !plantsOut(cascade) && (!cascading || flip.status === 'running' || !cascade)
   useFixFollowsCase(O) // a fix belongs to its case: moving the campus takes the flip's upgrades off
+  // the steps, live under the toll while the replay plays (or sits paused part-way): each trip as the replay
+  // reaches it (shell/StepFeed); once it has played, the whole list folds into "More" with the rest
+  const feed = n > 0 && (live || (step > 0 && step < n))
+  const every = n > 0 && settled
   // Fix it lives on Strengthen (user, Sat 22:30): "Fix it in Strengthen" opens its incident stage for this case, right
   // after a drop that overloads (the stage computes the options on that click) and again once the cascade has played
   const over = !cascade && !cascading && !fixed && !!result && (result.overloaded?.length || 0) > 0
@@ -79,6 +84,7 @@ export default function ImpactPanel() {
       {/* under the toll: how long the lights are out (and, before a run, what it would cost), then the flip (the
           same case again with the best verified fix), then one click to present it */}
       {result && !fixed && <OutageCost />}
+      {feed && <StepFeed />}
       {done && !calm && !fixed && <FlipOffer rate={rate} />}
       {over && <FullSolutionButton label="Fix it in Strengthen" hint={FIX_HINT} />}
       {result && <PresentDamage />}
@@ -89,9 +95,10 @@ export default function ImpactPanel() {
       {done && !calm && !fixed && <DarkFirst />}
       {result && !live && <HowWeKnow body={caseBody} applied={fixed} figures={done && !fixed ? ['people_hit', 'cost', 'outage_hours'] : []} cascade={cascade} />}
       <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>
-        <summary>More: incident briefing, cost breakdown, towns, map key</summary>
+        <summary>More: {every ? 'every step, ' : ''}incident briefing, cost breakdown, towns, map key</summary>
         {more && (
           <div className="stack more__body">
+            {every && <StepFeed all />}
             <Bulletin />
             {result && <CostCard bare />}
             <TownsFeed />

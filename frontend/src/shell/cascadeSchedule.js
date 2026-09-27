@@ -17,7 +17,7 @@
 import { incidentScale, leapIntensity } from '../features/impact/intensity'
 
 const LEAD_MS = 400 // from the top: the camera settles on the site before the first snap
-const SNAP_MS = 350 // the line snaps before the blast front leaves it
+export const SNAP_MS = 350 // the line snaps before the blast front leaves it (the step feed lands a step that hits nobody here)
 // the blast front: t(km) = RING_REF_MS * (km / RING_REF_KM) ^ RING_POW — ease-out (fast, then slowing)
 export const RING_REF_KM = 43
 export const RING_REF_MS = 1900

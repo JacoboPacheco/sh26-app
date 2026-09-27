@@ -1,23 +1,20 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { fmt } from '../geo'
 import { useOverload } from '../store'
 import { Button, ErrorBanner } from '../ui'
 import { useCascadeCueShown } from './CascadeCue'
-import { buildSchedule, titleCase } from './cascadeSchedule'
+import { buildSchedule } from './cascadeSchedule'
 
-// The bottom bar: the one place the cascade is started, played and scrubbed, in every mode.
+// The bottom bar: the one place the cascade is started, played and scrubbed, in every mode. It is only the
+// replay's controls and its progress: the steps themselves play live in the results column (shell/StepFeed).
 // The bar is the replay's clock: each step's mark sits where that step ENDS in the blast schedule
 // (a step that hits many towns takes longer than a crack), and while the replay plays the fill runs
 // with it to the end; paused, it sits exactly on the step.
 export default function Timeline() {
   const o = useOverload()
-  const { cascade, cascading, cascadeError, step, setStep, playing, setPlaying, startCascade, result, subName, branchById, subById, fx } = o
+  const { cascade, cascading, cascadeError, step, setStep, playing, setPlaying, startCascade, result, branchById, subById, fx } = o
   const ready = !!result // a solved case: a data center, a hurricane track, a heat level…
   const n = cascade?.steps.length || 0
   const live = !!(fx && playing)
-  // while the replay plays, the line names the step being played (the store's step moves at its end)
-  const shown = live ? Math.min(step + 1, n) : step
-  const cur = cascade && shown > 0 ? cascade.steps[shown - 1] : null
   // the first run's button sits beside the dropped data center while that one is on screen (shell/CascadeCue)
   const cue = useCascadeCueShown() && !cascade && !cascading
 
@@ -42,18 +39,6 @@ export default function Timeline() {
     el.style.transition = `width ${Math.round(left)}ms linear`
     el.style.width = '100%'
   }, [key, marks]) // eslint-disable-line react-hooks/exhaustive-deps -- key covers fx / step / live
-
-  function describe(st) {
-    if (!st) return 'Before anything trips'
-    const names = st.tripped.slice(0, 2).map((id) => {
-      const b = branchById.get(id)
-      if (!b) return `line ${id}`
-      const name = (id) => titleCase(subName(id))
-      return b.from_sub === b.to_sub ? `${name(b.from_sub)} transformer` : `${name(b.from_sub)} → ${name(b.to_sub)}`
-    })
-    const more = st.tripped.length > 2 ? ` and ${st.tripped.length - 2} more` : ''
-    return `${st.n === 0 ? 'Knocked out' : 'Tripped'}: ${names.join(', ')}${more}`
-  }
 
   return (
     <div className="timeline">
@@ -114,10 +99,6 @@ export default function Timeline() {
               onChange={(e) => setStep(Number(e.target.value))}
               aria-label="Cascade step"
             />
-            <p className="timeline__now" aria-live="polite">
-              <strong>{shown === 0 ? 'Step 0' : `Step ${shown} of ${n}`}</strong> {describe(cur)}
-              {cur && cur.lost_mw > 0 && <span className="muted"> · {fmt(cur.lost_mw)} MW of homes and businesses lost</span>}
-            </p>
           </>
         )}
         <ErrorBanner error={cascadeError} />
