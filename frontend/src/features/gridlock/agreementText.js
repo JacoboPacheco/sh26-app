@@ -131,7 +131,9 @@ export function agreementMarkdown(doc, lang = 'en') {
   const projects = doc.overlap?.projects || []
   const L = []
   L.push(`# ${d.title}`, '', `> ${doc.disclaimer}`, '')
-  if (d.negotiated) L.push(`> ${t.negotiated[d.negotiated.by] || d.negotiated.text}${d.negotiated.round ? ` (${t.negRound(d.negotiated.round)})` : ''}.`, '')
+  // a draft from a chosen collaboration plan says so in its own words; a negotiated one names the negotiation
+  if (doc.plan?.applied && doc.plan.text) L.push(`> ${doc.plan.text.replace(/\.$/, '')}.`, '')
+  else if (d.negotiated) L.push(`> ${t.negotiated[d.negotiated.by] || d.negotiated.text}${d.negotiated.round ? ` (${t.negRound(d.negotiated.round)})` : ''}.`, '')
   L.push(`${t.generated} ${new Date().toISOString().slice(0, 10)} · ${doc.overlap?.tier_label || ''} · ${doc.overlap_id}`, '')
   L.push(`## ${t.parties}`, '')
   for (const p of projects) {

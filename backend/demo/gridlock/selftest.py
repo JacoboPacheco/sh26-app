@@ -112,6 +112,15 @@ CASES = [
     # build windows: a start the filing doesn't pin is flagged, so the engine's build-window setting applies
     ("DESC 'Previous' spend window is assumed", lambda: N.build_window_desc("2024-06-01", {"Previous": 5, "2024": 1})["assumed"], True),
     ("DESC spend-year window is filed", lambda: N.build_window_desc("2026-06-01", {"Previous": 0, "2025": 1})["assumed"], False),
+    # the window is the years carrying most of the money: $50K of $5.38M in 2027 does not open it (2026-2030 p41)
+    ("a token first-year amount doesn't open the window (p41)",
+     lambda: N.build_window_desc("2028-12-31", {"Previous": 0, "2026": 0, "2027": 50000, "2028": 5326418})["start"], "2028-01-01"),
+    # most of the money after the filed in-service date: the window follows it and the check flags it (p26)
+    ("money after in-service: the window follows it (p26)",
+     lambda: N.build_window_desc("2027-12-31", {"Previous": 0, "2027": 100000, "2028": 2900000})["end"], "2028-12-31"),
+    ("money after in-service is flagged (p26)",
+     lambda: checks.spend_after_in_service_rule({"utility": "DESC", "in_service": "2027-12-31", "in_service_raw": "12/31/2027",
+                                                  "cost_by_year": {"2027": 100000, "2028": 2900000}}, {})[0], "warn"),
     # DESC's 2026-2030 filing (diff_filings.py): impossible calendar dates and one id printed for two projects
     ("impossible date 04/31/26 set aside (2026-2030 p1)", lambda: checks.date_real({"in_service_raw": "04/31/26"}, {}),
      ("fail", "'04/31/26' is not a real date: April 2026 has 30 days (as printed in the filing; which date was meant can't be told from it)")),

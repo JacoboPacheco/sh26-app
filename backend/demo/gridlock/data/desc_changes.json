@@ -1,5 +1,5 @@
 {
- "built_at": "2026-09-26T20:48:55Z",
+ "built_at": "2026-09-27T01:45:41Z",
  "_about": "DESC's 2026-2030 list of transmission projects of $2M and above compared with its 2024-2028 list, both as published on SCRTP. Each row cites both PDF pages. The lists don't say why a date or an estimate changed; the rows state what each list gives.",
  "command": "backend/venv/Scripts/python backend/demo/gridlock/diff_filings.py",
  "sources": [
@@ -157,6 +157,7 @@
      "confidence": "low",
      "warnings": [
       "costs_consistent",
+      "spend_after_in_service",
       "length_consistent"
      ]
     }
@@ -285,6 +286,7 @@
      "kept": true,
      "confidence": "low",
      "warnings": [
+      "spend_after_in_service",
       "date_normalized",
       "fully_located"
      ]
@@ -918,6 +920,7 @@
      "kept": true,
      "confidence": "medium",
      "warnings": [
+      "spend_after_in_service",
       "fully_located"
      ]
     }

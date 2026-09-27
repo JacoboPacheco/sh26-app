@@ -177,6 +177,109 @@ def _why_rule_missing(rule: str, pa: dict, pb: dict, lang: str) -> str:
               f"necesita las dos tensiones publicadas, y {', '.join(p['id'] for p in miss)} no da ninguna")
 
 
+# ----------------------------------------------------------------------------- each agent's goal (J2)
+#
+# Sperry's judge (Sat 21:34) read the negotiation as a rubber stamp: identical offers, a 50/50 'by kV class' split, an
+# agent accepting 73 % in round 1. Each agent now gets a GOAL from its own filing only: the smallest share of the shared
+# costs an allowed split rule gives its side (the rule its filing's figures support) and its filed window (joint work only
+# inside it). When the two caps add up to less than 100 %, the goals conflict and real counter-offers are expected;
+# when every allowed rule gives the same shares there is nothing to argue about, and the page says so. Nothing is
+# scripted: the counter-offers are the agents' own; the verifier only holds an agent to its goal before the last round.
+
+
+def goals(case: dict) -> tuple[dict, dict]:
+    """({side: goal}, conflict). A goal: cap_pct (the most its side should pay before the last round), rule (the split
+    rule its filing supports), window (its filed window, the joint work's bounds), text_en / text_es (plain sentences)."""
+    out = {}
+    pref = {"by_length": 0, "by_kv": 1, "equal": 2}  # a filed figure before a flat split
+    for k, side in enumerate(("a", "b")):
+        p = case["pa"] if side == "a" else case["pb"]
+        who = _short(case, side)
+        best = min(case["rules"], key=lambda r: (r["shares"][k], pref.get(r["id"], 9)))
+        cap = best["shares"][k]
+        w = case["bounds"][side]
+        ins = gl._date(p.get("in_service"))
+        kind = gl.window_kind(p)
+        kind_en = {"spending": "its construction years, from the filed spending", "planning": "its filed planning window",
+                   "derived": "a window derived from its in-service date"}[kind]
+        kind_es = {"spending": "sus años de obra, según el gasto publicado", "planning": "su ventana de planificación publicada",
+                   "derived": "una ventana derivada de su fecha de puesta en servicio"}[kind]
+        when_en = f"in service {ag.MONTHS[ins.month - 1]} {ins.year} as filed" if ins else "no in-service date filed"
+        when_es = f"en servicio en {MONTHS_ES[ins.month - 1]} {ins.year} según lo publicado" if ins else "sin fecha de puesta en servicio publicada"
+        flag = next(iter(gl.window_flags(p)), None)
+        if ins and flag:  # the filing's own dates disagree (money filed after the in-service date): said, not hidden
+            pct = re.match(r"\s*(\d+)\s*%", str(flag.get("detail") or ""))
+            when_en += f", though the filing puts {pct.group(1) + ' % of' if pct else 'part of'} its spending after that date"
+            when_es += f", aunque el documento sitúa {'el ' + pct.group(1) + ' % de' if pct else 'parte de'} su gasto después de esa fecha"
+        win_en = f"; joint work only inside {kind_en}, {_span(w)}" if w else ""
+        win_es = f"; obra conjunta solo dentro de {kind_es}, {_span(w, 'es')}" if w else ""
+        out[side] = {
+            "side": side,
+            "utility": p["utility"],
+            "cap_pct": cap,
+            "rule": best["id"],
+            "rule_label": best["label"],
+            "window": {"start": _iso(w[0]), "end": _iso(w[1]), "kind": kind} if w else None,
+            "text_en": f"Keep {who}'s filed schedule ({when_en}{win_en}) and pay no more than {cap:g} % of the shared costs ({best['label'][:1].lower() + best['label'][1:]}: {best['basis']}).",
+            "text_es": f"Mantener el calendario publicado de {who} ({when_es}{win_es}) y pagar como máximo el {cap:g} % de los costes compartidos ({best['label_es'][:1].lower() + best['label_es'][1:]}: {best['basis_es']}).",
+        }
+    conflict = out["a"]["cap_pct"] + out["b"]["cap_pct"] < 99.5
+    same = len({tuple(r["shares"]) for r in case["rules"]}) == 1
+    return out, {
+        "split": conflict,
+        "all_rules_equal": same,
+        "text_en": (
+            f"The goals conflict: {_short(case, 'a')}'s filing supports paying {out['a']['cap_pct']:g} % and {_short(case, 'b')}'s "
+            f"{out['b']['cap_pct']:g} %, which don't add up to 100 %, so the agents have to trade."
+            if conflict else
+            ("Nothing to argue about on cost: every allowed split rule gives the same shares, so the agents can agree quickly."
+             if same else "The goals fit together: one allowed split gives each side no more than its filing supports.")
+        ),
+        "text_es": (
+            f"Los objetivos chocan: el documento de {_short(case, 'a')} respalda pagar el {out['a']['cap_pct']:g} % y el de "
+            f"{_short(case, 'b')} el {out['b']['cap_pct']:g} %, que no suman 100 %, así que los agentes tienen que negociar."
+            if conflict else
+            ("Nada que discutir sobre el coste: todas las reglas de reparto permitidas dan las mismas partes."
+             if same else "Los objetivos encajan: una regla de reparto permitida da a cada parte no más de lo que respalda su documento.")
+        ),
+    }
+
+
+# a rejected turn whose findings are ALL about shape or wording (not the terms): fixed in a retry and hidden from the trace
+_FORMAT_FINDINGS = (
+    "is not a pair of months", "needs both a start and an end", "must be {start, end}", "no son dos meses",
+    "is not one of the estimate's items", "the scope must list", "not an allowed split rule", "needs both shares as numbers",
+    "concerns", "writes as", "isn't said as past", "longer than", "empty text", "must follow a figure", "the answer is not a proposal",
+    "escribe como", "objeciones", "no es una partida", "no es una regla", "necesita las dos partes", "la respuesta no es",
+)
+
+
+def format_only(turn: dict) -> bool:
+    f = turn["verdict"]["findings"]
+    return bool(f) and not turn["verdict"]["ok"] and all(any(x in s for x in _FORMAT_FINDINGS) for s in f)
+
+
+def public_turns(turns: list) -> list:
+    """The trace a person reads: a turn rejected only for its format and then revised by the same agent is left out (it is
+    kept in raw_turns); every turn is renumbered, its raw number kept."""
+    out = []
+    for k, t in enumerate(turns):
+        nxt = turns[k + 1] if k + 1 < len(turns) else None
+        if format_only(t) and nxt and nxt["agent"] == t["agent"] and nxt["revision"]:
+            continue
+        t2 = dict(t)
+        t2["raw_n"] = t["n"]
+        if t2["revision"] and out and out[-1]["agent"] == t2["agent"] and out[-1]["verdict"]["ok"] is False:
+            pass  # a revision after a substantive rejection stays a revision
+        elif t2["revision"]:
+            t2["revision"] = False  # its format-only first try is hidden: this is the agent's turn
+            if t2["kind"] == "revise":
+                t2["kind"] = "propose" if not out else "counter"
+        t2["n"] = len(out) + 1
+        out.append(t2)
+    return out
+
+
 def _case(overlap_id: str, months: int, as_of: date | None = None) -> dict:
     """Everything the agents and the verifier need, from agreement.py's case (the same overlap, filings, estimate,
     windows and as-of rule the drafted agreement uses; nothing re-derived)."""
@@ -205,13 +308,15 @@ def _case(overlap_id: str, months: int, as_of: date | None = None) -> dict:
         for combo in itertools.combinations(usd, n):
             allowed.money += [sum(it["low"] for it in combo), sum(it["high"] for it in combo)]
     projects = b["overlap"]["projects"]
-    return {
+    case = {
         "st_key": b["st_key"], "overlap_id": b["overlap"]["id"], "overlap": b["overlap"], "as_of": as_of, "now": now,
         "pa": pa, "pb": pb, "tl": tl, "extra": extra, "est": est, "facts": facts + rule_facts, "allowed": allowed,
         "bounds": bounds, "feasible": feasible, "rules": rules, "rules_by_id": {r["id"]: r for r in rules},
         "items": items, "item_ids": [it["id"] for it in items], "sources": {"a": projects[0]["source"], "b": projects[1]["source"]},
         "window_basis": {"a": wa[2] if wa else None, "b": wb[2] if wb else None},
     }
+    case["goals"], case["conflict"] = goals(case)
+    return case
 
 
 def _short(case: dict, side: str) -> str:
@@ -242,6 +347,9 @@ def _agents(case: dict, lang: str) -> list[dict]:
                                   f"No es {short}: lee el documento y no puede hablar por la empresa."),
             "filing": src.get("label"),
             "source": src,
+            "goal": case["goals"][side]["text_es" if lang == "es" else "text_en"],
+            "goal_cap_pct": case["goals"][side]["cap_pct"],
+            "goal_rule": case["goals"][side]["rule"],
         })
     return out
 
@@ -472,10 +580,11 @@ AGENT_SYSTEM = (
     "'as filed, the window ended Aug 2026'). "
     "Write in the third person about the filing ('the filing shows', 'this agent proposes'); never 'we' or 'our'. "
     "In concerns and the note, name a split rule in words ('by filed length', 'by kV class', '50/50'), not by its id. "
-    "You hold your filing's side of the shared estimate: argue for the split rule your filing's own figures (voltage, length, kind of "
-    "work) support for your side, with that reason, and answer the other agent's reasons; move to a middle ground only when its reason "
-    "holds, since a verified middle ground beats leaving without terms. Don't accept in your first reply unless the terms on the table "
-    "are already what your filing's figures support. "
+    "You hold your filing's side of the shared estimate and you are given a GOAL from your own filing (the most your side should pay "
+    "and the window your filing allows): argue for the split rule your filing's own figures (voltage, length, kind of work) support for "
+    "your side, with that reason, and answer the other agent's reasons; move toward a middle ground only when its reason holds or in "
+    "the last round, since a verified middle ground beats leaving without terms. Don't accept terms above your goal before the last "
+    "round. If the terms on the table already meet your goal, accept them; never invent a disagreement. "
     "Accept (accept: true) only the other agent's proposal on the table, copying its terms exactly. Short, plain sentences; no markdown."
 )
 
@@ -514,6 +623,23 @@ def _history_lines(case: dict, turns: list) -> list[str]:
     return out
 
 
+def _middle_lines(case: dict, side: str, rnd: int) -> list[str]:
+    """From round 2, when the goals conflict: the allowed rules that sit between the two goals (a real option both filings
+    support, never a scripted move), and in the last round what repeating an opening leads to."""
+    if rnd < 2 or not case["conflict"]["split"]:
+        return []
+    ga, gb = case["goals"]["a"]["rule"], case["goals"]["b"]["rule"]
+    A, B = _short(case, "a"), _short(case, "b")
+    mids = [r for r in case["rules"] if r["id"] not in (ga, gb)]
+    out = []
+    if mids:
+        out.append("MIDDLE GROUND the filings allow: " + "; ".join(f"{r['id']} ({A} {r['shares'][0]} %, {B} {r['shares'][1]} %)" for r in mids) + ".")
+    if rnd == MAX_ROUNDS:
+        out.append("This is the last round: accept the other agent's verified proposal on the table (accept: true, the same terms) or "
+                   "propose the middle ground; repeating your own opening again ends the negotiation with no terms.")
+    return out
+
+
 def _prompt(case: dict, side: str, rnd: int, turns: list, table: dict | None, feedback: list | None, lang: str) -> str:
     other = "b" if side == "a" else "a"
     me_p, ot_p = (case["pa"], case["pb"]) if side == "a" else (case["pb"], case["pa"])
@@ -537,6 +663,11 @@ def _prompt(case: dict, side: str, rnd: int, turns: list, table: dict | None, fe
         "",
         "YOUR FILING (key: text):",
         *[f"- {f['key']}: {f['text']}" for f in mine],
+        "",
+        f"YOUR GOAL (from your own filing): {case['goals'][side]['text_en']} Before round {MAX_ROUNDS}, don't accept a split that "
+        f"gives your side more than {case['goals'][side]['cap_pct']:g} %; counter with your filing's reason instead. In round "
+        f"{MAX_ROUNDS}, a verified middle ground beats leaving without terms.",
+        *_middle_lines(case, side, rnd),
         "",
         "SHARED FACTS:",
         *[f"- {f['key']}: {f['text']}" for f in shared],
@@ -597,10 +728,23 @@ class _Game:
         self.table: dict | None = None  # the last verified proposal: {agent, terms, n}
         self.agreed: dict | None = None
 
-    def take(self, side: str, rnd: int, raw, ms: int = 0, revision: bool = False, cached: bool = False) -> dict:
+    def take(self, side: str, rnd: int, raw, ms: int = 0, revision: bool = False, cached: bool = False, hold_to_goal: bool = False) -> dict:
         verdict, prop = verify(raw, self.case, self.lang, self.turns)
         wants = prop["accept"]
         matches = bool(self.table and self.table["agent"] != side and _same(_terms(prop), self.table["terms"]))
+        # J2: an AI agent is held to its own filing's goal before the last round (the plain version is a labeled script)
+        goal = (self.case.get("goals") or {}).get(side)
+        share = (prop["split"].get("shares") or [None, None])[0 if side == "a" else 1]
+        if (hold_to_goal and goal and wants and matches and verdict["ok"] and rnd < MAX_ROUNDS
+                and isinstance(share, (int, float)) and share > goal["cap_pct"] + 0.5):
+            verdict["ok"] = False
+            verdict["findings"].append(_L(
+                self.lang,
+                f"accepting {share:g} % goes past this agent's goal (at most {goal['cap_pct']:g} %, {goal['rule_label'][:1].lower() + goal['rule_label'][1:]}) before "
+                f"round {MAX_ROUNDS}: counter with the filing's reason instead",
+                f"aceptar el {share:g} % supera el objetivo de este agente (como máximo {goal['cap_pct']:g} %) antes de la ronda "
+                f"{MAX_ROUNDS}: contraproponer con la razón del documento",
+            ))
         accept = bool(wants and matches and verdict["ok"])
         if wants and not matches:
             if not self.table or self.table["agent"] == side:
@@ -671,7 +815,7 @@ async def _run_gemini(case: dict, lang: str, live: dict | None = None) -> tuple[
                 if offline:
                     why = "Gemini not configured" if not llm.configured() else ("Gemini too slow" if ms >= CALL_DEADLINE_S * 1000 - 50 else "Gemini unavailable")
                     return g, calls, why, None
-                turn = g.take(side, rnd, raw, ms, revision=attempt == 1, cached=cached)
+                turn = g.take(side, rnd, raw, ms, revision=attempt == 1, cached=cached, hold_to_goal=True)
                 found = turn["verdict"]["findings"]
                 if found and lang == "es":  # the ledger reads in English: the same check, worded in English (verify is pure and fast)
                     found = verify(raw, case, "en", g.turns[:-1])[0]["findings"] or found
@@ -689,13 +833,14 @@ async def _run_gemini(case: dict, lang: str, live: dict | None = None) -> tuple[
 
 
 def _plain_game(case: dict, lang: str) -> _Game:
-    """The rule-based negotiation: A opens with the overlap window, every shared item and a split rule, B counters with
-    another rule, and they settle on the filed-length split (the draft's own rule; 50/50 when a length isn't filed)."""
+    """The rule-based negotiation (labeled 'Plain version'), driven by the two goals: A opens with the split its filing
+    supports; B accepts when that already meets its own goal, else counters with the split ITS filing supports; then A
+    proposes the middle ground (the draft's own filed-length rule, or 50/50) and B accepts it. No counter-offer is made
+    when there is nothing to disagree about."""
     g = _Game(case, lang)
-    rules = case["rules"]
     by_id = case["rules_by_id"]
-    settle = "by_length" if "by_length" in by_id else "equal"
-    others = [r for r in rules if r["id"] != settle]
+    goals_ = case["goals"]
+    ra, rb = goals_["a"]["rule"], goals_["b"]["rule"]
     win = case["feasible"]
     jw = {"start": _iso(win[0]), "end": _iso(win[1])} if win else {"start": "", "end": ""}
     scope = list(case["item_ids"])
@@ -722,27 +867,27 @@ def _plain_game(case: dict, lang: str) -> _Game:
 
     wtxt = _span(win, lang) if win else _L(lang, "no joint window", "sin ventana conjunta")
     accept_note = _L(lang, "Accepts the proposal on the table.", "Acepta la propuesta sobre la mesa.")
-    rule_a = min(others, key=lambda r: (r["shares"][0], r["id"]))["id"] if others else settle
-    rest = [r for r in others if r["id"] != rule_a]
-    rule_b = min(rest, key=lambda r: (r["shares"][1], r["id"]))["id"] if rest else settle
-    open_note = _L(lang, f"Opening: {wtxt}, every shared item in the estimate, split {ag._lc(label(rule_a))}.",
-                   f"Apertura: {wtxt}, todas las partidas compartidas de la estimación, reparto {ag._lc(label(rule_a))}.")
-    g.take("a", 1, raw(rule_a, concern("a"), open_note))
-    if rule_a == settle:
-        g.take("b", 1, raw(settle, concern("b"), accept_note, True))
+    open_note = _L(lang, f"Opening: {wtxt}, every shared item in the estimate, split {ag._lc(label(ra))}, the split this filing supports.",
+                   f"Apertura: {wtxt}, todas las partidas compartidas de la estimación, reparto {ag._lc(label(ra))}, el que respalda este documento.")
+    g.take("a", 1, raw(ra, concern("a"), open_note))
+    if by_id[ra]["shares"][1] <= goals_["b"]["cap_pct"] + 0.5:  # A's opening already meets B's goal: nothing to counter
+        g.take("b", 1, raw(ra, concern("b"), accept_note, True))
         return g
-    g.take("b", 1, raw(rule_b, concern("b"), _L(lang, f"Counter: split {ag._lc(label(rule_b))} instead.", f"Contrapropuesta: reparto {ag._lc(label(rule_b))}.")))
-    if rule_b == settle:
-        g.take("a", 2, raw(settle, [], accept_note, True))
+    g.take("b", 1, raw(rb, concern("b"), _L(lang, f"Counter: split {ag._lc(label(rb))}, the split this filing supports.",
+                                              f"Contrapropuesta: reparto {ag._lc(label(rb))}, el que respalda este documento.")))
+    settle = "by_length" if "by_length" in by_id else "equal"
+    mid = next((x for x in (settle, "equal") if x in by_id and x not in (ra, rb)), None)
+    if mid is None:  # no rule between the two: A takes B's counter
+        g.take("a", 2, raw(rb, [], accept_note, True))
         return g
     middle = (
         _L(lang, "Middle ground: split by filed length, the draft's own rule, since both filings give a length.",
            "Punto medio: reparto por longitud publicada, la regla del propio borrador, porque los dos documentos dan una longitud.")
-        if settle == "by_length"
+        if mid == "by_length"
         else _L(lang, "Middle ground: split equally until both scopes are sized.", "Punto medio: reparto a partes iguales hasta dimensionar los dos alcances.")
     )
-    g.take("a", 2, raw(settle, [], middle))
-    g.take("b", 2, raw(settle, [], accept_note, True))
+    g.take("a", 2, raw(mid, [], middle))
+    g.take("b", 2, raw(mid, [], accept_note, True))
     return g
 
 
@@ -860,7 +1005,14 @@ async def _negotiate(case: dict, lang: str, ai: bool, key: tuple | None = None) 
             "status": case["extra"]["status"],
             "why_none": _why_none(case, lang),
         },
-        "turns": g.turns,
+        # the trace a person reads: turns rejected only for their format (and revised by the same agent) are left out
+        "turns": public_turns(g.turns),
+        "raw_turns": g.turns,
+        "format_retries_hidden": len(g.turns) - len(public_turns(g.turns)),
+        "goals": {side: {k: v for k, v in case["goals"][side].items() if not k.startswith("text_")}
+                  | {"text": case["goals"][side]["text_es" if lang == "es" else "text_en"]} for side in ("a", "b")},
+        "conflict": {"split": case["conflict"]["split"], "all_rules_equal": case["conflict"]["all_rules_equal"],
+                     "text": case["conflict"]["text_es" if lang == "es" else "text_en"]},
         "outcome": _nothing_outcome(case, lang) if by == "none" else _outcome(g, case, lang, stop),
         "by": by,
         "fallback_reason": failure,
@@ -973,14 +1125,14 @@ def negotiate_live(overlap_id: str, lang: str = Query("en"), window_months: int 
     lang = (lang or "").strip().lower()
     if lang not in LANGS or not (0 <= window_months <= gl.WINDOW_MAX) or len(overlap_id) > 200:
         raise HTTPException(status_code=422, detail="bad lang, window_months or overlap id")
-    key = (gl._load()["key"], overlap_id, window_months, lang, True, date.today().isoformat())
+    key = (gl._load()["key"], overlap_id, window_months, lang, True, gl.today_local().isoformat())
     live = _live.get(key)
     if not live or "game" not in live:
         return {"running": False}
     g = live["game"]
     return {
         "running": True,
-        "turns": copy.deepcopy(g.turns),
+        "turns": public_turns(copy.deepcopy(g.turns)),
         "calls": live.get("calls", 0),
         "max_calls": MAX_CALLS,
         "working": live.get("working"),

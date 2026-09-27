@@ -14,6 +14,7 @@ from collections import Counter
 
 import geo
 from normalize import (SAME_TITLE, fix_voltage_typos, impossible_dates, kv_of, project_id_key, project_id_parts,
+                       spend_after_in_service,
                        title_similarity, work_order_label)
 
 DATE_MIN, DATE_MAX = "2020-01-01", "2040-12-31"
@@ -244,6 +245,26 @@ def costs_consistent(p, ctx):
     return _r("pass", "yearly amounts add up to the Total")
 
 
+SPEND_AFTER_WARN = 0.25  # a little money after in-service is close-out; a quarter or more means the dates disagree
+
+
+def spend_after_in_service_rule(p, ctx):
+    """The filing's own money agrees with its own in-service date: DESC files spending per year, and a project whose
+    spending is mostly filed in years AFTER its in-service date contradicts itself (DESC 2026-2030 p26, Urquhart - Aiken
+    PSA 46 kV: $2.9M of $3.0M in 2028, in service 12/31/2027). Flagged, not set aside: the build window follows the
+    money (normalize.build_window_desc) and the record says so."""
+    if p.get("utility") != "DESC" or not p.get("cost_by_year"):
+        return _r("pass", "n/a (no yearly spending filed)")
+    got = spend_after_in_service(p.get("in_service"), p.get("cost_by_year"))
+    if not got:
+        return _r("pass", "no spending filed after the in-service year")
+    amount, share = got
+    text = f"{round(100 * share)} % of the filed spending (${amount:,.0f}) is in years after the in-service date {p.get('in_service_raw') or p.get('in_service')}"
+    if share >= SPEND_AFTER_WARN:
+        return _r("warn", text + " (as filed; the build window follows the spending)")
+    return _r("pass", text + " (close-out)")
+
+
 def voltage_found(p, ctx):
     stray = [m.group(0) for m in LETTER_O_KV.finditer(fix_voltage_typos(p["name"])[0])]
     stray_note = (f"the title has {', '.join(repr(s) for s in stray)} inside a voltage (a letter O for a zero?); "
@@ -285,8 +306,10 @@ FILING_RULES = [
     ("id_one_project", "One project id, one project", True, id_one_project, False),
     ("date_real", "Every printed date is on the calendar", True, date_real, False),
     ("kv_title_matches_description", "Title and description agree on voltage", False, kv_title_matches_description, False),
+    ("spend_after_in_service", "Spending filed by the in-service date (DESC)", False, spend_after_in_service_rule, False),
 ]
-_AFTER = {"id_one_project": "id_unique", "date_real": "date_valid", "kv_title_matches_description": "voltage_found"}  # next to its sibling
+_AFTER = {"id_one_project": "id_unique", "date_real": "date_valid", "kv_title_matches_description": "voltage_found",
+          "spend_after_in_service": "costs_consistent"}  # next to its sibling
 ALL_RULES = []
 for _rule in RULES:
     ALL_RULES.append(_rule)

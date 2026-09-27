@@ -30,6 +30,7 @@ from datetime import date
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel
 
 import gridlock as gl
 from limiter import limiter
@@ -340,6 +341,9 @@ def _num(v: float, d: int = 2) -> str:
     return f"{v:,.{d}f}"
 
 
+_ACRONYMS = {"usa", "sav", "gtc", "meag", "apc", "cc", "du", "gpc", "desc", "psa", "tl", "cco"}
+
+
 def _display_name(name: str) -> str:
     """Georgia's table prints names in capitals: give them title case (numbers and kV untouched)."""
     if not name or name.upper() != name:
@@ -347,7 +351,9 @@ def _display_name(name: str) -> str:
     small = {"and", "of", "to", "on", "at", "the", "for"}
     words = []
     for i, w in enumerate(name.lower().split(" ")):
-        if re.fullmatch(r"\d+kv", w):
+        if re.sub(r"[^a-z]", "", w) in _ACRONYMS:  # '(USA)', 'SAV:', 'CC' stay capitals
+            words.append(w.upper())
+        elif re.fullmatch(r"\d+kv", w):
             words.append(w[:-2] + "kV")
         elif i and w in small:
             words.append(w)
@@ -436,7 +442,7 @@ def _filing_source(st: dict, p: dict) -> dict:
 # ----------------------------------------------------------------------------- the case
 
 
-def _resolve(overlap_id: str, months: int):
+def _resolve(overlap_id: str, months: int, aligned: bool = False):
     """The overlap record, timeline and estimate gridlock.py computes for this pair (404 like /estimate)."""
     st = gl._load()
     parts = (overlap_id or "").split("~")
@@ -446,7 +452,7 @@ def _resolve(overlap_id: str, months: int):
     if st["util"][i] == st["util"][j] or st["closest_km"][i, j] > gl.MAX_KM_CAP:
         raise HTTPException(status_code=404, detail=f"Those two projects aren't a cross-utility pair within {gl.MAX_KM_CAP:g} km")
     rec = gl._overlap_record(st, i, j, months, "closest")
-    est = gl._estimate(st, i, j, months)
+    est = gl._estimate(st, i, j, months, assume_aligned=aligned)
     pa, pb = st["placed"][i], st["placed"][j]
     tl = gl._timeline(pa, pb, months)
     rank = None
@@ -618,7 +624,7 @@ def _facts(st, pa, pb, rec, est, tl, rank, split, as_of: date) -> tuple[list[dic
     )
     add("pair.distance_mi", f"Closest points {_num(mi)} mi apart", mi, "mi")
     add("pair.center_mi", f"Centers {_num(rec['center_distance_mi'])} mi apart (Sperry's center method)", rec["center_distance_mi"], "mi")
-    add("pair.tier", f"Distance tier: {rec['tier_label']} ({gl.TIER_BY_ID[rec['tier']][5]})", rec["tier_label"])
+    add("pair.tier", f"How close they are: {rec['tier_label'].lower()} ({gl.TIER_BY_ID[rec['tier']][5]})", rec["tier_label"])
     station = rec.get("shared_station")
     if station:  # gridlock's class above every distance tier: an endpoint of each project is the same substation
         add("pair.station", f"Same station: {station['reason']}", station["name"])
@@ -627,7 +633,7 @@ def _facts(st, pa, pb, rec, est, tl, rank, split, as_of: date) -> tuple[list[dic
         years = f"{s.year}" if s.year == e.year else f"{s.year}-{e.year}"
         add(
             "pair.share",
-            f"What the distance allows them to share: {_share_base(rec)}; as filed, both were to be under construction in {years}, a period that has passed",
+            f"What the distance allows them to share: {_share_base(rec, pa, pb)}; as filed, both build windows were open in {years}, a period that has passed",
             rec["share"],
         )
     else:
@@ -699,8 +705,10 @@ def _facts(st, pa, pb, rec, est, tl, rank, split, as_of: date) -> tuple[list[dic
     return facts, js
 
 
-def _share_base(rec: dict) -> str:
+def _share_base(rec: dict, pa: dict | None = None, pb: dict | None = None) -> str:
     """gridlock's own share line for the tier, without the timing clause (for a window that has passed)."""
+    if pa is not None and pb is not None:  # in words that fit the two kinds of work (no line crews for a transformer)
+        return gl.share_text(rec["tier"], pa, pb)
     return gl.SHARE_LINE.get(rec["tier"], rec["share"])
 
 
@@ -749,15 +757,17 @@ def _template(pa, pb, rec, est, tl, rank, split, facts, extra) -> dict:
     else:
         when = "their timing is not in both filings"
     share = (
-        f"If both projects still have work ahead, they could share {_lc(_share_base(rec))}."
+        f"If both projects still have work ahead, they could share {_lc(_share_base(rec, pa, pb))}."
         if ended
         else f"This draft proposes that the two projects could share {_lc(rec['share'])}."
     )
     total = _usd_range(est.get("total_low"), est.get("total_high"))
     no_items = not est.get("items")
-    left = ", ".join(_lc(x["label"]) for x in est.get("left_out") or []) or "what could be shared"
+    # (not `left`: that is the months left in the shared window, used again below; reusing the name printed
+    # "about what could be shared months left" in pair 10's draft)
+    left_out_text = ", ".join(_lc(x["label"]) for x in est.get("left_out") or []) or "what could be shared"
     save_line = (
-        f"Nothing is estimated yet: at this distance, {left} would need the build windows to share months."
+        f"Nothing is estimated yet: at this distance, {left_out_text} would need the build windows to share months."
         if no_items
         else f"The rough estimate of what that could save is {total}."
     )
@@ -771,7 +781,7 @@ def _template(pa, pb, rec, est, tl, rank, split, facts, extra) -> dict:
     )
     scope = [
         _it(
-            f"{gl.TIER_BY_ID[rec['tier']][4]}: {_lc(_share_base(rec))}, if both projects still have work ahead."
+            f"{gl.TIER_BY_ID[rec['tier']][4]}: {_lc(_share_base(rec, pa, pb))}, if both projects still have work ahead."
             if ended
             else f"{gl.TIER_BY_ID[rec['tier']][4]}: {_lc(rec['share'])}.",
             "pair.tier", "pair.share",
@@ -1009,6 +1019,7 @@ AI_SYSTEM = (
     "('as filed, both windows were open Jun 2025 to Aug 2026; that period has passed'), never propose it or ask anyone to plan inside it; "
     "for a passed window the next step is to check each project's current status. A window that has started but not ended is open now: "
     "say so and give the months left (pair.months_left). "
+    "Plain words for a newcomer: never 'tier' (say 'at this distance'), never 'mobilization' (say 'crews set up once'). "
     "For every item, list the keys of the facts it uses."
 )
 
@@ -1064,13 +1075,24 @@ def _prompt(facts: list[dict], pa: dict, pb: dict, rec: dict, lang: str, tpl: di
     )
 
 
+# pipeline jargon a newcomer can't read, said plainly in the AI's draft ("The tier allows ..." -> "This distance allows ...")
+_JARGON = ((re.compile(r"\b[Tt]he (?:distance )?tier\b"), "this distance"), (re.compile(r"\b[Tt]his (?:distance )?tier\b"), "this distance"),
+           (re.compile(r"\bdistance tier\b"), "distance"))
+
+
+def _plain_words(text: str) -> str:
+    for pat, word in _JARGON:
+        text = pat.sub(lambda m: word[:1].upper() + word[1:] if m.group(0)[:1].isupper() else word, text)
+    return text
+
+
 def _clean_item(raw, keys: set[str], facts: list[dict], allowed: set[str], where: str, rejected: list, max_chars: int = MAX_ITEM_CHARS) -> dict | None:
     if not isinstance(raw, dict):
         note_check("agreement", False, "a draft item that is not an item")
         rejected.append({"where": where, "text": str(raw)[:200], "reason": "not an item"})
         return None
     text = raw.get("text")
-    text = text.strip() if isinstance(text, str) else ""
+    text = _plain_words(text.strip()) if isinstance(text, str) else ""
     ok, reason, _ = check_text(text, facts, allowed, max_chars)
     note_check("agreement", ok, f"a draft sentence: {reason}")
     if not ok:
@@ -1275,7 +1297,9 @@ def _with_terms(pa: dict, pb: dict, est: dict, terms: dict) -> tuple[dict, dict,
         est = {**est, "items": keep, "total_low": sum(it["low"] for it in usd), "total_high": sum(it["high"] for it in usd)}
     sp = terms["split"]
     split = {"basis": sp["basis"], "pct": list(sp["pct"]), "miles": [pa.get("miles"), pb.get("miles")], "rule": sp["rule"], "rationale": sp["rationale"]}
-    neg = {"by": terms["by"], "round": terms.get("round"), "window": terms.get("window"), "rule": sp["id"], "text": terms["text"], "scope": [it["id"] for it in keep]}
+    neg = {"by": terms["by"], "round": terms.get("round"), "window": terms.get("window"), "rule": sp["id"], "text": terms["text"], "scope": [it["id"] for it in keep],
+           # a collaboration plan's terms (collab_plans.plan_terms) say so instead of "negotiated"
+           "window_word": terms.get("window_word") or "Negotiated joint window", "plan": terms.get("plan")}
     return est, split, neg
 
 
@@ -1285,7 +1309,7 @@ def _neg_facts(neg: dict) -> list[dict]:
         s, e = neg["window"]
         out.append({
             "key": "neg.window",
-            "text": f"Negotiated joint window: {MONTHS[s[1] - 1]} {s[0]} to {MONTHS[e[1] - 1]} {e[0]}",
+            "text": f"{neg.get('window_word') or 'Negotiated joint window'}: {MONTHS[s[1] - 1]} {s[0]} to {MONTHS[e[1] - 1]} {e[0]}",
             "value": [f"{s[0]:04d}-{s[1]:02d}", f"{e[0]:04d}-{e[1]:02d}"],
             "unit": "dates",
             "source": NEGOTIATION_SOURCE,
@@ -1306,19 +1330,20 @@ def _template_terms(tpl: dict, extra: dict, neg: dict) -> None:
             else f"inside the months both filed build windows share ({_month(js)} to {_month(je)})"
         )
         tpl["joint_window_text"] = _it(
-            f"Negotiated joint window: {ws} to {we}, {inside}. Crews, equipment and any outages on both projects would be scheduled together inside it.",
+            f"{neg.get('window_word') or 'Negotiated joint window'}: {ws} to {we}, {inside}. Crews, equipment and any outages on both projects would be scheduled together inside it.",
             "neg.window", "pair.joint_window", "neg.terms",
         )
         if len(tpl["next_steps"]) > 2:
-            tpl["next_steps"][2] = _it(f"Compare detailed construction schedules for the negotiated window, {ws} to {we}.", "neg.window")
+            tpl["next_steps"][2] = _it(f"Compare detailed construction schedules for the {'plan' if neg.get('plan') else 'negotiated'} window, {ws} to {we}.", "neg.window")
 
 
 def _base(overlap_id: str, months: int, as_of: date | None = None, terms: dict | None = None) -> dict:
     """Everything but the words: the overlap, the facts, the template draft (computed, cheap, sync).
     as_of is the draft's date (today): a filed window that ended before it is said as past. terms: a negotiation's
     agreed terms (negotiate.terms_for_draft), applied to the scope, the split and the joint window."""
-    as_of = as_of or date.today()
-    st, pa, pb, rec, est, tl, rank = _resolve(overlap_id, months)
+    as_of = as_of or gl.today_local()  # the filers' (Eastern) date, the same one the list shows
+    # a "shift" plan prices the same-window items as if one schedule moved (gridlock._estimate assume_aligned)
+    st, pa, pb, rec, est, tl, rank = _resolve(overlap_id, months, aligned=bool(terms and terms.get("aligned")))
     split = _split(pa, pb)
     neg = None
     if terms:
@@ -1400,7 +1425,7 @@ LIST_WORDS = {
     "desc_2026": "Dominion Energy South Carolina's 2026-2030 project list (SCRTP)",
     "desc": "Dominion Energy South Carolina's 2024-2028 project list (SCRTP; a project its 2026-2030 list no longer carries)",
     "ga_irp": ("the Georgia ITS 10-year plan in Georgia Power's 2025 IRP Volume 3, the public-disclosure version filed with the "
-               "Georgia PSC (unredacted fields only; redacted fields left blank, never inferred; no CEII-marked content used)"),
+               "Georgia PSC (unredacted fields only; redacted fields left blank, never inferred)"),
     "sperry_example": "Sperry's worked example (Projects_Overlaps.xlsx)",
 }
 
@@ -1430,21 +1455,55 @@ async def agreement(
     lang: str = Query("en"),
     ai: bool = Query(True),
     negotiated: str = Query(""),
+    plan: str = Query(""),
 ):
     """A draft coordination proposal for one overlap: the facts (each with its source), the draft (Gemini's
     words when configured and every number checks out, else the template), and what the checker rejected.
     negotiated=en|es|plain: use the agreed, verified terms of that negotiation (POST /api/negotiate/{id}: the Gemini
-    agents in that language, or the plain rule-based version) for the scope, the split and the joint window."""
+    agents in that language, or the plain rule-based version) for the scope, the split and the joint window.
+    plan=<plan id>: draft from a collaboration plan's terms (POST /api/gridlock/plans), re-derived by the pipeline."""
+    return await _agreement(overlap_id, window_months, lang, ai, negotiated, plan)
+
+
+class AgreementIn(BaseModel):
+    plan: str | dict | None = None
+    lang: str | None = "en"
+    window_months: int | None = None
+    ai: bool | None = True
+    negotiated: str | None = ""
+
+
+@router.post("/api/agreement/{overlap_id}")
+@limiter.limit("30/minute")
+async def agreement_post(request: Request, overlap_id: str, body: AgreementIn):
+    """The same draft, from a chosen collaboration plan: {"plan": <plan id or the plan object from POST /api/gridlock/plans>}.
+    Only the plan's id is read; its window, scope and split are re-derived from the pipeline (collab_plans.plan_terms)."""
+    months = gl.WINDOW_DEFAULT if body.window_months is None else body.window_months
+    pid = body.plan.get("id") if isinstance(body.plan, dict) else (body.plan or "")
+    return await _agreement(overlap_id, months, body.lang or "en", body.ai is not False, body.negotiated or "", str(pid or ""))
+
+
+async def _agreement(overlap_id: str, window_months: int, lang: str, ai: bool, negotiated: str, plan: str = ""):
     t0 = time.perf_counter()
     if not (0 <= window_months <= gl.WINDOW_MAX):
         raise HTTPException(status_code=422, detail=f"window_months must be between 0 and {gl.WINDOW_MAX}")
     lang = (lang or "").strip().lower()
     if lang not in LANGS:
         raise HTTPException(status_code=422, detail="lang must be 'en' or 'es'")
-    if len(overlap_id) > 200:
-        raise HTTPException(status_code=422, detail="overlap id is too long")
+    if len(overlap_id) > 200 or len(plan) > 60:
+        raise HTTPException(status_code=422, detail="overlap or plan id is too long")
     negotiated = (negotiated or "").strip().lower()
-    terms = neg_meta = None
+    plan = (plan or "").strip()
+    if negotiated and plan:
+        raise HTTPException(status_code=422, detail="use either negotiated= or plan=, not both")
+    terms = neg_meta = plan_meta = None
+    if plan:
+        import collab_plans  # here, not at the top: collab_plans imports this module
+
+        await run_in_threadpool(_resolve, overlap_id, window_months)  # an unknown pair is a 404 before any agent runs
+        terms, plan_meta = await collab_plans.plan_terms(overlap_id, window_months, plan)
+        if terms is None:
+            raise HTTPException(status_code=404, detail=f"No plan '{plan[:40]}' for this pair")
     if negotiated:
         import negotiate  # here, not at the top: negotiate.py imports this module
 
@@ -1453,8 +1512,8 @@ async def agreement(
         await run_in_threadpool(_resolve, overlap_id, window_months)  # an unknown pair is a 404 before any agent runs
         terms, neg_meta = await negotiate.terms_for_draft(overlap_id, window_months, negotiated)
     b = await run_in_threadpool(_base, overlap_id, window_months, None, terms)
-    tsig = (terms["split"]["id"], tuple(terms["scope"]), terms["window"], terms["by"]) if terms else None
-    key = (b["st_key"], b["overlap"]["id"], window_months, lang, bool(ai), b["as_of"].isoformat(), negotiated, tsig)
+    tsig = (terms["split"]["id"], tuple(terms["scope"]), terms["window"], terms["by"], (terms.get("plan") or {}).get("id")) if terms else None
+    key = (b["st_key"], b["overlap"]["id"], window_months, lang, bool(ai), b["as_of"].isoformat(), negotiated, plan, tsig)
     with _cache_lock:
         hit = _cache.get(key)
         if hit is not None:
@@ -1501,6 +1560,7 @@ async def agreement(
             cacheable = True  # Gemini's answer is itself cached by llm.py, so the same verdict would repeat
     out["cached"] = False
     out["negotiated"] = neg_meta  # None unless ?negotiated= asked: then whether the agreed terms were applied, and by whom
+    out["plan"] = plan_meta  # None unless a collaboration plan was chosen: its id, title and that its terms were applied
     if cacheable:
         with _cache_lock:
             _cache[key] = copy.deepcopy(out)

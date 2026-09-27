@@ -432,6 +432,13 @@
   color: var(--ink);
 }
 
+.rp-funnel__note {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: var(--ink-3, var(--ink-2));
+}
+
 .rp-caution {
   font-size: 0.875rem;
   color: var(--ink-2);

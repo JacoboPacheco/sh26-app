@@ -296,7 +296,20 @@ def register(ctx):
                         and not str(e.get("match") or "").startswith("no OSM substation is named")}
 
             if direct(pa) & direct(pb):
-                assert r.get("shared_station"), f"{r['id']} shares an OSM substation but isn't flagged same station"
+                # flagged same station, or (J1) said why not: a description puts the work somewhere else
+                assert r.get("shared_station") or r.get("station_not_shared"), f"{r['id']} shares an OSM substation, neither flagged nor explained"
+                if not r.get("shared_station"):
+                    assert any(r["station_not_shared"] == x for x in r["reasons"]), (r["id"], r["station_not_shared"])
+        # J1 (Sperry judge): DESC's p41 works at a new Deerfield Switching Station on the Okatie - McIntosh tie and Georgia's
+        # p314 rebuilds only the Goshen - Georgia Pacific (Rincon) section, so the two must never be called "same station"
+        mc = next((r for r in rows if {r["a"], r["b"]} == {"DESC-6888", "GA-20065"}), None)
+        if mc is not None:
+            assert not mc.get("shared_station") and "not listed as the same station" in (mc.get("station_not_shared") or ""), mc.get("station_not_shared")
+            assert any("works on only part of this line" in x for x in mc["reasons"]), "GA-20065's section (Goshen - Georgia Pacific) is not said"
+        for r in ss:  # a same-station pair's two descriptions both name the station
+            for pid in (r["a"], r["b"]):
+                d = (projects[pid].get("description") or projects[pid].get("name") or "").upper()
+                assert r["shared_station"]["name"].split()[0].upper() in d, f"{r['id']}: {pid}'s description doesn't name {r['shared_station']['name']}"
 
     def overlaps_center_method():
         o = ctx.request("GET", "/api/gridlock/overlaps?method=center&max_km=40.2336")
@@ -622,7 +635,10 @@ def register(ctx):
                 assert r["best_rank"] == (rows[mine[0]]["rank"] if mine else None), (pid, r["best_rank"])
                 if r["start"]:
                     assert r["start"] <= r["end"] and r["start_as"] in ("filed", "derived") and r["basis"], (pid, r)
-                    assert r["end"] == r["in_service"], f"{pid}: the bar ends {r['end']}, in service {r['in_service']} as filed"
+                    # the bar ends at in-service, unless the filing puts most of its money after it (J3: the window
+                    # follows the money, and the spend_after_in_service check says so)
+                    after = "spend_after_in_service" in str(r.get("basis") or "")
+                    assert r["end"] == r["in_service"] or (after and r["end"] > r["in_service"]), f"{pid}: the bar ends {r['end']}, in service {r['in_service']} as filed"
             assert cal["counts"]["start_derived"] == ov["window_assumed"]["projects"], (cal["counts"], ov["window_assumed"])
             for w in cal["shared"]:
                 o = rows[w["id"]]
@@ -814,6 +830,109 @@ def register(ctx):
             e = ctx.request("GET", f"/api/gridlock/estimate/{r['id']}")
             assert any(it["id"] == "mobilization" for it in e["items"]) and not e["left_out"], (r["id"], e["left_out"])
 
+    def judge_fixes():
+        """Sperry's cold test (Sat 21:34): J3 windows follow the money, J4 placed from the description / unplaced listed,
+        J5 location accuracy against Sperry's hand-located endpoints, near-ends-only pairs, savings that fit the work,
+        one local date, the 47 other Georgia rows explained, the all-four-Georgia view, the slip base rate."""
+        s = ctx.request("GET", "/api/gridlock/summary")
+        by_id = {x["id"]: x for x in ctx.request("GET", "/api/gridlock/projects")["projects"]}
+        # J3: a token first-year amount doesn't open the window (p41: $50K of $5.38M in 2027)
+        p41 = by_id.get("DESC-6888")
+        if p41:
+            assert p41["build_window"]["start"] == "2028-01-01", p41["build_window"]
+        # J3: most of the money after the filed in-service date is flagged, and the window follows it (p26)
+        p26 = by_id.get("DESC-6810O")
+        if p26:
+            chk = {c["id"]: c for c in p26["checks"]}
+            assert chk["spend_after_in_service"]["status"] == "warn", chk.get("spend_after_in_service")
+            assert p26["build_window"]["end"] == "2028-12-31" and p26["in_service"] == "2027-12-31", p26["build_window"]
+        rules = {c["id"] for c in s["report"]["checks"]}
+        assert "spend_after_in_service" in rules, sorted(rules)
+        ov = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")
+        kinds = ov["window_kinds"]
+        assert set(kinds) == {"spending", "planning", "derived"}, kinds
+        for r in ov["overlaps"]:
+            for side, pid in (("a", r["a"]), ("b", r["b"])):
+                if by_id[pid]["utility"] != "DESC" and not by_id[pid]["build_window"].get("assumed"):
+                    assert r["window_kinds"][0 if side == "a" else 1] == "planning", (r["id"], r["window_kinds"])
+            # close only at the nearest ends: within the limit at the closest points, not by the center method
+            assert r["near_ends_only"] == (r["center_distance_km"] > ov["params"]["max_km"]), (r["id"], r["center_distance_km"])
+            if r["near_ends_only"]:
+                assert any(x.startswith("Close only at the nearest ends") for x in r["reasons"]), r["id"]
+            assert r["windows_overlap_months"] is None or not r["same_window"] or r["windows_overlap_months"] >= 0.5, (r["id"], r["windows_overlap_months"])
+        # J4: set aside only for want of a place and its description names a placed station -> placed there, low confidence
+        f = s["funnel"]
+        res = f["rescued"]
+        assert res["count"] == len(res["records"]) and f["passed_checks"] + res["count"] == f["passed"], (f["passed"], f["passed_checks"], res["count"])
+        assert f["extracted"] == f["passed"] + f["set_aside"], f
+        for r in res["records"]:
+            x = by_id[r["id"]]
+            assert x["confidence"] == "low" and "placed_from_description" in x["tags"] and x.get("geometry"), r["id"]
+            assert any(e.get("confidence") == "low" and "placed from the description" in (e.get("match") or "") for e in x["endpoints"]), r["id"]
+        riv = next((r for r in res["records"] if r["id"] == "DESC-6367D"), None)
+        assert riv and riv["at"] == ["Okatie"], ("Riverport Tap ('a 230 kV Tap from Okatie to Riverport') not placed at Okatie", riv)
+        assert not any(r["id"] == "GA-20989" for r in res["records"]), "Rice Hope's transformer placed at McIntosh from a line's name"
+        un = ov["unplaced"]
+        assert un["label"] == "Possible overlaps, unplaced" and un["count"] >= len(un["projects"]), un["label"]
+        placed_ids = set(by_id)
+        for u in un["projects"]:
+            assert u["id"] not in placed_ids and u["why"].startswith("no endpoint could be placed") and u["same_months_as"] >= 0, u
+        # J5: our geocoded endpoints against Sperry's hand-located ones, in metres
+        la = s["location_accuracy"]
+        assert la["compared"] >= 10 and la["within"] <= la["compared"] <= la["of"] and la["within_m"] == 500, la
+        assert la["median_m"] is not None and la["median_m"] <= 500 and all(r["error_m"] is None or r["error_m"] >= 0 for r in la["rows"]), la["text"]
+        assert f"{la['within']} of {la['of']}" in la["text"], la["text"]
+        # the 47 other Georgia rows explained in the funnel itself; "all four Georgia utilities" is one filter away
+        dv = f["default_view"]
+        assert dv["pairs"] == dv["a"]["placed"] * dv["b"]["placed"] == ov["total_pairs"], (dv, ov["total_pairs"])
+        assert dv["not_compared_total"] == sum(x["placed"] for x in dv["not_compared"]) and "GTC" in dv["text"], dv["text"]
+        four = ctx.request("GET", "/api/gridlock/overlaps?b=GA&limit=2000")
+        assert four["params"]["b"] == ["GPC", "GTC", "MEAG", "DU"] and four["total_pairs"] == dv["all_four"]["pairs"], (four["params"], four["total_pairs"])
+        # a base rate, never a per-project prediction
+        sb = s["slip_base_rate"]
+        assert sb and 0 < sb["later"] <= sb["carried_over"] and "not a prediction" in sb["text"], sb
+        # savings that fit the kinds of work: 46 kV and 230 kV line work share no line crews
+        e = ctx.request("GET", "/api/gridlock/estimate/DESC-6810O~GA-21116")
+        assert e["crew_fit"]["fit"] != "line", e["crew_fit"]
+        for it in e["items"]:
+            assert "Line crews" not in it["label"], it["label"]
+        # one date: the Eastern calendar date, never the server's UTC one
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        eastern = {(now - timedelta(hours=h)).date().isoformat() for h in (4, 5)}
+        today = ctx.request("GET", "/api/gridlock/changes")["comparison"]["today"]
+        assert today in eastern, (today, eastern)
+
+    def cold_test_fixes():
+        """Sperry cold test (Sat 22:40): a line worked on only part of its length is measured to that part's located end
+        (Georgia Power's Euchee Creek - Thurmond Dam segment: to Thurmond Dam, not Evans Primary); a conductor spec is never
+        read as a part of the line; a shared window resting on a flagged record (money filed after the in-service date)
+        ranks lower and says why; every pair sharing months carries its joint window."""
+        rows = ctx.request("GET", "/api/gridlock/overlaps?limit=2000")["overlaps"]
+        by = {r["id"]: r for r in rows}
+        r1 = by.get("DESC-6809T~GA-20793")
+        assert r1 and r1["partial"][1] and r1["partial"][1]["measured_to"] == ["Thurmond Dam"], r1 and r1["partial"]
+        assert "measured to that part" in r1["partial"][1]["text"] and r1["distance_mi"] > 9, (r1["distance_mi"], r1["partial"])
+        for r in rows:
+            for part in r["partial"]:
+                assert not part or not any(w in part["part"] for w in ("ACSR", "ACSS", "conductor")), part
+            if r["same_window"]:
+                jw = r["joint_window"]
+                assert jw and jw["start"] <= jw["end"], (r["id"], jw)
+            else:
+                assert r["joint_window"] is None, (r["id"], r["joint_window"])
+        r2 = by.get("DESC-6810O~GA-21116")
+        assert r2 and r2["window_flags"][0] and r2["window_flags"][0][0]["id"] == "spend_after_in_service", r2 and r2["window_flags"]
+        assert r2["score_parts"]["timeline"] == 0.6 and any("(x0.6)" in x for x in r2["reasons"]), (r2["score_parts"], r2["reasons"][:3])
+        assert r2["rank"] > 3, r2["rank"]  # demoted below the pairs whose dates agree with themselves
+        tr = ctx.request("GET", "/api/gridlock/trace/DESC-6810O~GA-21116")
+        assert tr["score"]["reproduced"] and "because" in tr["score"]["terms"][1]["how"], tr["score"]["terms"][1]
+
+    ctx.check("gridlock: Sperry judge fixes (windows follow the money, spend after in-service flagged, placed from the description, "
+              "unplaced listed, location accuracy in metres, near-ends-only pairs, crews that fit the work, the other Georgia rows, "
+              "all four Georgia utilities, slip base rate, Eastern date)", judge_fixes)
+    ctx.check("gridlock: cold-test fixes (a partial line measured to its worked part, conductor specs not read as parts, a "
+              "flagged window ranked lower with the reason, every shared window's months on the pair)", cold_test_fixes)
     ctx.check("gridlock: summary has sources, DESC + Georgia counts, and the pipeline report", summary_shape)
     ctx.check("gridlock: projects cover DESC and a Georgia utility, placed inside SC/GA, quarantine has reasons", projects_both_sides)
     ctx.check("gridlock: default overlaps (within 25 mi exactly) are ranked cross-utility pairs, grouped (building in the same "

@@ -36,6 +36,7 @@ export default function PipelinePanel() {
         feature and a confidence, and records that fail a check are set aside with the reason instead of dropped.
       </p>
       <SperryCheck />
+      <LocationAccuracy acc={g.summary?.location_accuracy} />
       <Stages report={report} />
       <Counts />
       <Checks checks={report.checks} />
@@ -48,6 +49,50 @@ export default function PipelinePanel() {
       <Sources context={report.context_sources} />
       <Rebuild report={report} />
     </div>
+  )
+}
+
+// How close our located project ends are to the ones Sperry placed by hand in its worked example: a real accuracy
+// measure of the geocoding (the reproduction above re-runs their formula on their own coordinates, so it can't miss).
+function LocationAccuracy({ acc }) {
+  const n = acc?.compared ?? acc?.points
+  const within = acc?.within ?? acc?.within_500m
+  if (!n) return null
+  const rows = [...(acc.rows || [])].sort((a, b) => (b.error_m ?? 0) - (a.error_m ?? 0))
+  const m = (v) => (v == null ? '–' : v >= 1000 ? `${(v / 1000).toFixed(1)} km` : `${fmtInt(v)} m`)
+  return (
+    <section className="gl-sperry gl-acc" aria-labelledby="gl-acc-h">
+      <div className="gl-sperry__head">
+        <CheckIcon status={within >= n * 0.75 ? 'pass' : 'warn'} />
+        <h3 id="gl-acc-h">
+          Locations: {fmtInt(within)} of {fmtInt(n)} ends within {fmtInt(acc.within_m ?? 500)} m of Sperry&apos;s hand-placed points
+        </h3>
+      </div>
+      <p className="gl-fine">
+        Our pipeline places each project end on OpenStreetMap from the names in the filing; Sperry placed the same {fmtInt(n)} ends by hand.
+        Median error {m(acc.median_m)}
+        {acc.exact != null ? `, ${fmtInt(acc.exact)} exactly on their point (our own OpenStreetMap match landed on the same spot; their coordinates are never read)` : ''}
+        {acc.within_1km != null ? `, ${fmtInt(acc.within_1km)} within 1 km` : ''}, largest {m(acc.max_m)}.
+      </p>
+      {acc.method && <p className="gl-fine">{acc.method}</p>}
+      {rows.length > 0 && (
+        <details className="gl-details">
+          <summary>Every point ({fmtInt(rows.length)})</summary>
+          <ul className="gl-acc__rows">
+            {rows.map((r, i) => (
+              <li key={`${r.name}-${i}`}>
+                <span>
+                  {r.name}
+                  {r.sperry_id ? <span className="gl-fine"> ({r.sperry_id})</span> : null}
+                </span>
+                <span className="gl-acc__err">{m(r.error_m)}</span>
+                {r.confidence && <span className="gl-fine">{r.confidence} confidence</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
   )
 }
 
@@ -179,14 +224,34 @@ function Stages({ report }) {
     } else for (const p of g.projects.list || []) if (c[p.confidence] != null) c[p.confidence] += 1
     return c
   }, [g.summary, g.projects.list])
-  const stages = [...(report.stages || [])]
+  const funnel = g.summary?.funnel || {}
+  const rescued = funnel.rescued?.count || 0
   const setAside = Object.values(counts).reduce((n, c) => n + (c.quarantined || 0), 0)
   const extracted = Object.values(counts).reduce((n, c) => n + (c.extracted || 0), 0)
+  const onMap = Object.values(counts).reduce((n, c) => n + (c.located || 0), 0)
+  // the build's own stages, then what the page adds so every count reconciles: the records placed from their
+  // descriptions (J4), the total on the map (= the table below and the confidence split), the set-aside rest
+  const stages = []
+  for (const s0 of report.stages || []) {
+    const s = { ...s0 }
+    const kind = stageName(s.id)
+    if (kind === 'Passed checks' && rescued) {
+      const failed = (s.in ?? extracted) - (s.out ?? 0)
+      s.note = `${fmtInt(failed)} failed a blocking check; ${fmtInt(rescued)} of them were then placed from their descriptions, so ${fmtInt(setAside)} stay set aside`
+    }
+    stages.push(s)
+    if (kind === 'Passed checks' && rescued) {
+      stages.push({ id: 'rescue', label: funnel.rescued.label || 'Placed from the description', out: rescued, note: funnel.rescued.rule })
+    }
+  }
+  if (onMap) stages.push({ id: 'placed', label: 'on the map, ready to compare', in: extracted || null, out: onMap })
   if (setAside && !stages.some((s) => /quarant/i.test(s.id || ''))) {
     stages.push({ id: 'quarantine', label: 'failed a blocking check; kept with the reason', in: extracted || null, out: setAside })
   }
   if (g.ov.status === 'ready' || g.ov.status === 'refreshing') {
-    stages.push({ id: 'compare', label: 'cross-state pairs, current settings', out: g.ov.total_pairs, live: true })
+    // the default view (DESC x Georgia Power) says why GTC, MEAG and Dalton's placed rows aren't in the count
+    const defaultView = !!g.params.utilities?.GPC && !['GTC', 'MEAG', 'DU'].some((u) => g.params.utilities?.[u])
+    stages.push({ id: 'compare', label: 'cross-state pairs, current settings', out: g.ov.total_pairs, live: true, note: defaultView ? funnel.default_view?.text : null })
     stages.push({ id: 'flag', label: `within ${g.ov.limit_text || limitText(g.params.max_km)}`, in: g.ov.total_pairs, out: g.ov.flagged, live: true })
   }
   if (!stages.length) return <EmptyState title="No stage report in this build" />
@@ -195,7 +260,8 @@ function Stages({ report }) {
       <h3 id="gl-stages-h">Stages</h3>
       <ol className="gl-flow">
         {stages.map((s, i) => {
-          const located = s.id === 'locate' || (stages.length <= 3 && s.id === 'load')
+          // the confidence split sums to the records on the map (the table below), so it sits on that stage
+          const located = s.id === 'placed' || (!onMap && (s.id === 'locate' || (stages.length <= 3 && s.id === 'load')))
           const quarantine = /quarant/i.test(s.id || '')
           const share = s.in ? Math.min(1, (s.out ?? 0) / s.in) : 1
           const known = stageName(s.id)

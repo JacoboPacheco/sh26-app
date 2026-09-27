@@ -36,6 +36,7 @@ import baked
 import briefing
 import bulletin
 import catalog
+import collab_plans
 import comment
 import costs
 import danger
@@ -170,6 +171,7 @@ app.include_router(gridlock.router)
 app.include_router(gridreader.router)
 app.include_router(agreement.router)
 app.include_router(negotiate.router)
+app.include_router(collab_plans.router)
 app.include_router(danger.router)
 app.include_router(vote.router)
 app.include_router(comment.router)

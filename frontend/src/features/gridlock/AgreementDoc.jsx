@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import AiBadge from '../ai/AiBadge'
 import { fmtMonth, sourcesFor } from './agreementText'
 import { fmtDate, fmtRange, kindText, statusText, toneOf } from './format'
+import { localToday } from './plain'
 import './agreement.css'
 
 // Step 3 of a pair's sheet (PairSheet.jsx): the draft coordination proposal as a document. The plain (template)
@@ -100,7 +101,7 @@ export function Paper({ doc, t, print = false, onDropNeg }) {
       </p>
       {d.negotiated && (
         <p className="gl-paper__neg" role="note">
-          {t.negotiated[d.negotiated.by] || d.negotiated.text}
+          {doc.plan?.applied && doc.plan.text ? doc.plan.text.replace(/\.$/, '') : t.negotiated[d.negotiated.by] || d.negotiated.text}
           {d.negotiated.round ? ` (${t.negRound(d.negotiated.round)})` : ''}.
           {!print && onDropNeg && (
             <button type="button" className="gl-link" onClick={onDropNeg}>
@@ -392,7 +393,9 @@ export function WindowTimeline({ jw, parties, t }) {
   const years = []
   for (let y = y0; y <= y1; y++) years.push(y)
   const step = years.length > 8 ? 2 : 1
-  const now = jw.as_of && ms(jw.as_of) >= lo && ms(jw.as_of) <= hi ? pos(jw.as_of) : null
+  // today in the viewer's time zone (the draft's "Generated" date uses the same one; the server's date is UTC)
+  const today = localToday()
+  const now = ms(today) >= lo && ms(today) <= hi ? pos(today) : null
   const at = (p) => `calc(var(--tl-who) + (100% - var(--tl-who)) * ${p / 100})`
   // short labels: the dates are on each project's bar and in the sentence below
   const jointLabel =
@@ -458,7 +461,7 @@ export function WindowTimeline({ jw, parties, t }) {
           ))}
         {now != null && (
           <span className={`gl-tl__now-label${now > 80 ? ' is-right' : now < 12 ? ' is-left' : ''}`} style={{ left: at(now) }}>
-            {t.today} {fmtDate(jw.as_of, t.lang)}
+            {t.today} {fmtDate(today, t.lang)}
           </span>
         )}
       </div>

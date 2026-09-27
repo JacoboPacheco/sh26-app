@@ -113,7 +113,8 @@ UTILITIES = {
 }
 UTILITY_ORDER = list(UTILITIES)
 GEORGIA_ITS = ("GPC", "GTC", "MEAG", "DU")  # the four sponsors of Georgia's joint ITS 10-year plan
-ALIASES = {"GA": list(GEORGIA_ITS), "SC": ["DESC"], "ALL": UTILITY_ORDER}
+# GA / ITS: all four Georgia ITS sponsors (Georgia Power, GTC, MEAG Power, Dalton Utilities), the "all 4 utilities" view
+ALIASES = {"GA": list(GEORGIA_ITS), "ITS": list(GEORGIA_ITS), "SC": ["DESC"], "ALL": UTILITY_ORDER}
 NAME_TO_CODE = {name.lower(): code for code, (name, _) in UTILITIES.items()}
 
 # (id, outer edge km, weight at the inner edge, weight at the outer edge, label, what could be shared)
@@ -395,9 +396,9 @@ SOURCE_SHORT = {
     "sperry_example": "Sperry's worked example",
 }
 GA_PUBLIC_NOTE = (
-    "The public-disclosure copy filed with the Georgia PSC: every page carries a CEII banner because it is the public version "
-    "of a CEII document. Only its unredacted fields are used; redacted fields (such as costs) are left blank, never inferred, "
-    "and no CEII-marked content is used."
+    "The public-disclosure copy filed with the Georgia PSC: every page carries a CEII (Critical Energy Infrastructure "
+    "Information) banner because it is the public version of a protected document. Only its unredacted fields are used; "
+    "redacted fields (such as costs) are left blank, never inferred."
 )
 
 
@@ -553,6 +554,132 @@ def _merged_report(rep: dict, cur: dict, projects: list, quarantine: list, n_old
     return rep
 
 
+# ----------------------------------------------------------------------------- placed from the description (J4)
+#
+# A record the checks set aside ONLY because no endpoint could be placed (its own names match no OpenStreetMap feature) is
+# often a new station or tap whose description names a station the pipeline DID place for other projects: DESC 2026-2030
+# p13 "Riverport 115kV Tap" reads "Constructing a 230 kV Tap from Okatie to Riverport", and Okatie is placed for four
+# other DESC projects. Such a record is placed at that station (a line between two such stations for line work), with
+# LOW confidence and the reason, tagged `placed_from_description`, and compared like any other; the rest stay set aside
+# and are listed as "possible overlaps, unplaced" (timing only). A station counts only when one site carries that name
+# in the filer's state (two sites of one name more than 2 km apart: ambiguous, skipped) and its name has 4+ letters.
+
+RESCUE_BLOCKERS = {"located", "place_named"}  # the only blocking checks a record may have failed to be placed this way
+RESCUE_SITE_KM = 2.0
+
+
+def _failed_checks(r: dict) -> set:
+    return {c.get("id") for c in r.get("checks") or [] if isinstance(c, dict) and c.get("status") == "fail"}
+
+
+def _station_index(projects: list[dict]) -> dict:
+    """{(state, core name): [site {lat, lon, name, projects, confidence}]} from every placed endpoint."""
+    idx: dict = {}
+    for p in projects:
+        state = p.get("state") or UTILITIES.get(p.get("utility"), ("", ""))[1]
+        for e in p.get("endpoints") or []:
+            if not isinstance(e, dict) or e.get("lat") is None or e.get("lon") is None:
+                continue
+            core = station_core(e.get("name") or e.get("raw"))
+            if len(core.replace(" ", "")) < 4:
+                continue
+            sites = idx.setdefault((state, core), [])
+            here = {"lat": float(e["lat"]), "lon": float(e["lon"])}
+            site = next((s for s in sites if _km_between(s, here) <= RESCUE_SITE_KM), None)
+            if site is None:
+                site = {**here, "name": e.get("name") or e.get("raw"), "projects": [], "confidence": e.get("confidence"),
+                        "osm": e.get("osm") if isinstance(e.get("osm"), dict) else None}
+                sites.append(site)
+            if p["id"] not in site["projects"]:
+                site["projects"].append(p["id"])
+    return idx
+
+
+def _rescue(projects: list[dict], quarantine: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    """(the records placed from their descriptions, the quarantine left, a summary row per placed record)."""
+    idx = _station_index(projects)
+    by_state: dict = {}
+    for (state, core), sites in idx.items():
+        if len(sites) == 1:
+            by_state.setdefault(state, []).append((core, sites[0]))
+    placed, left, rows = [], [], []
+    for q in quarantine:
+        failed = _failed_checks(q)
+        if not failed or not failed <= RESCUE_BLOCKERS or not _date(q.get("in_service")):
+            left.append(q)
+            continue
+        state = q.get("state") or UTILITIES.get(q.get("utility"), ("", ""))[1]
+        # where the work is (the J1 reading: a named section's ends; for station work, not the lines it connects to:
+        # "loop in the Crossgate - McIntosh 230kV line" does not put Rice Hope's transformer at McIntosh), then the title
+        text = f"{_work_text(q)} {_work_text({**q, 'description': q.get('name')})}"
+        words = _norm_station_text(text)
+        found = []
+        for core, site in by_state.get(state, []):
+            k = words.find(f" {core} ")
+            if k >= 0:
+                found.append((k, core, site))
+        found.sort(key=lambda t: (t[0], -len(t[1])))
+        seen, uniq, spans = set(), [], []
+        for k, core, site in found:
+            # 'Yates' inside 'Yates Common' is the same mention: keep the longer name
+            if core in seen or any(a <= k and k + len(core) <= b for a, b in spans):
+                continue
+            seen.add(core)
+            spans.append((k, k + len(core)))
+            uniq.append((core, site))
+        if not uniq:
+            left.append(q)
+            continue
+        line = q.get("kind") in LINE_KINDS and len(uniq) >= 2 and _km_between(uniq[0][1], uniq[1][1]) < 150
+        use = uniq[:2] if line else uniq[:1]
+        ends = []
+        for core, site in use:
+            via = ", ".join(site["projects"][:4])
+            ends.append({
+                "name": _station_display(site["name"]),
+                "raw": site["name"],
+                "lat": site["lat"],
+                "lon": site["lon"],
+                "osm": site.get("osm"),
+                "confidence": "low",
+                "match": (f"placed from the description: it names {_station_display(site['name'])}, which the pipeline placed for "
+                          f"{via}; the exact site of this work is not in the filing"),
+            })
+        coords = [[e["lon"], e["lat"]] for e in ends]
+        how = " and ".join(e["name"] for e in ends)
+        note = (f"Placed from its description at {how} (named there, and placed by the pipeline for other projects); low "
+                "confidence: the filing doesn't give the exact site")
+        checks = []
+        for c in q.get("checks") or []:
+            if isinstance(c, dict) and c.get("id") in RESCUE_BLOCKERS and c.get("status") == "fail":
+                checks.append({**c, "status": "warn", "detail": f"{c.get('detail')}; {note[0].lower() + note[1:]}"})
+            else:
+                checks.append(c)
+        rec = {
+            **{k: v for k, v in q.items() if k != "reasons"},
+            "endpoints": ends + [e for e in q.get("endpoints") or [] if isinstance(e, dict) and e.get("lat") is None][: max(0, 2 - len(ends))],
+            "geometry": {"type": "segment" if len(coords) == 2 else "point", "coords": coords},
+            "center": [sum(e["lat"] for e in ends) / len(ends), sum(e["lon"] for e in ends) / len(ends)],
+            "confidence": "low",
+            "checks": checks,
+            "tags": sorted(set((q.get("tags") or []) + ["placed_from_description"])),
+            "placement": {"rule": "placed_from_description", "at": [e["name"] for e in ends], "note": note,
+                          "set_aside_reasons": list(q.get("reasons") or [])},
+        }
+        placed.append(rec)
+        rows.append({"id": rec["id"], "utility": rec.get("utility"), "name": rec.get("name"), "at": [e["name"] for e in ends],
+                     "page": (rec.get("provenance") or {}).get("page"), "source": (rec.get("provenance") or {}).get("source")})
+    return placed, left, rows
+
+
+def _norm_station_text(text: str) -> str:
+    """A description in station_core's alphabet, padded with spaces, so ' OKATIE ' finds the station and not 'OKATIEX'."""
+    t = re.sub(r"[.'’]", "", str(text or "").upper())
+    t = re.sub(r"[^A-Z0-9 ]", " ", t)
+    t = re.sub(r"BOROUGH\b", "BORO", re.sub(r"\s+", " ", t))
+    return f" {t.strip()} "
+
+
 def _load(edition: str = CURRENT) -> dict:
     """The data for `edition` (CURRENT: DESC's 2026-2030 list with Georgia, see _merge_current; AS_FILED: projects.json
     as the build wrote it), reloaded whenever one of its files changes on disk."""
@@ -605,6 +732,10 @@ def _load(edition: str = CURRENT) -> dict:
                 pass  # the build's list alone (it says so: no `edition` in the summary)
         projects = [p for p in doc["projects"] if isinstance(p, dict) and p.get("id") and p.get("utility")]
         quarantine = [q for q in (doc.get("quarantine") or []) if isinstance(q, dict)]
+        rescued: list = []
+        if fallback_reason is None:  # J4: set aside only for want of a place, and its description names a placed station
+            more, quarantine, rescued = _rescue(projects, quarantine)
+            projects = projects + more
 
         # comparable projects: those with a place on the map
         placed, geoms = [], []
@@ -614,8 +745,15 @@ def _load(edition: str = CURRENT) -> dict:
                 placed.append(p)
                 geoms.append(coords)
         n = len(placed)
+        # what distances are measured to: the whole line, or only the named part a filing works on (partial_work)
+        sidx = _station_index(projects)
+        dgeoms, sections = [], []
+        for p, g in zip(placed, geoms):
+            sec, info = _section_coords(p, g, sidx)
+            dgeoms.append(sec or g)
+            sections.append(info)
         centers = np.array([_center(p, g) for p, g in zip(placed, geoms)], dtype=float).reshape(n, 2)
-        closest = _closest_matrix(geoms)
+        closest = _closest_matrix(dgeoms)
         center_km, center_mi = _haversine_matrix(centers)
         new_state = {
             "sperry_pairs": _sperry_pairs(doc, example, fallback_reason is not None),
@@ -630,6 +768,8 @@ def _load(edition: str = CURRENT) -> dict:
             "quarantine": quarantine,
             "placed": placed,
             "geoms": geoms,
+            "dgeoms": dgeoms,  # the geometry distances use: a partial line's worked part when it can be placed
+            "sections": sections,  # per placed project: {part, located} or None
             "index": {p["id"]: i for i, p in enumerate(placed)},
             "util": np.array([p["utility"] for p in placed], dtype=object),
             "closest_km": closest,
@@ -641,6 +781,7 @@ def _load(edition: str = CURRENT) -> dict:
             "cache": {},
             "basemap": None,
             "edition": edition,
+            "rescued": rescued,  # placed from their descriptions (J4), low confidence
         }
         _states[edition] = new_state
         return new_state
@@ -912,6 +1053,37 @@ def _shared_stations(sa: list[dict], sb: list[dict]) -> list[dict]:
     return out
 
 
+# A shared station is claimed only when BOTH filings' descriptions put work at it. Sharing an endpoint name is not enough:
+# DESC 2026-2030 p41 ("Construct Deerfield Switching Station and install a 9% series reactor on the Okatie - McIntosh 115kV
+# Tie Line") names McIntosh only as the line's far end, and Georgia's detail page p314 rebuilds only the Goshen - Georgia
+# Pacific (Rincon) section of the Goshen - McIntosh line. Rules, from the description (the title when there is none):
+#   - line work on a named SECTION ("the A - B section", "from A to B"): only that section's ends are worked on
+#   - substation or equipment work: a name inside a line's designation ("on the A - B 115kV line") is the line, not a
+#     work site; what's left of the description must name the station
+_SECTION = re.compile(r"(?i)\b(?:the\s+)?([A-Za-z0-9 .()'#&/-]{2,90}?)\s+section\b")
+_LINE_DESIGNATION = re.compile(
+    r"(?i)[A-Za-z0-9 .()'#&/]+?\s*[-–—]\s*[A-Za-z0-9 .()'#&/]+?\s*(?:#\s*\d+\s*)?(?:\d{2,3}\s*-?\s*kv\s*)?(?:tie\s+)?(?:transmission\s+)?lines?\b"
+)
+
+
+def _work_text(p: dict) -> str:
+    """The part of a project's description that says WHERE the work is (see the rules above)."""
+    d = str(p.get("description") or p.get("name") or "")
+    if p.get("kind") in LINE_KINDS:
+        m = _SECTION.search(d)
+        if m and re.search(r"[-–—]|\bto\b|\band\b", m.group(1)):
+            return m.group(1)
+        return d
+    return _LINE_DESIGNATION.sub(" ", d)
+
+
+def _work_at(p: dict, station: dict) -> bool:
+    """True when the project's own description puts work at this station (by its filed name or its core name)."""
+    text = _work_text(p)
+    core = station.get("core") or station_core(station.get("name"))
+    return bool(core) and re.search(rf"(?i)\b{r'\s+'.join(re.escape(w) for w in core.split())}\b", station_core(text) + " " + text.upper()) is not None
+
+
 def _months_apart(d1: date, d2: date) -> int:
     return round(abs((d2 - d1).days) / 30.4375)
 
@@ -1039,6 +1211,7 @@ def _window(p: dict, months: int):
     return None
 
 
+MIN_SHARED_DAYS = 15  # shorter than this, two windows meet end to start (a Dec 31 end and a Jan 1 start share nothing)
 PASSED_FACTOR = 0.6  # a shared build window that ended before today, as filed: still worth a check, ranked below live ones
 
 # The list's groups, in order: what a planner can still act on comes first (the score orders pairs inside a group).
@@ -1046,15 +1219,35 @@ PASSED_FACTOR = 0.6  # a shared build window that ended before today, as filed: 
 # windows that share no months; unknown: a filing gives no date; passed: the months they shared have passed, or one
 # project's build window is already over, as filed (nothing left to build together, as filed).
 GROUPS = {
-    "together": (0, "Building in the same months", "both build windows share months that are still ahead or open now"),
+    "together": (0, "Filed windows share months", "both filed build windows share months that are still ahead or open now"),
     "apart": (1, "Building at different times", "both projects are still to be built, in build windows that share no months"),
     "unknown": (2, "Timing unknown", "at least one filing gives no in-service date"),
     "passed": (3, "Time passed, as filed", "the months they shared have passed, or one project's build window is already over"),
 }
 
 
+LOCAL_TZ = "America/New_York"  # the filers' and the event's time zone: one "today" for the list, the drafts and the page
+
+
 def _today() -> date:
-    return date.today()
+    """Today in the filers' time zone (US Eastern), never the server's UTC date: after 8 PM Eastern a UTC server is
+    already on tomorrow, and the list said 'Today, Sep 27' beside a draft generated 'September 26'."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        return datetime.now(ZoneInfo(LOCAL_TZ)).date()
+    except Exception:  # no tz database: US Eastern by the DST rule (2nd Sunday of March to 1st Sunday of November)
+        now = datetime.now(timezone.utc)
+        y = now.year
+        mar = date(y, 3, 8 + (6 - date(y, 3, 8).weekday()) % 7)
+        nov = date(y, 11, 1 + (6 - date(y, 11, 1).weekday()) % 7)
+        edt = datetime(mar.year, mar.month, mar.day, 7, tzinfo=timezone.utc) <= now < datetime(nov.year, nov.month, nov.day, 6, tzinfo=timezone.utc)
+        return (now - timedelta(hours=4 if edt else 5)).date()
+
+
+def today_local() -> date:
+    """The one date every Build together route uses (agreement.py, negotiate.py, collab_plans.py)."""
+    return _today()
 
 
 def _timeline(pa: dict, pb: dict, months: int):
@@ -1077,6 +1270,8 @@ def _timeline(pa: dict, pb: dict, months: int):
             "group": "unknown",
         }
     overlap = (min(wa[1], wb[1]) - max(wa[0], wb[0])).days
+    if 0 < overlap < MIN_SHARED_DAYS:  # a few days where one window ends as the other starts: they meet, they don't share
+        overlap = 0
     if overlap > 0:
         months_ov = round(overlap / 30.44, 1)
         factor = 1.0
@@ -1123,6 +1318,15 @@ def _timeline(pa: dict, pb: dict, months: int):
     }
 
 
+def _joint_ym(tl: dict) -> dict | None:
+    """The months both build windows share as {start, end} ('YYYY-MM'), or None."""
+    wa, wb = tl["windows"]
+    if not (tl.get("same_window") and wa and wb):
+        return None
+    s, e = max(wa[0], wb[0]), min(wa[1], wb[1])
+    return {"start": f"{s:%Y-%m}", "end": f"{e:%Y-%m}"}
+
+
 def _span(days: int) -> str:
     if days < 60:
         return "1 day" if days == 1 else f"{days} days"
@@ -1131,21 +1335,181 @@ def _span(days: int) -> str:
     return f"{days / 365.25:.1f} years"
 
 
-def _share_line(tier: str, tl: dict) -> str:
-    line = SHARE_LINE[tier]
+def _work_kind(p: dict) -> str:
+    """'line' (line work), 'new_station' (a station built new) or 'equipment' (work inside an existing station's fence:
+    a reactor, a transformer, breakers, relays, a bus)."""
+    if p.get("kind") in LINE_KINDS:
+        return "line"
+    text = f"{p.get('name') or ''} {p.get('description') or ''}".lower()
+    if re.search(r"\b(new|construct\w*|build\w*)\b", text) and re.search(r"\b(sub|substation|station|switching|switchyard)\b", text):
+        return "new_station"
+    return "equipment"
+
+
+def crew_fit(pa: dict, pb: dict) -> dict:
+    """What kind of crews and equipment two projects could actually share, from their kinds of work and voltages: line
+    crews only between line jobs of a similar voltage class (46 kV and 230 kV line work use different crews and
+    hardware), substation crews between station jobs, and only heavy equipment and deliveries across the two.
+    share: the part of the smaller project's mobilization that could be saved (low, high)."""
+    ka, kb = _work_kind(pa), _work_kind(pb)
+    va, vb = _main_kv(pa), _main_kv(pb)
+    if ka == kb == "line":
+        if va and vb and max(va, vb) / min(va, vb) > 2.0:
+            return {"fit": "line_other_class", "crews": "heavy equipment (cranes, trucks)",
+                    "label": "Heavy equipment mobilized once",
+                    "why": f"both are line work, but at {min(va, vb)} kV and {max(va, vb)} kV, which use different crews and hardware",
+                    "share": (0.25, 0.5)}
+        return {"fit": "line", "crews": "line crews and heavy equipment", "label": "Line crews and heavy equipment mobilized once",
+                "why": "both are line work at a similar voltage", "share": (0.5, 1.0)}
+    if "line" not in (ka, kb):
+        return {"fit": "station", "crews": "substation crews and equipment", "label": "Substation crews and equipment mobilized once",
+                "why": "both are substation work", "share": (0.5, 1.0)}
+    return {"fit": "mixed", "crews": "heavy equipment and deliveries", "label": "Heavy equipment and deliveries mobilized once",
+            "why": "one is line work and the other station work, which use different crews", "share": (0.25, 0.5)}
+
+
+def share_text(tier: str, pa: dict | None = None, pb: dict | None = None) -> str:
+    """What the distance lets the pair share, in words that fit the two kinds of work (a transformer install shares no
+    line crews; equipment work inside an existing station needs no new access road or laydown yard)."""
+    if pa is None or pb is None:
+        return SHARE_LINE[tier]
+    fit = crew_fit(pa, pb)
+    in_fence = [_work_kind(p) == "equipment" for p in (pa, pb)]
+    if tier == "touching":
+        return SHARE_LINE[tier]
+    if tier == "row":
+        if fit["fit"] in ("line", "line_other_class") and not any(in_fence):
+            return SHARE_LINE[tier]
+        return "Access, deliveries and outage planning for two sites this close"
+    if tier == "site":
+        if all(in_fence):
+            return "Material deliveries and heavy equipment"
+        return SHARE_LINE[tier]
+    return fit["crews"][:1].upper() + fit["crews"][1:] + ", mobilized once"
+
+
+def _share_line(tier: str, tl: dict, pa: dict | None = None, pb: dict | None = None) -> str:
+    line = share_text(tier, pa, pb)
     wa, wb = tl["windows"]
     if tl["same_window"]:
         s, e = max(wa[0], wb[0]), min(wa[1], wb[1])
         years = f"{s.year}" if s.year == e.year else f"{s.year}-{e.year}"
-        return f"{line}, while both could be under construction ({years})"
+        return f"{line}, while both filed windows are open ({years})"
     if tl["window_gap_days"] is not None:
         return f"{line}, if schedules were aligned (build windows {_span(tl['window_gap_days'])} apart)"
     return line
 
 
+_PART_WORDS = re.compile(r"(?i)\b(section|segment|portion)\b")
+_PART_BEFORE = re.compile(r"(?i)(?:\bof\s+|\bthe\s+)([^,;.]{3,80}?)\s+(?:section|segment|portion)\b")
+_PART_BETWEEN = re.compile(r"(?i)\b(?:section|segment|portion)\b[^.;]*?\b(?:between|from)\s+(.+?)\s+(?:and|to)\s+(.+?)(?=\s+(?:on|of|in|with|using|along)\b|[.;,]|$)")
+
+
+# a "section ... from A to B" that is a conductor change, not a place ("100C 336.4 ACSR Linnet conductor to 100C 795 ACSR
+# Drake conductor"): not a part of the line
+_PART_NOT_PLACE = re.compile(r"(?i)\bACS[RS]\b|\bconductor\b|\bkcmil\b|\b\d{2,3}C\b|\bAAAC\b|\bOPGW\b|\bstr\s*\d")
+
+
+def _part_bits(part: str) -> list[str]:
+    """The named ends of a part ('Euchee Creek - Thurmond Dam' -> ['Euchee Creek', 'Thurmond Dam'])."""
+    return [x.strip(" ,.;:") for x in re.split(r"\s+to\s+|\s*[-–—�]\s*", part) if x.strip(" ,.;:")]
+
+
+def partial_work(p: dict, section: dict | None = None) -> dict | None:
+    """When a line project's description rebuilds only a named part of the line ('the Goshen (Savannah) - Georgia
+    Pacific (Rincon) section', 'Euchee Creek - Thurmond Dam segment'), that part in words. `section` (from _load:
+    the part's ends that could be placed) says what the distances are measured to: the located end(s) of that part,
+    else the whole line between the filed ends."""
+    if p.get("kind") not in LINE_KINDS:
+        return None
+    d = str(p.get("description") or "")
+    if not _PART_WORDS.search(d):
+        return None
+    m = _PART_BETWEEN.search(d)
+    if m:
+        part = f"{m.group(1).strip()} to {m.group(2).strip()}"
+    else:
+        m = _PART_BEFORE.search(d)
+        if not m or not re.search("[-–—�]|\bto\b", m.group(1)):
+            return None
+        part = re.sub(r"(?i)^(?:approximately\s+)?[\d.]+\s*(?:mile|mi)s?\s+of\s+", "", m.group(1).strip())
+    if _PART_NOT_PLACE.search(part):
+        return None
+    part = re.sub(r"\s*�\s*", " – ", part)  # an en dash the PDF text lost
+    # a "section between A and B" whose ends ARE the filed ends is the whole line: nothing to say
+    ends = [station_core(e.get("name") or e.get("raw")) for e in p.get("endpoints") or [] if isinstance(e, dict)]
+    ends = [c for c in ends if c]
+    bits = [station_core(x) for x in _part_bits(part)]
+    if bits and ends and all(any(b and (b in c or c in b) for c in ends) for b in bits):
+        return None
+    who = UTILITY_SHORT.get(p.get("utility"), p.get("utility"))
+    if section and section.get("located"):
+        at = " and ".join(section["located"])
+        text = (f"{who}'s filing works on only part of this line ({part}); distances are measured to that part "
+                f"({'its located end, ' + at if len(section['located']) == 1 else at}), and the map draws the whole line")
+    else:
+        text = f"{who}'s filing works on only part of this line ({part}); the map and the distance use the whole line between its filed ends"
+    return {"part": part, "text": text, "measured_to": list((section or {}).get("located") or [])}
+
+
+def _section_coords(p: dict, coords: list, idx: dict) -> tuple[list | None, dict | None]:
+    """(coords, info) for a line worked on only a named part (partial_work): the part's ends that can be placed, from the
+    project's own located endpoints or a station the pipeline placed for another project in the same state (the station
+    index, within 40 km of this line), become what distances are measured to: both ends -> that stretch, one end -> that
+    point. Nothing placed -> (None, None): the whole line stays."""
+    pw = partial_work(p)
+    if not pw or len(coords) < 2:
+        return None, None
+    state = p.get("state") or UTILITIES.get(p.get("utility"), ("", ""))[1]
+    own = [e for e in p.get("endpoints") or [] if isinstance(e, dict) and e.get("lat") is not None and e.get("lon") is not None]
+    pts, located = [], []
+    for bit in _part_bits(pw["part"]):
+        core = station_core(bit)
+        if len(core.replace(" ", "")) < 4:
+            continue
+        hit = next((e for e in own if (c := station_core(e.get("name") or e.get("raw"))) and (core in c or c in core)), None)
+        if hit is not None:
+            pts.append([float(hit["lon"]), float(hit["lat"])])
+            located.append(_station_display(hit.get("name") or hit.get("raw") or bit))
+            continue
+        sites = [s for s in idx.get((state, core), [])
+                 if min(_haversine_mi((s["lat"], s["lon"]), (c[1], c[0])) for c in coords) * KM_PER_MI <= 40]
+        if len(sites) == 1:
+            pts.append([sites[0]["lon"], sites[0]["lat"]])
+            located.append(_station_display(bit))
+    if not pts:
+        return None, None
+    return pts, {"part": pw["part"], "located": located}
+
+
+WINDOW_FLAG_CHECKS = ("spend_after_in_service",)  # a validation warning that puts a project's filed dates in doubt
+FLAG_FACTOR = 0.6  # a shared window that rests on such a record is ranked lower (still listed, with the reason)
+
+
+def window_flags(p: dict) -> list[dict]:
+    """The validation warnings that put a project's build window in doubt, in plain words (J3: DESC's p.26 Urquhart -
+    Aiken PSA files 97 % of its money in 2028, after its own Dec 2027 in-service date)."""
+    out = []
+    who = UTILITY_SHORT.get(p.get("utility"), p.get("utility"))
+    ins = _date(p.get("in_service"))
+    for c in p.get("checks") or []:
+        if isinstance(c, dict) and c.get("id") in WINDOW_FLAG_CHECKS and c.get("status") in ("warn", "fail"):
+            m = re.match(r"\s*(\d+)\s*%", str(c.get("detail") or ""))
+            share = f"{m.group(1)} % of its" if m else "part of its"
+            out.append({
+                "id": c["id"], "project": p["id"],
+                "text": (f"{who}'s filing puts {share} spending after its own in-service date"
+                         + (f" ({ins:%b %Y})" if ins else "") + ": the build window follows the money, so the timing is less certain"),
+                "text_es": (f"El documento de {who} sitúa {('el ' + m.group(1) + ' % de su') if m else 'parte de su'} gasto después de su propia "
+                            "fecha de puesta en servicio: la ventana de obra sigue al dinero, así que las fechas son menos seguras"),
+                "detail": c.get("detail"),
+            })
+    return out
+
+
 def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
     pa, pb = st["placed"][i], st["placed"][j]
-    ga, gb = st["geoms"][i], st["geoms"][j]
+    ga, gb = st["dgeoms"][i], st["dgeoms"][j]
     km, cpa, cpb, crosses = _pair_closest(ga, gb)
     tier = "touching" if crosses or km < 0.1 else tier_for(km)
     _, _, _, _, label, what = TIER_BY_ID[tier]
@@ -1159,9 +1523,24 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
     cf = CONF_FACTOR.get(weaker, 0.5)
     shared_kv = st["kv"][i] & st["kv"][j]
     kf = SAME_KV_BONUS if (st["line"][i] and st["line"][j] and shared_kv) else 1.0
-    score = round(100 * df * tl["factor"] * cf * kf, 1)
-    hits = _shared_stations(st["stations"][i], st["stations"][j])
+    wflags = [window_flags(pa), window_flags(pb)]
+    # the months the pair shares rest on a flagged window (money filed after the in-service date): ranked lower
+    ff = FLAG_FACTOR if (tl["same_window"] and (wflags[0] or wflags[1])) else 1.0
+    tfac = round(tl["factor"] * ff, 3)  # the timeline term: a flagged window counts for less (J3)
+    score = round(100 * df * tfac * cf * kf, 1)
+    found = _shared_stations(st["stations"][i], st["stations"][j])
+    # a shared endpoint counts as the same station only when both descriptions put work there (see _work_at)
+    hits = [h for h in found if _work_at(pa, h["a"]) and _work_at(pb, h["b"])]
     station = _shared_station_record(pa, pb, hits) if hits else None
+    station_not_claimed = None
+    if found and not hits:
+        h = found[0]
+        name = max((_station_display(h["a"]["name"]), _station_display(h["b"]["name"])), key=len)
+        who = [UTILITY_SHORT.get(p_["utility"], p_["utility"]) for p_, e in ((pa, h["a"]), (pb, h["b"])) if not _work_at(p_, e)]
+        station_not_claimed = (
+            f"Both projects have an end at {name}, but {' and '.join(who)}'s description puts the work elsewhere, "
+            "so this is not listed as the same station"
+        )
 
     reasons = []
     if station:
@@ -1169,6 +1548,12 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
             f"{SAME_STATION[1]}: {station['reason']}",
             station["how"],
         ]
+    elif station_not_claimed:
+        reasons.append(station_not_claimed)
+    parts = [partial_work(pa, st["sections"][i]), partial_work(pb, st["sections"][j])]
+    reasons += [x["text"] for x in parts if x]
+    if ff < 1:
+        reasons += [f"{x['text']} (x{FLAG_FACTOR:g})" for x in wflags[0] + wflags[1]]
     reasons += [
         (
             "The two projects cross" if crosses else f"Closest points {km:.2f} km ({km / KM_PER_MI:.2f} mi) apart"
@@ -1193,7 +1578,8 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
     reasons.append(f"Listed under '{g_label}': {g_what}")
     reasons.append(
         f"Score {score:g} = distance {df:.2f} ({'closest points' if method == 'closest' else 'centers'})"
-        f" x timeline {tl['factor']:g} x location {cf:g}" + (f" x same kV {SAME_KV_BONUS:g}" if kf > 1 else "")
+        f" x timeline {tfac:g}" + (f" ({tl['factor']:g} x {FLAG_FACTOR:g} for the flagged dates)" if ff < 1 else "")
+        + f" x location {cf:g}" + (f" x same kV {SAME_KV_BONUS:g}" if kf > 1 else "")
         + ("; within its group, same-station pairs are listed first, then by score" if station else "")
     )
     cls = SAME_STATION if station else (tier, label, what)
@@ -1215,6 +1601,10 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
         "class_label": cls[1],
         "class_what": cls[2],
         "shared_station": station,
+        # both projects have an end at one substation, but a description puts the work elsewhere (J1): said, not claimed
+        "station_not_shared": station_not_claimed,
+        # a project that works on only part of its line (a named section): [a, b], each None or {part, text}
+        "partial": parts,
         "closest_points": [cpa, cpb],
         "time_gap_days": tl["time_gap_days"],
         "windows_overlap_months": tl["windows_overlap_months"],
@@ -1224,9 +1614,16 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
         # the list's group: together (a shared build window still ahead or open now), apart, unknown, passed (GROUPS)
         "group": tl["group"],
         "group_label": g_label,
+        # what each side's build window is (J3): 'spending' (DESC's construction years), 'planning' (Georgia's filed
+        # start-to-need window, which can span years) or 'derived' (WINDOW_KINDS)
+        "window_kinds": [window_kind(pa), window_kind(pb)],
         "score": score,
-        "score_parts": {"distance": round(df, 3), "timeline": tl["factor"], "location": cf, "same_kv": kf, "same_station": bool(station)},
-        "share": _share_line(tier, tl),
+        "score_parts": {"distance": round(df, 3), "timeline": tfac, "location": cf, "same_kv": kf, "same_station": bool(station)},
+        # validation warnings that put a side's build window in doubt: [a, b], each a list of {id, project, text, text_es}
+        "window_flags": wflags,
+        # the months both build windows share, {start, end} (YYYY-MM), or None
+        "joint_window": _joint_ym(tl),
+        "share": _share_line(tier, tl, pa, pb),
         "sperry": sperry,
         "reasons": reasons,
     }
@@ -1248,7 +1645,7 @@ def _codes(raw: str, which: str) -> list[str]:
         else:
             raise HTTPException(
                 status_code=422,
-                detail=f"Unknown utility {part.strip()!r} for {which}: use DESC, GPC, GTC, MEAG, DU, GA, SC or all",
+                detail=f"Unknown utility {part.strip()!r} for {which}: use DESC, GPC, GTC, MEAG, DU, GA (all four Georgia utilities), SC or all",
             )
     if not out:
         raise HTTPException(status_code=422, detail=f"Pick at least one utility for {which}")
@@ -1302,6 +1699,12 @@ def _compute(st: dict, prm: dict) -> dict:
         elif not a_ok:
             i, j = j, i
         rows.append(_overlap_record(st, i, j, prm["window_months"], prm["method"]))
+    for r in rows:
+        # within the limit at the closest points, but not by Sperry's center method: close only where the nearest ends are
+        r["near_ends_only"] = prm["method"] == "closest" and r["center_distance_km"] > prm["max_km"]
+        if r["near_ends_only"] and not any(x.startswith("Close only at the nearest ends") for x in r["reasons"]):
+            r["reasons"].insert(1, f"Close only at the nearest ends: {r['distance_mi']:.1f} mi at the closest points, "
+                                   f"{r['center_distance_mi']:.1f} mi between centers (over {limit_text(prm['max_km'])} by Sperry's center method)")
     rows.sort(key=rank_key)
     for k, r in enumerate(rows, 1):
         r["rank"] = k
@@ -1489,14 +1892,18 @@ def _project_scale(st: dict, p: dict, coords) -> dict:
     return {**base, "cost_low": None, "cost_high": None, "basis": f"{missing}, and too little scope to scale it"}
 
 
-def _estimate(st: dict, i: int, j: int, months: int) -> dict:
+def _estimate(st: dict, i: int, j: int, months: int, assume_aligned: bool = False) -> dict:
+    """The pair's rough, sourced savings. assume_aligned: count the items that need both crews in the field at once as
+    if one project's schedule moved to match the other's (collab_plans.py's "shift" plan prices exactly that)."""
     pa, pb = st["placed"][i], st["placed"][j]
-    ga, gb = st["geoms"][i], st["geoms"][j]
+    ga, gb = st["dgeoms"][i], st["dgeoms"][j]  # the worked part of a partial line (the project's scale uses its whole line)
     rec = _overlap_record(st, i, j, months, "closest")
     tier = rec["tier"]
     tiers_on = [t[0] for t in TIERS[TIERS.index(TIER_BY_ID[tier]) :]]  # this tier and every looser one
     tl = _timeline(pa, pb, months)
-    aligned = bool(tl["same_window"])
+    aligned = bool(tl["same_window"]) or assume_aligned
+    fit = crew_fit(pa, pb)
+    in_fence = [_work_kind(p) == "equipment" for p in (pa, pb)]
     items, assumptions = [], []
     used = set()
 
@@ -1515,21 +1922,27 @@ def _estimate(st: dict, i: int, j: int, months: int) -> dict:
     left_out = []
     ma, mb = _mobilization(pa), _mobilization(pb)
     small = ma if ma[1] <= mb[1] else mb
+    lo_f, hi_f = fit["share"]
+    part = "Half to all" if (lo_f, hi_f) == (0.5, 1.0) else f"{round(100 * lo_f)}-{round(100 * hi_f)} %"
     if aligned:
         item(
             "mobilization",
-            "Crews and equipment mobilized once",
-            0.5 * small[0],
-            small[1],
+            fit["label"],
+            lo_f * small[0],
+            hi_f * small[1],
             "USD",
-            f"Half to all of the smaller project's mobilization/demobilization ({small[2]}: MISO 2018 unit cost x {ESCALATE_2018})",
+            f"{part} of the smaller project's mobilization/demobilization ({small[2]}: MISO 2018 unit cost x {ESCALATE_2018}); "
+            f"{fit['why']}",
             "miso18",
             needs="same build window",
         )
     else:
-        left_out.append({"id": "mobilization", "label": "Crews and equipment mobilized once", "why": "needs the two build windows to share months"})
+        left_out.append({"id": "mobilization", "label": fit["label"], "why": "needs the two build windows to share months"})
 
-    if "site" in tiers_on:
+    if "site" in tiers_on and all(in_fence):
+        # two jobs inside existing stations' fences stage inside them: no yard to share
+        left_out.append({"id": "laydown_yard", "label": "One laydown yard instead of two", "why": "both are equipment work inside existing substations, which stage on site"})
+    elif "site" in tiers_on:
         if aligned:
             y_lo = YARD_ACRES[0] * YARD_PREP_PER_ACRE[0]
             y_hi = YARD_ACRES[1] * YARD_PREP_PER_ACRE[1]
@@ -1603,6 +2016,9 @@ def _estimate(st: dict, i: int, j: int, months: int) -> dict:
                 f"{shared_mi:.1f} mi x ${r_lo:,.0f}-${r_hi:,.0f} per mile (level gravel to forested, MISO 2018 x {ESCALATE_2018}); half to all of it reused",
                 "miso18",
             )
+        elif any(in_fence):
+            left_out.append({"id": "access_roads", "label": "One access road into the shared area",
+                             "why": "equipment work inside an existing substation uses the station's own road"})
         else:
             item(
                 "access_roads",
@@ -1643,7 +2059,7 @@ def _estimate(st: dict, i: int, j: int, months: int) -> dict:
             f"Build windows: {pa['id']} {tl['windows'][0][0]:%b %Y}-{tl['windows'][0][1]:%b %Y} ({tl['windows'][0][2]}); "
             f"{pb['id']} {tl['windows'][1][0]:%b %Y}-{tl['windows'][1][1]:%b %Y} ({tl['windows'][1][2]})."
         )
-    context = [_project_scale(st, pa, ga), _project_scale(st, pb, gb)]
+    context = [_project_scale(st, pa, st["geoms"][i]), _project_scale(st, pb, st["geoms"][j])]
     if any(c.get("source") for c in context):
         used.add("miso24")
     return {
@@ -1655,6 +2071,8 @@ def _estimate(st: dict, i: int, j: int, months: int) -> dict:
         "distance_km": rec["distance_km"],
         "shared_km": round(shared_km, 2),
         "same_window": tl["same_window"],
+        "assume_aligned": bool(assume_aligned and not tl["same_window"]),
+        "crew_fit": {k: fit[k] for k in ("fit", "crews", "why")},
         "label": "Rough estimate",
         "items": items,
         "left_out": left_out,
@@ -1747,6 +2165,136 @@ def sperry_check(example: dict) -> dict:
 # ----------------------------------------------------------------------------- routes
 
 
+# ----------------------------------------------------------------------------- windows, accuracy, slips, unplaced
+
+# What a build window is, per filing (J3): DESC files money per year, so its window is the years carrying most of the
+# spending; Georgia files a start date and a need date, a planning window that can span 8 years (Thomson Primary: Aug
+# 2025 to Jun 2033), so "same window" against it is a loose signal and says so.
+WINDOW_KINDS = {
+    "spending": "construction years: the years carrying most of the filed spending",
+    "planning": "filed planning window: the filed start date to the need date (can span years)",
+    "derived": "derived: the filing gives no start, so the build-window setting's months before in-service",
+}
+
+
+def window_kind(p: dict) -> str:
+    bw = p.get("build_window") if isinstance(p.get("build_window"), dict) else {}
+    if _window_assumed(p):
+        return "derived"
+    if bw.get("planning_window") or "planning window" in str(bw.get("basis") or "") or (p.get("utility") in GEORGIA_ITS and bw):
+        return "planning"
+    return "spending"
+
+
+LOC_TOL_M = 500
+
+
+def location_accuracy() -> dict:
+    """Our geocoded endpoints against the ones Sperry located by hand in their worked example: for each of their located
+    endpoints, the same station in the record the pipeline matched to their project (the list they built it from,
+    DESC 2024-2028), the error in metres. Not their coordinates re-used: ours come from the pipeline's own OpenStreetMap
+    match (often the very feature they clicked, so 0 m is a real answer)."""
+    st = _load(AS_FILED)
+    ex = st["example"]
+    ids = st["sperry_ids"]
+    rows = []
+    for sp in ex.get("projects") or []:
+        rec = st["by_id"].get(ids.get(sp["project_id"]))
+        mine = [e for e in (rec or {}).get("endpoints") or [] if isinstance(e, dict) and e.get("lat") is not None]
+        for k, key in enumerate("ab"):
+            lat, lon = sp.get(f"lat_{key}"), sp.get(f"lon_{key}")
+            if lat is None or lon is None:
+                continue
+            name = sp.get(f"name_{key}")
+            core = station_core(name)
+            hit = next((e for e in mine if station_core(e.get("name") or e.get("raw")) == core), None)
+            if hit is None and rec is not None:
+                eps = rec.get("endpoints") or []
+                cand = eps[k] if k < len(eps) and isinstance(eps[k], dict) and eps[k].get("lat") is not None else None
+                hit = cand
+            row = {"sperry_id": sp["project_id"], "our_id": rec["id"] if rec else None, "name": name, "theirs": [lat, lon]}
+            if hit is None:
+                rows.append({**row, "ours": None, "error_m": None, "confidence": None, "note": "not placed by the pipeline"})
+                continue
+            err = _haversine_mi((lat, lon), (float(hit["lat"]), float(hit["lon"]))) * KM_PER_MI * 1000
+            rows.append({**row, "ours": [float(hit["lat"]), float(hit["lon"])], "error_m": round(err), "confidence": hit.get("confidence"),
+                         "osm": (hit.get("osm") or {}).get("url") if isinstance(hit.get("osm"), dict) else None})
+    errs = sorted(r["error_m"] for r in rows if r["error_m"] is not None)
+    n = len(errs)
+    within = sum(1 for e in errs if e <= LOC_TOL_M)
+    median = (errs[n // 2] if n % 2 else round((errs[n // 2 - 1] + errs[n // 2]) / 2)) if n else None
+    return {
+        "compared": n,
+        "of": len(rows),
+        "within_m": LOC_TOL_M,
+        "within": within,
+        "within_1km": sum(1 for e in errs if e <= 1000),
+        "median_m": median,
+        "max_m": errs[-1] if errs else None,
+        "exact": sum(1 for e in errs if e <= 5),
+        "text": (f"{within} of {len(rows)} endpoints Sperry located by hand are within {LOC_TOL_M} m of where the pipeline placed them "
+                 f"(median {median:,} m, worst {errs[-1]:,} m)") if n else "Sperry's example has no located endpoints to compare",
+        "method": ("For each endpoint Sperry located by hand, the same station in the record the pipeline matched to their project "
+                   "(DESC's 2024-2028 list, which they used); straight-line error in metres."),
+        "rows": rows,
+    }
+
+
+def slip_base_rate() -> dict | None:
+    """How often DESC's carried-over projects moved their in-service date between its two filings: a BASE RATE for the
+    list, never a prediction about one project."""
+    try:
+        c = _read_json(DESC_CHANGES_FILE).get("counts") or {}
+    except (OSError, ValueError, AttributeError):
+        return None
+    n, later = c.get("carried_over"), c.get("new_in_service_date_later")
+    if not n or later is None:
+        return None
+    return {
+        "carried_over": n,
+        "later": later,
+        "earlier": c.get("new_in_service_date_earlier"),
+        "pct": round(100 * later / n),
+        "text": (f"Of the {n} projects in both of DESC's lists, {later} moved their in-service date later between the 2024-2028 and "
+                 "2026-2030 filings. A base rate for the list, not a prediction for any one project."),
+        "source": "DESC 2024-2028 and 2026-2030 project lists, compared row by row (demo/gridlock/diff_filings.py)",
+    }
+
+
+def _unplaced(st: dict, prm: dict, limit: int = 60) -> dict:
+    """Projects of the compared utilities set aside ONLY because no place could be found: possible overlaps, unplaced.
+    Distance can't be measured, so they are never ranked; each says how many of the other side's projects share build
+    months with it (timing only)."""
+    chosen = set(prm["a"]) | set(prm["b"])
+    out = []
+    for q in st["quarantine"]:
+        if q.get("utility") not in chosen or not _failed_checks(q) or not _failed_checks(q) <= RESCUE_BLOCKERS:
+            continue
+        w = _window(q, prm["window_months"])
+        other = prm["b"] if q["utility"] in prm["a"] else prm["a"]
+        same = 0
+        if w:
+            for p in st["placed"]:
+                if p["utility"] in other:
+                    wp = _window(p, prm["window_months"])
+                    if wp and min(w[1], wp[1]) > max(w[0], wp[0]) and min(w[1], wp[1]) >= _today():
+                        same += 1
+        prov = q.get("provenance") or {}
+        names = [e.get("name") for e in q.get("endpoints") or [] if isinstance(e, dict) and e.get("name")]
+        out.append({
+            "id": q.get("id"), "utility": q.get("utility"), "name": q.get("name"), "in_service": q.get("in_service"),
+            "window": {"start": w[0].isoformat(), "end": w[1].isoformat(), "basis": w[2]} if w else None,
+            "page": prov.get("page"), "source": prov.get("source"),
+            "why": ("no endpoint could be placed" + (f": {', '.join(names)}" if names else ": the title names no place")),
+            "same_months_as": same,
+        })
+    out.sort(key=lambda r: (-(r["same_months_as"] or 0), r["in_service"] or "9999", r["id"] or ""))
+    return {"label": "Possible overlaps, unplaced", "count": len(out),
+            "what": ("Set aside only because no endpoint could be placed on the map, so distance can't be measured: listed with how many "
+                     "of the other side's projects share build months with each (timing only), never ranked."),
+            "projects": out[:limit]}
+
+
 # A set-aside record's reason starts with the label of the check it failed; the funnel says it the failing way round.
 SET_ASIDE_WORDS = {
     "located": "No endpoint could be placed on the map",
@@ -1758,6 +2306,23 @@ SET_ASIDE_WORDS = {
     "in_region": "Placed outside SC and GA",
     "in_territory": "Placed out of reach of the filer's state",
 }
+
+
+def _default_view(st: dict) -> dict:
+    """Why the funnel's 'passed' is more than the default comparison's two sides: the other Georgia ITS sponsors' rows."""
+    placed = {}
+    for p in st["placed"]:
+        placed[p["utility"]] = placed.get(p["utility"], 0) + 1
+    a, b = placed.get("DESC", 0), placed.get("GPC", 0)
+    others = [{"utility": u, "name": UTILITIES[u][0], "placed": placed[u]} for u in ("GTC", "MEAG", "DU") if placed.get(u)]
+    n_other = sum(o["placed"] for o in others)
+    names = ", ".join(f"{UTILITY_SHORT[o['utility']]} ({o['placed']})" for o in others)
+    text = (f"The default view compares DESC's {a} placed projects with Georgia Power's {b}: {a} x {b} = {a * b:,} pairs. "
+            + (f"The other {n_other} placed rows are {names}, the other sponsors of Georgia's joint ITS plan (the same filing); "
+               "they are compared when all four Georgia utilities are on." if n_other else ""))
+    return {"a": {"utility": "DESC", "placed": a}, "b": {"utility": "GPC", "placed": b}, "pairs": a * b,
+            "not_compared": others, "not_compared_total": n_other, "all_four": {"b": "GA", "placed": b + n_other, "pairs": a * (b + n_other)},
+            "text": text.strip()}
 
 
 def _funnel(st: dict, report: dict) -> dict:
@@ -1795,9 +2360,19 @@ def _funnel(st: dict, report: dict) -> dict:
         # the extractors' own count (their stage report), which must agree with the records kept
         "extracted_by_stages": sum(int(s.get("out") or 0) for s in extract) if extract else None,
         "passed": len(st["projects"]),
+        # of those, placed from their descriptions (J4): set aside by the checks only for want of a place
+        "passed_checks": len(st["projects"]) - len(st.get("rescued") or []),
+        "rescued": {
+            "count": len(st.get("rescued") or []),
+            "label": "Placed from the description",
+            "rule": ("Set aside only because no endpoint could be placed, and its description names a station the pipeline "
+                     "placed for other projects: placed there with low confidence"),
+            "records": st.get("rescued") or [],
+        },
         "set_aside": len(st["quarantine"]),
         "set_aside_by_check": sorted(failed.values(), key=lambda f: (-f["records"], f["id"])),
         "placed": len(st["placed"]),
+        "default_view": _default_view(st),
         "checks": len(checks),
         "blocking_checks": sum(1 for c in checks if c.get("blocking")),
     }
@@ -1822,6 +2397,9 @@ def summary():
         "counts": _counts(st),
         "compared_projects": len(st["placed"]),
         "funnel": _funnel(st, report),
+        # J5: our geocoded endpoints against the ones Sperry located by hand (metres), not their own coordinates re-used
+        "location_accuracy": location_accuracy(),
+        "slip_base_rate": slip_base_rate(),
         "report": report,
         "rebuild_command": "backend/venv/Scripts/python backend/demo/gridlock/build.py",
         "rebuild_commands": [
@@ -2059,6 +2637,10 @@ def overlaps(
             f"for the {n_assumed} of {len(in_play)} projects here without one, the {window_months} months before in-service"
         ),
         "window_assumed": {"projects": n_assumed, "of": len(in_play)},
+        "window_kinds": WINDOW_KINDS,
+        # J4: still set aside for want of a place: listed, never ranked (distance can't be measured)
+        "unplaced": _unplaced(st, prm),
+        "slip_base_rate": slip_base_rate(),
         "truncated": len(rows) > limit,
         "overlaps": rows[:limit],
     })
@@ -2147,6 +2729,7 @@ def sperry_check_route():
         "pairs_with_earlier_only_desc": sum(1 for r in out["rows"] if r["a"] in earlier_only or r["b"] in earlier_only),
         "passed": sum(1 for r in out["rows"] if r["ours"] and (r["ours"].get("overlap") or {}).get("group") == "passed"),
     }
+    out["location_accuracy"] = location_accuracy()
     return _fast_json(_finite(out))
 
 
@@ -2165,7 +2748,8 @@ DISTANCE_RULE = (
 )
 TIMELINE_RULE = (
     "Build windows overlap: 1. Apart by up to a year: 0.8; up to three years: 0.5; longer: 0.25; a date missing: 0.5. "
-    f"Times {PASSED_FACTOR:g} when, as filed, the shared window (or both windows) ended before today"
+    f"Times {PASSED_FACTOR:g} when, as filed, the shared window (or both windows) ended before today; times {FLAG_FACTOR:g} "
+    "when the shared months rest on a window a validation check flagged (money filed after the project's own in-service date)"
 )
 LOCATION_RULE = "The weaker of the two projects' location confidence: high 1, medium 0.8, low 0.5"
 KV_RULE = f"Times {SAME_KV_BONUS:g} when both are line work at the same kV class, else times 1"
@@ -2387,10 +2971,14 @@ def trace(
     pa, pb = st["placed"][i], st["placed"][j]
 
     # the score's terms, recomputed with the ranking's own functions (on the unrounded distance, as the ranking does)
-    score_km = _pair_closest(st["geoms"][i], st["geoms"][j])[0] if prm["method"] == "closest" else float(st["center_km"][i, j])
+    score_km = _pair_closest(st["dgeoms"][i], st["dgeoms"][j])[0] if prm["method"] == "closest" else float(st["center_km"][i, j])
     df, d_how = _distance_term(score_km)
     tl = _timeline(pa, pb, months)
     tf, t_how = _timeline_term(tl, pa, pb)
+    flags = window_flags(pa) + window_flags(pb)
+    if tl["same_window"] and flags:  # a flagged window counts for less (the ranking's own rule, _overlap_record)
+        tf = round(tf * FLAG_FACTOR, 3)
+        t_how += f"; times {FLAG_FACTOR:g} because " + "; ".join(f["text"] for f in flags)
     ca, cb = pa.get("confidence") or "low", pb.get("confidence") or "low"
     weaker = ca if CONF_RANK.get(ca, 1) <= CONF_RANK.get(cb, 1) else cb
     cf = CONF_FACTOR.get(weaker, 0.5)

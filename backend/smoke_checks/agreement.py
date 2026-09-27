@@ -219,7 +219,7 @@ def register(ctx):
         bad = {"text": "The shared yard would cut 37 truck trips and save $412K.", "facts": ["save.total"]}
         parts, rejected, reason = ag._clean_ai(answer(scope=[good, bad, good]), facts, tpl, b["pa"], b["pb"])
         assert parts and len(parts["scope"]) == 2 and len(rejected) == 1 and rejected[0]["where"] == "scope[1]", rejected
-        assert "not in the facts" in rejected[0]["reason"], rejected
+        assert "not in the facts" in rejected[0]["reason"] or "not one of the facts" in rejected[0]["reason"], rejected
         # an invented figure in the summary: the whole draft falls back to the template
         parts, rejected, reason = ag._clean_ai(answer(summary={"text": "They would save $9.9M by 2031.", "facts": []}), facts, tpl, b["pa"], b["pb"])
         assert parts is None and reason and "summary" in reason and rejected, (reason, rejected)

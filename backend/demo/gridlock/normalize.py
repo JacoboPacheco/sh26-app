@@ -370,36 +370,83 @@ def miles_of(*texts: str | None) -> tuple[float | None, str | None]:
 ASSUMED_LEAD_MONTHS = 24
 
 
+MAIN_SPEND_SHARE = 0.75  # the build window is the fewest consecutive years that carry this share of the dated spending
+
+
+def main_spend_years(cost_by_year: dict | None) -> tuple[int, int, float] | None:
+    """(first year, last year, share): the fewest consecutive filed years that carry at least MAIN_SPEND_SHARE of the
+    dated spending (the 'Previous' column is not a year). A token first-year amount ($50K of $5.38M in 2027, the rest
+    in 2028, DESC 2026-2030 p41) does not open the window: the money says when the work is. Ties: the run carrying more."""
+    years = {int(k): float(v) for k, v in (cost_by_year or {}).items() if str(k).isdigit() and isinstance(v, (int, float)) and v > 0}
+    total = sum(years.values())
+    if not years or total <= 0:
+        return None
+    ys = sorted(years)
+    best = None
+    for i, y0 in enumerate(ys):
+        for y1 in ys[i:]:
+            share = sum(v for y, v in years.items() if y0 <= y <= y1) / total
+            if share + 1e-9 >= MAIN_SPEND_SHARE:
+                key = (y1 - y0, -share)
+                if best is None or key < best[0]:
+                    best = (key, (y0, y1, round(share, 3)))
+                break
+    return best[1] if best else None
+
+
+def spend_after_in_service(in_service: str | None, cost_by_year: dict | None) -> tuple[float, float] | None:
+    """(amount, share) of the dated spending filed in years AFTER the in-service year, or None when there is none."""
+    if not in_service:
+        return None
+    years = {int(k): float(v) for k, v in (cost_by_year or {}).items() if str(k).isdigit() and isinstance(v, (int, float)) and v > 0}
+    total = sum(years.values()) + float((cost_by_year or {}).get("Previous") or 0)
+    after = sum(v for y, v in years.items() if y > int(in_service[:4]))
+    if after <= 0 or total <= 0:
+        return None
+    return after, round(after / total, 3)
+
+
 def build_window_desc(in_service: str | None, cost_by_year: dict | None) -> dict | None:
-    """DESC files money per year: construction runs from the first year with spend to the in-service date.
+    """DESC files money per year: the build window is the years carrying most of the spending (main_spend_years), to the
+    in-service date, or to the end of the last of those years when the filing puts most of the money AFTER its own
+    in-service date (flagged by the spend_after_in_service check; the window follows the money).
 
     `assumed` is True when the filing doesn't pin the start (the engine then re-derives it from its build-window
     setting); `latest_start` is the latest start the filing still allows ('Previous' spend = started before 2024)."""
     if not in_service:
         return None
-    years = sorted(int(k) for k, v in (cost_by_year or {}).items() if k.isdigit() and v and v > 0)
+    main = main_spend_years(cost_by_year)
     prev = (cost_by_year or {}).get("Previous") or 0
     latest = None
+    end = in_service
     if prev > 0:
-        first_col = min((int(k) for k in (cost_by_year or {}) if k.isdigit()), default=2024)
+        first_col = min((int(k) for k in (cost_by_year or {}) if str(k).isdigit()), default=2024)
         latest = f"{first_col - 1}-01-01"
         start = min(add_months(in_service, -ASSUMED_LEAD_MONTHS), latest)
         basis = (f"spending began before {first_col} (the 'Previous' column), so the exact start isn't filed; assumed the earlier "
                  f"of {latest} and {ASSUMED_LEAD_MONTHS} months before in-service")
         assumed = True
-    elif years:
-        start = f"{years[0]}-01-01"
-        basis = f"first year with budgeted spend ({years[0]}) to the in-service date"
+    elif main:
+        y0, y1, share = main
+        years = f"{y0}" if y0 == y1 else f"{y0}-{y1}"
+        start = f"{y0}-01-01"
+        basis = f"the years carrying most of the filed spending ({years}: {round(100 * share)} %) to the in-service date"
         assumed = False
+        if start > in_service:  # most of the money is filed after the in-service date: the window follows the money
+            end = f"{y1}-12-31"
+            basis = (f"the years carrying most of the filed spending ({years}: {round(100 * share)} %), which the filing puts "
+                     f"after its own in-service date ({in_service}); flagged by the spend_after_in_service check")
+        elif int(in_service[:4]) < y1:
+            end = f"{y1}-12-31"
+            basis = (f"the years carrying most of the filed spending ({years}: {round(100 * share)} %), running past the "
+                     f"in-service date ({in_service}); flagged by the spend_after_in_service check")
     else:
         start = add_months(in_service, -ASSUMED_LEAD_MONTHS)
         basis = f"no spend profile; assumed {ASSUMED_LEAD_MONTHS} months before the in-service date"
         assumed = True
-    if start > in_service:
-        start = add_months(in_service, -12)
-        basis += "; spend continues past in-service, start set 12 months before in-service"
-        assumed, latest = False, None
-    out = {"start": start, "end": in_service, "basis": basis, "assumed": assumed}
+    out = {"start": start, "end": end, "basis": basis, "assumed": assumed}
+    if main:
+        out["main_spend"] = {"from": main[0], "to": main[1], "share": main[2]}
     if latest:
         out["latest_start"] = latest
     return out
@@ -410,7 +457,9 @@ def build_window_ga(need: str | None, start_raw: str | None, detail_page: int | 
         return None
     start, _ = parse_date(start_raw) if start_raw else (None, None)
     if start and start <= need:
-        return {"start": start, "end": need, "basis": f"start date filed on the project's detail page (PDF p{detail_page})", "assumed": False}
+        # Georgia files a start date and a need date: a planning window (up to 8 years), not the construction months
+        return {"start": start, "end": need, "basis": f"filed planning window: the start date on the project's detail page (PDF p{detail_page}) to the need date",
+                "assumed": False, "planning_window": True}
     return {"start": add_months(need, -ASSUMED_LEAD_MONTHS), "end": need,
             "basis": f"no filed start date; assumed {ASSUMED_LEAD_MONTHS} months before the need date", "assumed": True}
 

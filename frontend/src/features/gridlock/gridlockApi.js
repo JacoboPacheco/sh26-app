@@ -21,8 +21,13 @@ const live = {
   // Build agreement (backend/agreement.py): a draft coordination proposal for one overlap. ai=false is the
   // plain template (instant); ai=true asks Gemini to word it and checks every number (a few seconds).
   // negotiated: 'en' | 'es' | 'plain' uses that negotiation's agreed, verified terms in the draft
-  agreement: (id, { window_months, lang = 'en', ai = true, negotiated } = {}) =>
-    api(`/api/agreement/${encodeURIComponent(id)}?${q({ window_months, lang, ai: ai ? 'true' : 'false', negotiated })}`),
+  // plan: the id of a collaboration plan the viewer chose (POST /api/gridlock/plans): the draft takes that plan's terms
+  agreement: (id, { window_months, lang = 'en', ai = true, negotiated, plan } = {}) =>
+    api(`/api/agreement/${encodeURIComponent(id)}?${q({ window_months, lang, ai: ai ? 'true' : 'false', negotiated, plan })}`),
+  // Collaboration plans (backend): one Gemini agent per company, each given a goal from its own filing, plus a neutral
+  // coordinator, propose 2-3 distinct ways to build together; the pipeline checks every figure (a labeled template
+  // without the key). {pair, companies, plans, recommended, trace, fallback, model, cached}
+  plans: (pair, { lang = 'en', window_months } = {}) => api('/api/gridlock/plans', { method: 'POST', body: { pair, lang, window_months } }),
   // Negotiate (backend/negotiate.py): two Gemini agents, each reading one utility's filing, trade proposals and the
   // pipeline verifies every turn (up to 8 calls, ~20-40 s live; instant when cached). ai=false: the plain version.
   negotiate: (id, { window_months, lang = 'en', ai = true } = {}) =>

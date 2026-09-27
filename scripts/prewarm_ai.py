@@ -213,6 +213,19 @@ def main():
                 note(f"pair {k} draft on the agreed terms", ((d or {}).get("by") or "?") if code == 200 else f"HTTP {code}", dt)
                 time.sleep(2.1)
 
+    # Build together, collaboration plans (collab_plans.py): the three agents' plans (one agent per company's published plan
+    # and a coordinator) for the same top 12 pairs, and the draft on the recommended plan for the first three. Cached in
+    # memory: rerun after a backend restart. Paced under the routes' 30/minute limit.
+    for k, oid in enumerate(top, 1):
+        pl, dt, code = call("POST", "/api/gridlock/plans", {"pair": oid, "lang": "en"}, timeout=120)
+        note(f"pair {k} collaboration plans", (f"{(pl or {}).get('by')} ({len((pl or {}).get('plans') or [])} plans)" if code == 200 else f"HTTP {code}"), dt)
+        time.sleep(2.1)
+        rec = ((pl or {}).get("recommended") or {}).get("plan") if code == 200 else None
+        if rec and k <= 3:
+            d, dt, code = call("GET", f"/api/agreement/{oid}?lang=en&ai=true&plan={rec}")
+            note(f"pair {k} draft on the recommended plan", ((d or {}).get("by") or "?") if code == 200 else f"HTTP {code}", dt)
+            time.sleep(2.1)
+
     st, _, _ = call("GET", "/api/ai/status")
     print(f"\nDone: {len(rows)} steps. AI used today {st and st.get('used_today')}/{st and st.get('cap')}; cached answers {st and st.get('cached_answers')}; models out today {st and st.get('models_out_today')}")
 

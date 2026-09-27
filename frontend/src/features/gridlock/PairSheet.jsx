@@ -1,202 +1,71 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ErrorBanner, Loading } from '../../ui'
 import { useGridlock } from './context'
-import { LABELS, agreementMarkdown, fmtMonth } from './agreementText'
-import { DraftStatus, Paper, PrintCopy, WindowTimeline } from './AgreementDoc'
+import { LABELS, agreementMarkdown } from './agreementText'
+import { DraftStatus, Paper, PrintCopy } from './AgreementDoc'
 import { useAgreement } from './useAgreement'
+import { usePlans, useElapsed } from './usePlans'
 import { downloadUrl } from './gridlockApi'
 import { ProjectCard } from './DetailCard'
-import Negotiation from './Negotiation'
+import PairSaves from './PairSaves'
+import PlanCards, { PlansLoading } from './PlanCards'
 import TraceDrawer from './TraceDrawer'
-import Gloss from './Gloss'
-import { GLOSS } from './glossary'
-import {
-  SAME_STATION,
-  TIER_LABEL_ES,
-  TIER_SHARE,
-  TIER_SHARE_ES,
-  displayName,
-  fmtDate,
-  fmtKm,
-  fmtMi,
-  fmtMoney,
-  fmtRange,
-  kindText,
-  pairDistance,
-  stationSentence,
-  statusText,
-  toneOf,
-  utilityShort,
-  whenOf,
-} from './format'
+import { utilityShort } from './format'
+import { whenText, whereText } from './plain'
 import './agreement.css'
-import './negotiation.css'
+import './plans.css'
 
-// A pair's sheet: a wide panel over the right of the map (full screen on a phone) with three numbered steps,
-// because they are a sequence: (1) the overlap as filed, (2) two AI agents negotiating the terms, (3) the drafted
-// agreement (print / download). The header names the pair in plain words and holds the language, Print and
-// Download; the step row under it jumps to each step and says where each stands. A project's "Where this came
-// from" opens over the steps (Back returns to the pair) so a negotiation in progress is never lost.
+// A pair's sheet: steps 2 and 3 of the guided path, over the right of the map (full screen on a phone). Step 1, "Find
+// an overlap", is the ranked list in the rail; picking a pair opens this at step 2, "See what building together
+// saves" (five facts, PairSaves.jsx); its button leads to step 3, "Agree on a plan": the companies' agents' plans
+// (PlanCards.jsx), and choosing one drafts the agreement from that plan's terms (Print / Download / Add to calendar).
+// The step row in the header says where you are and moves between steps; the address follows
+// (#/plans/pair/<id> and #/plans/pair/<id>/plans). A project's "Where this came from" and "Trace this pair" open over
+// the steps (Back returns to the pair).
 
 const S = {
   en: {
-    steps: ['The overlap', 'Two AI agents negotiate', 'The drafted agreement'],
-    stepsShort: ['Overlap', 'Negotiate', 'Agreement'],
-    title: (a, b, share) => `${a} and ${b} could share ${share}`,
-    stationTitle: (a, b, name) => `${a} and ${b} both work at ${name}`,
-    stationWhy: 'A substation both utilities work at is where their systems meet, so outages and equipment work there could be planned once.',
-    stationMap: (n) => `${n} on OpenStreetMap`,
-    // no OpenStreetMap substation carries the filed name: the link is the nearest one, standing in
-    stationStandIn: (n) => `The substation standing in for ${n} on OpenStreetMap (none there carries the name)`,
+    steps: ['Find an overlap', 'See what it saves', 'Agree on a plan'],
+    title: (a, b) => `${a} and ${b} could build together`,
+    stationTitle: (a, b, n) => `${a} and ${b} both plan work at ${n}`,
     pairOf: (r, n) => (n ? `Pair ${r} of ${n}` : `Pair ${r}`),
-    apart: (d) => `${d} apart`,
-    touching: 'The projects touch',
-    crossing: 'The projects cross',
-    touch: 'touch',
-    cross: 'cross',
     outside: 'Outside the current filters',
     close: 'Close the pair',
-    back: 'Pairs',
+    back: 'All pairs',
     lang: 'Language',
     print: 'Print',
     printTitle: 'Print or save as PDF: the drafted agreement alone',
     download: 'Download',
     downloadTitle: 'Download the drafted agreement as text (.md)',
     ics: 'Add to calendar',
-    icsTitle: 'The shared build window as a calendar file (.ics): both projects, their sources, dates as filed (a derived start is said so)',
-    icsBoth: 'The two build windows as a calendar file (.ics): no shared window, the station, both projects and their sources',
-    work: 'Work',
-    window: 'Build window',
-    derived: 'start derived',
-    status: 'Status',
-    cost: 'Cost',
-    redacted: 'Redacted in the public filing',
-    notGiven: 'Not given',
-    whereFrom: 'Where this came from',
-    distance: 'Distance',
-    closest: 'at the closest points',
-    centers: 'between centers',
-    shared: 'Shared build window',
-    noShared: 'No shared months',
-    savings: 'Could save',
-    rough: 'rough estimate',
-    nothing: 'Nothing estimated',
-    ifAhead: 'Only if both still have work ahead:',
-    agreedOf: (n, m, all) => `The ${n} of ${m} items the agents agreed; ${all} for everything this distance allows`,
-    nothingWhy: 'What this distance could share needs the two build windows to share months:',
-    leftOut: (label, why) => `${label}: left out, ${why}`,
-    before: 'Before negotiation: the draft proposes its own starting terms.',
-    beforeRun: 'Let the two agents negotiate them',
-    beforeAgreed: 'The agents agreed other terms in step 2.',
-    useTerms: 'Use these terms',
-    how: 'How the savings are estimated',
-    assumptions: 'Assumptions',
-    sources: 'Sources',
-    needs: (x) => `needs ${x}`,
-    why: (r) => `Why it ranks ${r}`,
-    trace: 'Trace this pair',
-    traceWhat: "The score's terms, the distance, each end's map match and each row's PDF page",
-    publicOnly: "This compares public plans only; it doesn't say whether the utilities already work together.",
-    loading: 'Reading both filings…',
-    drafting: 'Drafting from the two filings…',
-    st: {
-      idle: 'Not run yet',
-      running: 'Negotiating…',
-      agreed: (r) => `Agreed in round ${r}`,
-      none: 'No agreement',
-      error: 'Stopped; try again',
-      draft: 'Drafting…',
-      aiPending: 'Plain draft; Gemini wording it',
-      negotiated: 'Uses the agreed terms',
-      ready: 'Ready to print',
-      before: 'Before negotiation',
-      nothing: 'Nothing to negotiate',
-    },
+    icsTitle: 'The shared build window as a calendar file (.ics)',
+    draftH: 'Your draft agreement',
+    draftFrom: (x) => `Drafted from "${x}". A draft for discussion, not an agreement between, or endorsed by, either utility.`,
+    drafting: 'Drafting from the chosen plan…',
+    pick: 'Choose a plan above to draft the agreement from it.',
+    back2: 'Back to what it saves',
   },
   es: {
-    steps: ['La coincidencia', 'Dos agentes de IA negocian', 'El acuerdo redactado'],
-    stepsShort: ['Coincidencia', 'Negociación', 'Acuerdo'],
-    title: (a, b, share) => `${a} y ${b} podrían compartir ${share}`,
-    stationTitle: (a, b, name) => `${a} y ${b} trabajan en la misma subestación: ${name}`,
-    stationWhy: 'Una subestación en la que trabajan las dos empresas es donde se unen sus sistemas: los cortes y las obras allí podrían planificarse una sola vez.',
-    stationMap: (n) => `${n} en OpenStreetMap`,
-    stationStandIn: (n) => `La subestación que representa a ${n} en OpenStreetMap (ninguna allí lleva ese nombre)`,
+    steps: ['Encontrar una coincidencia', 'Ver cuánto ahorra', 'Acordar un plan'],
+    title: (a, b) => `${a} y ${b} podrían construir juntos`,
+    stationTitle: (a, b, n) => `${a} y ${b} planean obras en ${n}`,
     pairOf: (r, n) => (n ? `Par ${r} de ${n}` : `Par ${r}`),
-    apart: (d) => `a ${d}`,
-    touching: 'Los proyectos se tocan',
-    crossing: 'Los proyectos se cruzan',
-    touch: 'se tocan',
-    cross: 'se cruzan',
     outside: 'Fuera de los filtros actuales',
     close: 'Cerrar el par',
-    back: 'Pares',
+    back: 'Todos los pares',
     lang: 'Idioma',
     print: 'Imprimir',
     printTitle: 'Imprimir o guardar como PDF: solo el acuerdo redactado',
     download: 'Descargar',
     downloadTitle: 'Descargar el acuerdo redactado como texto (.md)',
     ics: 'Añadir al calendario',
-    icsTitle: 'La ventana de obra compartida como archivo de calendario (.ics, en inglés): ambos proyectos, sus fuentes, fechas según lo publicado (se indica si un inicio es derivado)',
-    icsBoth: 'Las dos ventanas de obra como archivo de calendario (.ics, en inglés): sin ventana compartida; la subestación, ambos proyectos y sus fuentes',
-    work: 'Obra',
-    window: 'Ventana de obra',
-    derived: 'inicio derivado',
-    status: 'Estado',
-    cost: 'Costo',
-    redacted: 'Tachado en el documento público',
-    notGiven: 'No indicado',
-    whereFrom: 'De dónde sale',
-    distance: 'Distancia',
-    closest: 'entre los puntos más cercanos',
-    centers: 'entre centros',
-    shared: 'Ventana de obra compartida',
-    noShared: 'Sin meses en común',
-    savings: 'Podría ahorrar',
-    rough: 'estimación aproximada',
-    nothing: 'Nada estimado',
-    ifAhead: 'Solo si a ambos les queda obra:',
-    agreedOf: (n, m, all) => `Las ${n} de ${m} partidas que acordaron los agentes; ${all} para todo lo que permite esta distancia`,
-    nothingWhy: 'Lo que esta distancia permite compartir necesita que las dos ventanas de obra compartan meses:',
-    leftOut: (label, why) => `${label}: se deja fuera, ${why === 'needs the two build windows to share months' ? 'necesita que las dos ventanas de obra compartan meses' : why}`,
-    before: 'Antes de negociar: el borrador propone sus propios términos iniciales.',
-    beforeRun: 'Que los negocien los dos agentes',
-    beforeAgreed: 'Los agentes acordaron otros términos en el paso 2.',
-    useTerms: 'Usar estos términos',
-    how: 'Cómo se estima el ahorro',
-    assumptions: 'Supuestos',
-    sources: 'Fuentes',
-    needs: (x) => `requiere ${x}`,
-    why: (r) => `Por qué ocupa el puesto ${r}`,
-    trace: 'Rastrear este par',
-    traceWhat: 'Los términos de la puntuación, la distancia, la ubicación de cada extremo y la página del PDF de cada fila',
-    publicOnly: 'Solo compara planes públicos; no dice si las empresas ya trabajan juntas.',
-    loading: 'Leyendo los dos documentos…',
-    drafting: 'Redactando a partir de los dos documentos…',
-    st: {
-      idle: 'Aún sin ejecutar',
-      running: 'Negociando…',
-      agreed: (r) => `Acuerdo en la ronda ${r}`,
-      none: 'Sin acuerdo',
-      error: 'Detenida; reintente',
-      draft: 'Redactando…',
-      aiPending: 'Borrador simple; Gemini redactando',
-      negotiated: 'Usa los términos acordados',
-      ready: 'Listo para imprimir',
-      before: 'Antes de negociar',
-      nothing: 'Nada que negociar',
-    },
+    icsTitle: 'La ventana de obra compartida como archivo de calendario (.ics, en inglés)',
+    draftH: 'Su borrador de acuerdo',
+    draftFrom: (x) => `Redactado a partir de «${x}». Un borrador para conversar, no un acuerdo entre ninguna de las empresas ni respaldado por ellas.`,
+    drafting: 'Redactando a partir del plan elegido…',
+    pick: 'Elija un plan arriba para redactar el acuerdo.',
+    back2: 'Volver a cuánto ahorra',
   },
-}
-
-function useReduced() {
-  const [r] = useState(() => {
-    try {
-      return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    } catch {
-      return false
-    }
-  })
-  return r
 }
 
 // a value once it has stopped changing for `ms` (the first value at once)
@@ -213,34 +82,33 @@ function useSettled(value, ms) {
 export default function PairSheet() {
   const g = useGridlock()
   const { draft, closeDraft, client, sel, setCover, back } = g
-  // the Build window slider moves the list at once; the sheet asks for its drafts only once the value has settled
-  // (a sweep across the slider used to send two drafts per step, one of them Gemini's, and hit the rate limit)
   const months = useSettled(g.params.window_months, 450)
-  const reduced = useReduced()
   const [lang, setLang] = useState('en')
   const [tries, setTries] = useState(0)
+  const [planTries, setPlanTries] = useState(0)
   const s = S[lang]
+  const step = g.pairStep === 'plans' ? 3 : 2
   const live = g.overlaps.find((x) => x.id === draft.id)
   const o = live || draft.overlap
-  // a pair the current filters leave out has no place in the list: say so rather than show its old rank
   const listed = !!live || g.ov.status === 'loading' || g.ov.status === 'refreshing'
   const rank = o.displayRank ?? o.rank
 
-  // the draft's versions: the plain one (step 1 reads the overlap from it), the negotiated plain one once terms are
-  // applied, and Gemini's wording of whichever is current
-  const caseKey = `${draft.id}@${months}`
-  const [negSel, setNegSel] = useState({ for: null, key: null, dropped: false })
-  const negKey = negSel.for === caseKey ? negSel.key : null
+  // the pair's plain draft (step 2 reads both projects and the estimate from it)
   const base = useAgreement(client, draft.id, { months, lang, ai: false, tries })
-  const negPlain = useAgreement(client, negKey ? draft.id : null, { months, lang, ai: false, negotiated: negKey, tries })
-  // Gemini's wording: asked for only once the pair and language have stayed put for a moment (kept answers show at once)
-  const aiDoc = useAgreement(client, draft.id, { months, lang, ai: true, negotiated: negKey, tries, defer: 600 })
-  const plain = negKey ? negPlain : base
-  const doc = aiDoc.status === 'ready' ? aiDoc.data : plain.status === 'ready' ? plain.data : null
-  const aiPending = aiDoc.status === 'loading'
-  const failed = plain.status === 'error' && aiDoc.status === 'error'
+  // the plans (asked only once step 3 opens) and the plan the viewer chose, per pair and window setting
+  const caseKey = `${draft.id}@${months}`
+  const plans = usePlans(client, step === 3 ? draft.id : null, { lang, months, tries: planTries })
+  const loadingPlans = step === 3 && plans.status === 'loading'
+  const elapsed = useElapsed(loadingPlans)
+  const [chosen, setChosen] = useState({ for: null, plan: null })
+  const planId = chosen.for === caseKey ? chosen.plan : null
+  const planPlain = useAgreement(client, planId ? draft.id : null, { months, lang, ai: false, plan: planId, tries })
+  const planAi = useAgreement(client, planId ? draft.id : null, { months, lang, ai: true, plan: planId, tries, defer: 300 })
+  const doc = planAi.status === 'ready' ? planAi.data : planPlain.status === 'ready' ? planPlain.data : null
+  const aiPending = planAi.status === 'loading'
+  const draftFailed = planPlain.status === 'error' && planAi.status === 'error'
   const t = LABELS[doc?.lang === 'es' ? 'es' : lang]
-  const [neg, setNeg] = useState({ phase: 'idle' })
+  const chosenPlan = planId && plans.status === 'ready' ? (plans.data?.plans || []).find((p) => p.id === planId) : null
 
   // how much of the map the sheet covers (the map frames the pair in what is left); 0 when full screen
   const ref = useRef(null)
@@ -250,7 +118,7 @@ export default function PairSheet() {
     const mq = window.matchMedia('(min-width: 900px)')
     const measure = () => {
       const w = Math.round(el.getBoundingClientRect().width)
-      if (w) setCover(mq.matches ? w : 0) // 0 wide = hidden (printing): keep the last measure
+      if (w) setCover(mq.matches ? w : 0)
     }
     measure()
     const ro = new ResizeObserver(measure)
@@ -263,18 +131,25 @@ export default function PairSheet() {
     }
   }, [setCover])
 
-  // focus: the title when a pair opens; back to its row in the list when the sheet closes
+  // focus: the title when a pair opens or the step changes; back to its row in the list when the sheet closes
   const titleRef = useRef(null)
+  const stepRef = useRef(null)
   const lastId = useRef(draft.id)
   const bodyRef = useRef(null)
-  // the step in view (per pair: a new pair starts at step 1)
-  const [spy, setSpy] = useState({ id: draft.id, n: 1 })
-  const active = spy.id === draft.id ? spy.n : 1
   useEffect(() => {
     lastId.current = draft.id
     titleRef.current?.focus({ preventScroll: true })
     bodyRef.current?.scrollTo({ top: 0 })
   }, [draft.id])
+  const firstStep = useRef(true)
+  useEffect(() => {
+    if (firstStep.current) {
+      firstStep.current = false
+      return
+    }
+    bodyRef.current?.scrollTo({ top: 0 })
+    stepRef.current?.focus({ preventScroll: true })
+  }, [step])
   useEffect(
     () => () => {
       const row = document.querySelector(`[data-pair="${CSS.escape(lastId.current)}"]`)
@@ -284,7 +159,6 @@ export default function PairSheet() {
   )
 
   const projectOpen = sel?.kind === 'project'
-  // "Trace this pair" opens over the steps like a project's card (per pair: a new pair starts closed)
   const [traceFor, setTraceFor] = useState(null)
   const traceOpen = traceFor === draft.id && !projectOpen
   const traceOpener = useRef(null)
@@ -302,8 +176,6 @@ export default function PairSheet() {
     requestAnimationFrame(() => (el?.isConnected ? el.focus({ preventScroll: false }) : titleRef.current?.focus({ preventScroll: true })))
   }, [])
   const covered = projectOpen || traceOpen
-  // "Where this came from" opens over the steps: its heading takes focus (ProjectCard autoFocus); Back returns focus
-  // to the link that opened it (else the sheet's title)
   const opener = useRef(null)
   const wasOpen = useRef(false)
   useEffect(() => {
@@ -367,85 +239,34 @@ export default function PairSheet() {
     setTimeout(() => URL.revokeObjectURL(url), 2000)
   }, [doc])
 
-  // "Use these terms in the draft": the draft is re-asked with the negotiation's terms, then step 3 comes into view
-  const jumpToDraft = useRef(false)
-  const applyTerms = useCallback(
-    (k) => {
-      jumpToDraft.current = !!k
-      setNegSel({ for: caseKey, key: k, dropped: !k })
-    },
-    [caseKey],
-  )
-  // once the two agents agree (verified), the draft takes their terms by itself, so the page never shows two splits or
-  // two savings figures for one pair; unless the viewer chose the draft's own terms for this pair
-  const autoTerms = useCallback(
-    (k) => setNegSel((cur) => (cur.for === caseKey && (cur.dropped || cur.key) ? cur : { for: caseKey, key: k, dropped: false })),
-    [caseKey],
-  )
+  // choosing a plan drafts the agreement from it; the draft comes into view under the cards
+  const draftRef = useRef(null)
+  const choose = useCallback((id) => setChosen({ for: caseKey, plan: id }), [caseKey])
+  // once the chosen plan's draft is there (the section only then has its full height), bring it into view, once per plan
+  const shownFor = useRef(null)
   useEffect(() => {
-    if (!jumpToDraft.current || !doc?.draft?.negotiated) return
-    jumpToDraft.current = false
-    requestAnimationFrame(() => scrollBodyTo(bodyRef.current, bodyRef.current?.querySelector('[data-step="3"]'), reduced))
-  }, [doc, reduced])
-
-  // the step row follows the scroll
-  const onScroll = useCallback(() => {
-    const b = bodyRef.current
-    if (!b) return
-    const top = b.getBoundingClientRect().top
-    let cur = 1
-    for (const el of b.querySelectorAll('[data-step]')) if (el.getBoundingClientRect().top - top < 140) cur = Number(el.dataset.step)
-    setSpy({ id: lastId.current, n: cur })
-  }, [])
-  const goTo = (n) => {
-    const el = bodyRef.current?.querySelector(`[data-step="${n}"]`)
-    if (!el) return
-    scrollBodyTo(bodyRef.current, el, reduced)
-    el.querySelector('h3')?.focus({ preventScroll: true })
-  }
+    const k = planId ? `${caseKey}|${planId}` : null
+    if (!k || !doc || shownFor.current === k) return
+    shownFor.current = k
+    requestAnimationFrame(() => draftRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+  }, [doc, planId, caseKey])
 
   const a = g.byId[o.a]
   const b = g.byId[o.b]
-  const aShort = utilityShort(a?.utility)
-  const bShort = utilityShort(b?.utility)
-  const share = (lang === 'es' ? TIER_SHARE_ES : TIER_SHARE)[o.tier]
+  const aShort = utilityShort(a?.utility || o.a_utility)
+  const bShort = utilityShort(b?.utility || o.b_utility)
   const station = o.shared_station
-  // a shared substation is the headline: the title names it, the sub line says it is the same one in both filings
-  const title = station
-    ? s.stationTitle(aShort, bShort, station.name)
-    : s.title(aShort, bShort, lang === 'es' ? share : (share || 'work').toLowerCase())
-  const d = pairDistance(o, g.params.method)
-  const distText = station
-    ? SAME_STATION[lang].sub
-    : d.km == null
-      ? ''
-      : d.km < 0.05
-        ? o.crosses
-          ? s.crossing
-          : s.touching
-        : s.apart(`${fmtMi(d.mi)} (${fmtKm(d.km)})`)
-  const when = whenOf(o, lang)
-  const nothing = base.status === 'ready' && !(base.data?.draft?.savings?.items || []).length
-  const status = [
-    when.short,
-    nothing
-      ? s.st.nothing
-      : neg.phase === 'idle'
-        ? s.st.idle
-        : neg.phase === 'running'
-          ? s.st.running
-          : neg.phase === 'error'
-            ? s.st.error
-            : neg.agreed
-              ? s.st.agreed(neg.round)
-              : s.st.none,
-    !doc ? s.st.draft : aiPending ? s.st.aiPending : doc.draft?.negotiated ? s.st.negotiated : nothing ? s.st.ready : s.st.before,
-  ]
+  const title = station ? s.stationTitle(aShort, bShort, station.name) : s.title(aShort, bShort)
+  const goStep = (n) => {
+    if (n === 1) closeDraft()
+    else g.setPairStep(n === 3 ? 'plans' : 'saves')
+  }
 
   return (
-    <aside ref={ref} className="gl gl-sheet" aria-labelledby="gl-sheet-h">
-      <header className="gl-sheet__head">
+    <aside ref={ref} className={`gl gl-sheet bt-sheet${step === 3 ? ' bt-sheet--wide' : ''}`} aria-labelledby="gl-sheet-h">
+      <header className="gl-sheet__head bt-head">
         <div className="gl-sheet__top">
+          {/* a phone shows the sheet full screen: its way back to the list (the close button is the desktop's) */}
           <button type="button" className="gl-back gl-sheet__back" onClick={closeDraft}>
             <span aria-hidden="true">‹</span> {s.back}
           </button>
@@ -455,14 +276,9 @@ export default function PairSheet() {
             </h2>
             <p className="gl-sheet__sub">
               {listed ? s.pairOf(rank, g.ov.flagged) : s.outside}
-              {distText ? `, ${distText.charAt(0).toLowerCase()}${distText.slice(1)}` : ''}
+              {lang === 'en' ? `: ${whereText(o).replace(/^./, (c) => c.toLowerCase())}, ${whenText(o)}` : ''}
             </p>
           </div>
-          <button type="button" className="gl-close" onClick={closeDraft} aria-label={s.close} title={s.close}>
-            ×
-          </button>
-        </div>
-        <div className="gl-sheet__tools">
           <div className="gl-lang" role="group" aria-label={s.lang}>
             {[
               ['en', 'EN', 'English'],
@@ -474,122 +290,117 @@ export default function PairSheet() {
               </button>
             ))}
           </div>
-          <button type="button" className="gl-tool" onClick={print} disabled={!doc} title={s.printTitle}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M4.5 6V2.5h7V6M4.5 11.5h-2v-5h11v5h-2M4.5 9.5h7v4h-7z" />
-            </svg>
-            {s.print}
+          <button type="button" className="gl-close" onClick={closeDraft} aria-label={s.close} title={s.close}>
+            ×
           </button>
-          <button type="button" className="gl-tool" onClick={download} disabled={!doc} title={s.downloadTitle}>
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10" />
-            </svg>
-            {s.download}
-          </button>
-          {(o.same_window || (o.shared_station && o.window_gap_days != null)) && g.engineParams && (
-            <a className="gl-tool" href={downloadUrl('calendar.ics', g.engineParams, { pair: o.id })} download title={o.same_window ? s.icsTitle : s.icsBoth}>
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M2.5 4.5h11v9h-11zM2.5 7.5h11M5.5 2.5v3M10.5 2.5v3" />
-              </svg>
-              {s.ics}
-            </a>
-          )}
         </div>
         {!covered && (
-          <nav className="gl-steps" aria-label={lang === 'es' ? 'Pasos' : 'Steps'}>
-            {s.steps.map((label, i) => (
-              <button key={label} type="button" className={active === i + 1 ? 'is-on' : ''} aria-current={active === i + 1 ? 'step' : undefined} onClick={() => goTo(i + 1)}>
-                <span className="gl-steps__n" aria-hidden="true">
-                  {i + 1}
-                </span>
-                <span className="gl-steps__t">
-                  <span className="gl-steps__full">{label}</span>
-                  <span className="gl-steps__short" aria-hidden="true">
-                    {s.stepsShort[i]}
-                  </span>
-                </span>
-                <span className={`gl-steps__s${i === 1 && neg.agreed ? ' is-ok' : ''}`}>{status[i]}</span>
-              </button>
-            ))}
+          <nav className="bt-steps" aria-label={lang === 'es' ? 'Pasos' : 'Steps'}>
+            <ol>
+              {s.steps.map((label, i) => {
+                const n = i + 1
+                const state = n < step ? 'done' : n === step ? 'now' : 'next'
+                return (
+                  <li key={label} className={`bt-steps__i is-${state}`}>
+                    <button type="button" aria-current={state === 'now' ? 'step' : undefined} onClick={() => goStep(n)} title={n === 1 ? s.back : undefined}>
+                      <span className="bt-steps__n" aria-hidden="true">
+                        {state === 'done' ? (
+                          <svg viewBox="0 0 16 16">
+                            <path d="M3.5 8.5l3 3 6-7" />
+                          </svg>
+                        ) : (
+                          n
+                        )}
+                      </span>
+                      <span className="bt-steps__t">{label}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ol>
           </nav>
         )}
       </header>
 
       <div className="gl-sheet__main">
-        <div className="gl-sheet__body" ref={bodyRef} onScroll={onScroll} inert={covered || undefined}>
-          <Step
-            n={1}
-            title={s.steps[0]}
-            aside={
-              station && (
-                <span className="gl-stationtag" title={station.how || undefined}>
-                  {SAME_STATION[lang].tag(station.name)}
-                </span>
-              )
-            }
-          >
-            <OverlapStep
+        <div className="gl-sheet__body bt-body" ref={bodyRef} inert={covered || undefined}>
+          <h3 className="gl-sr" ref={stepRef} tabIndex={-1}>
+            {s.steps[step - 1]}
+          </h3>
+          {step === 2 && (
+            <PairSaves
               o={o}
               base={base}
-              agreed={doc?.draft?.negotiated ? doc.draft.savings : null}
-              s={s}
               lang={lang}
               listed={listed}
+              onNext={() => g.setPairStep('plans')}
               onOpenProject={openProject}
               onTrace={openTrace}
               onRetry={() => setTries((n) => n + 1)}
             />
-          </Step>
-          <Step n={2} title={s.steps[1]}>
-            {client && (
-              <Negotiation
-                key={caseKey}
-                client={client}
-                draftId={draft.id}
-                months={months}
-                lang={lang}
-                parties={base.data?.draft?.parties}
-                names={{ a: { short: aShort, code: a?.utility }, b: { short: bShort, code: b?.utility } }}
-                used={negKey}
-                onUse={applyTerms}
-                onAgreed={autoTerms}
-                onStatus={setNeg}
-                nothing={nothing ? base.data?.draft?.savings : null}
-              />
-            )}
-          </Step>
-          <Step
-            n={3}
-            title={s.steps[2]}
-            aside={doc && <DraftStatus doc={doc} pending={aiPending} aiError={aiDoc.status === 'error' ? aiDoc.error : null} t={t} onRetry={() => setTries((n) => n + 1)} />}
-          >
-            {!doc && !failed && <Loading label={s.drafting} />}
-            {failed && <ErrorBanner error={plain.error} onRetry={() => setTries((n) => n + 1)} />}
-            {doc && !doc.draft?.negotiated && !nothing && (
-              <p className="gl-prenote" role="note">
-                <span>{s.before}</span>
-                {neg.agreed && neg.key && neg.verified ? (
-                  <>
-                    <span className="gl-fine">{s.beforeAgreed}</span>
-                    <button type="button" className="gl-link" onClick={() => applyTerms(neg.key)}>
-                      {s.useTerms}
-                    </button>
-                  </>
-                ) : (
-                  neg.phase === 'idle' && (
-                    <button type="button" className="gl-link" onClick={() => goTo(2)}>
-                      {s.beforeRun}
-                    </button>
-                  )
-                )}
-              </p>
-            )}
-            {doc && (
-              <div className="gl-desk">
-                <Paper doc={doc} t={t} onDropNeg={() => applyTerms(null)} />
-              </div>
-            )}
-          </Step>
+          )}
+          {step === 3 && (
+            <>
+              {plans.status === 'loading' && <PlansLoading names={[aShort, bShort]} lang={lang} ms={elapsed} />}
+              {plans.status === 'error' && (
+                <div className="bt-err">
+                  <ErrorBanner
+                    error={new Error(`${lang === 'es' ? 'No se pudieron preparar los planes' : "The plans couldn't be prepared"}: ${plans.error.message}`)}
+                    onRetry={() => setPlanTries((n) => n + 1)}
+                  />
+                  <button type="button" className="gl-link" onClick={() => g.setPairStep('saves')}>
+                    {s.back2}
+                  </button>
+                </div>
+              )}
+              {plans.status === 'ready' && (
+                <PlanCards data={plans.data} lang={lang} chosen={planId} drafting={!!planId && !doc} onChoose={choose} />
+              )}
+              {plans.status === 'ready' && (
+                <section className="bt-draft" ref={draftRef} aria-labelledby="bt-draft-h">
+                  <div className="bt-draft__head">
+                    <h3 id="bt-draft-h">{s.draftH}</h3>
+                    {doc && (
+                      <div className="bt-draft__tools">
+                        <DraftStatus doc={doc} pending={aiPending} aiError={planAi.status === 'error' ? planAi.error : null} t={t} onRetry={() => setTries((n) => n + 1)} />
+                        <button type="button" className="gl-tool" onClick={print} title={s.printTitle}>
+                          <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M4.5 6V2.5h7V6M4.5 11.5h-2v-5h11v5h-2M4.5 9.5h7v4h-7z" />
+                          </svg>
+                          {s.print}
+                        </button>
+                        <button type="button" className="gl-tool" onClick={download} title={s.downloadTitle}>
+                          <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M8 2.5v8M4.5 7L8 10.5 11.5 7M3 13.5h10" />
+                          </svg>
+                          {s.download}
+                        </button>
+                        {o.same_window && g.engineParams && (
+                          <a className="gl-tool" href={downloadUrl('calendar.ics', g.engineParams, { pair: o.id })} download title={s.icsTitle}>
+                            <svg viewBox="0 0 16 16" aria-hidden="true">
+                              <path d="M2.5 4.5h11v9h-11zM2.5 7.5h11M5.5 2.5v3M10.5 2.5v3" />
+                            </svg>
+                            {s.ics}
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {!planId && <p className="bt-draft__pick">{s.pick}</p>}
+                  {planId && !doc && !draftFailed && <Loading label={s.drafting} />}
+                  {draftFailed && <ErrorBanner error={new Error("The draft couldn't be written. Check the connection and try again.")} onRetry={() => setTries((n) => n + 1)} />}
+                  {doc && (
+                    <>
+                      {(doc.plan?.title || chosenPlan?.title) && <p className="bt-draft__from">{s.draftFrom(doc.plan?.title || chosenPlan.title)}</p>}
+                      <div className="gl-desk">
+                        <Paper doc={doc} t={t} />
+                      </div>
+                    </>
+                  )}
+                </section>
+              )}
+            </>
+          )}
         </div>
         {projectOpen && (
           <div className="gl-sheet__layer">
@@ -604,256 +415,5 @@ export default function PairSheet() {
       </div>
       {doc && <PrintCopy doc={doc} t={t} />}
     </aside>
-  )
-}
-
-// scroll the sheet's own body (never the page) so `el` sits at its top
-function scrollBodyTo(body, el, reduced) {
-  if (!body || !el) return
-  const top = body.scrollTop + el.getBoundingClientRect().top - body.getBoundingClientRect().top
-  body.scrollTo({ top: Math.max(0, top - 2), behavior: reduced ? 'auto' : 'smooth' })
-}
-
-function Step({ n, title, aside, children }) {
-  return (
-    <section className="gl-step" data-step={n} aria-labelledby={`gl-step-${n}`}>
-      <div className="gl-step__head">
-        <span className="gl-step__n" aria-hidden="true">
-          {n}
-        </span>
-        <h3 id={`gl-step-${n}`} tabIndex={-1}>
-          {title}
-        </h3>
-        {aside && <div className="gl-step__aside">{aside}</div>}
-      </div>
-      {children}
-    </section>
-  )
-}
-
-// Step 1: both projects as filed, side by side with the distance between them; the shared window against today;
-// what building together could save and why; the ranking's reasons folded away.
-function OverlapStep({ o, base, agreed, s, lang, listed, onOpenProject, onTrace, onRetry }) {
-  const g = useGridlock()
-  if (base.status === 'loading') return <Loading label={s.loading} />
-  if (base.status === 'error') return <ErrorBanner error={base.error} onRetry={onRetry} />
-  const doc = base.data
-  const dr = doc.draft
-  const [pa, pb] = doc.overlap?.projects || []
-  const d = pairDistance(o, g.params.method)
-  const when = whenOf(o, lang)
-  const jw = dr.joint_window
-  const sv = dr.savings
-  const rank = o.displayRank ?? o.rank
-  // the dashed gap between the two boxes is narrow: a short word there, the full sentence under "Distance"
-  const bridge = d.km == null ? '–' : d.km < 0.05 ? (o.crosses ? s.cross : s.touch) : fmtMi(d.mi)
-  const shareLabels = (sv.items || []).map((it) => it.label)
-  const station = o.shared_station
-  const said = stationSentence(o, lang)
-  return (
-    <div className="gl-ov">
-      {station && said && (
-        <div className="gl-ovstation">
-          <p className="gl-ovstation__line">
-            <strong>{said.lead}</strong>
-            {said.rest}.
-          </p>
-          <p className="gl-ovstation__why">
-            {s.stationWhy}{' '}
-            {station.osm_url && (
-              <a href={station.osm_url} target="_blank" rel="noreferrer">
-                {station.stand_in ? s.stationStandIn(station.name) : s.stationMap(station.osm_name || station.name)}
-              </a>
-            )}
-          </p>
-        </div>
-      )}
-      <div className="gl-pair2">
-        {pa && <ProjectBox p={pa} s={s} lang={lang} onOpen={onOpenProject} />}
-        <div className="gl-pair2__gap" aria-hidden="true">
-          <span>{bridge}</span>
-        </div>
-        {pb && <ProjectBox p={pb} s={s} lang={lang} onOpen={onOpenProject} />}
-      </div>
-
-      <dl className="gl-ovfacts">
-        <div>
-          <dt>{lang === 'es' || !station ? s.distance : <Gloss tip={GLOSS.station}>{s.distance}</Gloss>}</dt>
-          <dd className="gl-ovfacts__big">
-            {station ? SAME_STATION[lang].label : d.km == null ? '–' : d.km < 0.05 ? (o.crosses ? s.crossing : s.touching) : fmtMi(d.mi)}
-          </dd>
-          <dd>
-            {station
-              ? station.name
-              : d.km != null && d.km >= 0.05
-                ? `${fmtKm(d.km)} ${g.params.method === 'center' ? s.centers : s.closest}`
-                : lang === 'es'
-                  ? TIER_LABEL_ES[o.tier] || o.tier_label
-                  : o.tier_label}
-          </dd>
-        </div>
-        <div>
-          <dt>{lang === 'es' ? s.shared : <Gloss tip={GLOSS.window}>{s.shared}</Gloss>}</dt>
-          <dd className="gl-ovfacts__big">{jw.overlap && jw.start ? `${fmtMonth(jw.start, lang)} – ${fmtMonth(jw.end, lang)}` : s.noShared}</dd>
-          <dd>
-            {when.months ? `${when.months}, ` : ''}
-            <span className={`gl-when gl-when--${when.tone}`}>{when.short}</span>
-          </dd>
-        </div>
-        <div>
-          <dt>{s.savings}</dt>
-          {/* one figure per pair: once the agents agree (step 2), the agreed items' figure, the one the draft uses */}
-          {shareLabels.length && agreed && (agreed.items || []).length < shareLabels.length ? (
-            <>
-              <dd className="gl-ovfacts__big gl-ovfacts__save">{fmtRange(agreed.low, agreed.high, agreed.unit)}</dd>
-              <dd>{s.agreedOf(agreed.items.length, shareLabels.length, fmtRange(sv.low, sv.high, sv.unit))}</dd>
-            </>
-          ) : shareLabels.length ? (
-            <>
-              <dd className="gl-ovfacts__big gl-ovfacts__save">{fmtRange(sv.low, sv.high, sv.unit)}</dd>
-              {/* the time has passed, as filed (a shared window that ended, or one project already built) */}
-              <dd>{o.group === 'passed' ? `${s.ifAhead} ${shareLabels.join('; ')}` : shareLabels.join('; ')}</dd>
-            </>
-          ) : (
-            <>
-              <dd className="gl-ovfacts__big gl-ovfacts__none">{s.nothing}</dd>
-              <dd>
-                {s.nothingWhy} {(sv.left_out || []).map((x) => x.label.toLowerCase()).join(', ')}
-              </dd>
-            </>
-          )}
-        </div>
-      </dl>
-
-      <div className="gl-tracebar">
-        <button type="button" className="gl-tracebtn" onClick={(e) => onTrace(e.currentTarget)}>
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M2.5 3.5h4M2.5 8h7M2.5 12.5h11M9 3.5h4.5M12 8h1.5" />
-            <circle cx="7.8" cy="3.5" r="1.3" />
-            <circle cx="10.8" cy="8" r="1.3" />
-          </svg>
-          {s.trace}
-        </button>
-        <span className="gl-fine">{s.traceWhat}</span>
-      </div>
-
-      <WindowTimeline jw={jw} parties={dr.parties} t={LABELS[lang]} />
-
-      <details className="gl-fold">
-        <summary>{s.how}</summary>
-        <ul className="gl-est2">
-          {(sv.items || []).map((it) => {
-            const src = (sv.sources || []).find((x) => x.title === it.source)
-            return (
-              <li key={it.id}>
-                <div className="gl-est2__line">
-                  <span>{it.label}</span>
-                  <strong>{fmtRange(it.low, it.high, it.unit)}</strong>
-                </div>
-                <p className="gl-fine">
-                  {it.basis}
-                  {it.needs ? `; ${s.needs(it.needs)}` : ''}.{' '}
-                  {src?.url ? (
-                    <a href={src.url} target="_blank" rel="noreferrer">
-                      {it.source}
-                    </a>
-                  ) : (
-                    it.source
-                  )}
-                </p>
-              </li>
-            )
-          })}
-        </ul>
-        {(sv.left_out || []).length > 0 && shareLabels.length > 0 && (
-          <ul className="gl-leftout">
-            {sv.left_out.map((x) => (
-              <li key={x.id}>{s.leftOut(x.label, x.why)}</li>
-            ))}
-          </ul>
-        )}
-        {sv.assumptions?.length > 0 && (
-          <>
-            <h5>{s.assumptions}</h5>
-            <ul className="gl-fold__list">
-              {sv.assumptions.map((x) => (
-                <li key={x}>{x}</li>
-              ))}
-            </ul>
-          </>
-        )}
-      </details>
-
-      {o.reasons?.length > 0 && listed && (
-        <details className="gl-fold">
-          <summary>{s.why(rank)}</summary>
-          <ul className="gl-fold__list">
-            {o.reasons.map((r) => (
-              <li key={r}>{r}</li>
-            ))}
-          </ul>
-        </details>
-      )}
-      <p className="gl-fine">{s.publicOnly}</p>
-    </div>
-  )
-}
-
-function ProjectBox({ p, s, lang, onOpen }) {
-  const g = useGridlock()
-  const rec = g.byId[p.id]
-  const w = p.window || p.build_window_filed
-  const work = [p.kv?.length ? `${p.kv.join(' / ')} kV` : null, kindText(p, lang), p.miles ? `${p.miles} mi` : null].filter(Boolean).join(', ')
-  return (
-    <article className={`gl-pbox gl-pbox--${toneOf(p.utility)}`}>
-      <span className="gl-pbox__who">
-        <span className={`gl-swatch gl-swatch--${toneOf(p.utility)}`} aria-hidden="true" />
-        {p.utility_name}
-      </span>
-      <h4 className="gl-pbox__name">
-        {displayName(p.name) || p.display_name} <span className="gl-pbox__id">{p.id}</span>
-      </h4>
-      {rec?.edition === '2024-2028' && lang !== 'es' && <span className="gl-pbox__ed">{rec.edition_note}</span>}
-      {rec?.edition === '2024-2028' && lang === 'es' && (
-        <span className="gl-pbox__ed">Solo en la lista 2024–2028 de DESC: la lista 2026–2030 ya no lo incluye</span>
-      )}
-      <dl className="gl-pbox__facts">
-        {work && (
-          <div>
-            <dt>{s.work}</dt>
-            <dd>{work.charAt(0).toUpperCase() + work.slice(1)}</dd>
-          </div>
-        )}
-        <div>
-          <dt>{s.window}</dt>
-          <dd>
-            {w ? `${fmtMonth(w.start, lang)} – ${fmtMonth(w.end, lang)}` : p.in_service ? fmtDate(p.in_service, lang) : '–'}
-            {w?.assumed ? ` (${s.derived})` : ''}
-          </dd>
-        </div>
-        {p.status && (
-          <div>
-            <dt>{s.status}</dt>
-            <dd>{statusText(p.status, lang)}</dd>
-          </div>
-        )}
-        <div>
-          <dt>{s.cost}</dt>
-          <dd>{p.cost_usd != null ? fmtMoney(p.cost_usd) : p.cost_redacted ? s.redacted : s.notGiven}</dd>
-        </div>
-      </dl>
-      <p className="gl-pbox__links">
-        {p.source?.url ? (
-          <a href={p.source.url} target="_blank" rel="noreferrer">
-            {p.source.label}
-          </a>
-        ) : (
-          <span>{p.source?.label}</span>
-        )}
-        <button type="button" className="gl-link" onClick={(e) => onOpen(p.id, e.currentTarget)}>
-          {s.whereFrom}
-        </button>
-      </p>
-    </article>
   )
 }

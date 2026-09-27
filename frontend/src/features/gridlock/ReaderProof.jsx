@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { api } from '../../api'
 import { Badge, ErrorBanner, Loading } from '../../ui'
+import { useGridlock } from './context'
 import './readerProof.css'
 
 // Reader C: Gemini read the two filings' PDF pages on its own (backend/demo/gridlock/gemini_reader.py, offline) and filled the
@@ -306,6 +307,7 @@ function Disagreements({ items, readers }) {
 }
 
 function Rescues({ rs, apply }) {
+  const g = useGridlock()
   const items = rs.items || []
   const accepted = items.filter((i) => i.passes)
   const rest = items.filter((i) => !i.passes)
@@ -323,7 +325,14 @@ function Rescues({ rs, apply }) {
       </p>
       <ol className="rp-funnel" aria-label="Rescue proposals, step by step">
         <li>
-          <span className="rp-funnel__n">{n(rs.set_aside)}</span> set aside by the checks
+          <span className="rp-funnel__n">{n(rs.set_aside)}</span> set aside by the checks when Gemini read them
+          {g.summary?.funnel?.set_aside != null && g.summary.funnel.set_aside !== rs.set_aside && (
+            <span className="rp-funnel__note">
+              {' '}
+              (the pipeline has run since: {n(g.summary.funnel.set_aside)} are set aside today, after {n(g.summary.funnel.rescued?.count || 0)} were placed
+              from their descriptions)
+            </span>
+          )}
         </li>
         <li>
           <span className="rp-funnel__n">{n(rs.proposed)}</span> proposals with names printed on the page

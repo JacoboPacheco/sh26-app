@@ -1043,14 +1043,23 @@ function LegendChip() {
   return (
     <p className="gl-legendchip" aria-label="Colors on the map">
       {g.params.utilities.DESC && (
-        <span>
+        <span title="Dominion Energy South Carolina">
           <span className="gl-swatch gl-swatch--desc" aria-hidden="true" /> DESC (SC)
         </span>
       )}
-      {georgia.length > 0 && (
+      {georgia.includes('GPC') && (
         <span>
-          <span className={`gl-swatch gl-swatch--${georgia.includes('GPC') ? 'gpc' : 'ga'}`} aria-hidden="true" />{' '}
-          {georgia.length === 1 ? utilityShort(georgia[0]) : 'Georgia sponsors'} (GA)
+          <span className="gl-swatch gl-swatch--gpc" aria-hidden="true" /> Georgia Power (GA)
+        </span>
+      )}
+      {georgia.some((u) => u !== 'GPC') && (
+        <span>
+          <span className="gl-swatch gl-swatch--ga" aria-hidden="true" />{' '}
+          {georgia
+            .filter((u) => u !== 'GPC')
+            .map((u) => utilityShort(u))
+            .join(', ')}{' '}
+          (GA)
         </span>
       )}
     </p>

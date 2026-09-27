@@ -63,7 +63,8 @@ agreement), `selftest.py`.
      from Cainhoy", 2026–2030 p53) gets that station as its other end; no 2024–2028 or Georgia title has the form, so their
      endpoints are unchanged.
    - Miles from the description.
-   - Build windows. DESC: from the yearly spend profile. Georgia: from the filed Start Date on the detail page. Otherwise 24 months
+   - Build windows. DESC: the fewest consecutive years carrying 75 % of the filed spending (a token first-year amount doesn't
+     open the window; money filed after the in-service date extends it and is flagged by `spend_after_in_service`). Georgia: the filed Start Date on the detail page to the need date, a filed PLANNING window (it can span years), labeled so. Otherwise 24 months
      before in-service, with the basis stated. Every window carries `assumed`: true when the filing doesn't pin the start (no
      spend profile, no filed start date, or spend in DESC's 'Previous' column, where `latest_start` records that construction began
      before 2024). The engine re-derives assumed windows from its build-window setting.
@@ -109,6 +110,7 @@ agreement), `selftest.py`.
 | `date_normalized` | no | Excel serials and multi-date fields (2-digit years pass with a note) |
 | `voltage_found` | no | no kV, a repaired typo, or a letter O inside a voltage pair the repair can't read (`23O-115kV`, found by the fault test) |
 | `kv_title_matches_description` (2026–2030) | no | the description names only other voltages than the title (p13: title 115kV, description "a 230 kV Tap"), or says there is no work at a voltage the title names (p44: "No 230kV work associated with this project"); the title's voltage is kept and the conflict is stated |
+| `spend_after_in_service` (2026–2030) | no | a quarter or more of the filed spending in years after the in-service date (p26 Urquhart – Aiken PSA: $2.9M of $3.0M in 2028, in service 12/31/2027); the window follows the money |
 | `fully_located` | no, lowers confidence | one of two endpoints missing (the project sits at the other one, as in Sperry's guide) |
 | `length_consistent` | no | straight-line span longer than the filed miles (usually a section of a longer line) |
 | `zone_consistent` | no, lowers confidence | more than 100 km from its Georgia planning zone's other projects |
@@ -262,9 +264,10 @@ the 2024–2028 and Georgia records by this script). `_load("as_filed")` still g
 (this script's preview uses it). The list is grouped so what can still be built together comes first: pairs whose build windows
 share months still ahead or open now, then pairs still to be built at different times, then pairs whose time has passed as
 filed; same station first within a group, then the score (unchanged). Measured 2026-09-26, DESC × Georgia Power within 25 mi
-(40.2336 km): 78 pairs, 21 building in the same months (8 still ahead, 13 open now), against 71 and 1 with the 2024–2028
-list alone. Pair 1 is the new Okatie – McIntosh series reactor (p41) with Georgia Power's Goshen – McIntosh rebuild, same
-station, shared window Jan–Jun 2027; Sperry's OVL_1 (Thurmond Dam) sits with the pairs whose time has passed.
+(40.2336 km): 100 pairs, 25 building in the same months (8 still ahead, 17 open now), against 75 and 3 with the 2024–2028
+list alone. Pair 1 is DESC's Stevens Creek – Graniteville 115 kV rebuild with Georgia Power's Evans Primary – Thurmond Dam
+115 kV rebuild (10.7 mi to Thurmond Dam; the filed windows share Jun–Dec 2029); Sperry's OVL_3 is pair 7, and OVL_1
+(Thurmond Dam) sits with the pairs whose time has passed (pair 51).
 
 **Integration step (the pipeline part, not done here).** Move `FILING_RULES` into `RULES`, teach `build.DESC_PAIR` the "Tap from X to Y" form
 (Riverport), and rerun `build.py` and `faults.py`. The rules part was measured in a scratch copy with all 19 rules:

@@ -1,5 +1,5 @@
 {
- "built_at": "2026-09-26T20:48:22Z",
+ "built_at": "2026-09-27T01:45:41Z",
  "_about": "Dominion Energy South Carolina: Planned Transmission Projects $2M and above, 2026-2030 (project descriptions): every page as extracted by backend/demo/gridlock/extract_desc.py, fields copied as printed (nothing interpreted), each with its PDF page. A public filing, read as published.",
  "source": {
   "id": "desc_2026",
@@ -2156,6 +2156,12 @@
     "new_for_this_filing": false
    },
    {
+    "id": "spend_after_in_service",
+    "label": "Spending filed by the in-service date (DESC)",
+    "blocking": false,
+    "new_for_this_filing": true
+   },
+   {
     "id": "date_normalized",
     "label": "Date needed no repair",
     "blocking": false,
@@ -2298,6 +2304,14 @@
     "failed": 0
    },
    {
+    "id": "spend_after_in_service",
+    "label": "Spending filed by the in-service date (DESC)",
+    "blocking": false,
+    "passed": 51,
+    "warned": 3,
+    "failed": 0
+   },
+   {
     "id": "date_normalized",
     "label": "Date needed no repair",
     "blocking": false,
@@ -2363,6 +2377,21 @@
     "records": 252,
     "passed": 252,
     "warned": [],
+    "failed": []
+   },
+   "spend_after_in_service": {
+    "records": 252,
+    "passed": 250,
+    "warned": [
+     {
+      "id": "DESC-6809G",
+      "detail": "97 % of the filed spending ($7,550,000) is in years after the in-service date 12/31/25 (as filed; the build window follows the spending)"
+     },
+     {
+      "id": "DESC-06810H",
+      "detail": "32 % of the filed spending ($4,000,000) is in years after the in-service date 12/31/24 (as filed; the build window follows the spending)"
+     }
+    ],
     "failed": []
    }
   }
@@ -2544,6 +2573,11 @@
     "end": "2026-05-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -2637,6 +2671,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -2753,6 +2792,11 @@
     "end": "2026-05-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2027,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -2847,6 +2891,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $2,088,443 but the Total says $1,238,443 ($850,000 less); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "warn",
+     "detail": "41 % of the filed spending ($850,000) is in years after the in-service date 5/31/2026 (as filed; the build window follows the spending)"
     },
     {
      "id": "date_normalized",
@@ -2953,6 +3002,11 @@
     "end": "2026-07-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -3046,6 +3100,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -3162,6 +3221,11 @@
     "end": "2026-08-12",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -3255,6 +3319,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -3359,6 +3428,11 @@
     "end": "2026-10-01",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2027,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -3452,6 +3526,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "warn",
+     "detail": "42 % of the filed spending ($39,764,841) is in years after the in-service date 10/1/2025 (phase 1) and 10/1/2026 (phase 2) (as filed; the build window follows the spending)"
     },
     {
      "id": "date_normalized",
@@ -3569,6 +3648,11 @@
     "end": "2026-12-02",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -3662,6 +3746,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -3778,6 +3867,11 @@
     "end": "2026-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -3873,6 +3967,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -3966,6 +4065,11 @@
     "end": "2026-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 0.768
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -4061,6 +4165,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "9 % of the filed spending ($1,024,912) is in years after the in-service date 12/31/2026 (close-out)"
     },
     {
      "id": "date_normalized",
@@ -4175,6 +4284,11 @@
     "end": "2026-12-01",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -4268,6 +4382,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "Previous filed as '$14,303648' (broken thousands grouping); read as $14,303,648, the value the Total implies"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -4374,6 +4493,11 @@
     "end": "2026-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 0.871
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -4468,6 +4592,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $20,130,000 but the Total says $20,400,000 ($270,000 more); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "11 % of the filed spending ($2,225,000) is in years after the in-service date 12/31/2026 (close-out)"
     },
     {
      "id": "date_normalized",
@@ -4584,6 +4713,11 @@
     "end": "2027-05-01",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2028,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -4677,6 +4811,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $28,405,642 but the Total says $22,788,174 ($5,617,468 less); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "20 % of the filed spending ($5,617,468) is in years after the in-service date 5/1/2027 (close-out)"
     },
     {
      "id": "date_normalized",
@@ -4796,6 +4935,11 @@
     "end": "2027-06-01",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 0.798
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -4889,6 +5033,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -5090,6 +5239,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "n/a (no yearly spending filed)"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -5193,6 +5347,11 @@
     "end": "2027-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.99
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -5287,6 +5446,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -5403,6 +5567,11 @@
     "end": "2027-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2027,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -5498,6 +5667,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -5590,6 +5764,11 @@
     "end": "2027-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.977
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -5683,6 +5862,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -5789,6 +5973,11 @@
     "end": "2027-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.987
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -5882,6 +6071,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -5986,6 +6180,11 @@
     "end": "2027-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.99
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -6079,6 +6278,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $10,194,609 but the Total says $10,294,609 ($100,000 more); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -6181,10 +6385,15 @@
    "in_service": "2027-12-31",
    "in_service_raw": "12/31/2027",
    "build_window": {
-    "start": "2027-01-01",
-    "end": "2027-12-31",
-    "basis": "first year with budgeted spend (2027) to the in-service date",
-    "assumed": false
+    "start": "2028-01-01",
+    "end": "2028-12-31",
+    "basis": "the years carrying most of the filed spending (2028: 97 %), which the filing puts after its own in-service date (2027-12-31); flagged by the spend_after_in_service check",
+    "assumed": false,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.967
+    }
    },
    "status": "Planned",
    "need": "System hardening",
@@ -6277,6 +6486,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "warn",
+     "detail": "97 % of the filed spending ($2,900,000) is in years after the in-service date 12/31/2027 (as filed; the build window follows the spending)"
     },
     {
      "id": "date_normalized",
@@ -6391,6 +6605,11 @@
     "end": "2027-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.995
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -6484,6 +6703,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -6588,6 +6812,11 @@
     "end": "2027-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.97
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -6681,6 +6910,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -6795,6 +7029,11 @@
     "end": "2028-05-01",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2028,
+     "share": 0.994
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -6888,6 +7127,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $30,919,648 but the Total says $31,100,000 ($180,352 more); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -7004,6 +7248,11 @@
     "end": "2028-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.998
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -7099,6 +7348,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -7187,10 +7441,15 @@
    "in_service": "2028-12-31",
    "in_service_raw": "12/31/2028",
    "build_window": {
-    "start": "2026-01-01",
+    "start": "2027-01-01",
     "end": "2028-12-31",
-    "basis": "first year with budgeted spend (2026) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2027-2028: 91 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2027,
+     "to": 2028,
+     "share": 0.909
+    }
    },
    "status": "Planned",
    "need": "Load growth.",
@@ -7283,6 +7542,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -7387,6 +7651,11 @@
     "end": "2028-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.984
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -7480,6 +7749,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $7,700,000 but the Total says $7,912,400 ($212,400 more); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -7596,6 +7870,11 @@
     "end": "2028-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.992
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -7691,6 +7970,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "two-digit year '28' read as 2028"
@@ -7783,6 +8067,11 @@
     "end": "2028-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2029,
+     "share": 0.928
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -7875,6 +8164,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "23 % of the filed spending ($2,600,000) is in years after the in-service date 12/31/28 (close-out)"
     },
     {
      "id": "date_normalized",
@@ -7977,10 +8271,15 @@
    "in_service": "2028-12-31",
    "in_service_raw": "12/31/2028",
    "build_window": {
-    "start": "2026-01-01",
+    "start": "2028-01-01",
     "end": "2028-12-31",
-    "basis": "first year with budgeted spend (2026) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2028: 98 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.976
+    }
    },
    "status": "Planned",
    "need": "System hardening.",
@@ -8073,6 +8372,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -8187,10 +8491,15 @@
    "in_service": "2028-12-31",
    "in_service_raw": "12/31/2028",
    "build_window": {
-    "start": "2027-01-01",
+    "start": "2028-01-01",
     "end": "2028-12-31",
-    "basis": "first year with budgeted spend (2027) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2028: 99 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.991
+    }
    },
    "status": "Planned",
    "need": "This project is needed to improve system performance and to meet NERC TPL and internal DESC Planning Criteria for reliability.",
@@ -8285,6 +8594,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -8395,10 +8709,15 @@
    "in_service": "2028-12-31",
    "in_service_raw": "12/31/2028",
    "build_window": {
-    "start": "2026-01-01",
+    "start": "2027-01-01",
     "end": "2028-12-31",
-    "basis": "first year with budgeted spend (2026) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2027-2028: 97 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2027,
+     "to": 2028,
+     "share": 0.973
+    }
    },
    "status": "Planned",
    "need": "System Hardening",
@@ -8491,6 +8810,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $4,550,000 but the Total says $4,450,000 ($100,000 less); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -8607,6 +8931,11 @@
     "end": "2028-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.963
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -8700,6 +9029,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -8815,6 +9149,11 @@
     "end": "2029-06-01",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2028,
+     "to": 2029,
+     "share": 0.982
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -8909,6 +9248,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $28,121,795 but the Total says $38,121,795 ($10,000,000 more); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -9015,6 +9359,11 @@
     "end": "2029-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2028,
+     "to": 2029,
+     "share": 0.992
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -9108,6 +9457,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -9214,6 +9568,11 @@
     "end": "2029-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2028,
+     "to": 2029,
+     "share": 0.996
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -9307,6 +9666,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "printed without a dollar sign, read as dollars: 2026 '0'"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -9419,10 +9783,15 @@
    "in_service": "2029-12-31",
    "in_service_raw": "12/31/29",
    "build_window": {
-    "start": "2026-01-01",
+    "start": "2028-01-01",
     "end": "2029-12-31",
-    "basis": "first year with budgeted spend (2026) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2028-2029: 98 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2028,
+     "to": 2029,
+     "share": 0.984
+    }
    },
    "status": "Planned",
    "need": "System Hardening",
@@ -9515,6 +9884,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -9617,10 +9991,15 @@
    "in_service": "2029-12-31",
    "in_service_raw": "12/31/2029",
    "build_window": {
-    "start": "2027-01-01",
+    "start": "2029-01-01",
     "end": "2029-12-31",
-    "basis": "first year with budgeted spend (2027) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2029: 97 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2029,
+     "to": 2029,
+     "share": 0.971
+    }
    },
    "status": "Planned",
    "need": "System Hardening",
@@ -9715,6 +10094,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -9803,10 +10187,15 @@
    "in_service": "2030-12-31",
    "in_service_raw": "12/31/30",
    "build_window": {
-    "start": "2028-01-01",
+    "start": "2029-01-01",
     "end": "2030-12-31",
-    "basis": "first year with budgeted spend (2028) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2029-2030: 98 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2029,
+     "to": 2030,
+     "share": 0.984
+    }
    },
    "status": "Planned",
    "need": "This project is needed to for load growth in the Charleston area.",
@@ -9899,6 +10288,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -10015,6 +10409,11 @@
     "end": "2030-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2029,
+     "to": 2030,
+     "share": 0.955
+    },
     "latest_start": "2025-01-01"
    },
    "status": "In Progress",
@@ -10108,6 +10507,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -10210,10 +10614,15 @@
    "in_service": "2031-12-31",
    "in_service_raw": "12/31/2031",
    "build_window": {
-    "start": "2029-01-01",
+    "start": "2030-01-01",
     "end": "2031-12-31",
-    "basis": "first year with budgeted spend (2029) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2030: 97 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2030,
+     "to": 2030,
+     "share": 0.974
+    }
    },
    "status": "Planned",
    "need": "Load growth.",
@@ -10306,6 +10715,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "2028 filed as '$00' (a leading zero); read as $0; with that, the columns add to the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -10423,6 +10837,11 @@
     "end": "2032-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2030,
+     "to": 2030,
+     "share": 0.955
+    },
     "latest_start": "2025-01-01"
    },
    "status": "Planned",
@@ -10516,6 +10935,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "printed without a dollar sign, read as dollars: Previous '25,000'"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -10679,6 +11103,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "'04/31/26' is not a valid calendar date"
@@ -10747,6 +11176,11 @@
     "end": "2026-05-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2027,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "zone": null,
@@ -10825,6 +11259,11 @@
      "id": "costs_consistent",
      "status": "warn",
      "detail": "the columns shown add to $22,008,000 but the Total says $19,418,000 ($2,590,000 less); kept the filed Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "12 % of the filed spending ($2,590,000) is in years after the in-service date 5/31/2026 (close-out)"
     },
     {
      "id": "date_normalized",
@@ -10986,6 +11425,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "'06/31/2026' is not a valid calendar date"
@@ -11054,6 +11498,11 @@
     "end": "2026-12-01",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "zone": null,
@@ -11134,6 +11583,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "two-digit year '26' read as 2026"
@@ -11202,6 +11656,11 @@
     "end": "2026-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2026,
+     "to": 2026,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "zone": null,
@@ -11280,6 +11739,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -11373,6 +11837,11 @@
     "end": "2027-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.989
+    },
     "latest_start": "2025-01-01"
    },
    "zone": null,
@@ -11453,6 +11922,11 @@
      "detail": "printed without a dollar sign, read as dollars: 2028 '0'"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -11517,10 +11991,15 @@
    "in_service": "2028-12-31",
    "in_service_raw": "12/31/2028",
    "build_window": {
-    "start": "2026-01-01",
+    "start": "2028-01-01",
     "end": "2028-12-31",
-    "basis": "first year with budgeted spend (2026) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2028: 98 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.975
+    }
    },
    "zone": null,
    "teams_no": null,
@@ -11600,6 +12079,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -11676,6 +12160,11 @@
     "end": "2027-12-01",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.978
+    },
     "latest_start": "2025-01-01"
    },
    "zone": null,
@@ -11754,6 +12243,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -11902,6 +12396,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "n/a (no yearly spending filed)"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -11968,6 +12467,11 @@
     "end": "2028-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 1.0
+    },
     "latest_start": "2025-01-01"
    },
    "zone": null,
@@ -12048,6 +12552,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -12110,10 +12619,15 @@
    "in_service": "2027-12-31",
    "in_service_raw": "12/31/27",
    "build_window": {
-    "start": "2026-01-01",
+    "start": "2027-01-01",
     "end": "2027-12-31",
-    "basis": "first year with budgeted spend (2026) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2027: 84 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2027,
+     "to": 2027,
+     "share": 0.842
+    }
    },
    "zone": null,
    "teams_no": null,
@@ -12193,6 +12707,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "15 % of the filed spending ($850,000) is in years after the in-service date 12/31/27 (close-out)"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "two-digit year '27' read as 2027"
@@ -12261,6 +12780,11 @@
     "end": "2028-12-31",
     "basis": "spending began before 2026 (the 'Previous' column), so the exact start isn't filed; assumed the earlier of 2025-01-01 and 24 months before in-service",
     "assumed": true,
+    "main_spend": {
+     "from": 2028,
+     "to": 2028,
+     "share": 0.984
+    },
     "latest_start": "2025-01-01"
    },
    "zone": null,
@@ -12341,6 +12865,11 @@
      "detail": "yearly amounts add up to the Total"
     },
     {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
+    },
+    {
      "id": "date_normalized",
      "status": "pass",
      "detail": "already in m/d/yyyy form"
@@ -12403,10 +12932,15 @@
    "in_service": "2029-12-31",
    "in_service_raw": "12/31/2029",
    "build_window": {
-    "start": "2028-01-01",
+    "start": "2029-01-01",
     "end": "2029-12-31",
-    "basis": "first year with budgeted spend (2028) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2029: 98 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2029,
+     "to": 2029,
+     "share": 0.98
+    }
    },
    "zone": null,
    "teams_no": null,
@@ -12484,6 +13018,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",
@@ -12572,10 +13111,15 @@
    "in_service": "2029-12-31",
    "in_service_raw": "12/31/29",
    "build_window": {
-    "start": "2026-01-01",
+    "start": "2028-01-01",
     "end": "2029-12-31",
-    "basis": "first year with budgeted spend (2026) to the in-service date",
-    "assumed": false
+    "basis": "the years carrying most of the filed spending (2028-2029: 98 %) to the in-service date",
+    "assumed": false,
+    "main_spend": {
+     "from": 2028,
+     "to": 2029,
+     "share": 0.98
+    }
    },
    "zone": null,
    "teams_no": null,
@@ -12653,6 +13197,11 @@
      "id": "costs_consistent",
      "status": "pass",
      "detail": "yearly amounts add up to the Total"
+    },
+    {
+     "id": "spend_after_in_service",
+     "status": "pass",
+     "detail": "no spending filed after the in-service year"
     },
     {
      "id": "date_normalized",

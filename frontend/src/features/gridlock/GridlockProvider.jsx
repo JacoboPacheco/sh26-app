@@ -28,19 +28,22 @@ function readRoute() {
   if (!m) return null
   const rest = (m[1] || '').replace(/\/+$/, '')
   if (rest.startsWith('pair/')) {
+    // #/plans/pair/<id> opens the pair at "See what building together saves"; #/plans/pair/<id>/plans at "Agree on a plan"
     let id = rest.slice(5)
+    const step = /\/plans$/.test(id) ? 'plans' : 'saves'
+    id = id.replace(/\/plans$/, '')
     try {
       id = decodeURIComponent(id)
     } catch {
       /* keep it as typed */
     }
-    return { tab: 'opportunities', pair: id || null, list: null }
+    return { tab: 'opportunities', pair: id || null, list: null, step }
   }
   if (rest === 'calendar') return { tab: 'opportunities', pair: null, list: 'calendar' }
   return { tab: ROUTE_TABS[rest] || 'opportunities', pair: null, list: rest === '' ? 'list' : null }
 }
-function routeOf(tab, pairId, listView) {
-  if (pairId) return `#/plans/pair/${encodeURIComponent(pairId).replace(/%7E/gi, '~')}`
+function routeOf(tab, pairId, listView, step) {
+  if (pairId) return `#/plans/pair/${encodeURIComponent(pairId).replace(/%7E/gi, '~')}${step === 'plans' ? '/plans' : ''}`
   if (TAB_ROUTES[tab]) return `#/plans/${TAB_ROUTES[tab]}`
   return listView === 'calendar' ? '#/plans/calendar' : '#/plans'
 }
@@ -170,6 +173,12 @@ export function GridlockProvider({ children }) {
           compared: r?.compared || null,
           // the limit these counts were measured at, in the engine's words ("25 mi (40.2 km)")
           limit_text: r?.limit_text || limitText(max_km),
+          // projects no endpoint could be placed for ("possible overlaps, unplaced"): {label, count, what, projects[]}
+          unplaced: Array.isArray(r?.unplaced) ? { projects: r.unplaced } : r?.unplaced || null,
+          // what each kind of build window means, in the engine's words ({spending, planning, derived})
+          window_kinds: r?.window_kinds || null,
+          // how often DESC's carried-over projects moved between its two filings (a base rate, never a prediction)
+          slip: r?.slip_base_rate || null,
         })
       },
       (error) => id === reqId.current && setOv({ status: 'error', error }),
@@ -229,13 +238,27 @@ export function GridlockProvider({ children }) {
   // a pair named by the address (a pasted link, Back/Forward) that is still being found; opening or closing a pair
   // yourself settles it (a lookup that answers later never overrides your click)
   const [wantPair, setWantPair] = useState(() => readRoute()?.pair || null)
-  const openDraft = useCallback((o) => {
+  // the guided path's step inside an open pair: 'saves' (2, see what building together saves) or 'plans' (3, agree on a
+  // plan); step 1 is the ranked list itself
+  const [pairStep, setPairStepState] = useState(() => readRoute()?.step || 'saves')
+  const setPairStep = useCallback((s) => {
+    setHover(null)
+    setPairStepState(s)
+  }, [])
+  const openDraft = useCallback((o, { step } = {}) => {
     // a pair drawn with a label of its own (Sperry's OVL number at the start) opens as the engine ranked it
     const pair = o.mapRank != null ? { ...o, mapRank: undefined, displayRank: o.rank } : o
     setHover(null)
     setWantPair(null)
     setSel({ kind: 'overlap', id: pair.id, overlap: pair })
-    setDraft((cur) => (cur?.id === pair.id ? cur : { id: pair.id, overlap: pair }))
+    setDraft((cur) => {
+      if (cur?.id === pair.id) {
+        if (step) setPairStepState(step)
+        return cur
+      }
+      setPairStepState(step || 'saves')
+      return { id: pair.id, overlap: pair }
+    })
   }, [])
   const openOverlap = openDraft
   const closeDraft = useCallback(() => {
@@ -330,8 +353,10 @@ export function GridlockProvider({ children }) {
       setHover(null)
       setTabState(r.tab)
       if (r.list) setListViewState(r.list)
-      if (r.pair) setWantPair(r.pair)
-      else {
+      if (r.pair) {
+        setWantPair(r.pair)
+        setPairStepState(r.step || 'saves')
+      } else {
         setWantPair(null)
         setDraft(null)
         setSel((cur) => (cur?.kind === 'overlap' ? null : cur))
@@ -363,11 +388,11 @@ export function GridlockProvider({ children }) {
     }
     if (draftId === wantPair) return settle(null) // already open
     const hit = (ov.overlaps || []).find((o) => o.id === wantPair)
-    if (hit) return settle(() => openDraft(hit))
+    if (hit) return settle(() => openDraft(hit, { step: readRoute()?.step }))
     const key = `${wantPair}|${params.window_months}`
     if (found.current.has(key)) {
       const o = found.current.get(key)
-      return settle(() => (o ? openDraft(o) : window.history.replaceState(null, '', '#/plans')))
+      return settle(() => (o ? openDraft(o, { step: readRoute()?.step }) : window.history.replaceState(null, '', '#/plans')))
     }
     if (failed.current.has(key)) {
       return settle(() => {
@@ -398,9 +423,9 @@ export function GridlockProvider({ children }) {
   // is written while a pair named by the address is still being found
   useEffect(() => {
     if (wantPair) return
-    const want = routeOf(tab, draftId, listView)
+    const want = routeOf(tab, draftId, listView, pairStep)
     if (readRoute() && window.location.hash !== want) window.history.pushState(null, '', want)
-  }, [tab, draftId, listView, wantPair])
+  }, [tab, draftId, listView, wantPair, pairStep])
 
   // --- the landing camera: the corridor where the flagged pairs are (the Savannah River, from Augusta to the coast),
   // padded so both states still show; "Fit both states" shows all of both
@@ -468,6 +493,12 @@ export function GridlockProvider({ children }) {
     draft,
     openDraft,
     closeDraft,
+    pairStep,
+    setPairStep,
+    // every Georgia sponsor in the filing (Georgia Power, GTC, MEAG, Dalton) against DESC, or Georgia Power alone
+    allGeorgia: GEORGIA.every((u) => params.utilities[u]),
+    setAllGeorgia: (on) =>
+      setParamsState((p) => ({ ...p, utilities: { ...p.utilities, DESC: true, GPC: true, GTC: on, MEAG: on, DU: on } })),
     flyToOverlap,
     cover,
     setCover,

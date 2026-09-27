@@ -9,14 +9,14 @@ import { displayName } from './format'
 const KEPT = new Map()
 const KEEP = 80
 
-export function useAgreement(client, id, { months, lang, ai, negotiated, tries = 0, defer = 0 }) {
-  const key = id ? `${id}@${months}@${lang}@${ai ? 1 : 0}@${negotiated || ''}@${tries}` : null
+export function useAgreement(client, id, { months, lang, ai, negotiated, plan, tries = 0, defer = 0 }) {
+  const key = id ? `${id}@${months}@${lang}@${ai ? 1 : 0}@${negotiated || ''}@${plan || ''}@${tries}` : null
   const [st, setSt] = useState({ key: null })
   useEffect(() => {
     if (!client || !id || KEPT.has(key)) return undefined
     let live = true
     const ask = () =>
-      client.agreement(id, { window_months: months, lang, ai, negotiated: negotiated || undefined }).then(
+      client.agreement(id, { window_months: months, lang, ai, negotiated: negotiated || undefined, plan: plan || undefined }).then(
         (raw) => {
           const data = withDisplayNames(raw)
           KEPT.set(key, data)
@@ -31,7 +31,7 @@ export function useAgreement(client, id, { months, lang, ai, negotiated, tries =
       live = false
       clearTimeout(t)
     }
-  }, [client, id, months, lang, ai, negotiated, key, defer])
+  }, [client, id, months, lang, ai, negotiated, plan, key, defer])
   if (!id) return { status: 'idle' }
   const kept = KEPT.get(key)
   if (kept) return { status: 'ready', data: kept }

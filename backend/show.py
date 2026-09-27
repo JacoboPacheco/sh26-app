@@ -2043,6 +2043,7 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
     scope = terms.get("scope") or []
     lo_sum = sum(float(s.get("low") or 0) for s in scope)
     hi_sum = sum(float(s.get("high") or 0) for s in scope)
+    piece_en, parte_es = ("piece", "parte") if len(scope) == 1 else ("pieces", "partes")  # 'share one piece', not 'one pieces'
     if scope:
         B.f("save_low", lo_sum, "USD", usd_text(lo_sum, lang) if lo_sum >= 1000 else T(lang, "$0", "0 dólares"), "the rough estimate's sources", hedge=True)
         B.f("save_high", hi_sum, "USD", usd_text(hi_sum, lang), "the rough estimate's sources", hedge=True)
@@ -2055,11 +2056,11 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
         *([compare("neutral", ("DESC", f"{half_up(shares[0])}%", T(lang, "of shared costs", "de los costos compartidos")),
                    ("Georgia Power", f"{half_up(shares[1])}%", T(lang, "of shared costs", "de los costos compartidos")))] if len(shares) == 2 else []),
     ], [
-        ("presenter", (T(lang, f"The drafted terms: share {count_text(len(scope), lang)} pieces of work, split by each project's filed length: {pct_text(shares[0], lang)} on DESC's side, {pct_text(shares[1], lang)} on Georgia Power's.",
-                         f"Los términos redactados: compartir {count_text(len(scope), lang)} partes del trabajo, repartidas según la longitud presentada de cada proyecto: {pct_text(shares[0], lang)} del lado de DESC, {pct_text(shares[1], lang)} del de Georgia Power.")
+        ("presenter", (T(lang, f"The drafted terms: share {count_text(len(scope), lang)} {piece_en} of work, split by each project's filed length: {pct_text(shares[0], lang)} on DESC's side, {pct_text(shares[1], lang)} on Georgia Power's.",
+                         f"Los términos redactados: compartir {count_text(len(scope), lang, fem=True)} {parte_es} del trabajo, {'repartida' if len(scope) == 1 else 'repartidas'} según la longitud presentada de cada proyecto: {pct_text(shares[0], lang)} del lado de DESC, {pct_text(shares[1], lang)} del de Georgia Power.")
                        if len(shares) == 2 and split.get("rule") == "by_length" else
-                       T(lang, f"The drafted terms: share {count_text(len(scope), lang)} pieces of work, with the cost split both agents accepted.",
-                         f"Los términos redactados: compartir {count_text(len(scope), lang)} partes del trabajo, con el reparto que ambos agentes aceptaron.")),
+                       T(lang, f"The drafted terms: share {count_text(len(scope), lang)} {piece_en} of work, with the cost split both agents accepted.",
+                         f"Los términos redactados: compartir {count_text(len(scope), lang, fem=True)} {parte_es} del trabajo, con el reparto que ambos agentes aceptaron.")),
          ["share_a", "share_b"]),
         ("analyst", T(lang, f"A rough estimate of what that could save: up to {usd_text(hi_sum, lang)}, if the schedules line up. A draft for people to discuss, not a decision.",
                       f"Una estimación aproximada de lo que podría ahorrar: hasta {usd_text(hi_sum, lang)}, si los calendarios coinciden. Un borrador para discutir, no una decisión."),

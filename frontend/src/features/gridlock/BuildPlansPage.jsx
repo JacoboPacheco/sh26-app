@@ -5,8 +5,10 @@ import { GridlockProvider } from './GridlockProvider'
 import { useGridlock } from './context'
 import PairSheet from './PairSheet'
 import PlansMap from './PlansMap'
+import ProofStrip from './ProofStrip'
 import './gridlock.css'
 import './agreement.css'
+import './plans.css'
 
 // The Build together page: the rail on the left (the ranked pairs first), the map filling the rest. Picking a
 // pair opens its sheet over the right ~60 % of the map (full screen on a phone) and the map frames the pair in
@@ -60,10 +62,11 @@ function PageBody({ extra }) {
     return () => el.removeEventListener('transitionend', onEnd)
   }, [flyToOverlap])
   return (
-    <div ref={pageRef} className={`gl gl-page${draft ? ' gl-page--sheet' : ''}${g.calendarOn ? ' gl-page--cal' : ''}`}>
+    <div ref={pageRef} className={`gl gl-page${draft ? ' gl-page--sheet' : ''}${draft && g.pairStep === 'plans' ? ' gl-page--wide' : ''}${g.calendarOn ? ' gl-page--cal' : ''}`}>
       <BuildPlansPanel extra={extra} />
       <div className="gl-canvas">
         <PlansMap />
+        {!['pipeline', 'sperry'].includes(g.tab) && <ProofStrip />}
         {!draft && <DetailCard />}
         {draft && <PairSheet />}
       </div>
