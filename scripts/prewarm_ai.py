@@ -63,6 +63,22 @@ def proposer(case, label):
     note(f"{label}: AI proposer", f"{ag.get('status')} +{ag.get('added', 0)} verified", dt + time.time() - t0)
 
 
+def hospital_beds(case, label):
+    """The hospital beds agent for this case's cascade (a finished set is remembered on disk, so judging reads it at once)."""
+    cas, dt, code = call("POST", "/api/grid/cascade", case)
+    if not cas or code != 200:
+        note(f"{label}: hospital beds agent", f"HTTP {code}", dt)
+        return
+    t0 = time.time()
+    v, _dt, code = call("POST", "/api/hospitals/agent", {"region": case.get("region", "FL"), "load_factor": case.get("load_factor", 1.0), "affected": cas["affected"]})
+    while v and code == 200 and v.get("status") == "running" and time.time() - t0 < 90:
+        time.sleep(1)
+        v, _dt, code = call("GET", f"/api/hospitals/agent/{v['job']}")
+    c = (v or {}).get("counts") or {}
+    who = f"{v.get('by')} {c.get('reported', 0)}/{c.get('hospitals', 0)} reported{' (cached)' if v.get('cached') else ''}" if v and code == 200 else f"HTTP {code}"
+    note(f"{label}: hospital beds agent", who, time.time() - t0)
+
+
 def main():
     up, _, code = call("GET", "/api/health", timeout=30)
     if code != 200:
@@ -72,6 +88,7 @@ def main():
 
     # the hero
     proposer(HERO, "hero")
+    hospital_beds(HERO, "hero")
     for length in ("short", "full"):
         d, dt, code = call("POST", "/api/briefing/deck", {**HERO, "length": length})
         note(f"hero: presentation ({length})", who_deck(d) if code == 200 else f"HTTP {code}", dt)

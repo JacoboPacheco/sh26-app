@@ -3,6 +3,8 @@
 // portaled into the map's camera (they can't be GridMap children from here), and this panel
 // compares the list with the engine's own answer (POST /api/hospitals/backup) once a cascade ends.
 // Mounted for real: <HospitalsLayer /> is a GridMap child and <HospitalsList /> sits in the panel.
+// Below them: the hospital beds agent (HospitalAgentStarter starts it when the cascade lands; HospitalsFound is the
+// panel the presentation's hospitals beat shows).
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { project } from '../../geo'
@@ -11,9 +13,12 @@ import { Badge, Button, ErrorBanner } from '../../ui'
 import { backupFor, useHospitalStatus } from './hospitalsApi'
 import HospitalsLayer from './HospitalsLayer'
 import HospitalsList from './HospitalsList'
+import HospitalAgentStarter from './HospitalAgentStarter'
+import HospitalsFound from './HospitalsFound'
 
 export default function Preview() {
   const right = useElement('.mc-right')
+  const [es, setEs] = useState(false)
   return (
     <div className="stack">
       <p className="muted">
@@ -23,6 +28,11 @@ export default function Preview() {
       <EngineCheck />
       {right ? createPortal(<div className="panel-body"><HospitalsList /></div>, right) : <HospitalsList />}
       <MapPortal />
+      <HospitalAgentStarter />
+      <label className="row">
+        <input type="checkbox" checked={es} onChange={(e) => setEs(e.target.checked)} /> The agent's panel in Spanish
+      </label>
+      <HospitalsFound lang={es ? 'es' : 'en'} animate />
     </div>
   )
 }

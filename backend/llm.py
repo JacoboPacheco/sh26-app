@@ -867,6 +867,139 @@ async def _generate_tools(contents, tools, system, timeout, mode, allowed, schem
     raise HTTPException(status_code=502, detail="AI request failed: every model in the chain is out of quota")
 
 
+# ------------------------------------------------------------------ Grounding with Google Search
+# Built against Google's docs (fetched Sat 2026-09-26: ai.google.dev/gemini-api/docs/google-search and the Gemini API
+# terms, "Grounding with Google Search") and a measured call the same evening (gemini-3.5-flash-lite, ~2 s for three
+# hospitals): the request carries tools = [{"google_search": {}}]; the candidate's groundingMetadata holds
+# webSearchQueries, groundingChunks [{web: {uri: a vertexaisearch.cloud.google.com redirect to the page, title: its
+# domain}}], groundingSupports [{segment: {startIndex, endIndex (UTF-8 bytes of the ANSWER's text; startIndex is left
+# out when 0), text}, groundingChunkIndices}] and searchEntryPoint.renderedContent (the Search Suggestions chip, HTML).
+# The terms: grounded results are shown together with their Search Suggestions and are not cached, so this helper
+# never reads or writes the answer cache. Google bills each search query a Gemini 3 model runs.
+GROUNDED_EMPTY = {"text": "", "queries": [], "sources": [], "supports": [], "suggestions_html": None, "model": None}
+
+
+def _byte_to_char(text: str):
+    """A function: a UTF-8 byte offset of `text` -> its character offset (the segments count bytes)."""
+    raw = text.encode("utf-8")
+    if len(raw) == len(text):
+        return lambda b: max(0, min(int(b), len(text)))
+    return lambda b: len(raw[: max(0, min(int(b), len(raw)))].decode("utf-8", "ignore"))
+
+
+def _parse_grounded(data: dict, model: str) -> dict:
+    try:
+        cand = data["candidates"][0]
+    except (KeyError, IndexError, TypeError):
+        raise HTTPException(status_code=502, detail="AI returned no candidate (empty or blocked response)")
+    parts = ((cand.get("content") or {}).get("parts") or []) if isinstance(cand, dict) else []
+    text = "".join(p["text"] for p in parts if isinstance(p, dict) and isinstance(p.get("text"), str) and not p.get("thought"))
+    if not text.strip():
+        raise HTTPException(status_code=502, detail=f"AI returned no text ({cand.get('finishReason') or 'empty response'})")
+    gm = cand.get("groundingMetadata") if isinstance(cand.get("groundingMetadata"), dict) else {}
+    sources = []
+    for ch in gm.get("groundingChunks") or []:
+        web = ch.get("web") if isinstance(ch, dict) else None
+        web = web if isinstance(web, dict) else {}
+        sources.append({"title": str(web.get("title") or ""), "uri": str(web.get("uri") or "")})
+    to_char = _byte_to_char(text)
+    supports = []
+    for s in gm.get("groundingSupports") or []:
+        seg = s.get("segment") if isinstance(s, dict) else None
+        if not isinstance(seg, dict):
+            continue
+        idx = [int(i) for i in (s.get("groundingChunkIndices") or []) if isinstance(i, int) and 0 <= i < len(sources)]
+        start, end = to_char(seg.get("startIndex") or 0), to_char(seg.get("endIndex") or 0)
+        seg_text = str(seg.get("text") or "")
+        if seg_text and text[start:end] != seg_text:  # offsets that don't match the text: place it by its text instead
+            at = text.find(seg_text)
+            start, end = (at, at + len(seg_text)) if at >= 0 else (start, end)
+        supports.append({"start": start, "end": end, "text": seg_text, "sources": idx})
+    entry = gm.get("searchEntryPoint") if isinstance(gm.get("searchEntryPoint"), dict) else {}
+    html = entry.get("renderedContent")
+    return {"text": text, "queries": [str(q) for q in gm.get("webSearchQueries") or [] if isinstance(q, str)], "sources": sources,
+            "supports": supports, "suggestions_html": html if isinstance(html, str) and html.strip() else None, "model": model}
+
+
+async def complete_grounded(
+    prompt: str,
+    *,
+    system: str | None = None,
+    surface: str | None = None,
+    timeout: float | None = None,
+    fallback: dict | None = None,
+    model: str | None = None,
+    thinking: str | None = None,
+) -> tuple[dict, bool]:
+    """One Gemini call with Google Search grounding. Returns `(result, used_fallback)`:
+
+        result = {"text": the answer,
+                  "queries": the searches Gemini ran,
+                  "sources": [{"title": the page's domain, "uri": Google's redirect to the page}, ...],
+                  "supports": [{"start", "end" (characters of text), "text", "sources": [indices into sources]}, ...],
+                  "suggestions_html": the Search Suggestions chip to show beside the result (Google's terms) | None,
+                  "model": the model that answered}
+
+    A support says which web pages Google tied to that stretch of the answer; the caller checks its own numbers
+    against them. `fallback`: returned (a copy, used_fallback=True) instead of raising when the key, the day's cap
+    (AI_DAILY_LIMIT), the network or the timeout fails. Never cached (the grounding terms). `system`, `surface`,
+    `timeout`, `model` (default AGENT_MODEL) and `thinking` as in `complete`; a 429 moves to the next model in the
+    chain, like every other call here."""
+    log = logging.getLogger("uvicorn.error")
+    try:
+        key = os.getenv("GEMINI_API_KEY")
+        if not key:
+            raise HTTPException(status_code=503, detail="AI is not configured: add GEMINI_API_KEY to backend/.env (free key at aistudio.google.com/apikey)")
+        if not _take_daily_slot():
+            raise HTTPException(status_code=429, detail=AI_QUOTA_MESSAGE)
+        body: dict = {"contents": [{"role": "user", "parts": [{"text": prompt}]}], "tools": [{"google_search": {}}]}
+        if system:
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+        if thinking:
+            body["generationConfig"] = {"thinkingConfig": {"thinkingLevel": thinking}}
+        first = model or AGENT_MODEL
+        chain = [first] + [m for m in FALLBACK_MODELS if m != first]
+        result = None
+        for i, m in enumerate(chain):
+            if _model_out(m) and i < len(chain) - 1:
+                continue
+            url = f"{API_BASE}/models/{m}:generateContent"
+            send = body
+            while True:
+                try:
+                    data = await asyncio.to_thread(_post_json, url, send, key, timeout or TIMEOUT_SECONDS)
+                except urllib.error.HTTPError as e:
+                    full = e.read().decode(errors="replace")
+                    if e.code == 400 and send.get("generationConfig"):
+                        send = {k: v for k, v in send.items() if k != "generationConfig"}  # a thinking level this model refuses
+                        continue
+                    if e.code in (429, 503) and i < len(chain) - 1:
+                        if e.code == 429:
+                            _mark_out(m, full)
+                        # 503: this model is overloaded right now (measured Sat evening on gemini-3.5-flash): the next one
+                        log.warning("AI (grounded): %s answered %s, trying %s", m, e.code, chain[i + 1])
+                        break
+                    raise HTTPException(status_code=502, detail=f"AI request failed ({e.code}): {full[:300]}")
+                except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as e:
+                    raise HTTPException(status_code=502, detail=f"AI request failed: {e}")
+                result = _parse_grounded(data, m)
+                break
+            if result is not None:
+                _stats["model_used"] = m
+                break
+        if result is None:
+            raise HTTPException(status_code=502, detail="AI request failed: every model in the chain is out of quota")
+    except HTTPException as e:
+        _stats["last_error"] = str(e.detail)[:200]
+        if fallback is not None:
+            _note(surface, "fallback")
+            log.warning("AI fallback used (grounded): %s", e.detail)
+            return copy.deepcopy(fallback), True
+        raise
+    _note(surface, "ok")
+    return result, False
+
+
 class AskRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
 
@@ -925,6 +1058,10 @@ SURFACES = [
      "gemini": "Three planner agents on Gemini function calling decide what needs fixing. Each has its own strategy (cheapest first, corridors, flexible-aware) and builds a plan campus by campus through read-only engine tools (sites, weak_points, try_add, raise_cost, current_plan, undo_last), then submits it. The fourth competitor is the engine's own greedy plan, cut at the knee of its cost curve.",
      "check": "A referee written in code re-solves every submitted plan at once, with every campus and upgrade and at both load levels for flexible campuses. Raises are snapped up to 50 MVA steps and capped at 5x. The engine prices every plan itself; Gemini's figures are never used. It also runs the full cascade: nothing may trip and nobody may lose power. Ranking: most campuses within the knee budget, then cheapest, then fewest upgrades. Plans within 2 % of each other share a place. An AI plan has to beat the engine's plan to win. A plan that fails is shown with the engine's reason.",
      "fallback": "The engine's plan alone, labeled with the reason"},
+    {"id": "hospital_beds", "name": "Hospitals in the dark areas: beds as reported",
+     "gemini": "An agent on Gemini with Grounding with Google Search looks up how many beds each hospital in the areas that lost power has, as a public page states it (licensed, else staffed, else total beds): batches of three hospitals, the first model asked, a second only when the first answered from memory without searching or is slow, up to three rounds; each figure comes with the web pages Google tied to it.",
+     "check": "Code keeps a figure only when a search ran and Google tied the number to a web page that the checker reads (HTML, or a PDF) and that gives it as THIS hospital's bed count: the number next to the word bed, the hospital's own name the closest hospital name to it (no sibling from OpenStreetMap's list of the state closer, no other bed count in between, not one unit's beds such as an ICU or a crisis unit), and the page in the right state. When the page can't be read, the figure is kept only if Google tied it to that hospital's own answer line, labeled not confirmed on the page. A page that names another hospital, a same-named hospital elsewhere, or gives a different figure is a rejection; rejected and not-found hospitals go back with the reason for up to two revisions. The whole run stops at 40 seconds. Beds are never presented as a head count, and backup power is labeled an assumption of the synthetic model.",
+     "fallback": "OpenStreetMap's beds tags only, labeled as map data, not checked"},
 ]
 
 

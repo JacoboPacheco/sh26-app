@@ -46,6 +46,7 @@ import grid
 import gridlock
 import gridreader
 import harden
+import hospital_agent
 import hospitals
 import hurricane
 import leadtimes
@@ -162,6 +163,7 @@ app.include_router(planner.router)
 app.include_router(catalog.router)
 app.include_router(costs.router)
 app.include_router(hospitals.router)
+app.include_router(hospital_agent.router)
 app.include_router(briefing.router)
 app.include_router(voice.router)
 app.include_router(plants.router)
