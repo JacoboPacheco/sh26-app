@@ -181,7 +181,8 @@
   transform-origin: left center;
   transform: scaleX(0);
   background: var(--hr-ok);
-  transition: transform 240ms linear;
+  will-change: transform;
+  /* the "now" beat's fill is written every frame from the narration's clock (PlayByPlay.jsx): no transition to lag behind it */
 }
 
 .pbp-steps__i:first-child .pbp-steps__bar i {

@@ -254,7 +254,8 @@ export default function useBuildNarration({ region, mw, loadFactor = 1, mode = '
     idx,
     slide,
     caption: narr.caption, // {role, text, char, key}: the words being spoken, `char` the current word's offset
-    progress: narr.progress, // 0..1 through the current slide
+    progress: narr.progress, // 0..1 through the current slide (changes hands only: 0 on entry, held on pause, 1 at end)
+    clock: narr.clock, // a ref for a progress bar that fills continuously (briefing/useNarration's slideFrac reads it)
     playing: narr.playing,
     provider, // 'elevenlabs' | 'browser' | 'timer' | null (not started)
     voiceKind, // what the viewer hears: 'elevenlabs' | 'browser' | 'captions'

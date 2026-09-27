@@ -21,7 +21,10 @@
     --st-rail-w: clamp(360px, 31vw, 470px);
     display: grid;
     grid-template-columns: minmax(0, 1fr) var(--st-rail-w);
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    /* the head row caps at 46vh: an opened fold ("How sure/we know this number") scrolls inside it instead of
+       crushing the map row toward zero height (it kept a stable width regardless, but a squeezed CapacityMeter
+       still reflowed its cells as the row settled — capping this stops that flicker too) */
+    grid-template-rows: minmax(0, fit-content(46vh)) minmax(220px, 1fr) auto;
     grid-template-areas:
       'head head'
       'map rail'
@@ -93,8 +96,13 @@
 .st-head {
   grid-area: head;
   display: grid;
+  /* every row keeps its own content's true height (never squeezed toward a child's min-height, e.g. the capacity
+     meter's) when the whole header outgrows its capped row and has to scroll internally instead */
+  grid-auto-rows: max-content;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .st-key,

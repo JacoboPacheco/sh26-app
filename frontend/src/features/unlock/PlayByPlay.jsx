@@ -15,6 +15,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { Button } from '../../ui'
 import AiBadge from '../ai/AiBadge'
+import { slideFrac } from '../briefing/useNarration'
 import { money } from '../cost/money'
 import { BuildCaption, getNarration } from '../narrate'
 import { costAt, ordinal } from './capacity'
@@ -61,6 +62,35 @@ export default function PlayByPlay({ o, u, m, nb, body, answer, target }) {
   const shown = Math.min(u.capShown, m.steps.length)
   const loading = !script && !error
   const prog = still ? 1 : Math.max(0, Math.min(1, nb.progress || 0)) // how far the voice is through this beat
+
+  // the current beat's bar fills CONTINUOUSLY from the narration's clock (never in per-word jumps): every frame
+  // writes the fill straight to the element, like briefing/Progress.jsx. Still (reduced motion): it just stands full.
+  const nowBarRef = useRef(null)
+  useEffect(() => {
+    const el = nowBarRef.current
+    if (!el) return undefined
+    if (still || !nb.playing || !nb.clock) {
+      el.style.transform = `scaleX(${prog})`
+      return undefined
+    }
+    let raf = 0
+    let shown = prog
+    let gen = null
+    const tick = (now) => {
+      const c = nb.clock.current
+      const mine = !!c && c.idx === idx
+      const t = mine ? slideFrac(c, now) : shown
+      if (mine && c.gen !== gen) {
+        gen = c.gen
+        shown = t
+      }
+      shown = Math.max(shown, t)
+      el.style.transform = `scaleX(${shown})`
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [still, nb.playing, nb.clock, idx, prog])
 
   // the map layer draws from the store
   useEffect(() => setPbpView(script, idx), [script, idx])
@@ -152,7 +182,7 @@ export default function PlayByPlay({ o, u, m, nb, body, answer, target }) {
               <li key={b.id} className={`pbp-steps__i is-${st}`} aria-current={st === 'now' ? 'step' : undefined}>
                 <span className="pbp-steps__t">{b.label}</span>
                 <span className="pbp-steps__bar" aria-hidden="true">
-                  <i style={st === 'now' ? { transform: `scaleX(${prog})` } : undefined} />
+                  <i ref={st === 'now' ? nowBarRef : undefined} />
                 </span>
               </li>
             )

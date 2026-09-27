@@ -1,6 +1,6 @@
-import { useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import AiBadge from '../ai/AiBadge'
-import { wordsOf } from '../briefing/useNarration'
+import { slideFrac, wordsOf } from '../briefing/useNarration'
 import './narrate.css'
 
 // The caption bar at the bottom of the map while the narrated build-up plays: what the slide is about (the campus
@@ -109,6 +109,35 @@ export default function BuildCaption({ nb, className = '' }) {
   const narrow = useNarrow()
   const cap = nb?.stale ? null : nb?.caption // a script for other props (a change stopped it) shows nothing of it
   const chunk = useMemo(() => (cap ? chunkAt(cap.text, cap.char, narrow ? CHUNK_NARROW : CHUNK) : []), [cap, narrow])
+  // the bar fills CONTINUOUSLY from the narration's clock (never in per-word jumps): every frame writes the fill
+  // straight to the element, like briefing/Progress.jsx. Paused or without a clock, it just shows nb.progress.
+  const barRef = useRef(null)
+  useEffect(() => {
+    const el = barRef.current
+    if (!el) return undefined
+    const progress = Math.max(0, Math.min(1, nb?.progress || 0))
+    if (!nb?.playing || !nb.clock) {
+      el.style.transform = `scaleX(${progress})`
+      return undefined
+    }
+    let raf = 0
+    let shown = progress
+    let gen = null
+    const tick = (now) => {
+      const c = nb.clock.current
+      const mine = !!c && c.idx === nb.idx
+      const target = mine ? slideFrac(c, now) : shown
+      if (mine && c.gen !== gen) {
+        gen = c.gen
+        shown = target
+      }
+      shown = Math.max(shown, target)
+      el.style.transform = `scaleX(${shown})`
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [nb?.playing, nb?.idx, nb?.clock, nb?.progress])
   if (!nb || nb.status === 'idle' || nb.status === 'error' || (nb.stale && nb.status !== 'loading')) return null
   if (!cap && nb.status !== 'loading' && nb.status !== 'playing') return null
   const slide = nb.slide
@@ -167,7 +196,7 @@ export default function BuildCaption({ nb, className = '' }) {
         {cap?.text || ''}
       </p>
       <span className="bn-cap__bar" aria-hidden="true">
-        <i style={{ transform: `scaleX(${Math.max(0, Math.min(1, nb.progress || 0))})` }} />
+        <i ref={barRef} />
       </span>
     </div>
   )

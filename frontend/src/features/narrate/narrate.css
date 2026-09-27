@@ -153,8 +153,10 @@
   position: absolute;
   inset: 0;
   background: var(--hr-ok);
+  transform: scaleX(0);
   transform-origin: left center;
-  transition: transform 220ms linear;
+  will-change: transform;
+  /* the fill is written every frame from the narration's clock (BuildCaption.jsx): no transition to lag behind it */
 }
 
 .bn-cap--intro .bn-cap__bar i {
