@@ -144,6 +144,7 @@ def validate(show: dict, episode: str, lang: str) -> dict:
                 assert ln["by"] == "template", f"{where}: a line not by the template without Gemini"
         total += max(sc["min_ms"], sum(len(ln["text"]) / 15.0 * 1000 for ln in sc["lines"]))
     if episode == "together":  # each utility's filed year stays with that utility (the truth review's swapped years)
+        assert any(sc["id"].endswith("-station") for sc in scenes), "the same-substation scene (Sperry's example) is missing"
         owned = [(int(f["value"]), f["owner"]) for f in facts.values() if f.get("owner")]
         util = re.compile(r"\b(DESC|Dominion(?: Energy South Carolina)?|Georgia Power)\b")
         for sc in scenes:

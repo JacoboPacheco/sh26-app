@@ -98,7 +98,7 @@ JOBS_MAX = 64
 JOB_TTL_S = 3600.0
 RETRY_S = 90.0  # a show whose director failed transiently is asked again after this long
 PENDING_MAX = 6  # shows being made at once (each is an engine run and a Gemini director): past this a POST answers 429
-BOARD_VERSION = "5"  # bump when a storyboard changes (its facts, scenes, templates): the saved Gemini narrations are then rewritten
+BOARD_VERSION = "6"  # bump when a storyboard changes (its facts, scenes, templates): the saved Gemini narrations are then rewritten
 SAVED_DIR = os.path.join(os.path.dirname(__file__), "demo", "show")
 
 FL_BOUNDS = [[24.4, -83.2], [31.0, -79.8]]  # the peninsula the Florida model covers
@@ -1774,15 +1774,31 @@ async def build_together(lang: str, progress) -> Board:
         opp = await run_in_threadpool(lambda: json.loads(gl.opportunities(limit=8, max_km=gl.MAX_KM_DEFAULT, window_months=gl.WINDOW_DEFAULT,
                                                                           method="closest", a="DESC", b="GPC").body))
         summ = await run_in_threadpool(gl.summary)
+        station = await run_in_threadpool(_station_pair)
     ops = opp.get("opportunities") or []
     if not ops:
         raise HTTPException(status_code=503, detail="The Build together data isn't built yet")
     top = next((o for o in ops if o.get("shared_station")), ops[0])
+    # the same-substation scene keeps its own pair: the ranking puts a pair whose filed time has passed last, so Sperry's
+    # own example (Thurmond Dam) sits past the top 8 and the scene silently vanished (the episode fell under two minutes)
+    station = top if top.get("shared_station") else station
     progress(T(lang, "Two AI agents are drafting a coordination plan from the filings", "Dos agentes de IA redactan un plan de coordinación a partir de los documentos"))
     neg = await negotiate.run_case(top["id"], gl.WINDOW_DEFAULT, lang, ai=llm.configured())
     async with _gate():
         est = await run_in_threadpool(gl.estimate, top["id"], gl.WINDOW_DEFAULT)
-        return await run_in_threadpool(_together_board, lang, opp, summ, top, neg, est)
+        return await run_in_threadpool(_together_board, lang, opp, summ, top, neg, est, station)
+
+
+def _station_pair() -> dict | None:
+    """The best-ranked flagged pair whose two projects meet at the same substation, searched over EVERY flagged pair
+    (the top few the ranked scene shows may hold none: a pair whose filed time has passed ranks last), shaped like a row
+    of /api/gridlock/opportunities."""
+    import gridlock as gl
+
+    st = gl._load()
+    prm = gl._params(gl.MAX_KM_DEFAULT, gl.WINDOW_DEFAULT, "closest", "DESC", "GPC")
+    o = next((o for o in gl._compute(st, prm)["overlaps"] if o.get("shared_station")), None)
+    return {**o, "project_a": gl._slim(st["by_id"][o["a"]]), "project_b": gl._slim(st["by_id"][o["b"]])} if o else None
 
 
 def _years_in(title: str | None, default: str) -> str:
@@ -1790,7 +1806,7 @@ def _years_in(title: str | None, default: str) -> str:
     return f"{m.group(1)}–{m.group(2)}" if m else default
 
 
-def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est: dict) -> Board:
+def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est: dict, station: dict | None = None) -> Board:
     B = Board("together", "GA-SC", lang, EPISODES[4]["title"][lang])
     B.first_rule = "filings"
     B.names -= {"Breakthrough Energy", "Texas A&M", "A&M", "Census"}
@@ -1958,8 +1974,15 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
         ], 8500, brief="The top pairs as bars in rank order (timing group first: same months, different times, unknown, passed; then same station, then score); each pair's ring or connector draws in rank order on the map.",
             points=["grouped by timing first: same months, different times, timing unknown, time passed", "within a group: same station first, then score", "score: distance, timeline, location confidence"])
 
-    ss = top.get("shared_station") or {}
+    station = station if (station or {}).get("shared_station") else top
+    ss = station.get("shared_station") or {}
     if ss:
+        spa, spb, is_top = station["project_a"], station["project_b"], station is top
+        B.name(spa.get("name"), spb.get("name"))
+        for w in re.findall(r"[A-Z][A-Za-z]+", f"{spa.get('name')} {spb.get('name')}"):
+            B.name(w)
+        lead_en = "The top pair isn't just close." if is_top else "One pair isn't just close."
+        lead_es = "El primer par no solo está cerca." if is_top else "Un par no solo está cerca."
         B.name(ss.get("name"), ss.get("osm_name"))
         yrs = []
         owner_name = {"a": ("DESC", "Dominion Energy South Carolina"), "b": ("Georgia Power", "Georgia Power")}
@@ -1978,21 +2001,21 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
         past = {k[0]: str(ss.get(k) or "9999")[:10] < _dt.date.today().isoformat() for k in ("a_in_service", "b_in_service")}
         who_past = "DESC" if past.get("a") else "Georgia Power" if past.get("b") else None
         pts = [(ss["lat"], ss["lon"])]
-        for p in (pa, pb):
+        for p in (spa, spb):
             kind, it = geo_items(p)
             if kind == "line":
                 pts += [tuple(x) for x in it["path"]]
         B.scene("station", T(lang, "The same station", "La misma subestación"), bounds_of(pts, 0.08, 0.25), [
             grid_layer("hidden"),
-            *([{"type": "lines", "style": "project_a", "animate": "draw", "items": [geo_items(pa)[1]]}] if geo_items(pa)[0] == "line" else [{"type": "points", "kind": "project", "style": "project_a", "animate": "appear", "items": [geo_items(pa)[1]]}]),
-            *([{"type": "lines", "style": "project_b", "animate": "draw", "items": [geo_items(pb)[1]]}] if geo_items(pb)[0] == "line" else [{"type": "points", "kind": "project", "style": "project_b", "animate": "appear", "items": [geo_items(pb)[1]]}]),
+            *([{"type": "lines", "style": "project_a", "animate": "draw", "items": [geo_items(spa)[1]]}] if geo_items(spa)[0] == "line" else [{"type": "points", "kind": "project", "style": "project_a", "animate": "appear", "items": [geo_items(spa)[1]]}]),
+            *([{"type": "lines", "style": "project_b", "animate": "draw", "items": [geo_items(spb)[1]]}] if geo_items(spb)[0] == "line" else [{"type": "points", "kind": "project", "style": "project_b", "animate": "appear", "items": [geo_items(spb)[1]]}]),
             {"type": "points", "kind": "station", "animate": "pulse", "items": [{"lat": ss["lat"], "lon": ss["lon"], "label": ss.get("name"), "sub": T(lang, "both filings work here", "ambos documentos trabajan aquí")}]},
             {"type": "quote", "text": ss.get("reason") or "", "source": T(lang, "The two public filings, as filed", "Los dos documentos públicos, tal como se presentaron")},
         ], [
-            ("presenter", T(lang, (f"The top pair isn't just close. Both filings work at the same substation: {ss.get('name')}. As filed, DESC's project there was due in service in {yrs[0]}, and Georgia Power's in {yrs[1]}."
-                                   if len(yrs) == 2 else f"The top pair isn't just close. Both filings work at the same substation: {ss.get('name')}."),
-                            (f"El primer par no solo está cerca. Ambos documentos trabajan en la misma subestación: {ss.get('name')}. Según lo presentado, el proyecto de DESC debía entrar en servicio en {yrs[0]}, y el de Georgia Power en {yrs[1]}."
-                             if len(yrs) == 2 else f"El primer par no solo está cerca. Ambos documentos trabajan en la misma subestación: {ss.get('name')}.")),
+            ("presenter", T(lang, (f"{lead_en} Both filings work at the same substation: {ss.get('name')}. As filed, DESC's project there was due in service in {yrs[0]}, and Georgia Power's in {yrs[1]}."
+                                   if len(yrs) == 2 else f"{lead_en} Both filings work at the same substation: {ss.get('name')}."),
+                            (f"{lead_es} Ambos documentos trabajan en la misma subestación: {ss.get('name')}. Según lo presentado, el proyecto de DESC debía entrar en servicio en {yrs[0]}, y el de Georgia Power en {yrs[1]}."
+                             if len(yrs) == 2 else f"{lead_es} Ambos documentos trabajan en la misma subestación: {ss.get('name')}.")),
              ["svc_a", "svc_b"]),
             ("analyst", (T(lang, f"{who_past}'s filed date has already passed, so whether any of its work is still ahead isn't in the filing. If it is, one outage plan and one design where they meet could serve both.",
                            f"La fecha presentada por {who_past} ya pasó, así que el documento no dice si le queda obra. Si le queda, un solo plan de cortes y un solo diseño donde se unen podrían servir a los dos.")
@@ -2000,7 +2023,7 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
                          T(lang, "If both schedules can line up, one outage plan and one design where they meet could serve both.",
                            "Si los dos calendarios pueden coincidir, un solo plan de cortes y un solo diseño donde se unen podrían servir a los dos.")), []),
         ], 9000, brief="Zoom on the shared substation: both projects meet there; the reason as a sourced quote.",
-            points=["same substation in both filings", "in-service years AS FILED: DESC's is the earlier one (svc_a), Georgia Power's the later (svc_b); never swap them",
+            points=[("the top-ranked pair" if is_top else "NOT the top-ranked pair (its filed time has passed, so the ranking puts it last): say 'one pair', never 'the top pair'"), "same substation in both filings", "in-service years AS FILED: DESC's is the earlier one (svc_a), Georgia Power's the later (svc_b); never swap them",
                     (f"{who_past}'s filed in-service date has already passed: whether any of its work is still ahead is NOT known; say 'if', never 'both still have work ahead'"
                      if who_past else "say 'if' the schedules line up; never state that both have work ahead"),
                     "could coordinate (never 'are'/'will')"], min_km=18)
