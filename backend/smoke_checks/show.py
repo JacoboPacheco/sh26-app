@@ -215,7 +215,8 @@ def register(ctx):
         try:
             ctx.request("POST", "/api/voice/segment", {"key": key}, expect=200)
         except AssertionError as e:  # 503: ElevenLabs not configured (the browser voice reads it); 429: its daily cap
-            assert "503 != 200" in str(e) or "429 != 200" in str(e), f"voice segment: {e}"
+            msg = str(e)
+            assert any(s in msg for s in ("503 != 200", "429 != 200", "got 503", "got 429")), f"voice segment: {e}"
 
     ctx.check("show: the template path is labeled and its voice keys are registered", template_path)
 
