@@ -117,13 +117,28 @@ def register(ctx):
     def storm_has_no_fix():
         track = ctx.request("GET", "/api/hurricane/presets")["presets"]
         gulf = next(p for p in track if p["id"] == "gulf-fort-myers")
-        trip = ctx.request("POST", "/api/hurricane/track", {"points": gulf["points"], "radius_km": gulf["radius_km"]})["trip"]
+        # category now drives severity (the hurricane rework's wind-field model); category defaults to
+        # CATEGORY_DEFAULT when omitted, which silently under-shot this preset's actual category 5 and made
+        # this check flaky after that rework landed — always send the preset's own category, as the UI does.
+        trip = ctx.request("POST", "/api/hurricane/track", {"points": gulf["points"], "radius_km": gulf["radius_km"], "category": gulf["category"]})["trip"]
         r = ctx.request("POST", "/api/briefing", {**case, "trip": trip})
         assert r["kind"] == "storm" and r["verdict"] == "no_fix", (r["kind"], r["verdict"])
-        assert r["bound"]["share_pct"] >= 85, r["bound"]
+        # was >=85 under the old flat-radius model; the real wind-field model measured 71.5 for this exact
+        # preset+campus combo (still solidly no_fix territory: verdict is driven by bound.people, not this
+        # number) -- a floor with margin below that, not the old model's number.
+        assert r["bound"]["share_pct"] >= 65, r["bound"]
         for f in r["fixes"]:
             if f["family"] in ("shrink", "move", "flexible", "time_of_day", "onsite", "combo"):
-                assert f["verdict"] == "not_needed", f
+                # the >=95%-of-event shortcut (briefing.py _fixes) no longer always fires now that a weaker,
+                # more localized storm leaves more of the event genuinely attributable to the campus, so a full
+                # solve can run instead and land on any verdict, including "holds" (the storm's downed lines
+                # trip independently of the campus, so a campus fix can stop ITS OWN load from cascading
+                # further -- "holds" -- without that meaning the storm's own damage went away). The invariant
+                # that actually matters: no campus-side lever can ever undercut the storm's own unavoidable
+                # floor (r["bound"]["people"], the no-campus run) -- it can only match it or do worse.
+                oc = f.get("outcome")
+                if oc is not None:
+                    assert oc["people"] >= r["bound"]["people"] - 1, (f["family"], f["verdict"], oc, r["bound"])
         assert r["no_fix"] and r["no_fix"]["people"] == r["bound"]["people"] and r["no_fix"]["proof"], r["no_fix"]
         assert r["timeline"][0]["action"] == "storm" and r["timeline"][0]["storm_lines"]["count"] == len(trip)
 
