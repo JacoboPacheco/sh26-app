@@ -1,0 +1,135 @@
+/* THE CHAIN IN FOUR PARTS (ShowChain.jsx): one arc in view together, a thin red rail running down it, each part one sentence.
+   Sober: no cards, no glow, no pops. Motion carries information: the rail fills with the replay clock, a sentence writes itself
+   in as its part lands, the part being played is lit and the others settle. --f (0..1) and --r (0..1) are set every frame. */
+
+/* the running total: one big figure that climbs continuously through all four parts */
+.ch-total {
+  display: grid;
+  gap: 2px;
+}
+
+.ch-total__label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.ch-total__n {
+  font-size: clamp(2.2rem, 4.2vw, 3rem);
+  line-height: 1;
+  font-weight: 800;
+  font-stretch: 68%;
+  letter-spacing: -0.01em;
+  color: var(--overload);
+  font-variant-numeric: tabular-nums;
+}
+
+.ch-parts {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+}
+
+.ch-part {
+  position: relative;
+  display: grid;
+  padding: 0 0 13px 18px;
+}
+
+.ch-part:last-child {
+  padding-bottom: 2px;
+}
+
+/* the rail: one segment per part, stacked without a gap, so it reads as one line that fills from the top */
+.ch-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  overflow: hidden;
+  background: var(--glass-edge);
+}
+
+.ch-rail i {
+  position: absolute;
+  inset: 0;
+  background: var(--overload);
+  transform: scaleY(var(--f, 0));
+  transform-origin: top;
+  will-change: transform;
+}
+
+/* a small square where each part begins (plain: no number) */
+.ch-part::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  background: var(--glass-edge);
+  transition: background-color 300ms ease;
+}
+
+.ch-part.is-landed::before {
+  background: var(--ink-2);
+}
+
+.ch-part.is-active::before {
+  background: var(--ink);
+}
+
+/* the sentence (written in from the left as its part lands) and, before that, two quiet placeholder bars */
+.ch-part__text {
+  grid-area: 1 / 1;
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.42;
+  color: var(--ink-2);
+  opacity: var(--r, 0);
+  clip-path: inset(0 calc((1 - var(--r, 0)) * 100%) 0 0);
+  transition: color 320ms ease;
+}
+
+.ch-part__text b {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.ch-part.is-active .ch-part__text,
+.ch-parts--settled .ch-part__text {
+  color: var(--ink);
+}
+
+.ch-part__skel {
+  grid-area: 1 / 1;
+  align-self: start;
+  display: grid;
+  gap: 8px;
+  padding-top: 5px;
+  pointer-events: none;
+  opacity: calc(1 - var(--r, 0));
+}
+
+.ch-part__skel i {
+  display: block;
+  height: 5px;
+  border-radius: 2px;
+  background: var(--glass-edge);
+}
+
+.ch-part__skel i:nth-child(2) {
+  width: 64%;
+}
+
+/* what the map lights while a part is played: the elements that failed in it, and the places it hit (chainLayer) */
+@media (prefers-reduced-motion: reduce) {
+  .ch-part__text,
+  .ch-part::before {
+    transition: none;
+  }
+}

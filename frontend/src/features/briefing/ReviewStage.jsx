@@ -273,9 +273,10 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     let need = (reduced ? Math.min(dwell, 7000) : dwell) - elapsed
     if ((slide.kind || slide.id) === 'chain') {
       const now = performance.now()
-      // the last play lands with the replay's end; the "Beyond those" card that sums up the rest lands with it and
-      // needs a moment to be read (PLAYS, SUMMARIZED)
-      const tail = slide.plays_rest?.steps?.length ? 4800 : 2600
+      // the last part of the chain lands with the replay's end and is the longest sentence (the result): it needs a
+      // moment to be read (THE CHAIN IN FOUR PARTS)
+      const lastText = slide.arc?.[slide.arc.length - 1]?.text?.[langRef.current] || ''
+      const tail = slide.arc?.length ? Math.min(7500, Math.max(3000, 1000 + lastText.length * 22)) : 2600
       if (O.playing) {
         replayEnd.current = now // the blast is still on the map: wait, then let the last play land
         need = Math.max(need, 400)

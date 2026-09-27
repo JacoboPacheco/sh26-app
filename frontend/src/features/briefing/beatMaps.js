@@ -94,6 +94,21 @@ export function areaShape(O, a) {
   return { pts, center }
 }
 
+// THE CHAIN: what the map lights while one part of the arc is on: its failed elements (white) and the towns it hit
+// (hatched, no numbers: the areas read as clear shapes)
+export function chainLayer(O, part, key) {
+  if (!part) return null
+  const lines = (part.line_ids || []).slice(0, 40).map((id) => ({ id, tone: 'hl' }))
+  const hulls = (part.areas || [])
+    .slice(0, 6)
+    .map((name) => {
+      const { pts } = areaShape(O, { area: name })
+      return pts.length ? { key: `${key}-${name}`, pts, tone: 'lost' } : null
+    })
+    .filter(Boolean)
+  return { key, lines, hulls }
+}
+
 // THE WEAK POINT: the element, the path any new load at the site takes to it (the lines the engine's upgrade raises,
 // the element itself when it is a line), power flowing along it toward the campus.
 export function weakOf(O, report, slide) {

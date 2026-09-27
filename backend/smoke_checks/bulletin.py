@@ -60,6 +60,8 @@ def register(ctx):
         blob = str(d)
         m = NEVER.search(blob)
         assert not m, f"forbidden phrase in the deck: {m.group(0)!r}"
+        m = re.search(r"\b(play|jugada)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve)\b", blob, re.IGNORECASE)
+        assert not m, f"a numbered play label in the deck: {m.group(0)!r}"
 
     def test_solutions_and_play_by_play():
         d = state["deck"]
@@ -129,43 +131,45 @@ def register(ctx):
             assert fl["hours_assumed"] == 85 and "85 hours" in fl["assumption"] and "of the year" not in fl["assumption"], fl
         assert "weak point is overloaded at every" not in str(fix["narration"]), "the per-level check is the grid's, not the weak point's"
         chain = next(s for s in d["slides"] if s["id"] == "chain")
-        assert len(chain["plays"]) == hero["cascade_steps"] and chain["plays"][0]["people_hit"] > 0, chain["plays"][:1]
-        assert all({"n", "kind", "label", "loading_pct", "people_hit", "areas"} <= set(p_) for p_ in chain["plays"]), chain["plays"][0]
-        assert "Play one" in chain["narration"]["en"][1]["text"], chain["narration"]["en"][1]["text"][:80]
+        arc = chain["arc"]
+        assert 1 <= len(arc) <= 4 and [p_["k"] for p_ in arc] == list(range(1, len(arc) + 1)) and arc[0]["people_delta"] > 0, arc[:1]
+        assert all({"k", "kind", "steps", "line_ids", "areas", "people_delta", "people_total", "text", "marks"} <= set(p_) for p_ in arc), arc[0]
         assert d["short"][:2] == ["toll", "chain"] and "fix" in d["short"] and d["short"][-1] == "bottom_line", d["short"]
         rep = ctx.request("POST", "/api/briefing", case)
         assert rep["solutions"] and rep["best_fix"] == rep["solutions"][0], (rep["best_fix"], rep["solutions"])
         assert rep["fixes"][rep["best_fix"]]["kept_pct"] >= 90, "best_fix keeps at least 90% of the campus when such a fix holds"
         assert isinstance((d.get("agentic") or {}).get("status", "off"), str)
 
-    def test_plays_summarized_plain_options():
-        """PLAYS, SUMMARIZED (Sat 20:29): the chain names only the big plays (about three, at most four, the first always
-        among them), each with its line and toll, then ONE sentence for the rest; every step is still cued and in the
-        plays (the map and the scoreboard). REVIEW-1 (c): no loading past 300 % is printed or spoken as a figure.
+    def test_chain_four_parts_plain_options():
+        """THE CHAIN IN FOUR PARTS (Sat 23:37-23:48): the chain is one arc over the whole cascade, in order: four parts (fewer
+        when the cascade is short), each ONE flowing sentence in EN and ES that is never labeled or numbered, its steps
+        cued so the map still moves step by step, the running totals adding up to the panel's People hit.
         SOLUTIONS, SIMPLE (Sat 20:31): every walked option carries five plain lines in EN and ES with a sourced time."""
         d = state["deck"]
         chain = next(s for s in d["slides"] if s["id"] == "chain")
-        plays = chain["plays"]
-        big = [p_ for p_ in plays if p_["big"]]
-        assert all(isinstance(p_["big"], bool) for p_ in plays), plays[0]
-        assert plays[0]["big"], "the first failure is always a big play"
-        assert (1 <= len(big) <= 4) and (len(big) >= 3 or len(plays) <= 4 or len(big) == len(plays)), [p_["n"] for p_ in big]
-        rest = chain.get("plays_rest")
-        if len(big) < len(plays):
-            assert rest and sorted(rest["steps"]) == sorted(p_["n"] for p_ in plays if not p_["big"]), rest
-            assert rest["people"] == sum(p_["people_delta"] for p_ in plays if not p_["big"]), (rest["people"], [p_["people_delta"] for p_ in plays])
-        for lang, word, rest_word in (("en", "Play ", "Beyond those"), ("es", "Jugada ", "Además")):
-            segs = [g["text"] for g in chain["narration"][lang] if g["role"] == "analyst"]
-            named = [t for t in segs if t.startswith(word)]
-            assert len(named) == len(big), (lang, len(named), len(big), segs)
-            if rest:
-                assert any(t.startswith(rest_word) for t in segs), (lang, segs[-1])
-            spoken = " ".join(segs + [g["text"] for g in chain["narration"][lang]])
-            for m in re.finditer(r"(\d[\d,]*)\s*(percent|por ciento|%)", spoken + " ".join(chain["lines"][lang])):
-                assert int(m.group(1).replace(",", "")) <= 300, f"{lang}: a loading past 300 % printed as a figure: {m.group(0)}"
-        if any((p_["loading_pct"] or 0) > 300 for p_ in big):
-            assert "far past its limit" in str(chain["narration"]["en"]) and any(c["name"] == "raw" for g in chain["narration"]["en"] for c in g["cues"]), \
-                "the raw value rides along as a cue for the transcript"
+        arc = chain["arc"]
+        n_steps = hero["cascade_steps"]
+        assert len(arc) == min(4, n_steps), (len(arc), n_steps)
+        assert [p_["kind"] for p_ in arc] == {4: ["origin", "spread", "outward", "end"], 3: ["origin", "spread", "end"], 2: ["origin", "end"], 1: ["only"]}[len(arc)], [p_["kind"] for p_ in arc]
+        steps = [n for p_ in arc for n in p_["steps"]]
+        assert steps == list(range(1, n_steps + 1)), ("consecutive phases that cover every step once", steps)
+        assert all(p_["steps"] for p_ in arc) and arc[-1]["steps"][-1] == n_steps, "no empty part; the last holds the last step"
+        assert sum(p_["people_delta"] for p_ in arc) == arc[-1]["people_total"] == chain["people"]["hit"], ([p_["people_delta"] for p_ in arc], chain["people"])
+        label = re.compile(r"\b(play|jugada|step|paso|part|parte)\s*(\d+|one|two|three|four|five|uno|dos|tres|cuatro|cinco)\b", re.IGNORECASE)
+        for lang, begins, ends in (("en", "It begins at", "It finally reaches"), ("es", "Empieza en", "Por fin llega")):
+            segs = chain["narration"][lang]
+            assert len(segs) == len(arc) and all(g["role"] == "analyst" for g in segs), [g["text"][:40] for g in segs]
+            for g, p_ in zip(segs, arc):
+                assert g["text"] == p_["text"][lang], (lang, g["text"], p_["text"][lang])
+                assert len(re.findall(r"[.!?](?=\s|$)", g["text"])) == 1, ("one flowing sentence", g["text"])
+                assert {c["value"] for c in g["cues"] if c["name"] == "step"} == set(p_["steps"]), (g["cues"], p_["steps"])
+                assert not label.search(g["text"]) and not re.match(r"\s*(first|second|third|fourth|primero|segundo)\b", g["text"], re.IGNORECASE), g["text"]
+                assert all(m in g["text"] for m in p_["marks"][lang]), ("every name and figure set in weight is in the sentence", p_["marks"][lang], g["text"])
+            assert segs[0]["text"].startswith(begins) and (ends in segs[-1]["text"]), (lang, segs[0]["text"][:60], segs[-1]["text"][:60])
+            assert not re.search(r"\d\s*(%|percent|por ciento)", " ".join(g["text"] for g in segs)), "no loading percentage is spoken or printed in the chain"
+            assert not label.search(" ".join(chain["lines"][lang]) + chain["headline"][lang]), (chain["lines"][lang], chain["headline"][lang])
+            assert all(len(x) <= 90 and not x.endswith("…") for x in chain["lines"][lang]), chain["lines"][lang]
+        assert "(estimate)" in arc[0]["text"]["en"] and "(estimates)" in arc[-1]["text"]["en"], (arc[0]["text"]["en"], arc[-1]["text"]["en"])
         fix = next(s for s in d["slides"] if s["id"] == "fix")
         for o in (o for o in fix["options"] if o["role"] in ("lead", "alt")):
             for lang in ("en", "es"):
@@ -181,10 +185,6 @@ def register(ctx):
             for lang in ("en", "es"):
                 w_ = o["plain"][lang]["what"]
                 assert not re.search(r"(\b[\d,.]+ MW [^;]+?) (?:and|y) \1\b", w_), (lang, w_)
-        if rest:  # the slide's own line for the rest is short enough to fit, never cut mid-word
-            for lang, lead in (("en", "Then "), ("es", "Luego ")):
-                last = chain["lines"][lang][-1]
-                assert last.startswith(lead) and not last.endswith("…") and len(last) <= 90, (lang, last)
         hosp = next((s for s in d["slides"] if s["id"] == "hospitals"), None)
         if hosp:  # REVIEW-1 (e): an assumption, never stated as a fact
             text = " ".join(g["text"] for lang in ("en", "es") for g in hosp["narration"][lang])
@@ -209,23 +209,62 @@ def register(ctx):
         d3 = ctx.request("POST", "/api/briefing/deck", {**fresh, "ai": False})
         assert isinstance(d3.get("agentic"), dict) and d3["agentic"].get("status") in ("running", "off", "done", "error"), d3.get("agentic")
 
-    def test_storm_rest_and_short_lines():
-        """PLAYS, SUMMARIZED after a storm: when the storm has already hit everyone the later failures reach, the rest is
-        "no one beyond those the storm already hit" (never "no one else hit" after a storm's toll); the slide's own line
-        for the rest is a short form that fits (never cut mid-word)."""
+    def test_storm_chain_arc():
+        """THE CHAIN IN FOUR PARTS after a storm: the storm's own damage opens the first part (and is named there, once), at
+        most four parts, none labeled, every step still cued, the running totals ending on the panel's People hit."""
         d = ctx.request("POST", "/api/briefing/deck", {"preset": "fl-cat5-statewide", "ai": False})
         chain = next(s for s in d["slides"] if s["id"] == "chain")
-        rest = chain.get("plays_rest")
-        if rest:
-            assert rest.get("storm_hit", 0) > 0, rest
-            tail = [g["text"] for g in chain["narration"]["en"] if g["role"] == "analyst" and g["text"].startswith("Beyond those")]
-            assert tail, [g["text"][:60] for g in chain["narration"]["en"]]
-            if not rest["people"]:
-                assert "storm already hit" in tail[0], tail[0]
-                assert "no one else hit" not in tail[0], tail[0]
-            for lang, lead in (("en", "Then "), ("es", "Luego ")):
-                last = chain["lines"][lang][-1]
-                assert last.startswith(lead) and not last.endswith("…") and len(last) <= 90, (lang, last)
+        arc = chain["arc"]
+        assert 1 <= len(arc) <= 4 and 0 in arc[0]["steps"], [(p_["kind"], p_["steps"]) for p_ in arc]
+        assert "storm" in arc[0]["text"]["en"].lower() and "tormenta" in arc[0]["text"]["es"].lower(), arc[0]["text"]
+        assert sum(p_["people_delta"] for p_ in arc) == arc[-1]["people_total"], [p_["people_delta"] for p_ in arc]
+        for lang in ("en", "es"):
+            assert len(chain["narration"][lang]) == len(arc)
+            assert not re.search(r"\b(play|jugada)\s*\d", str(chain["narration"][lang]) + str(chain["lines"][lang]), re.IGNORECASE)
+            assert all(len(x) <= 90 and not x.endswith("…") for x in chain["lines"][lang]), chain["lines"][lang]
+
+    def test_chain_arc_checks():
+        """Gemini's version of a chain part is one plain sentence in its own language that keeps the part's names and figures:
+        a labeled, two-sentence, wrong-figure, mixed-language or field-name-leaking rewrite is refused; a light rephrase passes."""
+        import os
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        os.environ.setdefault("JWT_SECRET", "smoke-check-only-not-a-secret")
+        try:
+            import bulletin as B
+        except ImportError as e:  # a deployed run without the backend folder on the path
+            raise AssertionError(f"bulletin.py not importable here: {e}") from e
+        rep = ctx.request("POST", "/api/briefing", case)
+        comp = B.compose(rep, "full", None)
+        w = comp["writer"]
+        arc = w._arc
+        assert len(arc) == min(4, hero["cascade_steps"]), len(arc)
+        good = {lang: B.chain_arc.sentence(w, arc[0], lang)[0] for lang in ("en", "es")}
+        for lang in ("en", "es"):
+            ok, why, _ = B.validate_ai(w, "chain#1", lang, good[lang], 600, good[lang])
+            assert ok, (lang, why, good[lang])
+        en = good["en"]
+        rephrase = en.replace("It begins at", "It starts at").replace(", causing damage that hits", ", and the damage hits")
+        ok, why, _ = B.validate_ai(w, "chain#1", "en", rephrase, 600, en)
+        assert ok, ("a light rephrase passes", why, rephrase)
+        bad = {
+            "a label": "Play 1: " + en,
+            "two sentences": en[:-1] + ". It spreads.",
+            "an ordinal": "First, " + en[0].lower() + en[1:],
+            "another part's figure": en.replace(B.people_round(arc[0]["people_delta"], "en"), B.people_round(arc[-1]["people_total"] + 1234567, "en")),
+            "a leaked field name": en.replace("causing damage", "causing expectedcost damage"),
+            "an underscore": en.replace("causing", "causing_damage"),
+        }
+        for what, text in bad.items():
+            ok, why, _ = B.validate_ai(w, "chain#1", "en", text, 600, en)
+            assert not ok, (what, text)
+        ok, why, _ = B.validate_ai(w, "chain#1", "es", en, 600, good["es"])
+        assert not ok, "English text for the Spanish slot"
+        # the ai slots: one per part per language, each with the part's own template
+        slots = [x for x in B.ai_slots(comp) if x["id"].startswith("chain#")]
+        assert len(slots) == 2 * len(arc) and {x["id"] for x in slots} == {f"chain#{k}" for k in range(1, len(arc) + 1)}, [x["id"] for x in slots]
 
     def test_hero_fix_holds():
         d = state["deck"]
@@ -412,9 +451,10 @@ def register(ctx):
         ctx.request("POST", "/api/bulletin", {**case, "mw": 0}, expect=422)
 
     ctx.check("briefing deck (hero, templates): slide order, SIMULATION open/close EN+ES, budgets, cues for every step", test_hero_deck)
-    ctx.check("briefing deck: several verified solutions, full size first, each with what you have to do; the play-by-play has its plays", test_solutions_and_play_by_play)
-    ctx.check("briefing deck: the play-by-play names only the big plays and sums up the rest; loadings past 300 % in words; every option in five plain lines", test_plays_summarized_plain_options)
-    ctx.check("briefing deck: after a storm that already hit everyone, the rest says so; the rest's slide line fits", test_storm_rest_and_short_lines)
+    ctx.check("briefing deck: several verified solutions, full size first, each with what you have to do; the chain has its four parts", test_solutions_and_play_by_play)
+    ctx.check("briefing deck: the chain is four unlabeled sentences over the whole cascade (fewer when short), every step cued; every option in five plain lines", test_chain_four_parts_plain_options)
+    ctx.check("briefing deck: after a storm the chain's first part names the storm, never a numbered play; Gemini's chain sentences are checked part by part", test_storm_chain_arc)
+    ctx.check("briefing deck: a chain part written by Gemini keeps its names and figures, one plain sentence, its own language", test_chain_arc_checks)
     ctx.check("briefing deck: a prefetch with propose=false leaves the AI proposer for the stage's own request", test_prefetch_waits_to_propose)
     ctx.check("briefing deck: the hero is preventable and the deck's best fix really stops the cascade", test_hero_fix_holds)
     ctx.check("briefing deck: one set of numbers (people hit / still without power, 'about N hours', high-end cost) and the best fix the panel flips to", test_one_set_of_numbers)

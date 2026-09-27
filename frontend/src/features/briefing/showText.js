@@ -1,5 +1,5 @@
-// The play-by-play show's own words, EN and ES (the deck's words come from the backend; these label the
-// animated parts: the scoreboard, the play cards, the options, the ticker). Every figure is an estimate on
+// The show's own words, EN and ES (the deck's words come from the backend; these label the
+// animated parts: the chain, the options, the ticker). Every figure is an estimate on
 // a synthetic grid model, and the words say so.
 
 export const S = {
@@ -13,8 +13,8 @@ export const S = {
     hoursShort: 'h',
     minShort: 'min',
     range: 'Range',
-    playByPlay: 'Play-by-play',
-    play: 'Play',
+    playByPlay: 'Commentary',
+    spreadKicker: 'How it spread',
     of: 'of',
     transformer: 'Transformer',
     line: 'Line',
@@ -31,8 +31,6 @@ export const S = {
     step: 'Step',
     farPast: 'far past its limit',
     farShort: '>300%',
-    restHead: 'Beyond those',
-    restCard: (n) => `${n} more`,
     infra: 'Crucial infrastructure',
     infraDown: 'down',
     hospitalsDark: (n) => `${n} ${n === 1 ? 'hospital' : 'hospitals'} in dark areas (assumed on backup)`,
@@ -115,8 +113,8 @@ export const S = {
     hoursShort: 'h',
     minShort: 'min',
     range: 'Rango',
-    playByPlay: 'Jugada a jugada',
-    play: 'Jugada',
+    playByPlay: 'Comentario',
+    spreadKicker: 'Cómo se propagó',
     of: 'de',
     transformer: 'Transformador',
     line: 'Línea',
@@ -133,8 +131,6 @@ export const S = {
     step: 'Paso',
     farPast: 'muy por encima de su límite',
     farShort: '>300%',
-    restHead: 'Además',
-    restCard: (n) => `${n} más`,
     infra: 'Infraestructura crítica',
     infraDown: 'caída',
     hospitalsDark: (n) => `${n} ${n === 1 ? 'hospital' : 'hospitales'} en zonas sin luz (se supone que con respaldo)`,

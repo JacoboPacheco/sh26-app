@@ -1,231 +1,179 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
-import { Gauge, Kicker } from './ShowBits'
-import { playsOf, restOf, restParts, restSay, scoreAt } from './showDeck'
+import { chainLayer } from './beatMaps'
+import { SETTLE_MS, arcOf, finalHit, finalSnapshot, runsOf, snapshotAt, startSnapshot, stepsIn, syntheticTimeline, timelineOf } from './chainModel'
+import { Kicker } from './ShowBits'
 import { S } from './showText'
-import { useTween } from './useShowClock'
+import './chain.css'
 
-const SNAP_MS = 350 // where a play's failure lands inside its tier (shell/cascadeSchedule.js)
-const PLAY_GAP_MS = 1500 // without the map's replay clock: one play every so often
-
-// When play `p` lands, in ms from the replay's start: the map's schedule when it runs, else evenly spaced.
-function landAt(fx, p, i, count) {
-  const sch = fx?.schedule
-  if (!sch?.tiers?.length) return null
-  const tier = sch.tiers.find((x) => x.n === p.n)
-  if (tier) return tier.t0 + SNAP_MS * (sch.scale || 1)
-  return ((i + 0.6) / Math.max(1, count)) * sch.total
+// THE CHAIN IN FOUR PARTS (user, Sat 23:37-23:48): the whole cascade as one arc, in order, in view together: where it
+// begins and what it extends into, where the chains cause damage, the people the damage hits on its way outward, where
+// it finally reaches and the result. Each part is ONE flowing sentence (backend/chain_arc.py, English and Spanish,
+// template or Gemini's), never labeled or numbered, with its names, places and numbers set in heavier weight. The parts
+// fill in continuously against the map's replay clock (a thin rail runs down them; a sentence writes itself in as its
+// part lands; the one being played is lit and the others settle), the counter climbs smoothly through all four, and the
+// map lights the lit part's failed elements and the towns it hit. A deck without an arc (an older server) shows the
+// slide's own lines.
+export default function ShowChain(props) {
+  const arc = arcOf(props.slide)
+  return arc ? <ChainArc {...props} arc={arc} /> : <ChainPlain {...props} />
 }
 
-// The chain as a broadcast. PLAYS, SUMMARIZED (user, Sat 20:29): the map replays every step and the step counter and the
-// scoreboard keep the totals as each lands, but only the BIG plays (the first failure, the ones that hit the most people
-// or split the grid: about three) get a card, a banner and a caption, each with its line and its toll; once the last
-// step has landed, ONE card sums up the rest ("6 more lines tripped, hitting another 47,565 people"). The plays land on
-// the map's own clock (its replay schedule) or on the narration's step cues, whichever is ahead, so the cards and the
-// map never disagree.
-export default function ShowChain({ slide, report, lang, animate, stage, cueStep }) {
+function ChainPlain({ slide, lang }) {
+  const t = S[lang]
+  const headline = slide.headline?.[lang] || slide.headline?.en || ''
+  const lines = slide.lines?.[lang] || slide.lines?.en || []
+  return (
+    <>
+      <Kicker tone="red">{t.spreadKicker}</Kicker>
+      <h2 className="rs-headline" id={`rs-h-${slide.id}`}>
+        {headline}
+      </h2>
+      <ul className="rs-lines">
+        {lines.map((x) => (
+          <li key={x}>
+            <span>{x}</span>
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+function ChainArc({ slide, arc, lang, animate, stage, cueStep }) {
   const t = S[lang]
   const o = useOverload()
-  const cascade = o.cascade
-  const plays = useMemo(() => playsOf(report, slide, cascade), [report, slide, cascade])
-  const rest = useMemo(() => restOf(slide, plays), [slide, plays])
-  const [shown, setShown] = useState(animate ? 0 : plays.length)
+  const final = finalHit(slide, arc)
+  const total = stepsIn(arc)
   const fxRef = useRef(null)
   const cueRef = useRef(0)
   useEffect(() => {
     fxRef.current = o.fx
     cueRef.current = cueStep || 0
   })
+  const oRef = useRef(o)
+  useEffect(() => {
+    oRef.current = o
+  })
+  const snap = useChainClock(arc, animate, fxRef, cueRef, final)
   const headline = slide.headline?.[lang] || slide.headline?.en || ''
 
-  // which plays have landed (every step: the map, the step counter and the scoreboard follow them all)
+  // the map lights the part being played: its failed elements and the towns it hit (nothing once the replay is over)
+  const active = animate ? snap.active : -1
   useEffect(() => {
-    if (!animate) return undefined
-    const t0 = performance.now()
-    let raf = 0
-    const tick = (now) => {
-      const fx = fxRef.current
-      let n = 0
-      if (fx?.schedule?.tiers?.length) {
-        const el = now - fx.startedAt
-        n = plays.filter((p, i) => (landAt(fx, p, i, plays.length) ?? Infinity) <= el).length
-      } else n = Math.max(0, Math.floor((now - t0 - 900) / PLAY_GAP_MS) + 1)
-      const viaCue = plays.filter((p) => p.n <= cueRef.current).length
-      n = Math.min(plays.length, Math.max(n, viaCue))
-      setShown((s) => (s >= n ? s : n))
-      if (n < plays.length) raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [animate, plays])
-
-  // the scoreboard follows every step; the banner and the caption only the big plays, then the rest in one line
-  const score = scoreAt(plays, shown)
-  const landed = plays.slice(0, shown)
-  const bigLanded = landed.filter((p) => p.big)
-  const lastBig = bigLanded[bigLanded.length - 1] || null
-  const allIn = shown >= plays.length
+    if (!stage) return
+    if (active < 0) stage.layer(null)
+    else stage.layer(chainLayer(oRef.current, arc[active], `chain-${active}`))
+  }, [active, arc, stage])
+  useEffect(() => () => stage?.layer(null), [stage])
+  // the caption: the sentence being played, when the narration isn't speaking it
   useEffect(() => {
-    stage.setPlay(shown)
-  }, [shown, stage])
-  useEffect(() => {
-    if (!animate || !lastBig) return
-    stage.callout(calloutFor(lastBig, t, lang, lastBig === plays.find((p) => p.big)))
-    stage.say({ key: `play-${lastBig.n}`, text: lastBig.say[lang] }) // shown whenever the narration isn't speaking
-  }, [lastBig, animate, plays, lang, stage, t])
-  useEffect(() => {
-    if (!animate || !allIn || !rest) return
-    const text = restSay(rest, lang)
-    stage.callout({ key: 'rest', tone: 'amber', head: t.restHead, text: text.replace(/^(Beyond those|Además), /, '').replace(/\.$/, ''), sub: '' })
-    stage.say({ key: 'play-rest', text })
-  }, [allIn, rest, animate, lang, stage, t])
+    if (!animate || !stage || active < 0) return
+    stage.say({ key: `chain-${active}`, text: arc[active].text?.[lang] || '' })
+  }, [active, animate, arc, lang, stage])
   useEffect(
     () => () => {
-      stage.callout(null)
-      stage.say(null)
+      stage?.say(null)
+      stage?.callout(null)
     },
     [stage],
   )
 
-  const newest = bigLanded.length - 1
   return (
     <>
       <div className="sh-headrow">
-        <Kicker tone="red">{t.playByPlay}</Kicker>
-        <span className="sh-count">
-          {t.step} {Math.max(shown, animate ? 0 : plays.length)} {t.of} {plays.length}
-        </span>
-      </div>
-      <div className="sh-drive" aria-hidden="true">
-        {plays.map((p, i) => (
-          <i key={p.n} className={`${i < shown ? (i === shown - 1 && animate ? 'on new' : 'on') : ''}${p.big ? ' big' : ''}`} />
-        ))}
+        <Kicker tone="red">{t.spreadKicker}</Kicker>
+        {total > 0 && (
+          <span className="sh-count" aria-hidden="true">
+            {t.step} {Math.min(total, snap.step)} {t.of} {total}
+          </span>
+        )}
       </div>
       <h2 className="rs-headline sh-headline--small" id={`rs-h-${slide.id}`}>
         {headline}
       </h2>
 
-      <dl className="sh-board" aria-label={t.scoreboard}>
-        <Tile label={t.scPeople} value={score.people} animate={animate} tone="red" />
-        <Tile label={t.scMw} value={Math.round(score.mw)} animate={animate} />
-        <Tile label={t.scLines} value={score.lines} animate={animate} />
-        <Tile label={t.scHospitals} value={score.hospitals} animate={animate} tone={score.hospitals ? 'red' : ''} />
-      </dl>
+      <div className="ch-total">
+        <span className="ch-total__label">{t.scPeople}</span>
+        <b className="ch-total__n" aria-hidden="true">
+          {fmt(Math.round(snap.shown))}
+        </b>
+        <span className="sh-sr">{fmt(final)}</span>
+      </div>
 
-      <ol className="sh-feed" aria-label={t.playByPlay}>
-        {allIn && rest && <RestCard rest={rest} lang={lang} animate={animate} />}
-        {bigLanded
-          .map((p, i) => ({ p, age: bigLanded.length - 1 - i + (allIn && rest ? 1 : 0) }))
-          .reverse()
-          .map(({ p, age }) => (
-            <PlayCard key={p.n} p={p} age={age} lang={lang} animate={animate && age === 0 && newest >= 0} />
-          ))}
-        {bigLanded.length === 0 && <li className="sh-feed__wait">{t.live}…</li>}
+      <ol className={`ch-parts${active < 0 && snap.rows.every((r) => r.landed) ? ' ch-parts--settled' : ''}`} aria-label={t.spreadKicker}>
+        {arc.map((p, i) => {
+          const row = snap.rows[i]
+          const cls = row.landed ? (i === active ? ' is-active' : ' is-landed') : ' is-pending'
+          return (
+            <li key={p.k} className={`ch-part${cls}`} style={{ '--f': row.f.toFixed(4), '--r': row.r.toFixed(4) }}>
+              <span className="ch-rail" aria-hidden="true">
+                <i />
+              </span>
+              <p className="ch-part__text">
+                {runsOf(p.text?.[lang] || p.text?.en || '', p.marks?.[lang] || p.marks?.en).map((x, j) => (x.b ? <b key={j}>{x.t}</b> : <span key={j}>{x.t}</span>))}
+              </p>
+              <span className="ch-part__skel" aria-hidden="true">
+                <i />
+                <i />
+              </span>
+            </li>
+          )
+        })}
       </ol>
     </>
   )
 }
 
-function Tile({ label, value, animate, tone }) {
-  const v = useTween(value, { ms: 650, active: animate })
-  return (
-    <div className={`sh-tile${tone ? ` sh-tile--${tone}` : ''}`}>
-      <dt>{label}</dt>
-      <dd key={animate ? value : 'still'} className={animate && value ? 'sh-jolt' : undefined}>
-        {fmt(v)}
-      </dd>
-    </div>
-  )
-}
-
-function PlayCard({ p, age, lang, animate }) {
-  const t = S[lang]
-  const cls = age === 0 ? 'new' : age === 1 ? 'recent' : 'old'
-  const kindLabel = p.kind === 'transformer' ? t.transformer : p.kind === 'storm' ? t.storm : t.line
-  const pct = p.loading_pct != null ? Math.round(p.loading_pct) : null
-  // REVIEW-1 (c): past ~300 % the figure is a re-solve artefact: words, and a full gauge
-  const pctText = pct == null ? null : p.far ? t.farShort : `${fmt(pct)}%`
-  return (
-    <li className={`sh-play sh-play--${p.kind} sh-play--${cls}${animate ? ' sh-play--live' : ''}`}>
-      <div className="sh-play__in">
-        <p className="sh-play__row">
-          <span className="sh-play__tag">
-            {p.kind !== 'storm' ? `${t.play} ${p.n} · ` : ''}
-            {kindLabel}
-          </span>
-          <span className="sh-play__label">{p.kind === 'storm' ? `${fmt(p.count)} ${lang === 'es' ? 'líneas cortadas' : 'lines cut'}` : p.labels[lang] || p.label}</span>
-          {pctText && <span className="sh-play__pct">{pctText}</span>}
-        </p>
-        {(p.people_hit > 0 || p.hospitals > 0 || p.dark > 0) && (
-          <div className="sh-play__more sh-play__more--hit">
-            <p className="sh-play__hit">
-              {p.people_hit > 0 && (
-                <strong>
-                  +{fmt(p.people_hit)} {t.hit}
-                </strong>
-              )}
-              {p.dark > 0 && <span>{t.subsDark(p.dark)}</span>}
-              {p.hospitals > 0 && <span>{t.hospitalsDark(p.hospitals)}</span>}
-            </p>
-          </div>
-        )}
-        <div className="sh-play__more">
-          <div>
-            {pct != null && (
-              <p className="sh-play__gauge">
-                <Gauge pct={p.far ? 300 : pct} />
-                <span>{p.far ? t.farPast : `${fmt(pct)}% ${t.ofItsLimit}`}</span>
-              </p>
-            )}
-            <p className="sh-play__say">{p.say[lang]}</p>
-          </div>
-        </div>
-      </div>
-    </li>
-  )
-}
-
-// the rest of the chain, in one card: how many more lines and transformers tripped, and who they hit
-function RestCard({ rest, lang, animate }) {
-  const t = S[lang]
-  // "6 more lines tripped" / "5 more lines and 1 transformer tripped" / "Se dispararon 6 líneas más"
-  const { what, none } = restParts(rest, lang)
-  return (
-    <li className={`sh-play sh-play--rest sh-play--new${animate ? ' sh-play--live' : ''}`}>
-      <div className="sh-play__in">
-        <p className="sh-play__row">
-          <span className="sh-play__tag">{t.restHead}</span>
-          <span className="sh-play__label">{what}</span>
-        </p>
-        <div className="sh-play__more sh-play__more--hit">
-          <p className="sh-play__hit">
-            {rest.people > 0 ? (
-              <strong>
-                +{fmt(rest.people)} {t.hit}
-              </strong>
-            ) : (
-              <span>{none.charAt(0).toUpperCase() + none.slice(1)}</span>
-            )}
-          </p>
-        </div>
-      </div>
-    </li>
-  )
-}
-
-// the banner over the map when a big play lands: the crucial piece of infrastructure that fell, and who it hit
-function calloutFor(p, t, lang, first) {
-  const label = p.labels[lang] || p.label
-  const pct = p.loading_pct == null ? '' : p.far ? ` · ${t.farPast}` : ` · ${fmt(Math.round(p.loading_pct))}% ${t.ofItsLimit}`
-  const hit = [
-    p.people_hit > 0 ? `${p.areas[0] ? `${p.areas[0]} · ` : ''}+${fmt(p.people_hit)} ${t.hit}` : null,
-    p.dark > 0 ? t.subsDark(p.dark) : null,
-    p.hospitals > 0 ? t.hospitalsDark(p.hospitals) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  if (p.kind === 'storm') return { key: `c${p.n}`, tone: 'amber', head: t.calloutStorm, text: `${fmt(p.count)} ${lang === 'es' ? 'líneas cortadas' : 'lines cut'}`, sub: hit }
-  const head = p.kind === 'transformer' ? t.calloutTransformer : t.calloutLine
-  return { key: `c${p.n}`, tone: p.kind === 'transformer' || first || p.people_hit > 0 ? 'red' : 'amber', head, text: `${label}${pct}`, sub: hit }
+// The slide's clock. While the blast plays on the map it reads the map's own replay schedule; without one (the map
+// isn't playing, or reduced motion shows the finished picture) it walks the parts on a steady clock. The counter
+// chases its target with a time constant, so it climbs in many small steps through the whole run, never in a jump.
+function useChainClock(arc, animate, fxRef, cueRef, final) {
+  const still = useMemo(() => finalSnapshot(arc, final), [arc, final])
+  const [snap, setSnap] = useState(() => startSnapshot(arc))
+  useEffect(() => {
+    if (!animate) return undefined
+    const t0 = performance.now()
+    let raf = 0
+    let last = t0
+    let shown = 0
+    let tl = null
+    let tlFx = null
+    let fxSeen = false
+    let synthetic = null
+    let lastKey = ''
+    const tick = (now) => {
+      const fx = fxRef.current
+      if (fx?.schedule?.tiers?.length) {
+        fxSeen = true
+        if (fx !== tlFx) {
+          tlFx = fx
+          tl = timelineOf(fx, arc)
+        }
+      }
+      let el
+      if (fxSeen && tl) el = fx ? now - fx.startedAt : Infinity // the replay has ended (or was paused): the finished picture
+      else {
+        synthetic = synthetic || syntheticTimeline(arc)
+        tl = synthetic
+        el = now - t0
+      }
+      const s = snapshotAt(tl, arc, el, { cueStep: cueRef.current, final })
+      const dt = Math.min(120, now - last)
+      last = now
+      shown += (s.hit - shown) * (1 - Math.exp(-dt / SETTLE_MS))
+      if (Math.abs(s.hit - shown) < 0.6) shown = s.hit
+      // render only when something on screen changed (the finished picture, with a voice still reading, costs nothing)
+      const key = `${s.active}|${s.step}|${Math.round(shown)}|${s.rows.map((r) => `${Math.round(r.f * 500)}.${Math.round(r.r * 100)}`).join(',')}`
+      if (key !== lastKey) {
+        lastKey = key
+        setSnap({ ...s, shown })
+      }
+      if (!(s.done && shown === s.hit && !cueRef.current)) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [animate, arc, final, fxRef, cueRef, still])
+  return animate ? snap : still
 }
