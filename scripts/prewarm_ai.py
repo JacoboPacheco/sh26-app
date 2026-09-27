@@ -228,8 +228,9 @@ def main():
 
     # Let a Gemini operator fight it (grid_operator.py): the Fort Myers hero, fought with no operator, the engine's operator
     # and Gemini's. Cached in memory (six hours) and in the answer cache call by call: rerun after a backend restart.
-    # Two sizes: the hero's 1,500 MW and 1,200 MW (a job: POST, then poll to the end).
-    for mw in (1500, 1200):
+    # Two sizes: the hero's 1,500 MW (where Gemini can honestly tie doing nothing) and 1,000 MW (where it visibly helps: the
+    # judges' guide and the demo point there). A job: POST, then poll to the end.
+    for mw in (1500, 1000):
         t0 = time.time()
         j, dt, code = call("POST", "/api/operator/run", {"lat": 26.6406, "lon": -81.8723, "mw": mw})
         while code == 200 and j and j.get("status") == "running" and time.time() - t0 < 180:
