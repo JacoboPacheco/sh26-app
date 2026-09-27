@@ -536,31 +536,12 @@
   accent-color: var(--hr-ok);
 }
 
-/* the slider and, riding under its handle, the amount it buys (the handle is ~16 px: its centre runs from 8 px
-   to the track's width minus 8 px); the cap sits at the slider's end */
-.st-bud__track {
-  position: relative;
-  display: inline-block;
-  padding-bottom: 1.15rem;
-}
 .st-bud__v {
-  position: absolute;
-  top: calc(100% - 1.05rem);
-  left: calc(8px + (100% - 16px) * var(--st-bud-f, 0));
-  /* centred on the handle, drawn inward near the ends so it never hangs past the slider */
-  transform: translateX(calc(-50% + (0.5 - var(--st-bud-f, 0)) * 50%));
-  font-size: 0.82rem;
+  min-width: 7.8rem;
+  font-size: 0.98rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
-  white-space: nowrap;
-  pointer-events: none;
-}
-.st-bud__cap {
-  font-size: 0.8rem;
-  color: var(--ink-2);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 
 .st-controls .btn {
@@ -1560,12 +1541,12 @@
     gap: 10px;
   }
 
-  .st-bud input,
-  .st-bud__track {
+  .st-bud input {
     width: 100%;
   }
 
-  .st-bud__cap {
+  .st-bud__v {
+    min-width: 0;
     text-align: right;
   }
 
