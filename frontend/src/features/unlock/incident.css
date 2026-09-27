@@ -1272,3 +1272,53 @@ p.inc-wp__fixed {
   font-size: 0.8125rem;
   color: var(--ink-2);
 }
+
+/* ------------------------------------------------------------------ Fix it, moved here: the smallest set of upgrades */
+.inc-min__sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.inc-min__els {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inc-min__els li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 5px 0;
+  border-top: 1px solid color-mix(in srgb, var(--glass-edge) 60%, transparent);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.inc-min__name {
+  color: var(--ink);
+}
+
+.inc-min__mva b {
+  color: var(--hr-ok);
+  font-weight: 600;
+}
+
+.inc-min__cost {
+  color: var(--ink-2);
+  text-align: right;
+}
+
+/* Fix it's other sites: the screening table in the rail */
+.inc-rail .fix-other .fix-table {
+  width: 100%;
+}

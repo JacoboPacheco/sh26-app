@@ -9,6 +9,9 @@
 //                  built or changed element by element (from -> to MVA, the kind of work, length, its own price), the
 //                  cost range with its source, the typical time to build (leadtimes.py), what it prevents, how the
 //                  engine checked it, and who proposed it (the engine, or Gemini and then the engine)
+//   FIX IT ....... what the Fix it panel on Watch it fail used to answer (moved here, user Sat 22:30): the engine's
+//                  smallest set of upgrades with Gemini's cheapest verified plan beside it, and the other sites that
+//                  take this size with no upgrades (features/fix/OtherSites.jsx), each opening on Watch it fail
 //   THE STATE .... one link down to the statewide answer, the page's normal view
 // Everything is the report the briefing already computed for this exact case: nothing is re-run to open it.
 // Estimates on a synthetic grid model, never a real utility's network.
@@ -22,6 +25,7 @@ import { applyBase, bodyFor } from '../briefing/stage'
 import { LABEL } from '../cost/figures'
 import { money, moneyParts, moneyRange } from '../cost/money'
 import { applyCase, describeFix, fixWords, runWithFix, useBestFix } from '../fix/flipCase'
+import OtherSites from '../fix/OtherSites'
 import { closeIncident, incidentHash, markOnScreen, markShown, retryIncident, selectOption, setAim, takeReport, useLeadItems } from './incident'
 import {
   WORK,
@@ -158,6 +162,15 @@ export default function IncidentSolution({ inc }) {
     runWithFix(o, fx, { base, report: r })
   }
 
+  // Fix it's other sites: the same size at another town, on Watch it fail (the same hour; no storm, no more campuses, no
+  // upgrades: the case the screen measured)
+  const toSite = (s) => {
+    closeIncident()
+    dropHash()
+    applyCase(o, { region: inc.region, lat: s.lat, lon: s.lon, mw: Number(inc.body.mw), load_factor: inc.body.load_factor ?? 1, trip: [], upgrades: {}, sites: [], firm: !!inc.body.firm })
+    o.setMode('campus')
+  }
+
   if (!here || inc.status === 'loading') {
     return (
       <>
@@ -240,6 +253,15 @@ export default function IncidentSolution({ inc }) {
             )}
             <AgentLine ag={ag} />
           </section>
+          <SmallestFix r={r} o={o} lead={lead} options={options} onTry={tryIt} />
+          {inc.body.mw > 0 && (
+            <section className="inc-sec" aria-labelledby="inc-sites-h">
+              <h2 className="inc-h" id="inc-sites-h">
+                Other sites that take {mwText(Number(inc.body.mw))} with no upgrades
+              </h2>
+              <OtherSites mw={Number(inc.body.mw)} loadFactor={inc.body.load_factor ?? 1} region={inc.region} onPick={toSite} />
+            </section>
+          )}
           <section className="inc-sec" aria-label="How we know">
             <HowWeKnow body={inc.body} />
           </section>
@@ -960,6 +982,79 @@ function Element({ e, top, lead }) {
         </p>
       </div>
     </li>
+  )
+}
+
+// ------------------------------------------------------------------ Fix it: the smallest set of upgrades
+// The Fix it search (backend/fixit.py greedy_fix: raise the most overloaded line or transformer in 50 MVA steps,
+// re-solve, repeat until none is over), run by the briefing on this exact case (its "upgrade" family) and priced there
+// element by element: before -> after, each element's cost, the typical time to build. Beside it, Gemini's cheapest
+// verified full-size plan, re-run by the engine (what "Let Gemini fix it" compared, in one line).
+const FULL_PCT = 99.5
+function SmallestFix({ r, o, lead, options, onTry }) {
+  const fixes = r.fixes || []
+  const i = fixes.findIndex((f) => f.family === 'upgrade' && (f.verdict === 'holds' || f.verdict === 'partly'))
+  const f = i >= 0 ? fixes[i] : null
+  const els = useMemo(() => (f ? elementsOf(f, o.branchById, o.subName) : []), [f, o.branchById, o.subName])
+  if (!f || !els.length) return null
+  const sc = scopeOf(f)
+  const time = leadOf({ kind: 'targeted', fix: f }, els, lead)
+  const cost = f.cost?.high > 0 ? moneyRange(f.cost.low, f.cost.high) : null
+  const gem = fixes
+    .filter((x) => (x.by === 'gemini' || x.family === 'agentic') && x.verdict === 'holds' && (x.kept_pct ?? 100) >= FULL_PCT && x.cost?.high > 0)
+    .sort((a, b) => a.cost.high - b.cost.high)[0]
+  const listed = options.some((op) => op.variants.some((v) => v.i === i))
+  return (
+    <section className="inc-sec inc-min" aria-labelledby="inc-min-h">
+      <div className="inc-sec__head">
+        <h2 className="inc-h" id="inc-min-h">
+          The smallest set of upgrades
+        </h2>
+        <p className="inc-quiet">
+          The engine’s own search: raise the most overloaded line or transformer in 50 MVA steps, re-solve, and repeat until none is over its rating
+          {f.verdict === 'partly' ? '. Here it eases the overloads but doesn’t hold on its own.' : '.'}
+        </p>
+      </div>
+      <p className="inc-min__sum">
+        {sc ? <b>{scopeText(sc)}</b> : null}
+        {cost ? <span>{cost}</span> : null}
+        {time ? <span>{yearsText(time)} to build</span> : null}
+        <AiBadge by="engine" />
+      </p>
+      <ol className="inc-min__els">
+        {els.map((e) => (
+          <li key={e.id} onMouseEnter={() => setAim(e.id)} onMouseLeave={() => setAim(null)}>
+            <span className="inc-min__name">
+              {e.name}
+              {e.kv ? <span className="inc-el__tag"> · {fmt(e.kv)} kV</span> : null}
+            </span>
+            <span className="inc-min__mva">
+              {fmt(e.oldMva)} → <b>{fmt(e.newMva)} MVA</b>
+            </span>
+            {e.high != null && <span className="inc-min__cost">{moneyRange(e.low, e.high)}</span>}
+          </li>
+        ))}
+      </ol>
+      {gem && f.cost?.high > 0 && (
+        <p className="inc-note">
+          <AiBadge by="gemini" verified /> Gemini’s cheapest verified plan at full size costs up to <b>{money(gem.cost.high)}</b>, against the engine’s{' '}
+          <b>{money(f.cost.high)}</b>
+          {gem.cost.high < f.cost.high - 0.5 ? ': Gemini’s is cheaper' : f.cost.high < gem.cost.high - 0.5 ? ': the engine’s is cheaper' : ': they cost the same'}. Both were re-run by the engine on this case; the cheapest leads “The targeted upgrade” above.
+        </p>
+      )}
+      <div className="inc-try">
+        {listed && (
+          <Button variant="secondary" onClick={() => selectOption(i)}>
+            Show it on the map
+          </Button>
+        )}
+        {f.apply && (
+          <Button variant="secondary" onClick={() => onTry({ fix: f })}>
+            Run the incident again with this
+          </Button>
+        )}
+      </div>
+    </section>
   )
 }
 

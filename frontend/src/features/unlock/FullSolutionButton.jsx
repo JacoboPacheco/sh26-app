@@ -1,8 +1,9 @@
-// The way in to the incident solution stage (IncidentSolution.jsx), for Watch it fail's results column and the
-// presentation's solutions beat: "The full solution" for the incident on the map, one click, no waiting (the stage
-// reads the briefing report already fetched for this case). `body` is the briefing's case (features/briefing/stage.js
-// bodyFor); without it, the map's own (the cascade on screen, else the case). `onOpen` runs first (the deck closes
-// itself). Hidden on the national map and for a plant outage (the briefing body can't carry the plants).
+// The way in to the incident solution stage (IncidentSolution.jsx), for Watch it fail's results column ("Fix it in
+// Strengthen": right after a drop that overloads, before any cascade, and again once the cascade has played; Fix it
+// itself moved there, user Sat 22:30) and the presentation's solutions beat ("The full solution"). One click: the stage
+// reads the briefing report for this case, fetched then if no one fetched it yet. `body` is the briefing's case
+// (features/briefing/stage.js bodyFor); without it, the map's own (the cascade on screen, else the case). `onOpen` runs
+// first (the deck closes itself). Hidden on the national map and for a plant outage (the briefing body can't carry them).
 import { useOverload } from '../../store'
 import { bodyFor } from '../briefing/stage'
 import { plantsOut } from '../fix/flipCase'

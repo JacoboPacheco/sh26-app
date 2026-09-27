@@ -1,6 +1,6 @@
 // WHAT THE FIX CHANGES, for a fix that is on the case OUTSIDE the flip (CLAUDE.md -> Decisions -> FIX DESCRIPTORS:
 // "when a fix is currently active, provide descriptors … instead of just saying 'yeah it's fixed, trust me'"):
-//   Fix it's upgrades applied without the flip ("Apply the upgrades without running it", then Run the cascade)
+//   Fix it's upgrades applied without the flip (dormant: Fix it moved to Strengthen's incident stage, user Sat 22:30)
 //   a flipped fix still on the case after the hour or the size changed (the flip's own view has gone: another case)
 //   any other upgrades on the case (a Strengthen plan tried on the map, a saved case, AI boom's plan)
 // The results column (shell/ImpactPanel.jsx) shows the same descriptors as the flip's result (FixChanges): who applied
@@ -27,7 +27,7 @@ const near = (a, b) => a != null && Math.abs(Number(a) - Number(b)) < 0.05
  */
 export default function ActiveFix({ rate, settled }) {
   const O = useOverload()
-  const { caseBody, upgrades, result, solving, cascade, region, branchIndex, mode } = O
+  const { caseBody, upgrades, result, solving, cascade, region, branchIndex } = O
   const flip = useFlip()
   const found = useFix(caseBody) // Fix it's search for this case (kept across Apply: keyed without the upgrades)
   const n = Object.keys(upgrades || {}).length
@@ -111,8 +111,8 @@ export default function ActiveFix({ rate, settled }) {
         plural={src.kind === 'other' && n !== 1}
         badge={src.kind !== 'other'}
       />
-      {/* the upgraded lines in green (Fix it draws its own while its panel is open) */}
-      {mode !== 'fix' && <MapOverlay lines={lines} layerKey={`active-${baseKey}`} />}
+      {/* the upgraded lines in green */}
+      <MapOverlay lines={lines} layerKey={`active-${baseKey}`} />
     </>
   )
 }

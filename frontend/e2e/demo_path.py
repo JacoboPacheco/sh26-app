@@ -35,6 +35,10 @@ with sync_playwright() as p:
         expect(page.get_by_text("over limit").first).to_be_visible(timeout=15000)
         expect(page.get_by_text("before the first line overloads")).to_be_visible()
         expect(page.locator("line.ln--over").first).to_be_attached()
+        # Fix it lives on Strengthen now: the results column offers it right after the drop, before any cascade,
+        # and the left rail has no Fix it (or Plants) mode.
+        expect(page.get_by_role("button", name=re.compile(r"^Fix it in Strengthen"))).to_be_visible(timeout=15000)
+        expect(page.locator("nav.modes").get_by_role("button", name=re.compile(r"^(Fix it|Plants)$"))).to_have_count(0)
 
         # 3 — the cascade: the people-hit counter appears, steps play to an outcome, substations go dark.
         page.get_by_role("button", name="Run the cascade").click()

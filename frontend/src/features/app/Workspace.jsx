@@ -5,7 +5,6 @@ import useCountUp from '../../shell/useCountUp'
 import { stepMsFor, townOf, useOverload } from '../../store'
 import { Badge, Button, ErrorBanner, Field } from '../../ui'
 import BoomPanel from '../boom/BoomPanel'
-import FixPanel from '../fix/FixPanel'
 import MapLegend from '../flow/MapLegend'
 import HeatClock from '../heat/HeatClock'
 import { presetFor } from '../heat/presets'
@@ -196,7 +195,6 @@ const SECTIONS = [
   { id: 'campus', title: 'Data center' },
   { id: 'hurricane', title: 'Storm' },
   { id: 'boom', title: 'More campuses' },
-  { id: 'fix', title: 'Upgrades' },
   { id: 'planner', title: 'Plan campuses', module: 'planner/PlannerPanel' },
 ]
 
@@ -242,7 +240,6 @@ export function RecipeSidebar({ route }) {
             >
               {s.id === 'hurricane' && <HurricanePanel />}
               {s.id === 'boom' && <BoomPanel />}
-              {s.id === 'fix' && <FixPanel />}
               {s.id === 'planner' && <Optional from="planner/PlannerPanel" fallback={<p className="nx-pad muted">The planner is coming online.</p>} />}
             </Section>
           )
@@ -295,17 +292,13 @@ function Section({ id, title, summary, open, disabled, onOpen, children }) {
 }
 
 function Summary({ id }) {
-  const { trip, extraSites, upgrades } = useOverload()
+  const { trip, extraSites } = useOverload()
   if (id === 'planner') return 'Fit MW without a blackout'
   if (id === 'hurricane') return trip.length ? `${fmt(trip.length)} lines knocked out` : 'None'
   if (id === 'boom') {
     if (!extraSites.length) return 'None'
     const total = extraSites.reduce((a, s) => a + (Number(s.mw) || 0), 0)
     return `${extraSites.length} · ${fmt(total)} MW`
-  }
-  if (id === 'fix') {
-    const n = Object.keys(upgrades).length
-    return n ? `${n} line ${n === 1 ? 'upgrade' : 'upgrades'}` : 'None'
   }
   return ''
 }

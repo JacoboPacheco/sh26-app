@@ -2,9 +2,6 @@ import BoomLayer from './features/boom/BoomLayer'
 import BoomPanel from './features/boom/BoomPanel'
 import DangerLayer from './features/danger/DangerLayer'
 import DarkFirstLayer from './features/darkfirst/DarkFirstLayer'
-import BestSitesLayer from './features/fix/BestSitesLayer'
-import FixPanel from './features/fix/FixPanel'
-import GeminiDuelLayer from './features/fix/GeminiDuelLayer'
 import FlowCanvas from './features/flow/FlowCanvas'
 import Intro from './features/flow/Intro'
 import HardenLayer from './features/harden/HardenLayer'
@@ -71,7 +68,6 @@ const MODES = [
   { id: 'campus', label: 'Data center', Panel: CampusPanel },
   { id: 'hurricane', label: 'Hurricane', Panel: HurricanePanel },
   { id: 'boom', label: 'AI boom', Panel: BoomPanel },
-  { id: 'fix', label: 'Fix it', Panel: FixPanel },
 ]
 
 function App() {
@@ -198,7 +194,7 @@ function MissionControl() {
         >
           {/* the demo's layers stay mounted (their state survives a visit to Strengthen) but hidden there */}
           <g display={strengthen ? 'none' : undefined}>
-            {/* first, so the danger zones, best sites and every other layer draw (and take clicks) above them */}
+            {/* first, so the danger zones and every other layer draw (and take clicks) above them */}
             <ProposalRings />
             <DangerLayer />
             <CascadeFX />
@@ -211,9 +207,6 @@ function MissionControl() {
             {/* "Harden before the storm": the plan's lines in green and the storm replayed with them */}
             <HardenLayer />
             <BoomLayer />
-            <BestSitesLayer />
-            {/* last: Gemini's recorded plans replayed over everything ("Let Gemini fix it") */}
-            <GeminiDuelLayer />
           </g>
           <UnlockLayer />
         </GridMap>

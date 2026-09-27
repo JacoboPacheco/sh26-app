@@ -10,7 +10,6 @@ import DarkFirst from '../features/darkfirst/DarkFirst'
 import HowWeKnow from '../features/evidence/HowWeKnow'
 import ActiveFix from '../features/fix/ActiveFix'
 import { FlipOffer, FlipResult } from '../features/fix/Flip'
-import { GeminiDuelOffer } from '../features/fix/GeminiDuelLayer'
 import { flipSide, plantsOut, useFixFollowsCase, useFlip } from '../features/fix/flipCase'
 import TownsFeed from '../features/impact/TownsFeed'
 import FullSolutionButton from '../features/unlock/FullSolutionButton'
@@ -39,11 +38,13 @@ export default function ImpactPanel() {
   // nobody lost power in the end (the grid rerouted around every failure): the toll stays neutral
   const calm = !!cascade && (cascade.people_zone ?? cascade.people ?? 0) === 0
   // the flip: the map's case is the one run again with the fix (features/fix/flip.js)
-  // (a plant outage run on top of it from the Plants tab is a different case: its own toll, not "with the fix";
-  // while one computes, the flip's view stays only if the flip itself started the run)
+  // (while one computes, the flip's view stays only if the flip itself started the run)
   const flip = useFlip()
   const fixed = flipSide(flip, caseBody) === 'fixed' && !plantsOut(cascade) && (!cascading || flip.status === 'running' || !cascade)
   useFixFollowsCase(O) // a fix belongs to its case: moving the campus takes the flip's upgrades off
+  // Fix it lives on Strengthen (user, Sat 22:30): "Fix it in Strengthen" opens its incident stage for this case, right
+  // after a drop that overloads (the stage computes the options on that click) and again once the cascade has played
+  const over = !cascade && !cascading && !fixed && !!result && (result.overloaded?.length || 0) > 0
   // the rest (full cost breakdown, towns going dark, the map key) sits behind one closed fold, mounted only once opened
   const [more, setMore] = useState(false)
   return (
@@ -72,17 +73,16 @@ export default function ImpactPanel() {
             ` ${(cascade.sites?.length || 1) === 1 ? "The data center's" : "The data centers'"} own ${fmt(cascade.site_dark_mw)} MW lost power too.`}
         </p>
       )}
-      {/* a fix on the case outside the flip (Fix it's upgrades applied, a flipped fix kept after the hour or the size
-          changed, a Strengthen plan tried on the map): what it changes, as the flip's result says it (features/fix) */}
+      {/* a fix on the case outside the flip (a flipped fix kept after the hour or the size changed, a Strengthen option
+          tried on the map): what it changes, as the flip's result says it (features/fix) */}
       {!fixed && !live && <ActiveFix rate={rate} settled={settled} />}
       {/* under the toll: how long the lights are out (and, before a run, what it would cost), then the flip (the
           same case again with the best verified fix), then one click to present it */}
       {result && !fixed && <OutageCost />}
       {done && !calm && !fixed && <FlipOffer rate={rate} />}
-      {/* secondary to the flip: Gemini's recorded plans replayed on the map, each re-run by the engine */}
-      {done && !calm && !fixed && <GeminiDuelOffer rate={rate} />}
+      {over && <FullSolutionButton label="Fix it in Strengthen" hint={FIX_HINT} />}
       {result && <PresentDamage />}
-      {done && !calm && !fixed && <FullSolutionButton />}
+      {done && !calm && !fixed && <FullSolutionButton label="Fix it in Strengthen" hint={FIX_HINT} />}
       {(done || (fixed && settled)) && <ToStrengthen />}
       {/* the same campus under three service rules: who is cut first (features/darkfirst); below the flip, the
           presentation and the hand-off, so the fix stays in view when the cascade ends */}
@@ -102,6 +102,8 @@ export default function ImpactPanel() {
     </div>
   )
 }
+
+const FIX_HINT = 'The smallest upgrades, every verified option and other sites for this size, on Strengthen'
 
 // Before anything is on the map: what this column will show, instead of a toll of 0.
 function StartHere() {

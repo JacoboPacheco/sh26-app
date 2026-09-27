@@ -5,7 +5,6 @@ import CascadeFX from '../../shell/CascadeFX'
 import { useOverload } from '../../store'
 import { ErrorBanner, Loading } from '../../ui'
 import BoomLayer from '../boom/BoomLayer'
-import BestSitesLayer from '../fix/BestSitesLayer'
 import FlowCanvas from '../flow/FlowCanvas'
 import HurricaneLayer from '../hurricane/HurricaneLayer'
 import ImpactLayer from '../impact/ImpactLayer'
@@ -159,7 +158,6 @@ function MapCanvas({ route, national, onPlace, home }) {
               <ImpactLayer />
               <HurricaneLayer />
               <BoomLayer />
-              <BestSitesLayer />
               <Optional from="hospitals/HospitalsLayer" loading={null} />
               <Optional from="town/AreaLayer" loading={null} />
               <Optional from="town/AreaHover" loading={null} />
