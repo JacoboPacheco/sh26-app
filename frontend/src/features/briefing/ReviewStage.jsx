@@ -569,7 +569,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, startView
       const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(el?.tagName || '') || el?.isContentEditable
       if (e.key === 'Escape') {
         e.preventDefault()
-        if (typing) return el.blur()
+        if (typing) el.blur() // let the Ask box drop focus too, but don't stop here — Esc closes in one press
         if (transcript) return setTranscript(false)
         if (dl.open) return setDl((d) => ({ ...d, open: false }))
         return close()
