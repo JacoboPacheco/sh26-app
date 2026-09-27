@@ -1,161 +1,113 @@
-/* "Run the cascade": the breaker button (shell/RunCascadeButton) and the cue that carries it beside the campus
-   dot (shell/CascadeCue). Colors come from the tokens in index.css: red is only the armed accent. */
+/* "Run the cascade": the button (shell/RunCascadeButton) and the cue that carries it beside the campus dot
+   (shell/CascadeCue). It wears the same surface, border, radius and type as the map's own controls (+, −, All of
+   Florida) and the scenario strip's Start over, so it reads as part of the chrome; the blue accent only shows on
+   hover and keyboard focus. Red stays out of it: red is for what is lost. */
 
-/* ------------------------------------------------------------------ the breaker */
-.breaker {
-  --edge: var(--overload);
-  --edge-gap: #24090f;
-  --body: #0a1120;
-  --lever: #8f9fb8;
-  --slot: #04070d;
-  --slot-edge: #3a4a66;
+/* ------------------------------------------------------------------ the button */
+.run-btn {
   font: inherit;
-  display: inline-block;
-  margin: 0;
-  padding: 3px;
-  border: 0;
-  border-radius: 10px;
-  /* the thin hazard-hatched edge: opaque, so the map never shows through it */
-  background: repeating-linear-gradient(-45deg, var(--edge) 0 4px, var(--edge-gap) 4px 8px);
-  color: var(--ink);
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.breaker__body {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  column-gap: 12px;
-  row-gap: 1px;
-  padding: 8px 14px 8px 9px;
-  border-radius: 7px;
-  background: var(--body);
-  transition: background-color 120ms ease-out;
-}
-
-.breaker--detail .breaker__body {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-}
-
-/* the switch: a dark slot and a lever with a ridged grip; thrown to the right when running */
-.breaker__switch {
-  grid-row: 1 / -1;
-  grid-column: 1;
-  position: relative;
-  width: 46px;
-  height: 24px;
-  border-radius: 5px;
-  background: var(--slot);
-  border: 1px solid var(--slot-edge);
-  transition:
-    background-color 200ms ease-out,
-    border-color 200ms ease-out;
-}
-
-.breaker__lever {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 18px;
-  border-radius: 3px;
-  background-color: var(--lever);
-  background-image: repeating-linear-gradient(90deg, transparent 0 3px, rgb(0 0 0 / 0.32) 3px 4px);
-  transition:
-    transform 200ms cubic-bezier(0.3, 0.7, 0.3, 1),
-    background-color 200ms ease-out;
-}
-
-.breaker__label {
-  grid-column: 2;
-  grid-row: 1;
-  font-size: 1rem;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.breaker__key {
-  grid-column: 3;
-  grid-row: 1;
-  font: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.875rem;
   font-weight: 600;
-  line-height: 1.4;
-  padding: 0 6px;
-  color: var(--ink-2);
-  border: 1px solid #3c4d68;
-  border-radius: 4px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.3rem; /* about 34 px: as tall as the map controls beside it */
+  margin: 0;
+  padding: 0 0.85rem 0 0.7rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease-out,
+    background-color 120ms ease-out;
 }
 
-.breaker__sub {
-  grid-column: 2 / -1;
-  grid-row: 2;
-  font-size: 0.75rem;
-  font-weight: 500;
-  line-height: 1.3;
-  color: var(--ink-2);
+/* the play mark: pale like the label, blue when the button is hovered or focused */
+.run-btn__mark {
+  flex: none;
+  width: 0.5625rem;
+  height: 0.625rem;
+  color: var(--ink);
+  transition: color 120ms ease-out;
 }
 
-.breaker:hover:not(:disabled) {
-  --edge-gap: #3a111b;
+.run-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background-color: #192539; /* --surface with --glass-hi over it, opaque */
 }
 
-.breaker:hover:not(:disabled) .breaker__body {
-  background: #121d33;
+.run-btn:hover:not(:disabled) .run-btn__mark,
+.run-btn:focus-visible .run-btn__mark {
+  color: var(--accent);
 }
 
-.breaker:active:not(:disabled) .breaker__body {
-  background: #0d1729;
+.run-btn:active:not(:disabled) {
+  background-color: #0a1220;
 }
 
-.breaker:focus-visible {
+.run-btn:focus-visible {
+  border-color: var(--accent);
   outline: 2px solid var(--accent);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
-/* thrown: the lever is over, the slot takes the red, the label says Running… */
-.breaker[aria-busy='true'] {
+/* running: quiet, not red; the request is out and the replay is playing */
+.run-btn[aria-busy='true'] {
   cursor: progress;
+  color: var(--ink-2);
 }
 
-.breaker--running .breaker__lever {
-  transform: translateX(20px);
-  background-color: var(--overload);
-  background-image: repeating-linear-gradient(90deg, transparent 0 3px, rgb(0 0 0 / 0.28) 3px 4px);
-}
-
-.breaker--running .breaker__switch {
-  background: #2a0b13;
-  border-color: #7a2a36;
+.run-btn[aria-busy='true'] .run-btn__mark {
+  opacity: 0.55;
 }
 
 /* nothing to run yet (no data center dropped) */
-.breaker:disabled:not([aria-busy='true']) {
+.run-btn:disabled:not([aria-busy='true']) {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
+/* a finger needs a bigger target than a pointer */
+@media (pointer: coarse) {
+  .run-btn {
+    min-height: 2.5rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .breaker__body,
-  .breaker__switch,
-  .breaker__lever {
+  .run-btn,
+  .run-btn__mark {
     transition: none;
   }
 }
 
+/* in the bottom bar it sits beside Play / Pause: the same fill, edge, height and type as they have */
+.timeline__cta .run-btn {
+  font-size: inherit;
+  padding-inline: 0.95rem;
+  background: var(--glass-hi);
+  border-color: var(--glass-edge);
+}
+.timeline__cta .run-btn:hover:not(:disabled) {
+  background: var(--glass-edge);
+}
+
 /* the bottom bar's Play / Pause used to be the first .btn in its group (index.css sizes that one large);
-   the breaker is the first child now, so keep them plain */
+   keep them plain when the Run button is not rendered before them */
 .timeline__cta > .btn:first-child {
   font-size: inherit;
   padding: 0.45rem 0.9rem;
 }
 
 /* ------------------------------------------------------------------ the cue beside the dot */
-/* An HTML layer over the map (shell/CascadeCue): a short leader from the dot's ring, then the breaker. The side
-   (right, left, below, above) is chosen so it never covers a town's name; --off is the ring's radius. */
+/* An HTML layer over the map (shell/CascadeCue): a short thin leader from the dot's ring, then the button, flush
+   at the end of it. The side (right, left, below, above) is chosen so it never covers a town's name; --off is the
+   ring's radius, and LEADER in CascadeCue.jsx is the leader's length below. */
 .run-cue {
   position: absolute;
   z-index: 3;
@@ -169,11 +121,12 @@
   content: '';
   flex: none;
   background: var(--ink-2);
+  opacity: 0.85;
 }
 
-.run-cue .breaker {
+.run-cue .run-btn {
   pointer-events: auto;
-  box-shadow: 0 6px 18px rgb(0 0 0 / 0.55);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.4);
 }
 
 .run-cue--right {
@@ -181,9 +134,8 @@
   transform: translate(var(--off), -50%);
 }
 .run-cue--right::before {
-  width: 12px;
+  width: 10px;
   height: 1px;
-  margin-right: 4px;
 }
 
 .run-cue--left {
@@ -191,9 +143,8 @@
   transform: translate(calc(-100% - var(--off)), -50%);
 }
 .run-cue--left::before {
-  width: 12px;
+  width: 10px;
   height: 1px;
-  margin-left: 4px;
 }
 
 .run-cue--below {
@@ -202,8 +153,7 @@
 }
 .run-cue--below::before {
   width: 1px;
-  height: 12px;
-  margin-bottom: 4px;
+  height: 10px;
 }
 
 .run-cue--above {
@@ -212,15 +162,11 @@
 }
 .run-cue--above::before {
   width: 1px;
-  height: 12px;
-  margin-top: 4px;
+  height: 10px;
 }
 
-/* a touch screen has no Enter key */
-@media (hover: none) {
-  .breaker__key {
-    display: none;
-  }
+.run-cue__box {
+  display: flex;
 }
 
 @keyframes run-cue-in {
@@ -236,8 +182,4 @@
   .run-cue {
     animation: none;
   }
-}
-
-.run-cue__box {
-  display: flex;
 }

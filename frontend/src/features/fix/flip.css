@@ -1,5 +1,5 @@
-/* THE FLIP (features/fix/Flip.jsx): after the cascade, "Run it again with the fix" in the solution green, and the
-   same case with the fix in place. Incident-room look: plain figures, no glow, no bounce; green only for what the
+/* THE FLIP (features/fix/Flip.jsx): after the cascade, "Show the best-case scenario" in the solution green, and the
+   same case with the fix built. Incident-room look: plain figures, no glow, no bounce; green only for what the
    fix holds (the button, the zero, the upgraded lines on the map). */
 
 .flip {

@@ -13,8 +13,9 @@ import { fixLine, flipSide, plantsOut, runWithFix, showWith, showWithout, useBes
 
 const L = LABEL.en
 
-// After the cascade, under the toll: one click runs the same case again with the best verified fix (the one the
-// presentation's bottom line names). Offered only when a verified fix exists: a storm's "no fix" gets no button.
+// After the cascade, under the toll: "Show the best-case scenario" runs the same case again with the best verified fix
+// (the one the presentation's bottom line names): a quick look at what Strengthen would build. Offered only when a
+// verified fix exists: a storm's "no fix" gets no button.
 export function FlipOffer({ rate }) {
   const O = useOverload()
   const flip = useFlip()
@@ -29,9 +30,9 @@ export function FlipOffer({ rate }) {
   if (!f) return loading ? <p className="flip__wait">Checking the fixes the engine verified…</p> : null
   const busy = flip.status === 'running' && O.cascading
   return (
-    <section className="flip" aria-label="Run it again with the fix">
+    <section className="flip" aria-label="Show the best-case scenario">
       <Button onClick={() => (known ? showWith(O) : runWithFix(O, f, { base: body, report, rate }))} busy={busy}>
-        Run it again with the fix
+        Show the best-case scenario
       </Button>
       <p className="flip__what">{fixLine(f)}</p>
     </section>
@@ -71,8 +72,8 @@ export function FlipResult() {
   if (!cascade && !cascading && O.cascadeError)
     // the re-run failed (the timeline shows why): the way back stays one click away
     return (
-      <section className="flip-res" aria-label="With the fix">
-        <p className="flip-res__k">With the fix</p>
+      <section className="flip-res" aria-label="Best case, with the fix built">
+        <p className="flip-res__k">Best case, with the fix built</p>
         <p className="flip-res__what">{fixLine(f)}</p>
         <p className="flip-res__strain">The run with the fix did not finish. Run it again from the timeline, or go back.</p>
         <div className="flip-res__back">
@@ -82,14 +83,14 @@ export function FlipResult() {
         </div>
       </section>
     )
-  if (!cascade || cascading) return <Loading label="Running the same case again with the fix…" />
+  if (!cascade || cascading) return <Loading label="Showing the best case, with the fix built…" />
   // the before -> after reads the fixed case's own what-if (its echo and its site match the case on the map: same
   // upgrades, site, total size, load level, trips), never the last one's while the store is about to re-solve
   const fresh = !solving && whatifOf(result, O.caseBody) ? result : null
   const costNow = !nobody && rate ? now.hit * rate.high : 0
   return (
-    <section className="flip-res" aria-label="With the fix" ref={rootRef}>
-      <p className="flip-res__k">With the fix</p>
+    <section className="flip-res" aria-label="Best case, with the fix built" ref={rootRef}>
+      <p className="flip-res__k">Best case, with the fix built</p>
       <p className="flip-res__what">{f.words}</p>
       <div className={`toll${nobody ? ' toll--calm toll--zero' : ''}`} aria-live="polite">
         <div className="toll__figs">

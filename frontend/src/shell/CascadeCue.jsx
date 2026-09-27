@@ -15,7 +15,7 @@ import RunCascadeButton from './RunCascadeButton'
 //
 // It sits on whichever side of the dot is clear: right, left, below or above, never over a town's name
 // (user, Sat 23:38) or a panel, and it keeps its side while that side stays clear so it doesn't hop while
-// the map pans. Pressing it throws the breaker's lever for at least HOLD_MS before the bottom bar takes over.
+// the map pans. Pressing it shows "Running…" for at least HOLD_MS before the bottom bar takes over.
 
 let shown = false
 const subs = new Set()
@@ -35,11 +35,12 @@ export function useCascadeCueShown() {
 
 const stop = (e) => e.stopPropagation()
 const GAP = 12 // px of map kept clear around the edges
-const HOLD_MS = 320 // the lever's throw (200 ms) stays visible at least this long after a press
+const HOLD_MS = 320 // "Running…" stays visible at least this long after a press
+const LEADER = 10 // px: the thin line from the dot's ring to the button (cue.css .run-cue::before)
 const SIDES = ['right', 'left', 'below', 'above'] // the order tried
 const LABEL_WEIGHT = 8 // covering a town's name is worse than covering empty sea
 const PANELS = '.appbar, .mc-left, .mc-right, .mc-bottom, .mc-top > *, .map-controls, .mc-credit'
-const NARROW = 640 // px: a map narrower than this gets the plain button (no sentence, no key hint)
+const NARROW = 640 // px: a map narrower than this gets the plain button (no tooltip sentence, no shortcut hint)
 
 const rectIn = (el, host, pad = 0) => {
   const r = el.getBoundingClientRect()
@@ -61,7 +62,7 @@ function boxes(x, y, W, H, d) {
 export default function CascadeCue() {
   const { site, result, cascade, cascading, mapTool, fx, startCascade } = useOverload()
   const { project } = useMapView()
-  const [thrown, setThrown] = useState(false) // pressed: the lever stays over until the run has started
+  const [thrown, setThrown] = useState(false) // pressed: it says Running… until the run has started
   const heldUntil = useRef(0)
   const idle = !cascade && !cascading && !fx
   const want = !!(site && result?.overloaded?.length && !mapTool && (idle || thrown))
@@ -80,7 +81,7 @@ export default function CascadeCue() {
     startCascade()
   }, [startCascade])
 
-  // after the run has started (the request answered), give the lever its full throw before the cue leaves
+  // after the run has started (the request answered), keep Running… on screen for HOLD_MS before the cue leaves
   useEffect(() => {
     if (!thrown || cascading) return undefined
     const left = heldUntil.current - performance.now()
@@ -115,9 +116,9 @@ export default function CascadeCue() {
           const ringR = dot && dot.width ? Math.min(40, Math.max(8, (dot.width / 2) * (16 / 6))) : 20
           const off = ringR + 4 // the leader starts just outside the ring
           const b = button.current?.getBoundingClientRect()
-          const W = b?.width || (narrow ? 200 : 330)
-          const H = b?.height || (narrow ? 46 : 58)
-          const at = boxes(x, y, W, H, off + 16)
+          const W = b?.width || 160
+          const H = b?.height || 34
+          const at = boxes(x, y, W, H, off + LEADER)
           const labels = [...host.querySelectorAll('.map-city')].map((el) => rectIn(el, h, 4))
           const panels = [...document.querySelectorAll(PANELS)].map((el) => rectIn(el, h))
           const cost = (s) => {
@@ -161,7 +162,7 @@ export default function CascadeCue() {
     return () => setShown(false)
   }, [visible])
 
-  // Enter runs it when nothing else has the keyboard (the hint on the button says so)
+  // Enter runs it when nothing else has the keyboard (the button's tooltip and aria-keyshortcuts say so)
   const ready = visible && !thrown
   useEffect(() => {
     if (!ready) return undefined
@@ -203,7 +204,6 @@ export default function CascadeCue() {
               <RunCascadeButton
                 state={thrown ? 'running' : 'idle'}
                 detail={!pos.narrow}
-                className="cascade-cue__btn"
                 onClick={(e) => {
                   e.stopPropagation()
                   run()

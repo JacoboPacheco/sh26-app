@@ -17,7 +17,7 @@ export default function Timeline() {
   const n = cascade?.steps.length || 0
   const live = !!(fx && playing)
   // the first run's button sits beside the dropped data center while that one is on screen (shell/CascadeCue),
-  // including the moment after the press while its lever is thrown
+  // including the moment after the press while it says Running…
   const cue = useCascadeCueShown()
 
   // where each step's mark sits (0..1): the end of its tier in the whole replay
@@ -46,7 +46,7 @@ export default function Timeline() {
     <div className="timeline">
       <div className="timeline__cta">
         {!cue && (
-          // the same breaker as the cue beside the dot: thrown while the request is out and the replay plays
+          // the same button as the cue beside the dot: it says Running… while the request is out and the replay plays
           <RunCascadeButton state={cascading || fx ? 'running' : cascade ? 'again' : 'idle'} disabled={!ready} onClick={() => startCascade()} />
         )}
         {cascade && n > 0 && (
