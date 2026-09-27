@@ -245,13 +245,6 @@ html.review-open .mc {
   }
 }
 
-/* the scenario strip: the pieces, a hairline, then the time of day */
-.scenario-bar__sep {
-  align-self: stretch;
-  width: 1px;
-  margin-inline: var(--space-1);
-  background: var(--glass-edge);
-}
 h1.hook {
   margin: 0;
 }

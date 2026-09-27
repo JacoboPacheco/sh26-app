@@ -35,24 +35,26 @@ export default function ScenarioBar() {
   const busy = pieces.length > 0 || loadFactor !== 1 || !!cascade || !!mapTool
   return (
     <div className="scenario-bar" role="region" aria-label="Your scenario">
-      <span className="scenario-bar__label">Your scenario</span>
-      {pieces.length === 0 ? (
-        <span className="scenario-bar__empty">Nothing added yet.</span>
-      ) : (
-        <ul className="scenario-bar__pieces">
-          {pieces.map((pc) => (
-            <li key={pc.key} className="piece">
-              <span title={pc.label}>{pc.short || pc.label}</span>
-              <button type="button" className="piece__x" onClick={pc.remove} aria-label={`Remove ${pc.label}`}>
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* the time of day and Start over wrap together: Start over never sits on a row by itself (index.css) */}
+      {/* two boxes: the case (label + pieces, which wrap inside it) and the time of day + Start over, one unit
+          that sits at the right end of the row or, when it doesn't fit, on a row of its own (index.css) */}
+      <div className="scenario-bar__case">
+        <span className="scenario-bar__label">Your scenario</span>
+        {pieces.length === 0 ? (
+          <span className="scenario-bar__empty">Nothing added yet.</span>
+        ) : (
+          <ul className="scenario-bar__pieces">
+            {pieces.map((pc) => (
+              <li key={pc.key} className="piece">
+                <span title={pc.label}>{pc.short || pc.label}</span>
+                <button type="button" className="piece__x" onClick={pc.remove} aria-label={`Remove ${pc.label}`}>
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <div className="scenario-bar__end">
-        <span className="scenario-bar__sep" aria-hidden="true" />
         <HeatClock compact />
         <button type="button" className="scenario-bar__reset" onClick={resetAll} disabled={!busy}>
           Start over

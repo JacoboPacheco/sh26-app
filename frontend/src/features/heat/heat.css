@@ -16,18 +16,6 @@
   box-shadow: 0 10px 40px color-mix(in srgb, var(--blackout) 45%, transparent);
 }
 
-/* Pin the clock to the top-right corner with "Signed in as" beneath it. Without this, the top bar's
-   right group wraps on and off as the scenario bar grows and shrinks with the case, and the clock
-   jumps ~200 px sideways on the click that picks an hour — the judge's next click lands on the wrong
-   segment. (Requested for index.css's .mc-top__right; harmless duplicate once it lands there.) */
-.mc-top__right:has(> .heat) {
-  flex-direction: column;
-  flex-wrap: nowrap;
-  align-items: flex-end;
-  flex: none;
-  gap: var(--space-1);
-}
-
 .heat__label {
   font-size: 0.75rem;
   font-weight: 600;

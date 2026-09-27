@@ -306,21 +306,6 @@ select optgroup {
   color: var(--ink);
 }
 
-/* the clock stays pinned top right; "Signed in as" sits under it (the scenario bar's width varies) */
-.mc-top__right {
-  display: flex;
-  flex-direction: column;
-  flex-wrap: nowrap;
-  align-items: flex-end;
-  flex: none;
-  gap: var(--space-1);
-}
-
-.signed-in {
-  font-size: 0.8125rem;
-  color: var(--ink-2);
-}
-
 /* opaque on purpose: a backdrop blur over the animated map costs ~15 fps (measured 37-46 vs 59 fps) */
 .glass {
   position: absolute;
@@ -425,12 +410,17 @@ select optgroup {
   border-bottom-color: var(--sodium);
 }
 
-/* the scenario bar: every ingredient in the case, each removable, and Start over */
+/* the scenario bar: every ingredient in the case, each removable, then the time of day and Start over.
+   Two boxes on a wrapping row (user, Sat 22:31 — "either moving right or becoming a new row"):
+   - the case (label + pieces) takes its natural width and wraps its pieces inside itself;
+   - the time of day + Start over are one unit that never breaks apart or stacks (flex: none, nowrap): it sits at
+     the right end of the case's row when both fit, and otherwise moves, whole, to a row of its own, right-aligned.
+   So Start over is never alone on the y axis (user, Sat 17:15) and a growing case never pushes the times under it. */
 .scenario-bar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: var(--space-2) var(--space-3);
   max-width: 46rem;
   margin: 0 auto;
   padding: 0.35rem 0.4rem 0.35rem 0.8rem;
@@ -488,7 +478,6 @@ select optgroup {
 }
 
 .scenario-bar__reset {
-  margin-left: auto;
   font: inherit;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -509,36 +498,28 @@ select optgroup {
   cursor: default;
 }
 
-/* Start over never sits on a row by itself (user, Sat 17:15): the time of day and Start over are one
-   unit that wraps together, and when the header is too narrow for that unit Start over moves up beside
-   the label, the pieces and then the time of day taking the rows under it */
-.mc-top {
-  container: mc-top / inline-size;
-}
-.scenario-bar__end {
+/* the case: the label, then the pieces (or "Nothing added yet."). Its natural width decides whether the unit fits
+   beside it; on a row of its own it fills the row, its pieces wrap inside it, and a piece longer than the row ends
+   in "…" (the full text is the piece's title). */
+.scenario-bar__case {
   display: flex;
-  align-items: center;
-  flex: none;
+  align-items: baseline;
   gap: var(--space-2);
-  margin-left: auto;
-}
-.scenario-bar__pieces {
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
 }
-/* one row on a laptop (user, Sat 20:14: "not one line"): the pieces shrink and end in "…" (the full text is the
-   title), the time of day loses its visible label (the hours speak for themselves; screen readers keep it), and
-   the time of day and Start over hold their size */
-.scenario-bar {
-  flex-wrap: nowrap;
+.scenario-bar__label,
+.scenario-bar__empty {
+  flex: none;
+  white-space: nowrap;
 }
 .scenario-bar__pieces {
-  flex-wrap: nowrap;
-  overflow: hidden;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .scenario-bar__pieces .piece {
   min-width: 0;
-  flex: 0 1 auto;
+  max-width: 100%;
 }
 .scenario-bar__pieces .piece > span {
   min-width: 0;
@@ -549,11 +530,16 @@ select optgroup {
 .scenario-bar__pieces .piece__x {
   flex: none;
 }
-.scenario-bar__label,
-.scenario-bar__empty {
+/* the unit: the time of day and Start over, never apart and never stacked */
+.scenario-bar__end {
+  display: flex;
+  align-items: center;
   flex: none;
+  gap: var(--space-2);
+  margin-left: auto;
   white-space: nowrap;
 }
+/* the hours speak for themselves; screen readers keep the label */
 .scenario-bar .heat--compact .heat__label {
   position: absolute;
   width: 1px;
@@ -562,39 +548,15 @@ select optgroup {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-.piece {
-  max-width: 100%;
-}
-@container mc-top (max-width: 820px) {
+/* on the map the strip fills the space between the title and the right panel (so the unit holds still at its right
+   end as the case grows), and the title keeps a fixed column (24rem: the hook in two lines and the whole pitch above
+   the left panel); it gives way only when the window is too narrow for the unit, never because the case grew */
+@media (min-width: 861px) {
+  .mc-title {
+    flex: 0 1 24rem;
+  }
   .scenario-bar {
-    flex-wrap: wrap;
-  }
-  .scenario-bar__pieces {
-    flex-wrap: wrap;
-    overflow: visible;
-  }
-  .scenario-bar .heat--compact .heat__label {
-    position: static;
-    width: auto;
-    height: auto;
-    clip-path: none;
-  }
-  .scenario-bar__end {
-    display: contents;
-  }
-  .scenario-bar__reset {
-    order: 1;
-  }
-  .scenario-bar__pieces,
-  .scenario-bar__empty {
-    order: 2;
-    flex-basis: 100%;
-  }
-  .scenario-bar__sep {
-    display: none;
-  }
-  .scenario-bar .heat--compact {
-    order: 3;
+    flex: 1 1 0;
   }
 }
 

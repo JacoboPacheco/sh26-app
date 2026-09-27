@@ -234,10 +234,7 @@ function MissionControl() {
             <div className="mc-title">
               <h1 className="hook">When the next AI data center plugs in, whose lights go out?</h1>
               <p className="pitch">
-                …and how many more can the grid safely take? AI finds where they strain it and tests the fixes; the physics engine checks every one.{' '}
-                <a className="pitch__link" href="#/strengthen" onClick={(e) => pickTab('strengthen', e)}>
-                  Strengthen the grid
-                </a>
+                …and how many more can the grid safely take? AI finds where they strain it and tests the fixes; the physics engine checks every one.
               </p>
             </div>
             <ScenarioBar />
