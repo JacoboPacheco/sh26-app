@@ -602,7 +602,7 @@ def present_plan(rep: dict) -> dict | None:
         # nothing keeps the full campus on the grid at full size: a small lowering with upgrades (at least FULL_KEEP_PCT of
         # the campus) leads; otherwise on-site power or an operating rule does, and a much smaller campus or another site
         # stays under "More options" (PRESENT V2: "lower the amount that it says NO DATA CENTER")
-        near = sorted((i for i in holds if fixes[i].get("family") == "combo" and (fixes[i].get("kept_pct") or 0) >= FULL_KEEP_PCT), key=_key)[:1]
+        near = sorted((i for i in holds if fixes[i].get("family") == "combo" and (fixes[i].get("kept_pct") or 0) >= FULL_KEEP_PCT), key=lambda i: _key(fixes[i]))[:1]
         main += near
         kinds.update({i: "closest" for i in near})
     # kinds of their own: power of its own (the campus runs in full, the grid supplies less), and an operating rule that
