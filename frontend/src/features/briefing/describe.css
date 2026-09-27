@@ -1,0 +1,66 @@
+/* DESCRIBE THE MAP (audio-described mode): the beat's "On the map:" line, plain and quiet, at the top of the slide card.
+   No animation, no glow: it is text to be read (or heard) once per beat. */
+.rs-describe:empty {
+  display: none;
+}
+
+.rs-describe {
+  margin: 0 0 var(--space-3);
+}
+
+.rs-describe__p {
+  margin: 0;
+  padding: 0.55rem 0.75rem;
+  border-left: 3px solid var(--ink-2);
+  border-radius: 2px var(--radius) var(--radius) 2px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.rs-describe__pre {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-right: 0.35rem;
+}
+
+/* the captions bar names the line's speaker as the map, in the same plain colors */
+.rs-captions--describe .rs-captions__speaker {
+  color: var(--ink-2);
+}
+
+.rs-captions--describe {
+  border-left: 3px solid var(--ink-2);
+}
+
+/* a phone: the card is short and the line is already in it, so it is not shown a second time in the captions bar, and it sits tighter */
+@media (max-width: 860px) {
+  .rs-captions--describe {
+    display: none;
+  }
+
+  .rs-describe {
+    margin-bottom: var(--space-2);
+  }
+
+  .rs-describe__p {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.9rem;
+    line-height: 1.35;
+  }
+
+  .rs-describe__pre {
+    font-size: 0.6875rem;
+  }
+}
+
+@media print {
+  .rs-describe {
+    display: none !important;
+  }
+}

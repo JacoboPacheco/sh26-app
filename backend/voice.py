@@ -597,6 +597,9 @@ def audio(name: str):
 class DownloadIn(BaseModel):
     deck_key: str = Field(min_length=40, max_length=40, pattern=r"^[0-9a-f]{40}$")
     lang: Literal["en", "es"] = "en"
+    # the viewer has "Describe what's on the map" on: each beat's map description (describe.py) is part of the files,
+    # spoken by the analyst voice before that beat's narration, labeled ON THE MAP / EN EL MAPA in the transcript
+    describe: bool = False
 
 
 def _chunks(text: str, limit: int = 84) -> list[tuple[int, int]]:
@@ -624,11 +627,22 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", str(s).lower()).strip("-")[:40] or "briefing"
 
 
-def _build_files(deck: dict, lang: str) -> dict:
+def _segments(deck: dict, lang: str, describe: bool = False) -> list[tuple[dict, dict]]:
+    """(slide, segment) in playing order. With the audio description on, each beat's "On the map" line comes first."""
+    out = []
+    for s in deck["slides"]:
+        d = (s.get("describe") or {}).get(lang) if describe else None
+        if d:
+            out.append((s, {"role": "analyst", "text": d["text"], "key": d["key"], "chars": d["chars"], "describe": True}))
+        out.extend((s, seg) for seg in s["narration"][lang])
+    return out
+
+
+def _build_files(deck: dict, lang: str, describe: bool = False) -> dict:
     """Write the transcript, the captions and (when every segment has audio) the joined MP3."""
     from bulletin import CHARS_PER_S  # noqa: PLC0415 — bulletin imports voice
 
-    segs = [(s, seg) for s in deck["slides"] for seg in s["narration"][lang]]
+    segs = _segments(deck, lang, describe)
     audio: dict[str, bytes] = {}
     timings: dict[str, dict] = {}
     for _, seg in segs:
@@ -640,7 +654,7 @@ def _build_files(deck: dict, lang: str) -> dict:
             except (OSError, ValueError):
                 pass
     missing = [seg["key"] for _, seg in segs if seg["key"] not in audio]
-    fid = hashlib.sha256(f"{deck['deck_key']}|{lang}|{len(missing) == 0}".encode()).hexdigest()[:32]
+    fid = hashlib.sha256(f"{deck['deck_key']}|{lang}|{len(missing) == 0}{'|describe' if describe else ''}".encode()).hexdigest()[:32]
     place = deck.get("title", {}).get("en", "").split("·")[-1]
     name = f"overload-briefing-{_slug(deck.get('region', ''))}-{_slug(place)}-{lang}"
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -652,8 +666,9 @@ def _build_files(deck: dict, lang: str) -> dict:
     who = {"presenter": ("PRESENTER", "PRESENTADOR"), "analyst": ("ANALYST", "ANALISTA")}
     for s in deck["slides"]:
         lines.append(f"## {s['headline'][lang]}")
-        for seg in s["narration"][lang]:
-            lines.append(f"{who[seg['role']][0 if lang == 'en' else 1]}: {seg['text']}")
+        for _, seg in (x for x in segs if x[0] is s):
+            label = ("ON THE MAP" if lang == "en" else "EN EL MAPA") if seg.get("describe") else who[seg["role"]][0 if lang == "en" else 1]
+            lines.append(f"{label}: {seg['text']}")
         lines.append("")
     lines.append(ATTRIBUTION if not missing else ("Audio: not rendered (browser voice)" if lang == "en" else "Audio: sin generar (voz del navegador)"))
     (CACHE_DIR / f"dl-{fid}.txt").write_text("\n".join(lines), encoding="utf-8")
@@ -710,14 +725,14 @@ async def download(request: Request, body: DownloadIn):
     if deck is None:
         raise HTTPException(status_code=409, detail="Script expired — fetch it again")
     if configured():  # render what the stage has not played yet (each render counts against the daily cap)
-        keys = [seg["key"] for s in deck["slides"] for seg in s["narration"][body.lang] if _paths(seg["key"]) is None]
+        keys = [seg["key"] for _, seg in _segments(deck, body.lang, body.describe) if _paths(seg["key"]) is None]
         for k in keys:
             try:
                 await ensure_audio(k)
             except HTTPException as e:
                 log.warning("voice: download could not render %s: %s", k, e.detail)
                 break
-    return await asyncio.to_thread(_build_files, deck, body.lang)
+    return await asyncio.to_thread(_build_files, deck, body.lang, body.describe)
 
 
 @router.get("/api/voice/file/{name}")

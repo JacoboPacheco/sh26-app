@@ -211,7 +211,7 @@ export default function useNarration({ deck, lang, onCue, onEnter, holdFor }) {
       let mode = providerRef.current
       let via = mode || 'timer' // who is saying these words (the captions name the speaker only for ElevenLabs)
       const who = { speaker: null } // the segment's own voice name, from its audio (speakEleven fills it)
-      const cap = (char) => ({ role: seg.role, text, char, key: seg.key, via, speaker: via === 'elevenlabs' ? who.speaker : null })
+      const cap = (char) => ({ role: seg.role, text, char, key: seg.key, via, speaker: via === 'elevenlabs' ? who.speaker : null, describe: !!seg.describe })
       const show = (char) => {
         let w = -1
         for (let k = 0; k < words.length && words[k].start <= char; k++) w = k

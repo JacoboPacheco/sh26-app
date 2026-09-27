@@ -41,4 +41,6 @@ export function getSegment(key) {
   return segments.get(key)
 }
 
-export const getDownload = (deckKey, lang) => api('/api/voice/download', { method: 'POST', body: { deck_key: deckKey, lang } })
+// `describe`: the viewer has the map descriptions on, so the files carry them (each beat's "On the map" line first)
+export const getDownload = (deckKey, lang, describe = false) =>
+  api('/api/voice/download', { method: 'POST', body: { deck_key: deckKey, lang, ...(describe ? { describe: true } : {}) } })

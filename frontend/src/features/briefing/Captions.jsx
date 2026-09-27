@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { D } from './describe'
 import LevelMeter from './LevelMeter'
 import { T } from './text'
 import { wordsOf } from './useNarration'
@@ -41,11 +42,15 @@ export default function Captions({ caption, lang, reduced, speakers, audio }) {
   const role = caption.role === 'analyst' ? 'analyst' : 'presenter'
   const eleven = caption.via === 'elevenlabs'
   const name = eleven ? caption.speaker || speakers?.[role] || null : null
+  // an audio description of the map ("On the map"): the analyst's voice, named for what it says, in a plainer style
+  const describe = !!caption.describe
   return (
-    <div className={`rs-captions rs-captions--${role}${eleven ? ' rs-captions--eleven' : ''}`} aria-hidden="true" data-via={caption.via || ''}>
+    <div className={`rs-captions rs-captions--${role}${eleven ? ' rs-captions--eleven' : ''}${describe ? ' rs-captions--describe' : ''}`} aria-hidden="true" data-via={caption.via || ''}>
       <div className="rs-captions__head">
         <span className="rs-captions__speaker">
-          {name ? (
+          {describe ? (
+            D[lang].who
+          ) : name ? (
             <>
               <b>{name}</b> · {t.roleOf[role]}
             </>

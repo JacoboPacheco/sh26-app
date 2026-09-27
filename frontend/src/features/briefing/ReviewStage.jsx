@@ -8,6 +8,7 @@ import AiPanel from './AiPanel'
 import AskSlot from './AskSlot'
 import BriefingDoc from './BriefingDoc'
 import Captions from './Captions'
+import { DescribeLine, DescribeToggle } from './DescribeUi'
 import MapOverlay from './MapOverlay'
 import Progress from './Progress'
 import { Callout, SayCaption, Ticker } from './ShowChrome'
@@ -15,10 +16,12 @@ import ShowProblem from './ShowProblem'
 import Slide from './Slide'
 import './briefing.css'
 import { cleanBody, notLive, rememberReplay } from './briefingApi'
+import { hasDescriptions, readDescribe, roleLabel, withDescriptions, writeDescribe } from './describe'
 import { dwellMs, mergeSolutions, optionsOf, quietDeck, swapUnplayed, withShow } from './showDeck'
 import { P } from './showText'
 import './show.css'
 import './present.css'
+import './describe.css'
 import { applyBase, extentPoints, loc, setStoreCase, stepIndexOf, transcriptSeg, transcriptText } from './stage'
 import { T } from './text'
 import useDeck from './useDeck'
@@ -113,7 +116,15 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   )
   // without a voice the captions are read: the plays and the options caption themselves as they land
   const [quiet, setQuiet] = useState(readMuted)
-  const deck = useMemo(() => (quiet ? quietDeck(textDeck) : textDeck), [quiet, textDeck])
+  // DESCRIBE THE MAP (audio-described mode, off until this viewer turns it on): each beat's "On the map" line (the server writes it,
+  // backend/describe.py) goes first in the beat's narration, so the voice says it, the beat waits for it and the captions, the
+  // transcript and the downloads carry it; DescribeUi.jsx shows it as a live region. Off: the deck is exactly as it was.
+  const [describeOn, setDescribeOn] = useState(readDescribe)
+  const canDescribe = hasDescriptions(textDeck)
+  const describing = describeOn && canDescribe
+  const spoken = useMemo(() => (quiet ? quietDeck(textDeck) : textDeck), [quiet, textDeck])
+  const deck = useMemo(() => (describing ? withDescriptions(spoken) : spoken), [describing, spoken])
+  const wordsDeck = useMemo(() => (describing ? withDescriptions(textDeck) : textDeck), [describing, textDeck]) // the transcript keeps every word
   // what the solutions beats and the bottom line compare: the engine's verified fixes, best first
   const options = useMemo(() => (report ? optionsOf(report, (deck?.slides || []).find((s) => (s.kind || s.id) === 'fix')) : []), [report, deck])
   // what the show is doing beyond the slide itself: the play that just landed (scoreboard, banner), the
@@ -299,6 +310,20 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
   useEffect(() => {
     if (playing) locked.current = true // Gemini's deck no longer replaces the one being played
   }, [playing])
+  // turning the description on or off starts the beat you are on again (its line first, or without it), never mid-segment
+  const describeSeen = useRef(describing)
+  useEffect(() => {
+    if (describeSeen.current === describing) return
+    describeSeen.current = describing
+    goto(idx)
+  }, [describing, goto, idx])
+  const toggleDescribe = useCallback(() => {
+    setDescribeOn((on) => {
+      writeDescribe(!on)
+      return !on
+    })
+    setDl((d) => (d.open ? { ...d, open: false, data: null } : d)) // a menu opened before the change would offer the other files
+  }, [])
 
   // a slide change while paused (and a new cascade in the map) re-stages the map
   const cascadeNow = o.cascade
@@ -570,7 +595,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
     if (dl.open) return setDl((d) => ({ ...d, open: false }))
     setDl({ open: true, data: null, error: null, busy: true })
     try {
-      const data = await getDownload(deck.deck_key, lang)
+      const data = await getDownload(deck.deck_key, lang, describing)
       setDl({ open: true, data, error: null, busy: false })
     } catch (err) {
       setDl({ open: true, data: null, error: err, busy: false })
@@ -631,6 +656,9 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
             </button>
           </div>
           <div className="rs-opts__line">
+            <DescribeToggle lang={lang} on={describeOn} onToggle={toggleDescribe} available={!deck || canDescribe} />
+          </div>
+          <div className="rs-opts__line">
             <div className="rs-seg" role="group" aria-label={lang === 'es' ? 'Idioma' : 'Language'}>
               {['en', 'es'].map((l) => (
                 <button key={l} type="button" className="rs-seg__btn" aria-pressed={lang === l} onClick={() => setLang(l)} aria-label={l === 'en' ? 'English' : 'Español'}>
@@ -670,7 +698,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
                 <button type="button" className="rs-tool" aria-expanded={dl.open} onClick={toggleDownload} disabled={!deck}>
                   {t.download}
                 </button>
-                {dl.open && <DownloadMenu dl={dl} deck={textDeck} lang={lang} />}
+                {dl.open && <DownloadMenu dl={dl} deck={wordsDeck} lang={lang} />}
               </div>
               {voiceBadge}
             </div>
@@ -696,20 +724,23 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
             <BriefingDoc report={report} deck={deck} lang={lang} stepIdx={(n) => stepIndexOf(o.cascade, n)} onApply={onApply} fixture={fixture} />
           ) : (
             slide && (
-              <Slide
-                key={`${slide.id}-${lang}-${narr.run}`}
-                slide={slide}
-                report={report}
-                deck={deck}
-                lang={lang}
-                wave={fx.wave}
-                onApply={onApply}
-                fixture={fixture}
-                stage={stage}
-                live={live}
-                animate={animate}
-                options={options}
-              />
+              <>
+                {canDescribe && <DescribeLine slide={slide} lang={lang} on={describing} />}
+                <Slide
+                  key={`${slide.id}-${lang}-${narr.run}`}
+                  slide={slide}
+                  report={report}
+                  deck={deck}
+                  lang={lang}
+                  wave={fx.wave}
+                  onApply={onApply}
+                  fixture={fixture}
+                  stage={stage}
+                  live={live}
+                  animate={animate}
+                  options={options}
+                />
+              </>
             )
           )}
         </main>
@@ -787,7 +818,7 @@ export default function ReviewStage({ body, onClose, autoPlay = false, short: st
         </aside>
       )}
 
-      {transcript && textDeck && <Transcript deck={textDeck} lang={lang} onClose={() => setTranscript(false)} />}
+      {transcript && textDeck && <Transcript deck={wordsDeck} lang={lang} onClose={() => setTranscript(false)} />}
 
       {slidesView && deck && <Ticker report={report} deck={deck} lang={lang} playing={narr.playing} />}
       <MapOverlay lines={overlay.lines} ghost={overlay.ghost} rings={overlay.rings} layer={live.layer} />
@@ -874,7 +905,7 @@ function Transcript({ deck, lang, onClose }) {
             <h3>{s.headline?.[lang]}</h3>
             {(s.narration?.[lang] || []).map((g) => (
               <p key={g.key}>
-                <span className="rs-transcript__who">{g.role === 'analyst' ? t.analyst : t.presenter}</span> {transcriptSeg(g, lang)}
+                <span className="rs-transcript__who">{roleLabel(g, lang)}</span> {transcriptSeg(g, lang)}
               </p>
             ))}
           </li>

@@ -40,6 +40,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import Field
 
 import chain_arc
+import describe
 import voice
 from costs import outage_label
 from grid import REGIONS, CaseIn, _case_header, check_case, grid_at, region_code
@@ -2744,6 +2745,7 @@ def finish(report: dict, composed: dict, length: str, ai_meta: dict) -> dict:
             prev_t = seq[i - 1][0]["text"] if i else None
             next_t = seq[i + 1][0]["text"] if i + 1 < len(seq) else None
             seg["key"] = voice.register(seg["text"], lang, seg["role"], prev_text=prev_t, next_text=next_t, cues=seg["cues"])
+    describe.attach(w, slides_out)  # audio description of each beat's map ("On the map: ..."), with voice keys: features/briefing/describe.js
     if w.preset:
         place, place_es = w.preset_name("en"), w.preset_name("es")
     elif w.multi:

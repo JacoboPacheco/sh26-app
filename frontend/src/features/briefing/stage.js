@@ -1,6 +1,6 @@
 import { fmt } from '../../geo'
 import { reportPeople } from '../cost/figures'
-import { T } from './text'
+import { roleLabel } from './describe'
 
 // Small helpers the stage, the review card and the route share.
 
@@ -110,7 +110,7 @@ export function transcriptText(deck, lang) {
   const out = [loc(deck, 'banner', lang), '', deck.title?.[lang] || '', '']
   deck.slides.forEach((s, i) => {
     out.push(`${i + 1}. ${s.headline?.[lang] || ''}`)
-    ;(s.narration?.[lang] || []).forEach((g) => out.push(`${g.role === 'analyst' ? T[lang].analyst : T[lang].presenter}: ${transcriptSeg(g, lang)}`))
+    ;(s.narration?.[lang] || []).forEach((g) => out.push(`${roleLabel(g, lang)}: ${transcriptSeg(g, lang)}`))
     out.push('')
   })
   out.push(loc(deck, 'credit', lang), loc(deck, 'disclaimer', lang))
