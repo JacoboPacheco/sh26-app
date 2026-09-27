@@ -29,18 +29,29 @@ export default function TopBar({ active, onPick, withState = false }) {
   // strip, "Watch the story"); --appbar-h is a fixed fallback that undercounts it, so the wrapped rows paint
   // over the page below (BLOCKER, phone width). Keep --appbar-h equal to the bar's own measured height,
   // always, so every page that reads it (`.mc`, `.below-bar`, …) starts right under it.
+  // Only at that width, and never a hidden bar's 0: above 860px the CSS gives the bar its height FROM this
+  // variable, so feeding a measurement back locked in whatever the bar measured while the review stage had it
+  // hidden (user, Sun 06:40: "the top bar breaks when you exit out of the summary") — there the variable is
+  // left to the stylesheet's fixed value.
   const barRef = useRef(null)
   useLayoutEffect(() => {
     const el = barRef.current
     if (!el || typeof ResizeObserver === 'undefined') return undefined
-    const set = () => document.documentElement.style.setProperty('--appbar-h', `${Math.ceil(el.getBoundingClientRect().height)}px`)
+    const set = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height)
+      if (h > 0 && window.matchMedia('(max-width: 860px)').matches) document.documentElement.style.setProperty('--appbar-h', `${h}px`)
+      else document.documentElement.style.removeProperty('--appbar-h')
+    }
     set()
     const ro = new ResizeObserver(set)
     ro.observe(el)
     window.addEventListener('orientationchange', set)
+    window.addEventListener('resize', set)
     return () => {
       ro.disconnect()
       window.removeEventListener('orientationchange', set)
+      window.removeEventListener('resize', set)
+      document.documentElement.style.removeProperty('--appbar-h')
     }
   }, [])
   return (
