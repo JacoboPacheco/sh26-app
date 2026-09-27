@@ -44,6 +44,7 @@ from fastapi.concurrency import run_in_threadpool
 import agreement as ag
 import gridlock as gl
 import llm
+import voice
 from limiter import limiter
 
 router = APIRouter(tags=["negotiate"])
@@ -220,8 +221,8 @@ def goals(case: dict) -> tuple[dict, dict]:
             "rule": best["id"],
             "rule_label": best["label"],
             "window": {"start": _iso(w[0]), "end": _iso(w[1]), "kind": kind} if w else None,
-            "text_en": f"Keep {who}'s filed schedule ({when_en}{win_en}) and pay no more than {cap:g} % of the shared costs ({best['label'][:1].lower() + best['label'][1:]}: {best['basis']}).",
-            "text_es": f"Mantener el calendario publicado de {who} ({when_es}{win_es}) y pagar como máximo el {cap:g} % de los costes compartidos ({best['label_es'][:1].lower() + best['label_es'][1:]}: {best['basis_es']}).",
+            "text_en": f"Keep {who}'s filed schedule ({when_en}{win_en}) and aim to pay no more than {cap:g} % of the shared costs by our fair-share rule ({best['label'][:1].lower() + best['label'][1:]}: {best['basis']}).",
+            "text_es": f"Mantener el calendario publicado de {who} ({when_es}{win_es}) y aspirar a pagar como máximo el {cap:g} % de los costes compartidos con nuestra regla de reparto justo ({best['label_es'][:1].lower() + best['label_es'][1:]}: {best['basis_es']}).",
         }
     conflict = out["a"]["cap_pct"] + out["b"]["cap_pct"] < 99.5
     same = len({tuple(r["shares"]) for r in case["rules"]}) == 1
@@ -229,18 +230,18 @@ def goals(case: dict) -> tuple[dict, dict]:
         "split": conflict,
         "all_rules_equal": same,
         "text_en": (
-            f"The goals conflict: {_short(case, 'a')}'s filing supports paying {out['a']['cap_pct']:g} % and {_short(case, 'b')}'s "
+            f"The goals conflict: by our fair-share rules (computed from the filed figures, not stated in either filing) {_short(case, 'a')}'s smallest share is {out['a']['cap_pct']:g} % and {_short(case, 'b')}'s "
             f"{out['b']['cap_pct']:g} %, which don't add up to 100 %, so the agents have to trade."
             if conflict else
             ("Nothing to argue about on cost: every allowed split rule gives the same shares, so the agents can agree quickly."
-             if same else "The goals fit together: one allowed split gives each side no more than its filing supports.")
+             if same else "The goals fit together: one allowed split gives each side no more than its smallest fair share.")
         ),
         "text_es": (
-            f"Los objetivos chocan: el documento de {_short(case, 'a')} respalda pagar el {out['a']['cap_pct']:g} % y el de "
+            f"Los objetivos chocan: con nuestras reglas de reparto justo (calculadas con las cifras publicadas, no dichas en ningún documento) la parte más baja de {_short(case, 'a')} es el {out['a']['cap_pct']:g} % y la de "
             f"{_short(case, 'b')} el {out['b']['cap_pct']:g} %, que no suman 100 %, así que los agentes tienen que negociar."
             if conflict else
             ("Nada que discutir sobre el coste: todas las reglas de reparto permitidas dan las mismas partes."
-             if same else "Los objetivos encajan: una regla de reparto permitida da a cada parte no más de lo que respalda su documento.")
+             if same else "Los objetivos encajan: una regla de reparto permitida da a cada parte no más de su parte justa más baja.")
         ),
     }
 
@@ -580,8 +581,8 @@ AGENT_SYSTEM = (
     "'as filed, the window ended Aug 2026'). "
     "Write in the third person about the filing ('the filing shows', 'this agent proposes'); never 'we' or 'our'. "
     "In concerns and the note, name a split rule in words ('by filed length', 'by kV class', '50/50'), not by its id. "
-    "You hold your filing's side of the shared estimate and you are given a GOAL from your own filing (the most your side should pay "
-    "and the window your filing allows): argue for the split rule your filing's own figures (voltage, length, kind of work) support for "
+    "You hold your filing's side of the shared estimate and you are given a GOAL (the most your side should pay by a fair-share rule the pipeline computed from your filing's figures, "
+    "which the filing itself doesn't state, and the window your filing allows): argue for the split rule your filing's own figures (voltage, length, kind of work) support for "
     "your side, with that reason, and answer the other agent's reasons; move toward a middle ground only when its reason holds or in "
     "the last round, since a verified middle ground beats leaving without terms. Don't accept terms above your goal before the last "
     "round. If the terms on the table already meet your goal, accept them; never invent a disagreement. "
@@ -664,7 +665,7 @@ def _prompt(case: dict, side: str, rnd: int, turns: list, table: dict | None, fe
         "YOUR FILING (key: text):",
         *[f"- {f['key']}: {f['text']}" for f in mine],
         "",
-        f"YOUR GOAL (from your own filing): {case['goals'][side]['text_en']} Before round {MAX_ROUNDS}, don't accept a split that "
+        f"YOUR GOAL (a fair-share figure the pipeline computed from your filing's figures): {case['goals'][side]['text_en']} Before round {MAX_ROUNDS}, don't accept a split that "
         f"gives your side more than {case['goals'][side]['cap_pct']:g} %; counter with your filing's reason instead. In round "
         f"{MAX_ROUNDS}, a verified middle ground beats leaving without terms.",
         *_middle_lines(case, side, rnd),
@@ -867,14 +868,14 @@ def _plain_game(case: dict, lang: str) -> _Game:
 
     wtxt = _span(win, lang) if win else _L(lang, "no joint window", "sin ventana conjunta")
     accept_note = _L(lang, "Accepts the proposal on the table.", "Acepta la propuesta sobre la mesa.")
-    open_note = _L(lang, f"Opening: {wtxt}, every shared item in the estimate, split {ag._lc(label(ra))}, the split this filing supports.",
-                   f"Apertura: {wtxt}, todas las partidas compartidas de la estimación, reparto {ag._lc(label(ra))}, el que respalda este documento.")
+    open_note = _L(lang, f"Opening: {wtxt}, every shared item in the estimate, split {ag._lc(label(ra))}, the fair-share split that asks this side for the least.",
+                   f"Apertura: {wtxt}, todas las partidas compartidas de la estimación, reparto {ag._lc(label(ra))}, el reparto justo que menos pide a esta parte.")
     g.take("a", 1, raw(ra, concern("a"), open_note))
     if by_id[ra]["shares"][1] <= goals_["b"]["cap_pct"] + 0.5:  # A's opening already meets B's goal: nothing to counter
         g.take("b", 1, raw(ra, concern("b"), accept_note, True))
         return g
-    g.take("b", 1, raw(rb, concern("b"), _L(lang, f"Counter: split {ag._lc(label(rb))}, the split this filing supports.",
-                                              f"Contrapropuesta: reparto {ag._lc(label(rb))}, el que respalda este documento.")))
+    g.take("b", 1, raw(rb, concern("b"), _L(lang, f"Counter: split {ag._lc(label(rb))}, the fair-share split that asks this side for the least.",
+                                              f"Contrapropuesta: reparto {ag._lc(label(rb))}, el reparto justo que menos pide a esta parte.")))
     settle = "by_length" if "by_length" in by_id else "equal"
     mid = next((x for x in (settle, "equal") if x in by_id and x not in (ra, rb)), None)
     if mid is None:  # no rule between the two: A takes B's counter
@@ -1095,6 +1096,85 @@ async def terms_for_draft(overlap_id: str, months: int, which: str) -> tuple[dic
     return terms, {**meta, "applied": True, "text": NEG_TEXT[by]}
 
 
+# ------------------------------------------------------------------------------- Hear the negotiation
+# Each agent's turn can be heard (Build together, step 2): the words of a verified turn (its concerns, then its note, as the
+# agent wrote them and the pipeline checked them) go to voice.py like the briefing's lines do. Agent A speaks with the
+# presenter voice (George), agent B with the analyst voice (Matilda), the closing summary with the presenter voice.
+# A turn the pipeline rejected is never read aloud (its words did not pass); nothing is added to what was checked: a turn
+# with no words of its own (an acceptance) gets one fixed lead-in with no figure in it.
+VOICE_ROLE = {"a": "presenter", "b": "analyst", "summary": "presenter"}
+_LEAD = {
+    "en": {"propose": "I open with these terms.", "counter": "I counter with these terms.", "revise": "I revise my proposal.",
+           "accept": "I accept the proposal on the table."},
+    "es": {"propose": "Abro con estos términos.", "counter": "Contrapropongo con estos términos.", "revise": "Corrijo mi propuesta.",
+           "accept": "Acepto la propuesta sobre la mesa."},
+}
+
+
+def who_label(side: str, short: str, lang: str, ai: bool) -> str:
+    """The caption's label for a voice: which published plan the agent reads (an AI agent, or the scripted plain version),
+    the neutral coordinator, or the narrator's summary."""
+    if side == "summary":
+        return _L(lang, "Summary of the exchange (read by the narrator, not an agent)", "Resumen del intercambio (lo lee el narrador, no un agente)")
+    if side == "coord":
+        return (_L(lang, "The neutral coordinator, an AI agent that speaks for neither company", "El coordinador neutral, un agente de IA que no habla por ninguna empresa")
+                if ai else _L(lang, "The coordinator (template, no AI)", "El coordinador (plantilla, sin IA)"))
+    return (_L(lang, f"An AI agent for {short}'s published plan", f"Un agente de IA del plan publicado de {short}") if ai
+            else _L(lang, f"A scripted agent for {short}'s published plan (plain version)", f"Un agente con guion del plan publicado de {short} (versión simple)"))
+
+
+def _end(s: str) -> str:
+    s = s.strip()
+    return s if not s or s[-1] in ".!?…" else s + "."
+
+
+def spoken_text(turn: dict, lang: str) -> str:
+    """What a turn says aloud: its concerns, then its note, verbatim (a full stop added where one is missing)."""
+    p = turn["proposal"]
+    parts = [_end(str(c)) for c in (p.get("concerns") or [])] + ([_end(str(p["note"]))] if p.get("note") else [])
+    parts = [x for x in parts if x]
+    return " ".join(parts) if parts else _LEAD.get(lang, _LEAD["en"]).get(turn["kind"], _LEAD["en"]["propose"])
+
+
+def closing_text(out: dict, lang: str) -> str:
+    """The neutral summary, from the outcome: who accepted whose proposal and that the pipeline re-checked it, or why not."""
+    o = out["outcome"]
+    short = {a["side"]: a["short"] for a in out["agents"]}
+    if o.get("agreed") and o.get("verified"):
+        return _L(lang,
+                  f"In round {o['round']}, {short[o['accepted_by']]}'s agent accepted {short[o['proposed_by']]}'s agent's verified proposal. "
+                  "The pipeline then re-checked the final terms against both filings. These are agents reading public filings, not the utilities.",
+                  f"En la ronda {o['round']}, el agente de {short[o['accepted_by']]} aceptó la propuesta verificada del agente de {short[o['proposed_by']]}. "
+                  "Después, el sistema volvió a comprobar los términos finales con los dos documentos. Son agentes que leen documentos públicos, no las empresas.")
+    return _end(o.get("reason") or "")
+
+
+def add_voice(out: dict) -> dict:
+    """Register what each verified turn (and the closing summary) says with voice.py and put the keys on the response (extra
+    fields, nothing else changes): turn["voice"] = {key, role, side, text, lang}, out["voice"] = {roles, attribution,
+    summary {…} | None}. The keys depend on the configured voices, so this runs per request, on the caller's copy."""
+    lang = out["lang"] if out.get("lang") in ("en", "es") else "en"
+    lines: list[tuple[dict, str, str]] = []  # (holder, side, text)
+    for t in out["turns"]:
+        t["voice"] = None
+        if t["verdict"]["ok"]:
+            t["voice"] = {}
+            lines.append((t["voice"], t["agent"], spoken_text(t, lang)))
+    summary = None
+    if out["turns"] and out["outcome"].get("reason") and not out["outcome"].get("nothing"):
+        summary = {}
+        lines.append((summary, "summary", closing_text(out, lang)))
+    texts = [x[2] for x in lines]
+    short = {a["side"]: a["short"] for a in out["agents"]}
+    ai = out.get("by") == "gemini"
+    for i, (holder, side, text) in enumerate(lines):
+        role = VOICE_ROLE[side]
+        key = voice.register(text, lang, role, prev_text=texts[i - 1] if i else None, next_text=texts[i + 1] if i + 1 < len(texts) else None)
+        holder.update({"key": key, "role": role, "side": side, "text": text, "lang": lang, "who": who_label(side, short.get(side, ""), lang, ai)})
+    out["voice"] = {"roles": VOICE_ROLE, "attribution": voice.ATTRIBUTION, "summary": summary or None}
+    return out
+
+
 # ----------------------------------------------------------------------------- the route
 
 
@@ -1115,7 +1195,8 @@ async def negotiate(
         raise HTTPException(status_code=422, detail="lang must be 'en' or 'es'")
     if len(overlap_id) > 200:
         raise HTTPException(status_code=422, detail="overlap id is too long")
-    return await run_case(overlap_id, window_months, lang, ai)
+    out = await run_case(overlap_id, window_months, lang, ai)  # a fresh copy each time (cache hits are deep-copied)
+    return await run_in_threadpool(add_voice, out)
 
 
 @router.get("/api/negotiate/{overlap_id}/live")

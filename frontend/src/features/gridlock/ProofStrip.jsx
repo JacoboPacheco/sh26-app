@@ -69,7 +69,7 @@ export default function ProofStrip() {
         </li>
         <li>
           <strong>{ready ? fmtInt(same) : '…'}</strong>{' '}
-          <Gloss tip="Both build windows share months that are still ahead or open now: they could be built together as filed.">whose filed windows share months</Gloss>
+          <Gloss tip="Both build windows (as filed, or from a start derived from the in-service date) share months that are still ahead or open now: they could be built together.">whose build windows still share months</Gloss>
         </li>
       </ol>
       <div className="bt-proof__row">

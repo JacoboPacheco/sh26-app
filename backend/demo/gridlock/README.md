@@ -127,7 +127,7 @@ the two filings or Sperry's sheet, four common data-entry errors) plus one forma
 filings that must be read correctly and is never counted as a catch). Each copy goes back through the same code the build runs: a DESC fault goes into the PDF page text, which
 `extract_desc.parse_page` re-reads; a Georgia fault goes into the parsed Table 2 row, which `build._common` re-normalizes; a
 location fault moves the located point the way a wrong match would; a title whose place names change goes back through the
-locate stage (cached OSM, no network). Then `checks.run`, the same 16 checks. Nothing is re-implemented.
+locate stage (cached OSM, no network). Then `checks.run`, the same record checks (16 per project). Nothing is re-implemented.
 
 A **control** runs first: the same records with nothing changed. 191 of the 194 are re-run exactly from their filed text (3 take
 their place names from a detail page or description and are left out), every one is kept, and every check result equals the
@@ -347,7 +347,7 @@ First run (the committed `data/gemini_reader.json`, served at `GET /api/gridlock
     windows don't overlap says `no shared window` (`window_gap_days` gives the gap).
   - `build_window_start` / `_end` are the windows the overlaps were scored with at the chosen `window_months` (`window_filed`
     says whether the filing gave them).
-  - `in_sperry_example` carries Sperry's own id for their six pairs as `Sperry OVL_n`: their numbering, not our `overlap_id`.
+  - `in_sperry_example` carries Sperry's own id for their six pairs as `Sperry OVL_n`: their numbering. Our sheet's `overlap_id` is `PAIR_<rank>` (it was `OVL_<rank>`, which collided with Sperry's own ids).
   - Built per request (about 20 ms), so the `Generated` time is the file's own.
 - `GET /api/gridlock/export.csv?table=projects|overlaps|set_aside` and `GET /api/gridlock/export.geojson` (projects as features).
 - All three take the overlap settings of `/api/gridlock/opportunities`: `max_km`, `window_months`, `method`, `a`, `b`.

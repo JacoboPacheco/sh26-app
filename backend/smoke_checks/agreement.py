@@ -195,6 +195,17 @@ def register(ctx):
         assert not ok and "follow a figure" in why, why
         ok, _, n = ag.check_text(tpl["summary"]["text"], facts)
         assert ok and n >= 3, (ok, n)
+        # a month-and-year the facts don't hold is invented, past or not (Gemini once wrote "Jun 2025 to Aug 2026" for the
+        # hero pair, copied from the prompt's own example); a month the facts print passes, in English and Spanish
+        held = ag.allowed_numbers(facts).months
+        yr = max(y for y, _ in held)
+        mon = next(m for m in range(1, 13) if (yr, m) not in held)
+        ok, why, _ = ag.check_text(f"Both windows are open {ag.MONTHS[mon - 1]} {yr}.", facts)
+        assert not ok and "not one of the facts' dates" in why, why
+        jw = next((f for f in facts if f["key"] == "pair.joint_window"), None)
+        if jw:
+            ok, why, _ = ag.check_text(jw["text"], facts)
+            assert ok, (jw["text"], why)
 
         good = {"text": tpl["why"][0]["text"], "facts": ["pair.distance", "made.up.key"]}
 

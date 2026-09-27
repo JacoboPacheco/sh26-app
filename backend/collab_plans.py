@@ -40,6 +40,7 @@ import agreement as ag
 import gridlock as gl
 import llm
 import negotiate as ng
+import voice
 from limiter import limiter
 
 router = APIRouter(tags=["collab_plans"])
@@ -179,17 +180,17 @@ def _settle_text(case: dict, lang: str) -> str:
     if not (oa or ob):
         return _L(lang,
                   f"The goals fit together: splitting the shared costs {_rule_word(sp['label'])} ({A} {sa:g} %, {B} {sb:g} %) asks neither side "
-                  "to pay more than its own filing supports.",
+                  "to pay more than its smallest fair share.",
                   f"Los objetivos encajan: repartir los costos compartidos {_rule_word(sp['label_es'])} ({A} {sa:g} %, {B} {sb:g} %) no pide a "
-                  "ninguna de las dos pagar más de lo que respalda su documento.")
+                  "ninguna de las dos pagar más de su parte justa más baja.")
     who = [(A, oa, sa, ca), (B, ob, sb, cb)]
     over_en = " and ".join(f"{w} pays {s:g} % instead of {c:g} %" for w, o, s, c in who if o)
     over_es = " y ".join(f"{w} paga el {s:g} % en lugar del {c:g} %" for w, o, s, c in who if o)
     return _L(lang,
-              f"The goals conflict: {A}'s filing supports paying {ca:g} % of the shared costs ({_rule_word(sp['goal_labels'][0])}) and "
+              f"The goals conflict: by our fair-share rules (computed from the filed figures, not stated in either filing) {A}'s smallest share of the shared costs is {ca:g} % ({_rule_word(sp['goal_labels'][0])}) and "
               f"{B}'s {cb:g} % ({_rule_word(sp['goal_labels'][1])}), which don't add up to 100 %. Every plan uses the allowed split closest "
               f"to both goals, {_rule_word(sp['label'])}: {over_en}.",
-              f"Los objetivos chocan: el documento de {A} respalda pagar el {ca:g} % de los costos compartidos ({_rule_word(ga_es)}) y el de "
+              f"Los objetivos chocan: con nuestras reglas de reparto justo (calculadas con las cifras publicadas, no dichas en ningún documento) la parte más baja de {A} en los costos compartidos es el {ca:g} % ({_rule_word(ga_es)}) y la de "
               f"{B} el {cb:g} % ({_rule_word(gb_es)}), que no suman 100 %. Cada plan usa el reparto permitido más cercano a los dos "
               f"objetivos, {_rule_word(sp['label_es'])}: {over_es}.")
 
@@ -222,10 +223,10 @@ def _over_row(case: dict, k: int, split: dict, lo: float, hi: float, lang: str) 
     s, cap = split["shares"][k], split["caps"][k]
     rule = split["goal_labels"][k]
     rule_es = next((r["label_es"] for r in case["rules"] if r["id"] == split["goal_rules"][k]), rule)
-    return {"what": _L(lang, f"Pays {s:g} % of the shared costs, not the {cap:g} % its own filing supports ({_rule_word(rule)})",
-                       f"Paga el {s:g} % de los costos compartidos, no el {cap:g} % que respalda su propio documento ({_rule_word(rule_es)})"),
+    return {"what": _L(lang, f"Pays {s:g} % of the shared costs, not the {cap:g} % of its smallest fair share ({_rule_word(rule)})",
+                       f"Paga el {s:g} % de los costos compartidos, no el {cap:g} % de su parte justa más baja ({_rule_word(rule_es)})"),
             "usd": [round(lo * over / 100, -3), round(hi * over / 100, -3)], "months": None,
-            "source": "Its goal from its own filing (negotiate.goals) against the split closest to both goals"}
+            "source": "Its smallest fair share (negotiate.goals: a rule computed from the filed figures, not stated in any filing) against the split closest to both goals"}
 
 
 def _menu(case: dict, lang: str = "en") -> list[dict]:
@@ -664,7 +665,7 @@ def _agent_prompt(case: dict, side: str, menu: list[dict], lang: str) -> str:
     who = case["A"] if side == "a" else case["B"]
     out = [
         f"You represent {p.get('utility_name')}'s published plan ({who}) for project {p['id']}: {ag._display_name(p.get('name') or p['id'])}.",
-        f"YOUR GOAL (from your own filing): {case['goals'][side]['text_en']}",
+        f"YOUR GOAL (a fair-share figure the pipeline computed from your filing's figures): {case['goals'][side]['text_en']}",
         "", "YOUR FILING:", *[f"- {f['text']}" for f in mine],
         "", "THE OTHER COMPANY'S PUBLISHED PLAN (public, for context):", *[f"- {f['text']}" for f in theirs],
         "", "THE PAIR:", *[f"- {f['text']}" for f in shared],
@@ -674,7 +675,7 @@ def _agent_prompt(case: dict, side: str, menu: list[dict], lang: str) -> str:
         'filing, "gains": [at most 2 short strings], "gives_up": [at most 2 short strings]}], best first}.',
     ]
     if lang == "es":
-        out.append("Write why, gains and gives_up in Spanish (numbers exactly as in the facts).")
+        out.append("Write why, gains and gives_up in Spanish (numbers exactly as in the facts). Translate every English word, including \"gives up\" (say \"cede\"); keep company names and project ids exactly as written.")
     return "\n".join(out)
 
 
@@ -699,7 +700,7 @@ def _coord_prompt(case: dict, menu: list[dict], props: dict, findings: list[str]
             f'{case["A"]} gains and gives up, "net_b": the same for {case["B"]}}}], "recommended": {{"kind": a plan kind above, '
             '"why": one sentence}}}.']
     if lang == "es":
-        out.append("Write every text in Spanish (numbers exactly as in the facts and the menu).")
+        out.append("Write every text in Spanish (numbers exactly as in the facts and the menu). Translate every English word, including \"gives up\" (say \"cede\"); keep company names and project ids exactly as written.")
     return "\n".join(out)
 
 
@@ -1074,6 +1075,67 @@ async def plan_terms(pair: str, months: int, plan) -> tuple[dict | None, dict]:
     return terms, {"plan": p["id"], "title": p["title"], "applied": True, "by": terms["by"], "text": terms["text"]}
 
 
+# ------------------------------------------------------------------------------- Hear the negotiation
+# The trace of the agents' work can be heard (Build together, "Watch the AI agents work"): each company's agent speaks its own
+# lines in its own voice (company A the presenter voice, George; company B the analyst voice, Matilda) and the neutral
+# coordinator speaks with the presenter voice. Only lines the trace shows and the pipeline kept are read, word for word (a
+# plan kind's id is said in its plain words, as the page shows it): each company's goal as the filings state it, each
+# proposal that passed the checks, the coordinator's merge, revision and recommendation. The pipeline's own lines and
+# anything it dropped are not read aloud. Nothing is added.
+KIND_SAY = {
+    "en": {"one_outage": "One shared outage", "shift": "Move one schedule", "share_prep": "Share the prep work",
+           "stagger": "Hand over between jobs", "status_check": "Compare notes"},
+    "es": {"one_outage": "Un solo corte", "shift": "Mover un calendario", "share_prep": "Compartir la preparación",
+           "stagger": "Relevo entre obras", "status_check": "Comparar avances"},
+}
+_SPOKEN_STEPS = ("goal", "proposes", "merges", "revises", "recommends")
+
+
+def _side_of(agent: str, shorts: dict) -> str | None:
+    """'DESC's agent', 'Agente de DESC (plantilla)', 'Coordinator', ... -> 'a' | 'b' | 'coord' | None (the pipeline)."""
+    a = str(agent or "")
+    if a.startswith(("Coordinator", "Coordinador")):
+        return "coord"
+    for side, short in shorts.items():
+        if short and (a.startswith(f"{short}'s agent") or a.startswith(f"Agente de {short}")):
+            return side
+    return None
+
+
+def spoken_line(step: dict, lang: str) -> str:
+    """The line as the page shows it: a leading plan-kind id ("stagger: ...") is said in its plain words."""
+    kinds = KIND_SAY.get(lang, KIND_SAY["en"])
+    return re.sub(r"^([a-z_]+):\s*", lambda m: f"{kinds[m.group(1)]}: " if m.group(1) in kinds else m.group(0), str(step["text"]).strip())
+
+
+def add_voice(out: dict) -> dict:
+    """Register the spoken trace lines with voice.py and put the keys on the response (extra fields; nothing else changes):
+    trace[i]["voice"] = {key, role, side, text, lang, who} | None, out["voice"] = {roles, attribution}. The keys depend on the
+    configured voices, so this runs per request, on the caller's copy."""
+    lang = out["lang"] if out.get("lang") in LANGS else "en"
+    shorts = {"a": (out.get("companies") or [{}, {}])[0].get("short"), "b": (out.get("companies") or [{}, {}])[1].get("short")}
+    ai = out.get("by") == "gemini"
+    lines: list[tuple[dict, str, str]] = []
+    for step in out.get("trace") or []:
+        step["voice"] = None
+        side = _side_of(step.get("agent"), shorts)
+        if not side or step.get("step") not in _SPOKEN_STEPS or not str(step.get("text") or "").strip():
+            continue
+        if step["step"] == "proposes" and step.get("verdict") != "kept":
+            continue  # dropped by the pipeline, or "no answer in time": not read aloud
+        if step.get("verdict") == "dropped":
+            continue
+        step["voice"] = {}
+        lines.append((step["voice"], side, spoken_line(step, lang)))
+    texts = [x[2] for x in lines]
+    for i, (holder, side, text) in enumerate(lines):
+        role = ng.VOICE_ROLE[side if side in ("a", "b") else "summary"]
+        key = voice.register(text, lang, role, prev_text=texts[i - 1] if i else None, next_text=texts[i + 1] if i + 1 < len(texts) else None)
+        holder.update({"key": key, "role": role, "side": side, "text": text, "lang": lang, "who": ng.who_label(side, shorts.get(side) or "", lang, ai)})
+    out["voice"] = {"roles": {"a": "presenter", "b": "analyst", "coord": "presenter"}, "attribution": voice.ATTRIBUTION}
+    return out
+
+
 # ----------------------------------------------------------------------------- the route
 
 
@@ -1099,4 +1161,5 @@ async def plans(request: Request, body: PlansIn):
     months = gl.WINDOW_DEFAULT if body.window_months is None else body.window_months
     if not (0 <= months <= gl.WINDOW_MAX):
         raise HTTPException(status_code=422, detail=f"window_months must be between 0 and {gl.WINDOW_MAX}")
-    return await run(pair, months, lang, body.ai is not False)
+    out = await run(pair, months, lang, body.ai is not False)  # a fresh copy each time (cache hits are deep-copied)
+    return await run_in_threadpool(add_voice, out)

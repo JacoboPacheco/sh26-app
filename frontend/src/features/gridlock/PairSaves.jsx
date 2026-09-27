@@ -4,7 +4,7 @@ import { LABELS, fmtMonth } from './agreementText'
 import { WindowTimeline } from './AgreementDoc'
 import Gloss from './Gloss'
 import { GLOSS } from './glossary'
-import { displayName, fmtDate, fmtKm, fmtMi, fmtMoney, fmtRange, kindText, pairDistance, statusText, toneOf, utilityShort } from './format'
+import { displayName, fmtDate, fmtKm, fmtMi, fmtMoney, fmtRange, kindText, limitMi, pairDistance, statusText, toneOf, utilityShort } from './format'
 import { CONF, nearEndsOnly, planningSide, rangeText, whenText, windowKind } from './plain'
 
 // Step 2 of the guided path, "See what building together saves": the pair folded to five facts a newcomer can read in
@@ -30,9 +30,9 @@ const T = {
     cross: 'The two lines cross.',
     station: (n) => `Both filings name work at ${n} substation.`,
     centers: (mi) => `${mi} between their centers (Sperry's method)`,
-    nearEnds: "Close only at their nearest ends: measured between their centers (Sperry's method), they are more than 25 mi apart.",
-    both: (r, plan) => (plan ? `Filed windows overlap ${r}` : `Both building ${r}`),
-    past: (r, plan) => (plan ? `Filed windows overlapped ${r}, as filed: listed for the record` : `Both built ${r}, as filed: listed for the record`),
+    nearEnds: (lim) => `Close only at their nearest ends: measured between their centers (Sperry's method), they are more than ${lim} apart.`,
+    both: (r, plan) => (plan ? `Build windows overlap ${r}` : `Both building ${r}`),
+    past: (r, plan) => (plan ? `Build windows overlapped ${r}: listed for the record` : `Both built ${r}, as filed: listed for the record`),
     planNote: (u) => `${u}'s dates are a filed planning window (start to need date), so this says when both could be building, not that both crews are out then.`,
     apartT: 'Their build windows share no months: building together would mean moving one schedule.',
     open: 'open now',
@@ -74,7 +74,7 @@ const T = {
     cross: 'Las dos líneas se cruzan.',
     station: (n) => `Ambos documentos mencionan obras en la subestación ${n}.`,
     centers: (mi) => `${mi} entre sus centros (método de Sperry)`,
-    nearEnds: 'Cerca solo en los extremos más próximos: sus centros están a más de 25 mi.',
+    nearEnds: (lim) => `Cerca solo en los extremos más próximos: sus centros están a más de ${lim}.`,
     both: (r, plan) => (plan ? `Las ventanas publicadas coinciden ${r}` : `Ambos en obra ${r}`),
     past: (r, plan) => (plan ? `Las ventanas publicadas coincidieron ${r}, según lo publicado` : `Ambos construidos ${r}, según lo publicado`),
     planNote: (u) => `Las fechas de ${u} son una ventana de planificación publicada (del inicio a la fecha de necesidad): indica cuándo podrían estar en obra ambos, no que las dos cuadrillas trabajen entonces.`,
@@ -182,7 +182,7 @@ export default function PairSaves({ o, base, lang, listed, onNext, onOpenProject
             {c.km != null && !station && d.km != null && d.km >= 0.05 && (
               <p className="bt-fact__sub">{lang === 'es' ? t.centers(fmtMi(c.mi)) : <Gloss tip={GLOSS.centers}>{t.centers(fmtMi(c.mi))}</Gloss>}</p>
             )}
-            {near && <p className="bt-fact__sub bt-fact__warn">{t.nearEnds}</p>}
+            {near && <p className="bt-fact__sub bt-fact__warn">{t.nearEnds(limitMi(g.params.max_km))}</p>}
             {o.station_not_shared && lang === 'en' && <p className="bt-fact__sub">{o.station_not_shared}</p>}
           </dd>
         </div>

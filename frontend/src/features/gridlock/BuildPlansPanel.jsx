@@ -75,6 +75,14 @@ function PairsView({ extra }) {
       {g.conn.status === 'error' && <ErrorBanner error={g.conn.error} onRetry={g.reload} />}
       {g.conn.status === 'ready' && (
         <>
+          {g.pairMissing && (
+            <p className="gl-sample" role="status">
+              Pair {g.pairMissing} isn&apos;t in these filings, or the link is old. Pick a pair from the list below.{' '}
+              <button type="button" className="gl-link" onClick={g.clearPairMissing}>
+                Dismiss
+              </button>
+            </p>
+          )}
           <Intro />
           <div className="bt-step1">
             <RailSteps />
@@ -552,7 +560,7 @@ function PairRow({ o }) {
                 o.tier !== 'crews' && <span className={`gl-tier gl-tier--${o.tier}`}>{o.tier_label}</span>
               )}
               {near && (
-                <span className="bt-neartag" title="Within the distance only where their nearest ends meet: their centers are farther apart than 25 mi (Sperry's method).">
+                <span className="bt-neartag" title={`Within the distance only where their nearest ends meet: their centers are farther apart than ${limitMi(g.params.max_km)} (Sperry's method).`}>
                   Close only at the nearest ends
                 </span>
               )}

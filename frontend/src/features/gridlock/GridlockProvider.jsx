@@ -60,6 +60,7 @@ export function GridlockProvider({ children }) {
   // the rail's view: 'opportunities' (the ranked pairs), 'pipeline', 'projects', 'setaside' (the records the checks kept
   // out) or 'sperry' (Sperry's worked example alone, the start of the story)
   const [tab, setTabState] = useState(() => readRoute()?.tab || 'opportunities')
+  const [pairMissing, setPairMissing] = useState(null) // an address named a pair that isn't there: said once on the landing
   const [tierFilter, setTierFilter] = useState(null) // show only one distance tier in the list (Filters)
   const [filtersOpen, setFiltersOpen] = useState(false)
   // the pipeline section to bring into view when the pipeline opens from the funnel (an element id)
@@ -392,11 +393,16 @@ export function GridlockProvider({ children }) {
     const key = `${wantPair}|${params.window_months}`
     if (found.current.has(key)) {
       const o = found.current.get(key)
-      return settle(() => (o ? openDraft(o, { step: readRoute()?.step }) : window.history.replaceState(null, '', '#/plans')))
+      return settle(() => {
+        if (o) return openDraft(o, { step: readRoute()?.step })
+        setPairMissing(wantPair)
+        return window.history.replaceState(null, '', '#/plans')
+      })
     }
     if (failed.current.has(key)) {
       return settle(() => {
         failed.current.delete(key)
+        setPairMissing(wantPair)
         window.history.replaceState(null, '', '#/plans')
       })
     }
@@ -493,6 +499,8 @@ export function GridlockProvider({ children }) {
     draft,
     openDraft,
     closeDraft,
+    pairMissing,
+    clearPairMissing: () => setPairMissing(null),
     pairStep,
     setPairStep,
     // every Georgia sponsor in the filing (Georgia Power, GTC, MEAG, Dalton) against DESC, or Georgia Power alone

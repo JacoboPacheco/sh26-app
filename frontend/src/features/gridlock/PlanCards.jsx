@@ -1,5 +1,8 @@
+import { useMemo, useState } from 'react'
 import AiBadge from '../ai/AiBadge'
 import Gloss from './Gloss'
+import HearNegotiation from './HearNegotiation'
+import { planLines } from './hearLines'
 import { fmtRange, toneOf, utilityShort } from './format'
 import { rangeText } from './plain'
 
@@ -203,7 +206,10 @@ export default function PlanCards({ data, lang, chosen, drafting, onChoose }) {
   const plans = data.plans || []
   const rec = data.recommended?.plan
   const companies = data.companies || []
-  const trace = (data.trace || []).filter((s) => s && s.text)
+  const trace = (data.trace || []).map((s, i) => ({ ...s, i })).filter((s) => s && s.text)
+  const hear = useMemo(() => planLines(data), [data])
+  const [speaking, setSpeaking] = useState(null) // the trace line being read aloud
+  const [traceOpen, setTraceOpen] = useState(false)
   // the names on this pair (kept capitalised when a plan title is put in sentence case)
   const keep = new Set(
     companies
@@ -239,6 +245,8 @@ export default function PlanCards({ data, lang, chosen, drafting, onChoose }) {
           </AiBadge>
         )}
       </div>
+
+      {hear.length > 0 && <HearNegotiation lines={hear} lang={lang} onActive={setSpeaking} />}
       {companies.length > 0 && (
         <ul className="bt-goals" aria-label={lang === 'es' ? 'Objetivos de cada agente' : "Each agent's goal"}>
           {companies.map((c) => (
@@ -360,12 +368,12 @@ export default function PlanCards({ data, lang, chosen, drafting, onChoose }) {
       )}
 
       {trace.length > 0 && (
-        <details className="bt-trace">
+        <details className="bt-trace" open={traceOpen || speaking != null} onToggle={(e) => setTraceOpen(e.currentTarget.open)}>
           <summary>{t.watch(trace.length)}</summary>
           {data.how && lang === 'en' && <p className="gl-fine bt-trace__how">{data.how}</p>}
           <ol>
-            {trace.map((s, i) => (
-              <li key={i} className={`bt-trace__step${s.verdict ? ` is-${s.verdict}` : ''}`}>
+            {trace.map((s) => (
+              <li key={s.i} className={`bt-trace__step${s.verdict ? ` is-${s.verdict}` : ''}${speaking === s.i ? ' is-speaking' : ''}`}>
                 <span className="bt-trace__who">
                   {agentTone(s.agent) && <span className={`gl-swatch gl-swatch--${agentTone(s.agent)}`} aria-hidden="true" />} {s.agent}
                   {s.step && <span className="bt-trace__step-name">{stepNames[s.step] || s.step}</span>}

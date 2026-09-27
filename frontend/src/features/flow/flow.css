@@ -24,7 +24,11 @@
   transition: opacity 0.35s ease;
 }
 
+/* --veil / --veil-mid: how dark the sheet is (the opening from a cold start is black; after the start gate
+   it begins dim, so the map never flashes dark under a click) */
 .intro-curtain__sheet {
+  --veil: 100%;
+  --veil-mid: 70%;
   position: absolute;
   left: 0;
   right: 0;
@@ -32,9 +36,9 @@
   height: 250%;
   background: linear-gradient(
     to bottom,
-    var(--night) 0%,
-    var(--night) 50%,
-    color-mix(in srgb, var(--night) 70%, transparent) 57%,
+    color-mix(in srgb, var(--night) var(--veil), transparent) 0%,
+    color-mix(in srgb, var(--night) var(--veil), transparent) 50%,
+    color-mix(in srgb, var(--night) var(--veil-mid), transparent) 57%,
     color-mix(in srgb, var(--lit) 12%, transparent) 62.5%,
     color-mix(in srgb, var(--lit) 4%, transparent) 66%,
     transparent 72%
@@ -42,6 +46,16 @@
   transform: translateY(-8%);
   animation: intro-sweep 2.6s cubic-bezier(0.42, 0, 0.25, 1) 0.1s forwards;
   will-change: transform;
+}
+
+.intro-curtain--soft .intro-curtain__sheet {
+  --veil: 58%;
+  --veil-mid: 40%;
+}
+
+/* the start gate is waiting: the sheet holds at its first frame, the map dim but moving behind it */
+.intro-curtain--held .intro-curtain__sheet {
+  animation: none;
 }
 
 @keyframes intro-sweep {

@@ -162,6 +162,7 @@ class Allowed:
     rates: list[float] = field(default_factory=list)  # the money figures written in the facts' texts (unit costs)
     pct: list[float] = field(default_factory=list)  # split.rule's shares
     as_of: date | None = None  # the draft's date (the as_of fact)
+    months: set = field(default_factory=set)  # (year, month) of every date the facts print or hold (ISO values)
 
 
 def _context(text: str, m: re.Match) -> tuple[str, float]:
@@ -223,12 +224,28 @@ def allowed_numbers(facts: list[dict]) -> Allowed:
             for tv in _token_values(tok):
                 a.plain |= _forms(tv)
         a.rates += _money_in(text)
+        a.months |= _months_in(text)
+        for x in vals:
+            if isinstance(x, str) and re.fullmatch(r"\d{4}-\d{2}(?:-\d{2})?", x):
+                a.months.add((int(x[:4]), int(x[5:7])))
         if f.get("key") == "as_of" and isinstance(v, str):
             try:
                 a.as_of = date.fromisoformat(v)
             except ValueError:
                 pass
     return a
+
+
+def _months_in(text: str) -> set:
+    """(year, month) of every 'Mon YYYY', 'Mon D, YYYY' or 'D de mes de YYYY' date the text prints."""
+    out = set()
+    for rx, order in ((_DATE_MDY, "mdy"), (_DATE_DMY, "dmy")):
+        for m in rx.finditer(text or ""):
+            mon, year = (m.group(1), m.group(3))
+            mo = _MONTH_NO.get(mon[:3].lower())
+            if mo:
+                out.add((int(year), mo))
+    return out
 
 
 def _past_dates(text: str, as_of: date) -> list[str]:
@@ -288,6 +305,10 @@ def check_text(text: str, facts: list[dict], allowed: Allowed | None = None, max
                 return False, f"percentage {tok} % is not the proposed split", len(matches)
         elif not any(_norm(v) in allowed.plain for v in vals):
             return False, f"number {tok} is not in the facts", len(matches)
+    if allowed.months:  # a date the facts don't hold is invented, past or not (a Gemini draft once wrote "Jun 2025 to Aug 2026")
+        for ym in sorted(_months_in(text)):
+            if ym not in allowed.months:
+                return False, f"the date {MONTHS[ym[1] - 1]} {ym[0]} is not one of the facts' dates", len(matches)
     if allowed.as_of:
         past = _past_dates(text, allowed.as_of)
         if past and not _PAST_WORDS.search(text):
@@ -1016,7 +1037,7 @@ AI_SYSTEM = (
     "contacts, emails, phone numbers, prices, dates, outages or commitments. No URLs, no markdown, sentence case, short sentences. "
     "Money only as the dollar amounts in the facts; a percentage only as the proposed split in split.rule. "
     "The as_of fact is today's date. A filed date or window that ended before it has passed: say it as filed and past "
-    "('as filed, both windows were open Jun 2025 to Aug 2026; that period has passed'), never propose it or ask anyone to plan inside it; "
+    "(the pair.joint_window fact's own wording: 'as filed, both windows were open <its start> to <its end>; that period has passed', with those two months copied from the fact), never propose it or ask anyone to plan inside it; "
     "for a passed window the next step is to check each project's current status. A window that has started but not ended is open now: "
     "say so and give the months left (pair.months_left). "
     "Plain words for a newcomer: never 'tier' (say 'at this distance'), never 'mobilization' (say 'crews set up once'). "

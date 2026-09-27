@@ -70,7 +70,7 @@ def register(ctx):
             for k, inc in enumerate(p["incentives"]):
                 over = cf["over"][k]
                 if p["savings"] and over:  # the split misses this company's goal: it gives that up, with its cost
-                    assert any("its own filing supports" in g["what"] and g.get("usd") for g in inc["gives_up"]), (p["kind"], inc["gives_up"])
+                    assert any("smallest fair share" in g["what"] and g.get("usd") for g in inc["gives_up"]), (p["kind"], inc["gives_up"])
         assert not any("not a pair of months" in t["text"] or "YYYY-MM" in t["text"] for t in d["trace"]), "format noise in the trace"
 
     def figures_trace():
@@ -198,7 +198,7 @@ def register(ctx):
             prompts.append((system, prompt))
             assert surface == "collab_plans" and schema, surface
             if system == cp.AGENT_SYSTEM:
-                assert "YOUR GOAL (from your own filing)" in prompt and "MENU" in prompt
+                assert "YOUR GOAL (a fair-share figure" in prompt and "MENU" in prompt
                 return {"proposals": [{"kind": "stagger", "why": "The filing shows both build windows share months, so one crew set-up serves both."},
                                       {"kind": "helicopters", "why": "Fly the crews in."}]}, False
             revise = "THE PIPELINE DROPPED" in prompt
@@ -233,6 +233,41 @@ def register(ctx):
         t_st = next(p for p in tpl["plans"] if p["kind"] == "stagger")
         assert st["savings"] == t_st["savings"] and [i["gains"] for i in st["incentives"]] == [i["gains"] for i in t_st["incentives"]], "the AI changed a figure"
 
+    def hear_the_agents():
+        """Hear the negotiation: the trace's kept agent lines carry voice keys (company A presenter, B analyst, the coordinator
+        presenter), the spoken text is the line word for word (a plan kind's id said in its plain words), the pipeline's own
+        lines and anything dropped are not read aloud, and each key is registered with voice.py (200 or 503, never 409)."""
+        import re as _re
+        say = {"one_outage": "One shared outage", "shift": "Move one schedule", "share_prep": "Share the prep work",
+               "stagger": "Hand over between jobs", "status_check": "Compare notes"}
+        for lang in ("en", "es"):
+            d = plans(TOP, lang=lang)
+            assert d["voice"]["attribution"] == "Voice: ElevenLabs" and d["voice"]["roles"] == {"a": "presenter", "b": "analyst", "coord": "presenter"}, d["voice"]
+            spoken = []
+            for s_ in d["trace"]:
+                v = s_["voice"]
+                if s_["agent"] in ("Pipeline", "Sistema") or s_["step"] in ("settles", "checks", "fallback") or s_["verdict"] == "dropped":
+                    assert v is None, ("not read aloud", s_)
+                    continue
+                if s_["step"] == "proposes" and s_["verdict"] != "kept":
+                    assert v is None, s_
+                    continue
+                assert v and _re.fullmatch(r"[0-9a-f]{32}", v["key"]) and v["lang"] == lang and v["who"], s_
+                assert v["side"] in ("a", "b", "coord") and v["role"] == ("analyst" if v["side"] == "b" else "presenter"), v
+                if lang == "en":
+                    shown = _re.sub(r"^([a-z_]+):\s*", lambda m: f"{say[m.group(1)]}: " if m.group(1) in say else m.group(0), s_["text"].strip())
+                    assert v["text"] == shown, (v["text"], shown)
+                assert _re.findall(r"\d+", v["text"]) == _re.findall(r"\d+", s_["text"]), (v["text"], s_["text"])
+                spoken.append(v)
+            sides = [v["side"] for v in spoken]
+            assert {"a", "b", "coord"} <= set(sides), sides  # both agents and the coordinator can be heard
+            if not ctx.request("GET", "/api/voice/status")["configured"]:  # a server with a key would render (spend credits) here
+                for v in (spoken[0], spoken[-1]):
+                    try:
+                        ctx.request("POST", "/api/voice/segment", {"key": v["key"]})
+                    except AssertionError as e:
+                        assert "503" in str(e) and "Voice not configured" in str(e), f"a registered key must be 200 or 503: {e}"
+
     ctx.check("collab plans: 2-3 distinct plan kinds for the top pair, each company's goal from its filing, what each gains and "
               "gives up with a source for every kept figure, a recommended plan, no format noise in the trace", shape)
     ctx.check("collab plans: every money figure is the estimate's items split by the plan's rule; every window sits inside both "
@@ -247,3 +282,5 @@ def register(ctx):
     ctx.check("collab plans: with GEMINI_API_KEY blank the labeled template runs (and is not cached)", in_process(fallback_without_a_key))
     ctx.check("collab plans: an invented figure, a repeated kind and an off-menu kind are dropped and listed, the coordinator "
               "revises once with the findings, and the figures stay the pipeline's", in_process(agents_checked, key="smoke-fake-key-never-sent"))
+    ctx.check("collab plans: Hear the negotiation: kept agent lines carry voice keys (A presenter, B analyst, coordinator presenter), spoken word "
+              "for word, the pipeline's lines and dropped ones are not read, keys registered with voice.py (200 or 503, never 409)", hear_the_agents)

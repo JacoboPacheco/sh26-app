@@ -67,7 +67,7 @@ export default function ProposalRings() {
   const intro = useIntroPhase()
   const florida = region === 'FL' && (grid?.meta?.region || 'FL') === 'FL' && !!grid?.subs?.length
   const replaying = !!(cascading || playing || fx)
-  const shown = florida && mode === 'campus' && !replaying && intro !== 'wait' && intro !== 'play'
+  const shown = florida && mode === 'campus' && !replaying && intro !== 'gate' && intro !== 'wait' && intro !== 'play'
   // the danger zones and the headroom heatmap answer "where": a click there means their zone or dot, not a proposal
   const inert = !!(dangerOn || headroomOn)
   const faded = !!(site || extraSites.length || trip.length || cascade || inert)

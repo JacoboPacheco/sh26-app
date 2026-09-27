@@ -61,7 +61,7 @@ export default function ChangesView() {
           <span className="gl-changes__cap">With the 2024–2028 list</span>
           <strong className="gl-changes__big">{fmtInt(was.together)}</strong>
           <span className="gl-fine">
-            of {fmtInt(was.flagged)} pairs whose filed windows share months ({fmtInt(was.still_ahead)} still ahead, {fmtInt(was.open_now)} open now)
+            of {fmtInt(was.flagged)} pairs whose build windows share months ({fmtInt(was.still_ahead)} still ahead, {fmtInt(was.open_now)} open now)
           </span>
         </div>
         <span className="gl-changes__arrow" aria-hidden="true">
@@ -71,7 +71,7 @@ export default function ChangesView() {
           <span className="gl-changes__cap">With the 2026–2030 list</span>
           <strong className="gl-changes__big">{fmtInt(now.together)}</strong>
           <span className="gl-fine">
-            of {fmtInt(now.flagged)} pairs whose filed windows share months ({fmtInt(now.still_ahead)} still ahead, {fmtInt(now.open_now)} open now)
+            of {fmtInt(now.flagged)} pairs whose build windows share months ({fmtInt(now.still_ahead)} still ahead, {fmtInt(now.open_now)} open now)
           </span>
         </div>
       </div>

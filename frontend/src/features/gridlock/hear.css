@@ -1,0 +1,145 @@
+/* "Hear the negotiation" (HearNegotiation.jsx): a quiet control bar above the timeline and a caption box that follows the
+   spoken words. No glow and no motion of its own: the word being spoken is underlined, the words already said are ink,
+   the rest dim. The turn being spoken gets a plain outline in the timeline (.gl-tn.is-speaking). Reads .gl tokens. */
+
+.gl-hear {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 10px;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.gl-hear__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  flex-wrap: wrap;
+}
+
+.gl-hear__what {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.gl-hear__title {
+  font-size: 0.875rem;
+  color: var(--ink);
+}
+
+.gl-hear__state {
+  font-size: 0.75rem;
+  color: var(--ink-2);
+}
+
+.gl-hear__buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px 10px;
+  flex-wrap: wrap;
+}
+
+.gl-hear__buttons .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding-block: 0.3rem;
+  font-size: 0.8125rem;
+}
+
+.gl-hear__mute {
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.gl-hear__lead,
+.gl-hear__fine {
+  margin: 0;
+}
+
+.gl-hear__err {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--danger);
+}
+
+.gl-hear__cap {
+  position: relative;
+  --tone: var(--ink-2);
+  display: grid;
+  gap: 4px;
+  max-height: 9.5rem;
+  overflow: auto;
+  padding: 8px 12px 9px;
+  border-left: 3px solid var(--tone);
+  background: color-mix(in srgb, var(--tone) 6%, transparent);
+}
+
+.gl-hear__cap--a {
+  --tone: var(--gl-desc);
+}
+
+.gl-hear__cap--b {
+  --tone: var(--gl-gpc);
+}
+
+.gl-hear__who {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+
+.gl-hear__text {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.gl-hear__text .is-said {
+  color: var(--ink);
+}
+
+.gl-hear__text .is-now {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--tone);
+}
+
+/* the turn being spoken */
+.gl-tn.is-speaking .gl-tn__head,
+.gl-result.is-speaking {
+  outline: 2px solid color-mix(in srgb, var(--tone, var(--ink-2)) 70%, transparent);
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+
+.gl-result.is-speaking {
+  --tone: var(--ink-2);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .gl-hear__buttons {
+    width: 100%;
+  }
+  .gl-hear__buttons .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* the agents' line being read aloud, in the plans' "Watch the AI agents work" list */
+.bt-trace__step.is-speaking {
+  outline: 2px solid var(--ink-2);
+  outline-offset: 4px;
+  border-radius: 3px;
+}

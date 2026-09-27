@@ -1,4 +1,16 @@
-import { api, assetUrl } from '../../api'
+import { api as rawApi, assetUrl } from '../../api'
+
+// A dropped connection reads "Failed to fetch" in the browser: say it in a plain sentence instead.
+const api = async (...args) => {
+  try {
+    return await rawApi(...args)
+  } catch (e) {
+    if (e instanceof TypeError || /failed to fetch|networkerror|load failed/i.test(e?.message || '')) {
+      throw new Error("Can't reach the server right now. Check the connection and try again.")
+    }
+    throw e
+  }
+}
 
 // Every Build plans call goes to the engine (/api/gridlock/*, backend/gridlock.py). When the engine is
 // down the module shows an error with Retry; it never substitutes sample data. (When the pipeline hasn't

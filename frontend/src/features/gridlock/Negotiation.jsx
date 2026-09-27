@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AiBadge from '../ai/AiBadge'
+import HearNegotiation from './HearNegotiation'
+import { negotiationLines } from './hearLines'
 import { Button, ErrorBanner } from '../../ui'
 import { fmtMonth } from './agreementText'
 import { fmtRange, toneOf } from './format'
@@ -137,6 +139,7 @@ export default function Negotiation({ client, draftId, months, lang = 'en', part
   const [run, setRun] = useState({ phase: 'idle' })
   const [live, setLive] = useState(null)
   const [shown, setShown] = useState(0)
+  const [speaking, setSpeaking] = useState(null) // the turn (or 'summary') being read aloud
   const token = useRef(null)
   const poll = useRef(null)
 
@@ -185,6 +188,7 @@ export default function Negotiation({ client, draftId, months, lang = 'en', part
   }, [reduced, shown, turns.length])
   const n = reduced ? turns.length : Math.min(shown, turns.length)
   const finished = !!data && n >= turns.length
+  const hearLines = useMemo(() => negotiationLines(data), [data])
   const outcome = data?.outcome
 
   // the sheet's stepper shows where the negotiation stands (and which terms "Use these terms" would apply)
@@ -293,6 +297,8 @@ export default function Negotiation({ client, draftId, months, lang = 'en', part
       </div>
       {agentsRow}
 
+      {finished && data?.voice && <HearNegotiation lines={hearLines} lang={lang} onActive={setSpeaking} />}
+
       <ol className="gl-tl2" aria-live="polite">
         {turns.slice(0, n).map((turn, i) => {
           const prevRound = i > 0 ? turns[i - 1].round : null
@@ -306,6 +312,7 @@ export default function Negotiation({ client, draftId, months, lang = 'en', part
               t={t}
               tone={toneFor(turn.agent)}
               who={shortOf(turn.agent)}
+              speaking={speaking === turn.n}
             />
           )
         })}
@@ -326,7 +333,7 @@ export default function Negotiation({ client, draftId, months, lang = 'en', part
       </ol>
       {run.phase === 'error' && <ErrorBanner error={run.error} onRetry={start} />}
 
-      {finished && outcome && <Outcome outcome={outcome} data={data} t={t} inDraft={inDraft} onUse={() => onUse?.(useKey)} onDrop={() => onUse?.(null)} />}
+      {finished && outcome && <Outcome outcome={outcome} data={data} t={t} speaking={speaking === 'summary'} inDraft={inDraft} onUse={() => onUse?.(useKey)} onDrop={() => onUse?.(null)} />}
 
       {data?.how && (
         <details className="gl-details gl-neg__how">
@@ -354,13 +361,13 @@ function Terms({ items, changed, t }) {
   )
 }
 
-function Turn({ turn, newRound, changed, notes, t, tone, who }) {
+function Turn({ turn, newRound, changed, notes, t, tone, who, speaking }) {
   const v = turn.verdict
   const p = turn.proposal
   const accept = turn.kind === 'accept'
   const hasMore = p.concerns?.length > 0 || p.note || v.findings.length > 1 || notes
   return (
-    <li className={`gl-tn gl-tn--${tone}${v.ok ? ' is-ok' : ' is-bad'}${accept ? ' is-accept' : ''}`}>
+    <li className={`gl-tn gl-tn--${tone}${v.ok ? ' is-ok' : ' is-bad'}${accept ? ' is-accept' : ''}${speaking ? ' is-speaking' : ''}`}>
       <span className="gl-tn__dot" aria-hidden="true" />
       <div className="gl-tn__head">
         <span className="gl-tn__line">
@@ -429,13 +436,13 @@ function VerdictIcon({ ok = false }) {
   )
 }
 
-function Outcome({ outcome, data, t, inDraft, onUse, onDrop }) {
+function Outcome({ outcome, data, t, speaking, inDraft, onUse, onDrop }) {
   const o = outcome
   const meta =
     data.by === 'gemini' ? t.by(data.models?.join(' + ') || data.model || 'Gemini', data.calls, data.cached ? t.cached : secs(data.ms)) : t.plainWhy
   if (!o.agreed) {
     return (
-      <div className="gl-result is-none" role="status">
+      <div className={`gl-result is-none${speaking ? ' is-speaking' : ''}`} role="status">
         <h4>{t.noDeal}</h4>
         <p>{o.reason}</p>
         <p className="gl-fine">{meta}</p>
@@ -444,7 +451,7 @@ function Outcome({ outcome, data, t, inDraft, onUse, onDrop }) {
   }
   const terms = o.terms
   return (
-    <div className="gl-result is-agreed" role="status">
+    <div className={`gl-result is-agreed${speaking ? ' is-speaking' : ''}`} role="status">
       <div className="gl-result__head">
         <VerdictIcon ok />
         <div>

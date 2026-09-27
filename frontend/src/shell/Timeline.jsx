@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useOverload } from '../store'
 import { Button, ErrorBanner } from '../ui'
 import { useCascadeCueShown } from './CascadeCue'
+import RunCascadeButton from './RunCascadeButton'
 import { buildSchedule } from './cascadeSchedule'
 
 // The bottom bar: the one place the cascade is started, played and scrubbed, in every mode. It is only the
@@ -15,8 +16,9 @@ export default function Timeline() {
   const ready = !!result // a solved case: a data center, a hurricane track, a heat level…
   const n = cascade?.steps.length || 0
   const live = !!(fx && playing)
-  // the first run's button sits beside the dropped data center while that one is on screen (shell/CascadeCue)
-  const cue = useCascadeCueShown() && !cascade && !cascading
+  // the first run's button sits beside the dropped data center while that one is on screen (shell/CascadeCue),
+  // including the moment after the press while its lever is thrown
+  const cue = useCascadeCueShown()
 
   // where each step's mark sits (0..1): the end of its tier in the whole replay
   const marks = useMemo(() => {
@@ -44,9 +46,8 @@ export default function Timeline() {
     <div className="timeline">
       <div className="timeline__cta">
         {!cue && (
-          <Button onClick={() => startCascade()} busy={cascading} disabled={!ready}>
-            {cascading ? 'Running…' : cascade ? 'Run it again' : 'Run the cascade'}
-          </Button>
+          // the same breaker as the cue beside the dot: thrown while the request is out and the replay plays
+          <RunCascadeButton state={cascading || fx ? 'running' : cascade ? 'again' : 'idle'} disabled={!ready} onClick={() => startCascade()} />
         )}
         {cascade && n > 0 && (
           <Button

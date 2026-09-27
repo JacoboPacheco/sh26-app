@@ -1219,7 +1219,7 @@ PASSED_FACTOR = 0.6  # a shared build window that ended before today, as filed: 
 # windows that share no months; unknown: a filing gives no date; passed: the months they shared have passed, or one
 # project's build window is already over, as filed (nothing left to build together, as filed).
 GROUPS = {
-    "together": (0, "Filed windows share months", "both filed build windows share months that are still ahead or open now"),
+    "together": (0, "Build windows share months", "both build windows (as filed, or from a derived start) share months that are still ahead or open now"),
     "apart": (1, "Building at different times", "both projects are still to be built, in build windows that share no months"),
     "unknown": (2, "Timing unknown", "at least one filing gives no in-service date"),
     "passed": (3, "Time passed, as filed", "the months they shared have passed, or one project's build window is already over"),
@@ -1394,7 +1394,7 @@ def _share_line(tier: str, tl: dict, pa: dict | None = None, pb: dict | None = N
     if tl["same_window"]:
         s, e = max(wa[0], wb[0]), min(wa[1], wb[1])
         years = f"{s.year}" if s.year == e.year else f"{s.year}-{e.year}"
-        return f"{line}, while both filed windows are open ({years})"
+        return f"{line}, while both build windows are open ({years})"
     if tl["window_gap_days"] is not None:
         return f"{line}, if schedules were aligned (build windows {_span(tl['window_gap_days'])} apart)"
     return line
@@ -1538,7 +1538,7 @@ def _overlap_record(st: dict, i: int, j: int, months: int, method: str) -> dict:
         name = max((_station_display(h["a"]["name"]), _station_display(h["b"]["name"])), key=len)
         who = [UTILITY_SHORT.get(p_["utility"], p_["utility"]) for p_, e in ((pa, h["a"]), (pb, h["b"])) if not _work_at(p_, e)]
         station_not_claimed = (
-            f"Both projects have an end at {name}, but {' and '.join(who)}'s description puts the work elsewhere, "
+            f"Both projects have an end at {name}, but {'the description of ' + ' and '.join(who) if len(who) == 1 else 'the descriptions of ' + ' and '.join(who)} {'puts' if len(who) == 1 else 'put'} the work elsewhere, "
             "so this is not listed as the same station"
         )
 
@@ -3693,7 +3693,7 @@ def _overlap_table(st: dict, overlaps: list[dict], method: str) -> tuple[list[tu
         pa, pb = st["by_id"][o["a"]], st["by_id"][o["b"]]
         dist = o["distance_mi"] if method == "closest" else o["center_distance_mi"]
         rows.append([
-            f"OVL_{o['rank']}", _round(dist, 2), o.get("time_gap_days"),
+            f"PAIR_{o['rank']}", _round(dist, 2), o.get("time_gap_days"),
             pa.get("utility_name") or o["a_utility"], o["a"], pa.get("name"),
             pb.get("utility_name") or o["b_utility"], o["b"], pb.get("name"),
             o["rank"], o["id"], _round(o["distance_km"], 3), _round(o["distance_mi"], 2), _round(o["center_distance_mi"], 2),
@@ -3777,7 +3777,7 @@ def _calendar_table(st: dict, prm: dict) -> tuple[list[tuple], list[list], str]:
     for r in cal["projects"]:
         if not r["start"]:
             continue
-        pairs = [f"OVL_{ranks[pid]}" for pid in r["pairs"] if pid in ranks]
+        pairs = [f"PAIR_{ranks[pid]}" for pid in r["pairs"] if pid in ranks]
         rows.append([
             "build window", r["best_rank"], r["id"], r["utility_name"], r["id"], r["name"], None, None,
             _date(r["start"]), _date(r["end"]), r["months"], CAL_NOW_WORDS.get(r["now"]), r["start_as"], None,
@@ -3848,7 +3848,7 @@ def _about_rows(st: dict, prm: dict, t: dict) -> list[tuple[str, str]]:
         ("same_station", "the substation both projects work at, when an endpoint of each resolves to the same OpenStreetMap "
                          "feature (same_station_osm links it); these pairs are ranked before every distance tier, then by score"),
         ("in_sperry_example", "for the six pairs in Sperry's worked example, their own id for the pair (e.g. 'Sperry OVL_1'); "
-                              "their numbering, not this sheet's overlap_id, which follows our rank"),
+                              "their numbering: this sheet's overlap_id is 'PAIR_' plus our rank, so it never collides with Sperry's OVL_ ids"),
         ("calendar", f"the coordination calendar ({t['calendar'][2]}): a 'shared window' row for each flagged pair whose build "
                      "windows overlap (the months both cover, exactly the windows_overlap_months the overlaps sheet gives; same-station "
                      "pairs name the station; start_as says when a shared window rests on a derived start) and a 'same station, "

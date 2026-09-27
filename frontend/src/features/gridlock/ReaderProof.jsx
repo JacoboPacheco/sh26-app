@@ -321,7 +321,7 @@ function Rescues({ rs, apply }) {
       <h4 className="rp-h4">Set-aside records: can Gemini place them?</h4>
       <p className="rp-lede">
         For each record the checks set aside, Gemini read that record&apos;s page and proposed the places the work connects or sits
-        at. A name must be printed on the page; then it goes through the pipeline&apos;s own locate step and all 16 checks.
+        at. A name must be printed on the page; then it goes through the pipeline&apos;s own locate step and every record check.
       </p>
       <ol className="rp-funnel" aria-label="Rescue proposals, step by step">
         <li>

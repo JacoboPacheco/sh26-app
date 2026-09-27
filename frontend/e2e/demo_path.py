@@ -16,11 +16,34 @@ from playwright.sync_api import expect, sync_playwright
 
 URL = (sys.argv[1] if len(sys.argv) > 1 else os.getenv("E2E_URL", "http://localhost:4173")).rstrip("/")
 
+# The quiet start gate ("Click anywhere to begin") shows on the bare home page, once per tab session, and never in an
+# automated browser unless the address has ?begin (so nothing below is blocked by it). The main page still sets its
+# session flag before the app loads, so a change to that rule can't stall the demo path.
+MARK_BEGUN = "try { sessionStorage.setItem('overload:begin-seen', '1') } catch (e) {}"
+
 with sync_playwright() as p:
     browser = p.chromium.launch(headless=True)
-    page = browser.new_page(viewport={"width": 1280, "height": 800})
     ok = False
     try:
+        # 0 — the start gate, in a browser of its own: the prompt shows on the bare home page, the first click only
+        # begins (it drops nothing), and a reload doesn't bring it back.
+        gate_page = browser.new_page(viewport={"width": 1280, "height": 800})
+        gate_page.goto(URL + "/?begin#/", wait_until="load", timeout=30000)
+        gate = gate_page.get_by_role("button", name="Click anywhere to begin")
+        expect(gate).to_be_visible(timeout=15000)
+        expect(gate_page.locator(".appbar")).to_be_visible()
+        expect(gate_page.locator("line.ln").first).to_be_attached(timeout=15000)
+        gate_page.mouse.click(640, 380)  # on the map: begins, and must not also drop a data center
+        expect(gate).to_have_count(0)
+        gate_page.wait_for_timeout(600)
+        expect(gate_page.locator("g.site--primary")).to_have_count(0)
+        gate_page.reload(wait_until="load")
+        gate_page.wait_for_timeout(1500)
+        expect(gate_page.get_by_role("button", name="Click anywhere to begin")).to_have_count(0)
+        gate_page.close()
+
+        page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page.add_init_script(MARK_BEGUN)
         # 1 — open: signed in as the demo account, the grid drawn, the synthetic-model pill visible.
         page.goto(URL, wait_until="load", timeout=30000)
         # signed in as the demo account: the token is stored (the page no longer prints "Signed in as")

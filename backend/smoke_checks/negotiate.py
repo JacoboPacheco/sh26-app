@@ -296,6 +296,46 @@ def register(ctx):
         assert d["draft"]["savings"]["items"] == [] and d["draft"]["savings"]["left_out"], d["draft"]["savings"]
         assert "Nothing is estimated" in d["draft"]["summary"]["text"], d["draft"]["summary"]["text"]
 
+    def hear_the_negotiation():
+        """Hear the negotiation: every verified turn carries a voice key (agent A presenter, B analyst, the closing summary
+        presenter), the spoken text is the turn's own words (its concerns and note; nothing added), a rejected turn is not
+        read aloud, and each key is registered with voice.py (200 audio, or 503 without a key: never 409 unknown)."""
+        import re as _re
+        oid = top_overlap()
+        for lang in ("en", "es"):
+            r = ctx.request("POST", f"/api/negotiate/{oid}?ai=false&lang={lang}")
+            v = r["voice"]
+            assert v["roles"] == {"a": "presenter", "b": "analyst", "summary": "presenter"} and v["attribution"] == "Voice: ElevenLabs", v
+            spoken = []
+            for t in r["turns"]:
+                tv = t["voice"]
+                if not t["verdict"]["ok"]:
+                    assert tv is None, "a rejected turn must not be read aloud"
+                    continue
+                p = t["proposal"]
+                assert tv and _re.fullmatch(r"[0-9a-f]{32}", tv["key"]) and tv["lang"] == lang, tv
+                assert tv["role"] == ("presenter" if t["agent"] == "a" else "analyst") and tv["side"] == t["agent"], (tv, t["agent"])
+                words = [str(c) for c in p["concerns"]] + ([p["note"]] if p["note"] else [])
+                if words:  # its own words, verbatim (a full stop may be added), and no figure that is not in them
+                    assert all(w.rstrip(".!?… ") in tv["text"] for w in words), (tv["text"], words)
+                    assert _re.findall(r"\d+", tv["text"]) == _re.findall(r"\d+", " ".join(words)), (tv["text"], words)
+                else:  # an acceptance with no words of its own: one fixed lead-in with no figure
+                    assert not _re.search(r"\d", tv["text"]) and len(tv["text"]) < 60, tv["text"]
+                spoken.append(tv)
+            assert spoken, "no turn can be heard"
+            sm = v["summary"]
+            assert sm and sm["role"] == "presenter" and sm["side"] == "summary" and _re.fullmatch(r"[0-9a-f]{32}", sm["key"]), sm
+            assert str(r["outcome"]["round"]) in sm["text"] and ("re-checked" in sm["text"] or lang == "es"), sm["text"]
+            spoken.append(sm)
+            # a registered key is 200 (audio) or 503 (no voice key here), never 409 "unknown"; a server WITH a key would render
+            # (spend credits) on this call, so it is only asked without one
+            if not ctx.request("GET", "/api/voice/status")["configured"]:
+                for tv in spoken[:2] + [sm]:
+                    try:
+                        ctx.request("POST", "/api/voice/segment", {"key": tv["key"]})
+                    except AssertionError as e:
+                        assert "503" in str(e) and "Voice not configured" in str(e), f"a registered key must be 200 or 503: {e}"
+
     ctx.check("negotiate: the plain negotiation of the top opportunity has two filing-reading agents, verified turns and agreed terms", shape)
     ctx.check("negotiate: a pair with nothing in its estimate (no shared window, crews-tier) has nothing to negotiate: no agent "
               "asked, the reason said, the draft says nothing is estimated", nothing_to_negotiate)
@@ -311,3 +351,6 @@ def register(ctx):
     ctx.check("negotiate: format-only retries are hidden from the trace a person reads (kept in raw_turns); substantive rejections stay",
               in_process(format_retries_hidden))
     ctx.check("negotiate: with GEMINI_API_KEY blank the labeled plain version runs (and is not cached)", in_process(fallback_without_a_key))
+    ctx.check("negotiate: Hear the negotiation: verified turns carry voice keys (A presenter, B analyst, summary presenter), the spoken text is "
+              "the turn's own words with no added figure, a rejected turn is not read aloud, keys are registered with voice.py (200 or 503, never 409)",
+              hear_the_negotiation)

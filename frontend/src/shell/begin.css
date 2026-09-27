@@ -1,0 +1,82 @@
+/* The quiet start gate (shell/BeginGate): one small opaque pill low on the map. The rest of the page, and the
+   map behind it, stay as they are; nothing here covers the wordmark or the top bar. Tokens from index.css. */
+.begin {
+  position: fixed;
+  left: 50%;
+  bottom: 132px; /* above the bottom bar */
+  transform: translateX(-50%);
+  z-index: 45;
+  pointer-events: none;
+  animation: begin-in 500ms ease-out 300ms both;
+}
+
+.begin__btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0.55rem 1.1rem 0.55rem 0.95rem;
+  font: inherit;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+  background: #0b1424;
+  border: 1px solid rgb(150 190 240 / 0.3);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.begin__btn:hover {
+  background: #101b30;
+  border-color: rgb(150 190 240 / 0.5);
+}
+
+.begin__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* a lit substation: the one thing that breathes */
+.begin__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lit);
+  animation: begin-breathe 4.4s ease-in-out infinite;
+}
+
+@keyframes begin-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes begin-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* stacked phone layout: the map is on top and the panels scroll below it, so sit low on the screen */
+@media (max-width: 860px) {
+  .begin {
+    bottom: 76px; /* clear of the map's zoom controls */
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .begin,
+  .begin__dot {
+    animation: none;
+  }
+}
