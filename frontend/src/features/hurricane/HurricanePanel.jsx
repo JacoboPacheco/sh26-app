@@ -4,16 +4,26 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
-import { Button, ErrorBanner, Field, Loading } from '../../ui'
+import { Button, ErrorBanner, Loading } from '../../ui'
 import './hurricane.css'
 import { getPresets, trackHits } from './hurricaneApi'
 import { runCascade } from '../../api'
 import HardenControl from '../harden/HardenControl'
-import { STORM_MS, getHurricane, liveOverload as live, reducedMotion, setHurricane, useHurricane } from './hurricaneStore'
+import {
+  CATEGORY_REACH_KM,
+  STORM_MS,
+  categoryInfo,
+  getHurricane,
+  landfallKmFor,
+  liveOverload as live,
+  reducedMotion,
+  setHurricane,
+  useHurricane,
+} from './hurricaneStore'
 import { MIN_TRACK_KM, distKm, framePoints, lengthKm, simplify, toLonLat } from './trackGeom'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const CAMERA_MS = 700 // let the camera arrive before the eye sets off
+const MIN_START_MS = 100 // a beat for the camera to start moving before the eye sets off — never a wait on the network
 
 let presetsInFlight = false
 function loadPresets() {
@@ -21,7 +31,7 @@ function loadPresets() {
   presetsInFlight = true
   setHurricane({ presetsError: null })
   getPresets()
-    .then((p) => setHurricane({ presets: p.presets }))
+    .then((p) => setHurricane({ presets: p.presets, categories: p.categories }))
     .catch((err) => setHurricane({ presetsError: err }))
     .finally(() => (presetsInFlight = false))
 }
@@ -38,8 +48,8 @@ export default function HurricanePanel() {
   const o = useOverload()
   const { trip, setMapTool, focus, cascade, cascadeError } = o
   const h = useHurricane()
-  const { points, armed, radiusKm, presetId, phase, hits, stormAt, presets, presetsError, error } = h
-  // the app store's latest value, for handlers that run after an await (a landfall takes ~3 s);
+  const { points, armed, category, presetId, phase, hits, stormAt, presets, categories, presetsError, error } = h
+  // the app store's latest value, for handlers that run after an await (a landfall takes a while);
   // HurricaneLayer keeps it fresh too, after this panel unmounts
   useEffect(() => {
     live.current = o
@@ -93,13 +103,13 @@ export default function HurricanePanel() {
   // ---------------------------------------------------------------- actions
   function pickPreset(p) {
     unland()
-    setHurricane({ points: p.points, radiusKm: p.radius_km, presetId: p.id, armed: false, draft: null })
+    setHurricane({ points: p.points, radiusKm: p.radius_km, category: p.category, presetId: p.id, armed: false, draft: null })
     focus(framePoints(p.points, p.radius_km))
   }
 
-  function setWidth(widthKm) {
+  function setCategory(c) {
     if (getHurricane().phase !== 'none') unland()
-    setHurricane({ radiusKm: widthKm / 2 })
+    setHurricane({ category: c, radiusKm: CATEGORY_REACH_KM[c] })
   }
 
   async function makeLandfall() {
@@ -111,22 +121,29 @@ export default function HurricanePanel() {
     setHurricane({ seq, phase: 'fetching', hits: null, error: null, armed: false })
     const t0 = performance.now()
     focus(framePoints(s.points, s.radiusKm))
-    let res
-    try {
-      res = await trackHits(s.points, s.radiusKm)
-    } catch (err) {
-      if (!stale()) setHurricane({ phase: 'none', error: err })
-      return
+
+    // a picked preset with a fresh bake needs no network call at all: instant
+    const preset = presets?.find((p) => p.id === s.presetId)
+    const baked = preset?.hits && preset.category === s.category && Math.abs(preset.radius_km - s.radiusKm) < 1e-6 ? preset.hits : null
+    let res = baked
+    if (!res) {
+      try {
+        res = await trackHits(s.points, s.radiusKm, s.category)
+      } catch (err) {
+        if (!stale()) setHurricane({ phase: 'none', error: err })
+        return
+      }
     }
     if (stale()) return
     if (!res.count) {
       setHurricane({ phase: 'none', error: new Error("This storm misses every line. Draw its path across Florida's grid.") })
       return
     }
-    await sleep(Math.max(0, CAMERA_MS - (performance.now() - t0)))
+    await sleep(Math.max(0, MIN_START_MS - (performance.now() - t0)))
     if (stale()) return
     const quick = reducedMotion()
-    setHurricane({ phase: 'storm', hits: res, stormAt: performance.now() })
+    const landfallKm = landfallKmFor(res.total_km, preset?.id === s.presetId ? preset.landfall_km : null)
+    setHurricane({ phase: 'storm', hits: res, stormAt: performance.now(), landfallKm })
     // the cascade computes while the storm crosses, so it's ready the moment it makes landfall
     const pending = runCascade({ ...live.current.caseBody, trip: res.trip })
     pending.catch(() => {}) // startCascade reports the error if it fails
@@ -144,7 +161,7 @@ export default function HurricanePanel() {
   }
 
   const preset = presets?.find((p) => p.id === presetId)
-  const width = Math.round(radiusKm * 2)
+  const info = categoryInfo(categories, category)
 
   return (
     <div className="stack panel-body hz">
@@ -156,17 +173,19 @@ export default function HurricanePanel() {
         </Button>
       </div>
 
-      <Field
-        label="Storm width (km)"
-        type="range"
-        min={20}
-        max={240}
-        step={10}
-        value={width}
-        disabled={busy}
-        onChange={(e) => setWidth(Number(e.target.value))}
-        hint={`${fmt(width)} km wide: every line within ${fmt(radiusKm)} km of the eye's path goes down`}
-      />
+      <div className="stack hz-cat" role="group" aria-label="Storm category">
+        <h3 className="panel-h">Storm category</h3>
+        <div className="hz-cat__btns">
+          {[1, 2, 3, 4, 5].map((c) => (
+            <button key={c} type="button" className="hz-cat__btn" aria-pressed={category === c} disabled={busy} onClick={() => setCategory(c)}>
+              {c}
+            </button>
+          ))}
+        </div>
+        <p className="muted hz-cat__blurb">
+          {info.label}: {info.blurb}
+        </p>
+      </div>
 
       <div className="stack hz-presets">
         <h3 className="panel-h">Hypothetical storms</h3>
@@ -184,7 +203,7 @@ export default function HurricanePanel() {
             ))}
           </ul>
         )}
-        {preset && <p className="muted hz-desc">{preset.description}</p>}
+        {preset && phase === 'none' && <p className="muted hz-desc">{preset.description}</p>}
       </div>
 
       <div className="row hz-actions">
@@ -203,15 +222,17 @@ export default function HurricanePanel() {
   )
 }
 
-// "A hurricane takes out this corridor" — the count climbs as the eye passes each line.
+// One compact, plain-sentence strip: category, how far along the eye is, lines down so far. Everything
+// else (people hit, cost, towns) already lives in the results column, same as any other case.
 function StormResult({ hits, phase, cascade, failed }) {
   const count = useStormCount(hits, phase)
+  const pct = phase === 'storm' ? Math.min(100, Math.round((count / Math.max(1, hits.count)) * 100)) : 100
   const after = cascade?.steps?.[0]?.n === 0 ? cascade.total_steps : null
   return (
     <div className="hz-result" aria-live="polite">
-      <p className="hz-result__h">A hurricane takes out this corridor</p>
-      <p className="hz-result__n">
-        <span className="hz-count">{fmt(count)}</span> {count === 1 ? 'line' : 'lines'} knocked out
+      <p className="hz-result__line">
+        Category {hits.category} · {phase === 'storm' ? `${pct}% across the track` : 'made landfall'} ·{' '}
+        <span className="hz-count">{fmt(count)}</span> {count === 1 ? 'line' : 'lines'} down
       </p>
       {hits.capped && <p className="muted">The model stops at {fmt(hits.count)} lines, nearest the eye first.</p>}
       {phase === 'landed' && failed && (

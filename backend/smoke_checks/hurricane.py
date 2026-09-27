@@ -50,12 +50,35 @@ def register(ctx):
     def presets():
         p = ctx.request("GET", "/api/hurricane/presets")
         assert 2 <= len(p["presets"]) <= 3, len(p["presets"])
+        assert 1 <= p["category_default"] <= 5
+        assert set(p["categories"].keys()) == {"1", "2", "3", "4", "5"}, p["categories"].keys()
         for pre in p["presets"]:
-            assert pre["name"] and pre["description"], pre
-            r = ctx.request("POST", "/api/hurricane/track", {"points": pre["points"], "radius_km": pre["radius_km"]})
+            assert pre["name"] and pre["description"] and pre["points"], pre
+            assert 1 <= pre["category"] <= 5, pre["category"]
+            r = ctx.request("POST", "/api/hurricane/track", {"points": pre["points"], "category": pre["category"],
+                                                               "radius_km": pre["radius_km"], "landfall_km": pre.get("landfall_km")})
             assert 1 <= r["count"] < 400, f"{pre['id']}: {r['count']} lines"
+            assert r["category"] == pre["category"], (pre["id"], r["category"], pre["category"])
+            # the preset's own bake, if the file is fresh, must agree with a live solve of the same inputs
+            if "hits" in pre:
+                assert pre["hits"]["trip"] == r["trip"], f"{pre['id']}: baked hits are stale (rerun scripts/bake_hurricane.py)"
+
+    def category_control():
+        r1 = ctx.request("POST", "/api/hurricane/track", {"points": ACROSS_FORT_MYERS, "category": 1})
+        r5 = ctx.request("POST", "/api/hurricane/track", {"points": ACROSS_FORT_MYERS, "category": 5})
+        assert r1["vmax_mph"] < r5["vmax_mph"], (r1["vmax_mph"], r5["vmax_mph"])
+        assert r1["count"] <= r5["count"], "a weaker category took out more lines than a stronger one"
+        ctx.request("POST", "/api/hurricane/track", {"points": ACROSS_FORT_MYERS, "category": 0}, expect=422)
+        ctx.request("POST", "/api/hurricane/track", {"points": ACROSS_FORT_MYERS, "category": 6}, expect=422)
+
+    def deterministic():
+        r1 = ctx.request("POST", "/api/hurricane/track", {"points": ACROSS_FORT_MYERS, "category": 3})
+        r2 = ctx.request("POST", "/api/hurricane/track", {"points": ACROSS_FORT_MYERS, "category": 3})
+        assert r1["trip"] == r2["trip"], "the same storm gave different lines on two runs"
 
     ctx.check("hurricane: a track across Fort Myers knocks out known lines between substations, in order", track_across_fort_myers)
     ctx.check("hurricane: rejects one point, radius 0 or 500, New York, a zero-length or malformed path", track_validation)
     ctx.check("hurricane: the cascade from the storm's lines reports them as step 0", cascade_from_the_storm)
-    ctx.check("hurricane: 2-3 presets, each knocking out lines under the cap", presets)
+    ctx.check("hurricane: 2-3 presets, each knocking out lines under the cap, baked hits agree with a live solve", presets)
+    ctx.check("hurricane: a stronger category takes out at least as many lines, with a higher peak wind", category_control)
+    ctx.check("hurricane: the same storm always knocks out the same lines (deterministic, no per-request randomness)", deterministic)

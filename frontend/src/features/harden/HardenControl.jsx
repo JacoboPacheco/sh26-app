@@ -100,7 +100,7 @@ export default function HardenControl({ hits }) {
 
   function start() {
     const s = getHurricane()
-    const body = { ...O.caseBody, preset: s.presetId || undefined, points: s.points, radius_km: s.radiusKm, budget_usd: h.budget }
+    const body = { ...O.caseBody, preset: s.presetId || undefined, points: s.points, category: s.category, radius_km: s.radiusKm, budget_usd: h.budget }
     delete body.trip // the storm's lines come from the storm itself
     // the plan lands after a while: show it the same way, unless this panel has closed meanwhile (then just draw it)
     planHarden(body, hits, O.cascade, (which) => (alive.current ? show(which) : showPlan(which)))

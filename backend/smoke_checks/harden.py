@@ -11,7 +11,7 @@ re-run to the same number."""
 import time
 
 ACROSS_FORT_MYERS = [[-82.3, 26.45], [-81.87, 26.64], [-81.4, 26.9]]
-RADIUS_KM = 20
+RADIUS_KM = 60  # wide enough that the new wind model still knocks out several lines here, for a plan worth comparing
 CAMPUS = {"lat": 26.6406, "lon": -81.8723, "mw": 500}
 BUDGET = 50e6
 POLL_S = 170

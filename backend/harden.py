@@ -67,7 +67,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from grid import DEFAULT_REGION, CaseIn, SiteIn, case_firm_buses, check_case, region_code
-from hurricane import PRESETS, RADIUS_DEFAULT, TrackIn, check_track, track_hits
+from hurricane import CATEGORY_DEFAULT, CATEGORY_REACH_KM, PRESETS, RADIUS_DEFAULT, TrackIn, check_track, track_hits
 from limiter import limiter
 from llm import AGENT_MODEL, AGENT_THINKING, cache_forget, complete_tools, configured, function_response, note_check, scrub_names
 from powerflow import area_of
@@ -370,6 +370,7 @@ class HardenIn(BaseModel):
     region: str = DEFAULT_REGION
     preset: str | None = Field(default=None, pattern=r"^[a-z0-9-]{1,40}$")  # a hypothetical storm (GET /api/hurricane/presets)
     points: list[list[float]] | None = None  # or the drawn path, exactly as POST /api/hurricane/track takes it
+    category: int = CATEGORY_DEFAULT  # the panel's Saffir-Simpson control, for a drawn path (a preset keeps its own)
     radius_km: float | None = None
     budget_usd: float = 150e6
     # the case the storm lands on (optional): the same fields as /api/grid/cascade, without trip
@@ -387,15 +388,23 @@ def _storm_of(body: HardenIn) -> dict:
     if body.preset and preset is None:
         raise HTTPException(status_code=422, detail="Unknown storm: pick one of the hypothetical storms or draw a path")
     if body.points is not None:
-        points, radius = check_track(TrackIn(points=body.points, radius_km=body.radius_km if body.radius_km is not None else RADIUS_DEFAULT))
-        same = preset is not None and points == [[float(x), float(y)] for x, y in preset["points"]] and abs(radius - float(preset["radius_km"])) < 1e-6
+        points, radius, category = check_track(TrackIn(points=body.points, category=body.category, radius_km=body.radius_km if body.radius_km is not None else RADIUS_DEFAULT))
+        preset_radius = float(preset.get("radius_km", CATEGORY_REACH_KM[preset["category"]])) if preset else None
+        same = preset is not None and points == [[float(x), float(y)] for x, y in preset["points"]] and preset_radius is not None and abs(radius - preset_radius) < 1e-6
         name = preset["name"] if same else None
         pid = preset["id"] if same else None
+        landfall_km = preset["landfall_km"] if same else None
+        if same:
+            category = preset["category"]
     elif preset is not None:
-        points, radius, name, pid = preset["points"], float(preset["radius_km"]), preset["name"], preset["id"]
+        points = preset["points"]
+        radius = float(preset.get("radius_km", CATEGORY_REACH_KM[preset["category"]]))
+        category = preset["category"]
+        landfall_km = preset["landfall_km"]
+        name, pid = preset["name"], preset["id"]
     else:
         raise HTTPException(status_code=422, detail="Give the storm: a hypothetical storm's id, or the drawn path (points) and its radius_km")
-    hits = track_hits(points, radius)
+    hits = track_hits(points, radius, category, landfall_km)
     if not hits["count"]:
         raise HTTPException(status_code=422, detail="This storm misses every line: draw its path across Florida's grid")
     label = f"The storm “{name}”" if name else "The storm drawn on the map"
@@ -414,7 +423,7 @@ def _prepare(body: HardenIn) -> tuple[Prep, float]:
     case = CaseIn(region=code, lat=body.lat, lon=body.lon, mw=body.mw, sites=body.sites, load_factor=body.load_factor,
                   trip=storm["trip"], upgrades=body.upgrades, firm=body.firm)
     g, sites, trip, upgrades = check_case(case)
-    key = json.dumps([[[round(x, 5), round(y, 5)] for x, y in storm["points"]], round(storm["radius_km"], 3),
+    key = json.dumps([[[round(x, 5), round(y, 5)] for x, y in storm["points"]], round(storm["radius_km"], 3), storm["category"],
                       [[round(s.lat, 5), round(s.lon, 5), round(s.mw, 1)] for s in sites], round(g.load_factor, 2),
                       sorted((int(k), round(float(v), 1)) for k, v in upgrades.items()), bool(body.firm)])
     with _preps_lock:

@@ -90,6 +90,31 @@ export function pathOnMap(pts) {
   return { xy, d, total, at, heading }
 }
 
+// A widening ribbon along the path in map units (a forecast cone: uncertainty grows further out along
+// the untraveled path), as a closed polygon path string. r0/r1 are half-widths in map units at the
+// path's start and end.
+export function conePath(xy, r0, r1) {
+  const n = xy.length
+  if (n < 2) return ''
+  const left = []
+  const right = []
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1)
+    const rad = r0 + (r1 - r0) * t
+    const prev = xy[Math.max(0, i - 1)]
+    const next = xy[Math.min(n - 1, i + 1)]
+    const dx = next[0] - prev[0]
+    const dy = next[1] - prev[1]
+    const len = Math.hypot(dx, dy) || 1
+    const nx = -dy / len
+    const ny = dx / len
+    left.push([xy[i][0] + nx * rad, xy[i][1] + ny * rad])
+    right.push([xy[i][0] - nx * rad, xy[i][1] - ny * rad])
+  }
+  const pts = [...left, ...right.reverse()]
+  return `M${pts.map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join('L')}Z`
+}
+
 // Points framing the path plus the storm's reach on every side, for the camera.
 export function framePoints(pts, radiusKm) {
   if (!pts.length) return []

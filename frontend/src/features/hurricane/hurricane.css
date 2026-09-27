@@ -1,10 +1,49 @@
-/* Hurricane mode. The storm is weather over the night map: pale cloud (--ink, very translucent)
-   for its reach, a white glyph for the eye; lines it knocks out flash white, then burn --overload
-   until the grid's own layer takes them over as tripped. */
+/* Hurricane mode. The storm is weather over the night map: a pale, rotating cyclone (--ink, low
+   opacity) with a calm eye and an eyewall, and a widening forecast cone along its untravelled path;
+   lines it knocks out flash briefly, then hold --overload until the grid's own layer takes them over
+   as tripped. Sober: no glow beyond a soft haze, no bounce, red only for what the storm takes down. */
 
 /* ------------------------------------------------------------------ panel */
 .hz-lede {
   color: var(--ink);
+}
+
+.hz-cat__btns {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.hz-cat__btn {
+  flex: 1 1 0;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  padding: 0.4rem 0;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.hz-cat__btn:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--sodium);
+}
+
+.hz-cat__btn[aria-pressed='true'] {
+  background: var(--sodium);
+  border-color: var(--sodium);
+  color: var(--accent-text);
+}
+
+.hz-cat__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.hz-cat__blurb {
+  font-size: 0.8125rem;
 }
 
 .hz-presets {
@@ -20,6 +59,7 @@
   padding: 0.55rem 1.1rem;
 }
 
+/* one compact, plain-sentence strip — not a growing stack of cards */
 .hz-result {
   display: grid;
   gap: var(--space-1);
@@ -27,21 +67,13 @@
   border-top: 1px solid var(--glass-edge);
 }
 
-.hz-result__h {
-  font-weight: 700;
-  color: var(--overload);
-}
-
-.hz-result__n {
-  color: var(--ink-2);
+.hz-result__line {
+  color: var(--ink);
 }
 
 .hz-count {
-  font-size: 2.25rem;
-  line-height: 1;
-  font-weight: 800;
-  font-stretch: 66%;
-  color: var(--ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ------------------------------------------------------------------ map layer */
@@ -53,24 +85,33 @@
   opacity: 0.5;
 }
 
-/* the storm's reach: every line inside this band goes down */
-.hz-band {
+/* the forecast cone: uncertainty widening along the untravelled path */
+.hz-cone {
+  fill: var(--ink);
+  fill-opacity: 0.045;
+  stroke: none;
+}
+
+.hz-track {
   fill: none;
   stroke: var(--ink);
-  stroke-opacity: 0.06;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.hz-band--swept,
-.hz-band--done {
-  stroke-opacity: 0.1;
+.hz-track--future {
+  stroke-opacity: 0.5;
 }
 
-.hz-band--swept {
+.hz-track--past {
+  stroke-opacity: 0.92;
   animation-name: hz-sweep;
   animation-timing-function: linear;
   animation-fill-mode: both;
+}
+
+.hz-track--done {
+  stroke-opacity: 0.92;
 }
 
 @keyframes hz-sweep {
@@ -82,16 +123,14 @@
   }
 }
 
-.hz-track {
-  fill: none;
-  stroke: var(--ink);
-  stroke-opacity: 0.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 .hz-track--draft {
   stroke-opacity: 0.95;
+}
+
+.hz-landfall {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+  stroke-opacity: 0.75;
 }
 
 .hz-arrow {
@@ -103,66 +142,77 @@
   stroke-linejoin: round;
 }
 
-/* a line the storm reaches: invisible until its delay, a white flash, then burning red */
+/* a line the storm reaches: a brief pale flash, then holds --overload (much less "flash", more a
+   wire failing) */
 .hz-hit {
   stroke: var(--overload);
-  stroke-width: 2.5;
+  stroke-width: 2;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
-  animation: hz-hit 1.2s ease-out both;
+  opacity: 0;
+  animation: hz-hit 0.9s ease-out both;
 }
 
 @keyframes hz-hit {
   0% {
     opacity: 0;
     stroke: var(--ink);
-    stroke-width: 7;
+    stroke-width: 3.5;
   }
-  10% {
+  35% {
     opacity: 1;
     stroke: var(--ink);
-    stroke-width: 6;
-  }
-  45% {
-    stroke: var(--overload);
-    stroke-width: 3.5;
+    stroke-width: 3;
   }
   100% {
     opacity: 1;
     stroke: var(--overload);
-    stroke-width: 2.5;
+    stroke-width: 2;
   }
 }
 
-/* the eye */
+/* the wind field the eye carries: shrinks visibly once the storm has weakened past landfall */
 .hz-wind {
   fill: var(--ink);
-  fill-opacity: 0.07;
+  fill-opacity: 0.06;
   stroke: var(--ink);
-  stroke-opacity: 0.45;
+  stroke-opacity: 0.4;
 }
 
 .hz-glow {
   fill: var(--ink);
-  opacity: 0.12;
+  opacity: 0.1;
 }
 
-.hz-ring,
+/* the cyclone: a calm eye, an eyewall ring, four spiral rainbands turning counterclockwise
+   (Northern Hemisphere) — slow and believable, not a fast pinwheel */
+.hz-eyewall {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.6;
+  opacity: 0.9;
+}
+
+.hz-eye-dot {
+  fill: var(--ink);
+  opacity: 0.6;
+}
+
 .hz-arm {
   fill: none;
   stroke: var(--ink);
-  stroke-width: 2.8;
+  stroke-width: 2.2;
   stroke-linecap: round;
+  opacity: 0.75;
 }
 
-.hz-glyph {
+.hz-cyclone {
   transform-box: fill-box;
   transform-origin: center;
 }
 
-/* counterclockwise, like a northern-hemisphere storm */
-.hz-glyph--spin {
-  animation: hz-spin 0.9s linear infinite;
+.hz-cyclone--spin {
+  animation: hz-spin 7s linear infinite;
 }
 
 @keyframes hz-spin {
@@ -172,8 +222,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hz-band--swept,
-  .hz-glyph--spin {
+  .hz-track--past,
+  .hz-cyclone--spin {
     animation: none;
   }
 
