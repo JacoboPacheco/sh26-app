@@ -310,9 +310,19 @@ export default function HowWeKnow({ body, applied = false, region, figures = [],
   const c = useMemo(() => (key ? JSON.parse(key) : null), [key])
   const reg = region || c?.region || 'FL'
   const withCase = checkable(c)
+  // The closed fold said nothing (HOW-IT-WORKS.md gap #7): a judge who never opens it never learns it's checked at
+  // all, let alone that the fix is honestly short of a stricter N-1 standard. The validation number is cheap and
+  // region-wide (a static file, not a per-case solve), so it's safe to ask for before the fold opens; the N-1 screen
+  // and the hours check stay lazy (a real solve of THIS case each) and only run once a judge actually opens it.
+  const vq = useCheck(`v|${reg}`, () => getValidation(reg))
+  const corr = vq.data?.state?.corr
+  const summary = corr != null ? ` — engine ${corr.toFixed(4)} match; opens for the single-outage screen and how often it overloads` : ''
   return (
     <details className="hwk" open={defaultOpen || undefined} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>{label}</summary>
+      <summary>
+        {label}
+        {!open && summary}
+      </summary>
       {open && (
         <div className="hwk__body">
           {figures.length > 0 && (

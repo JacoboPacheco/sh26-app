@@ -12,6 +12,7 @@ import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { cascadePeople } from '../cost/figures'
 import { money } from '../cost/money'
+import { caseOf, getHours } from '../evidence/evidenceApi'
 import { plantsOut } from '../fix/flipCase'
 import { byIntensity, leapIntensity } from '../impact/intensity'
 import { roundPeople, useReducedMotion } from '../impact/towns'
@@ -49,7 +50,7 @@ export default function DarkFirst() {
           Running the same campus under three rules…
         </p>
       ) : (
-        <Rules data={data} shown={shown} ruleKey={key} />
+        <Rules data={data} shown={shown} ruleKey={key} caseBody={caseBody} />
       )}
     </section>
   )
@@ -73,7 +74,7 @@ function Lead({ data }) {
   )
 }
 
-function Rules({ data, shown, ruleKey }) {
+function Rules({ data, shown, ruleKey, caseBody }) {
   const reduced = useReducedMotion()
   const byKey = useMemo(() => Object.fromEntries(data.rules.map((r) => [r.key, r])), [data])
   const r = byKey[shown] || data.rules[0]
@@ -171,7 +172,12 @@ function Rules({ data, shown, ruleKey }) {
             <>No outage · no line trips</>
           )}
         </p>
-        {r.key === 'step_down' && data.step_down.needed && !data.step_down.over_without && <Duke data={data} />}
+        {r.key === 'step_down' && data.step_down.needed && !data.step_down.over_without && (
+          <>
+            <Duke data={data} />
+            <StepDownFrequency caseBody={caseBody} />
+          </>
+        )}
       </div>
 
       {lens >= 100 && (
@@ -255,6 +261,34 @@ function Duke({ data }) {
         Their study
       </a>
       , not this model.
+    </p>
+  )
+}
+
+// How often THIS site would need to step down, not Duke's national figure above (HOW-IT-WORKS.md gap #15): the same
+// hours-a-year check "How we know" runs (backend/evidence.py hours_check), asked once for this exact case, at the
+// full campus with no fix applied (`applied=true` -> auto_fix=false: judge the case as it is, no automatic re-rating
+// search). Never says "only a few hours" — the site's own coarse-curve estimate, whatever it turns out to be.
+function StepDownFrequency({ caseBody }) {
+  const key = caseBody ? JSON.stringify(caseOf(caseBody)) : null
+  const [r, setR] = useState(null)
+  useEffect(() => {
+    if (!key) return undefined
+    let live = true
+    getHours(JSON.parse(key), true).then(
+      (d) => live && setR(d),
+      () => live && setR(null),
+    )
+    return () => {
+      live = false
+    }
+  }, [key])
+  const v = r?.variants?.find((x) => x.key === 'case') || r?.variants?.[0]
+  if (!v?.hours || v.pct == null) return null
+  return (
+    <p className="df__duke">
+      This site: our model overloads above about {Math.round(v.pct)} % of peak load, which works out to {v.hours.words} — not Duke&apos;s
+      national number above, which is for load in general, not this site.
     </p>
   )
 }
