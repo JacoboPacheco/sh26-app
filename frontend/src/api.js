@@ -82,11 +82,6 @@ export const whatIf = (body) => api('/api/grid/whatif', { method: 'POST', body }
 export const runCascade = (body) => api('/api/grid/cascade', { method: 'POST', body })
 export const getHeadroom = (loadFactor = 1) => api(`/api/grid/headroom?load_factor=${encodeURIComponent(loadFactor)}`)
 
-// Saved scenarios (the signed-in demo account's).
-export const listScenarios = () => api('/api/scenarios')
-export const saveScenario = (scenario) => api('/api/scenarios', { method: 'POST', body: scenario })
-export const deleteScenario = (id) => api(`/api/scenarios/${id}`, { method: 'DELETE' })
-
 // Ask the backend's LLM helper (needs GEMINI_API_KEY on the backend; 503 otherwise).
 export const ask = (prompt) => api('/api/ai/ask', { method: 'POST', body: { prompt } })
 

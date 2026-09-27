@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { api, deleteScenario, listScenarios, runCascade, saveScenario, whatIf } from './api'
-import { US_BBOX, fmt, headroomClass, loadClass, regionAt, setProjectionFor } from './geo'
+import { api, runCascade, whatIf } from './api'
+import { US_BBOX, headroomClass, loadClass, regionAt, setProjectionFor } from './geo'
 import { buildSchedule } from './shell/cascadeSchedule'
 
 // The app's shared state and actions. Every feature reads and changes the scenario through
@@ -29,7 +29,6 @@ export const STEP_MS = 1400 // default step length (use stepMsFor(n))
 // paced so the destruction can be watched: a cascade of n steps takes at least ~12 s, a step 1.1-1.8 s
 export const stepMsFor = (n) => Math.round(Math.min(1800, Math.max(1100, 12000 / Math.max(n || 1, 1))))
 export const HOMES_PER_MW = 700 // matches backend/powerflow.py; an estimate (~1.4 kW per home)
-export const SEED_MARK = '(demo scenario)' // matches backend/seed.py
 
 // "NAPLES 12" -> "Naples": the town a synthetic substation is named after (backend: powerflow.area_of)
 export function townOf(name) {
@@ -109,11 +108,6 @@ export function OverloadProvider({ user, children }) {
   const [mapTool, setMapTool] = useState(null) // a feature's pointer handlers for the map, or null (see GridMap)
   const [resetCount, setResetCount] = useState(0) // bumps on "Start over" and on a region change: features clear their own local state on it
 
-  // saved scenarios (the demo account's)
-  const [scenarios, setScenarios] = useState(undefined)
-  const [scenarioError, setScenarioError] = useState(null)
-  const [saving, setSaving] = useState(false)
-
   const latest = useRef(0)
   const cascadeReq = useRef(0)
   const mapRef = useRef(null)
@@ -192,20 +186,6 @@ export function OverloadProvider({ user, children }) {
   useEffect(() => {
     loadRegions()
   }, [loadRegions])
-
-  const loadScenarios = useCallback(
-    () =>
-      listScenarios()
-        .then((list) => {
-          setScenarioError(null)
-          setScenarios(list)
-        })
-        .catch(setScenarioError),
-    [],
-  )
-  useEffect(() => {
-    if (user) loadScenarios()
-  }, [user, loadScenarios])
 
   // ------------------------------------------------------------------ the case
   const caseBody = useMemo(() => {
@@ -478,52 +458,6 @@ export function OverloadProvider({ user, children }) {
   const fetchHeadroom = useCallback(() => setHeadroomError(null), [])
   const toggleHeadroom = useCallback(() => setHeadroomOn((on) => !on), [])
 
-  // ------------------------------------------------------------------ scenarios
-  const saveName = result?.sub_name ? `${result.sub_name} · ${fmt(mw)} MW`.slice(0, 80) : ''
-  // saved scenarios are Florida's (the scenarios table has no region yet)
-  const canSave = !!(user && region === 'FL' && site && result && !scenarios?.some((sc) => sc.name === saveName))
-  const saveSite = useCallback(async () => {
-    setSaving(true)
-    setScenarioError(null)
-    try {
-      const created = await saveScenario({ name: saveName, lat: site.lat, lon: site.lon, mw: Math.round(mw) })
-      setScenarios((list) => [...(list || []), created])
-    } catch (err) {
-      setScenarioError(err)
-    } finally {
-      setSaving(false)
-    }
-  }, [saveName, site, mw])
-  const removeScenario = useCallback(async (id) => {
-    try {
-      await deleteScenario(id)
-    } catch (err) {
-      if (!/not found/i.test(err.message)) {
-        setScenarioError(err)
-        return
-      }
-    }
-    setScenarios((list) => list.filter((sc) => sc.id !== id))
-  }, [])
-  const pickScenario = useCallback(
-    (sc) => {
-      const code = sc.region || 'FL'
-      if (code !== region) {
-        setRegion(code, { place: [sc.lat, sc.lon], mw: sc.mw })
-        return
-      }
-      // a saved scenario is the same case every time: drop what the last case added (Strengthen's "Try it"
-      // upgrades, a storm's knocked-out lines, Ctrl+click campuses); another state's scenario gets this from clearCase
-      setUpgradesState({})
-      setTripState([])
-      setExtraSitesState([])
-      setMwState(sc.mw)
-      setMode('campus')
-      placeHere(sc.lat, sc.lon)
-    },
-    [region, setRegion, placeHere],
-  )
-
   // ------------------------------------------------------------------ what the map shows
   const view = useMemo(() => {
     if (!grid) return null
@@ -665,15 +599,6 @@ export function OverloadProvider({ user, children }) {
     toggleHeadroom,
     fetchHeadroom,
     getHeadroom, // (loadFactor?, region?) → Promise<{sub id: MW}>; cached for the heatmap too
-    // scenarios
-    scenarios,
-    scenarioError,
-    loadScenarios,
-    saving,
-    canSave,
-    saveSite,
-    removeScenario,
-    pickScenario,
     // UI + map
     mode,
     setMode,
