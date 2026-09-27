@@ -39,6 +39,7 @@ import catalog
 import comment
 import costs
 import danger
+import evidence
 import fixit
 import forecast
 import grid
@@ -149,6 +150,7 @@ app.include_router(auth.router)
 app.include_router(uploads.router)
 app.include_router(llm.router)
 app.include_router(grid.router)
+app.include_router(evidence.router)
 app.include_router(scenarios.router)
 app.include_router(hurricane.router)
 app.include_router(harden.router)

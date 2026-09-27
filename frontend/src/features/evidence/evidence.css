@@ -1,0 +1,251 @@
+/* "How we know": the same quiet fold as the cost's "How we got this" (features/cost/outage.css .loss__how), opening to
+   three engine checks and the headline numbers' formulas. Sober (LOOK): plain tabular figures, red only for a line past
+   its rating, green only for a check that holds; no outlines, glow or pops. Fits the 340 px results column and a phone. */
+.hwk {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+.hwk > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.hwk__body {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  min-width: 0;
+}
+/* a formula also stands alone (outside the fold): it carries the fold's type */
+.hwk-f {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+.hwk__check,
+.hwk-f {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--glass-edge);
+  min-width: 0;
+}
+.hwk__group {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+}
+.hwk__h {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+.hwk__lead {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.45;
+}
+.hwk__note,
+.hwk__foot,
+.hwk__muted,
+.hwk__fail {
+  margin: 0;
+  line-height: 1.45;
+}
+.hwk__foot {
+  font-size: 0.75rem;
+}
+
+/* the validation's figures: a small grid of label over number */
+.hwk__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+}
+.hwk__stats dt {
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+.hwk__stats dd {
+  margin: 0.1rem 0 0;
+  font-size: 1rem;
+  font-weight: 650;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* one row per way of judging: label left, the count right, the detail under it */
+.hwk__vars {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hwk__vars li {
+  display: grid;
+  gap: 0.15rem;
+}
+.hwk__var {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.hwk__var-k {
+  color: var(--ink);
+}
+.hwk__var-n {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.hwk__worst {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.hwk__worst b {
+  font-variant-numeric: tabular-nums;
+}
+.hwk__ok {
+  color: var(--hr-ok);
+}
+.hwk__bad {
+  color: var(--overload);
+}
+
+/* method, limits and source; the coarse curve */
+.hwk__method {
+  font-size: 0.75rem;
+}
+.hwk__method > summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.hwk__method p {
+  margin: var(--space-2) 0 0;
+  line-height: 1.45;
+}
+.hwk__method a,
+.hwk__sources a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+.hwk__label {
+  color: var(--ink);
+  font-weight: 600;
+}
+.hwk__curve {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.hwk__curve li {
+  display: grid;
+  grid-template-columns: 6.5rem 4.5rem 1fr;
+  gap: var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+.hwk__curve-n {
+  color: var(--ink);
+  text-align: right;
+}
+@media (max-width: 420px) {
+  .hwk__curve li {
+    grid-template-columns: 6rem 4rem;
+  }
+  .hwk__curve-w {
+    grid-column: 1 / -1;
+  }
+}
+
+.hwk__retry {
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.hwk__sources {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: var(--space-1);
+  font-size: 0.75rem;
+}
+
+/* a headline number's formula */
+.hwk__figs {
+  display: grid;
+  gap: var(--space-3);
+}
+.hwk-f__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+}
+.hwk-f__name {
+  font-weight: 650;
+  color: var(--ink);
+}
+.hwk-f__value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hwk-f__eq {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.hwk-f__rows {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+.hwk-f__row {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: var(--space-2);
+  line-height: 1.4;
+}
+.hwk-f__row dt {
+  font-size: 0.75rem;
+}
+.hwk-f__row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.hwk-f__row b {
+  color: var(--ink);
+}
+@media (max-width: 420px) {
+  .hwk-f__row {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+}
+
+/* the dev preview: the results column's width */
+.hwk-preview {
+  max-width: 340px;
+}
+.hwk-preview__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
