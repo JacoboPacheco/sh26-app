@@ -4,7 +4,7 @@ Takes real validated records from data/projects.json and injects nine kinds of b
 in the two filings and in Sperry's worked example, four common data-entry errors), plus one FORMAT TEST: the two-digit
 year, a format the filings really use, which must be read correctly and is not counted as bad data. Every copy goes back
 through the SAME code the build runs (extract_desc.parse_page for a DESC page, build._common / normalize_desc for the
-fields, locate for a title whose places changed, checks.run for the 16 named checks: imported, never re-implemented).
+fields, locate for a title whose places changed, checks.run for every named check (checks.ALL_RULES): imported, never re-implemented).
 The report says per kind how many were injected, how many were caught, by which check, what the pipeline did with them,
 and every one that slipped through.
 
@@ -60,7 +60,7 @@ OUT = DATA / "fault_report.json"
 COMMAND = "backend/venv/Scripts/python backend/demo/gridlock/faults.py"
 
 RANK = {"pass": 0, "warn": 1, "fail": 2}
-RULE = {rid: {"label": label, "blocking": blocking} for rid, label, blocking, _fn, _lowers in checks.RULES}
+RULE = {rid: {"label": label, "blocking": blocking} for rid, label, blocking, _fn, _lowers in checks.ALL_RULES}
 LABELS = [lab for _k, lab in extract_desc.SECTIONS]
 
 # fictional code names: a customer-only title names no place (and no real company)
@@ -199,7 +199,7 @@ def rebuild(pub: dict, zc: dict, reloc: Relocator) -> dict:
 def run_checks(records: list[dict], zc: dict) -> set[str]:
     """checks.run over a small batch (the record, plus its twin for the duplicate-id fault); returns the ids of the
     records it set aside. id_unique counts ids within the batch, so every other fault runs alone."""
-    _kept, quarantine, _summary = checks.run(records, zc)
+    _kept, quarantine, _summary = checks.run(records, zc, rules=checks.ALL_RULES)
     return {id(q) for q in quarantine}
 
 
@@ -644,7 +644,7 @@ def main() -> None:
             "build._common; the two-parser and detail-page checks need the PDF and say n/a.",
             "Location faults move the located point the way a wrong match would; build.geometry_of rebuilds the geometry.",
             "A title whose place names change goes back through the locate stage (cached OpenStreetMap, no network).",
-            f"Every record then runs through checks.run, the same {len(checks.RULES)} checks the build uses; a duplicate id "
+            f"Every record then runs through checks.run, the same {len(checks.ALL_RULES)} checks the pipeline runs; a duplicate id "
             "runs in a batch with the record it copies.",
         ],
         "seconds": round(time.perf_counter() - t0, 1),

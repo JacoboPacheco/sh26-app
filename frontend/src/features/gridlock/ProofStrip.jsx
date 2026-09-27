@@ -2,16 +2,27 @@ import { useMemo } from 'react'
 import { useGridlock } from './context'
 import Gloss from './Gloss'
 import { fmtInt, limitMi } from './format'
+import { useFaultTotals } from './useFaultTotals'
 
 // The data pipeline as proof, always in view along the top of the map: how many projects were read from the public
 // filings, how many passed the checks and were placed on the map, how many pairs came within the distance and how many
 // build in the same months; the location accuracy against Sperry's hand-placed points when the engine sends it. The
 // button opens the full pipeline (#/plans/pipeline). With a pair's sheet open, only that button stays.
 
+function Tick() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M3.5 8.5l3 3 6-7" />
+    </svg>
+  )
+}
+
 export default function ProofStrip() {
   const g = useGridlock()
+  const fault = useFaultTotals(g.client)
   const f = g.summary?.funnel
   const ready = g.ov.status === 'ready' || g.ov.status === 'refreshing'
+  const wait = g.ov.status === 'error' ? '–' : '…' // the pairs failed to load: a dash, not a count that is forever "coming"
   const same = useMemo(() => g.overlaps.filter((o) => o.group === 'together').length, [g.overlaps])
   if (g.conn.status !== 'ready' || !f) return null
   // the sheet's third step covers most of the map, and a project's card sits where the strip would run: step aside
@@ -62,35 +73,50 @@ export default function ProofStrip() {
           <strong>{fmtInt(f.placed ?? f.passed)}</strong> <Gloss tip={placedTip}>checked and placed</Gloss>
         </li>
         <li>
-          <strong>{ready ? fmtInt(g.ov.flagged ?? g.overlaps.length) : '…'}</strong>{' '}
+          <strong>{ready ? fmtInt(g.ov.flagged ?? g.overlaps.length) : wait}</strong>{' '}
           <Gloss tip={`Pairs of one DESC project and one Georgia project whose closest points are within ${limitMi(g.params.max_km)} (Sperry's cutoff is 25 mi, 40.2336 km)${g.ov.total_pairs ? `, of ${fmtInt(g.ov.total_pairs)} pairs compared` : ''}.`}>
             pairs within {limitMi(g.params.max_km)}
           </Gloss>
         </li>
         <li>
-          <strong>{ready ? fmtInt(same) : '…'}</strong>{' '}
+          <strong>{ready ? fmtInt(same) : wait}</strong>{' '}
           <Gloss tip="Both build windows (as filed, or from a start derived from the in-service date) share months that are still ahead or open now: they could be built together.">whose build windows still share months</Gloss>
         </li>
       </ol>
+      <button type="button" className="bt-proof__go bt-proof__go--top" onClick={() => g.openPipeline()}>
+        How we built the data
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M6 3.5L10.5 8 6 12.5" />
+        </svg>
+      </button>
       <div className="bt-proof__row">
-        {accText ? (
-          <p className="bt-proof__acc">
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M3.5 8.5l3 3 6-7" />
-            </svg>
-            <Gloss tip={acc.text ? `${acc.text}. ${acc.method || ''}` : `Our located project ends against the ${fmtInt(accN)} endpoints Sperry placed by hand.`}>
-              {accText}
-            </Gloss>
-          </p>
-        ) : (
-          <span />
-        )}
-        <button type="button" className="bt-proof__go" onClick={() => g.openPipeline()}>
-          How we built the data
-          <svg viewBox="0 0 16 16" aria-hidden="true">
-            <path d="M6 3.5L10.5 8 6 12.5" />
-          </svg>
-        </button>
+        {/* why it is not a toy: what the checks kept out, how the checks were tried, how the places compare with Sperry's */}
+        <ul className="bt-proof__checks" aria-label="How the data was checked">
+          {setAside > 0 && (
+            <li>
+              <Tick />
+              <Gloss tip="Records that failed a blocking check are kept out of the comparison and listed with the reason and the PDF page, so nothing disappears silently.">
+                {fmtInt(setAside)} set aside, with reasons
+              </Gloss>
+            </li>
+          )}
+          {fault && (
+            <li>
+              <Tick />
+              <Gloss tip="Nine kinds of bad data (a wrong date, a place in another state, a duplicate id...) were injected into real records and run through the same checks. The ones that slip through are listed on the pipeline page.">
+                fault test: {fmtInt(fault.caught)} of {fmtInt(fault.injected)} injected errors caught
+              </Gloss>
+            </li>
+          )}
+          {accText && (
+            <li>
+              <Tick />
+              <Gloss tip={acc.text ? `${acc.text}. ${acc.method || ''}` : `Our located project ends against the ${fmtInt(accN)} endpoints Sperry placed by hand.`}>
+                {accText}
+              </Gloss>
+            </li>
+          )}
+        </ul>
       </div>
     </nav>
   )

@@ -1672,6 +1672,37 @@ def rank_key(r: dict):
     return (GROUPS.get(r.get("group"), GROUPS["unknown"])[0], 0 if r.get("shared_station") else 1, -r["score"], r["distance_km"], r["id"])
 
 
+SIMILAR_KM = 10.0  # 6.2 mi: two pairs meeting within this of each other, at both ends, are the same meeting place
+SIMILAR_RULE = (
+    "Pairs are grouped under an earlier pair in the same group when both of their closest points are within "
+    f"{SIMILAR_KM:g} km ({SIMILAR_KM / KM_PER_MI:.1f} mi) of that pair's: other projects at the same meeting place, so a list "
+    "of the best matches is not one corridor repeated. Each keeps its own rank; the grouping only folds the list."
+)
+
+
+def _mark_similar(rows: list[dict]) -> None:
+    """Near-duplicate pairs (three DESC projects at Okatie against two Savannah-area Georgia lines make six pairs at one
+    place) are marked so the list can fold them under the first: `similar_to` (the lead pair's id, or None) and, on a lead,
+    `similar` (the ids it folds, in rank order). Rows are already ranked; the lead is the best-ranked pair of its place in
+    its group, and every rank stays as it is."""
+    leads: list[dict] = []
+    for r in rows:
+        r["similar_to"] = None
+        r["similar"] = []
+        cp = r.get("closest_points") or []
+        if len(cp) < 2:
+            leads.append(r)
+            continue
+        for lead in leads:
+            lc = lead.get("closest_points") or []
+            if lead["group"] == r["group"] and len(lc) >= 2 and all(_haversine_mi(cp[k], lc[k]) * KM_PER_MI <= SIMILAR_KM for k in (0, 1)):
+                r["similar_to"] = lead["id"]
+                lead["similar"].append(r["id"])
+                break
+        else:
+            leads.append(r)
+
+
 def _compute(st: dict, prm: dict) -> dict:
     """Every flagged pair, ranked (cached per data version and parameters)."""
     key = (prm["max_km"], prm["window_months"], prm["method"], tuple(prm["a"]), tuple(prm["b"]))
@@ -1708,6 +1739,7 @@ def _compute(st: dict, prm: dict) -> dict:
     rows.sort(key=rank_key)
     for k, r in enumerate(rows, 1):
         r["rank"] = k
+    _mark_similar(rows)
     result = {"total_pairs": total_pairs, "overlaps": rows}
     if len(st["cache"]) > 64:
         st["cache"].clear()
@@ -2631,6 +2663,9 @@ def overlaps(
             for gid, g in sorted(GROUPS.items(), key=lambda kv: kv[1][0])
         ],
         "rank_rule": RANK_RULE,
+        # the pairs folded under an earlier one at the same meeting place (each row's similar_to / similar)
+        "similar_rule": SIMILAR_RULE,
+        "similar_km": SIMILAR_KM,
         "limit_text": limit_text(prm["max_km"]),
         "window_rule": (
             f"A project's build window is the one its filing supports (a filed start date, or DESC's yearly spending); "

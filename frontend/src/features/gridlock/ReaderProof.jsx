@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
-import { api } from '../../api'
+import { api } from './gridlockApi'
 import { Badge, ErrorBanner, Loading } from '../../ui'
 import { useGridlock } from './context'
 import './readerProof.css'
@@ -39,7 +39,7 @@ export default function ReaderProof() {
   }, [])
   const headingId = useId()
   return (
-    <section className="rp" aria-labelledby={headingId}>
+    <section id="gl-reader" className="rp" aria-labelledby={headingId}>
       {state.status === 'loading' && <Loading label="Loading the third reader…" />}
       {state.status === 'error' && <ErrorBanner error={new Error(`Reader report: ${state.error.message}`)} onRetry={retry} />}
       {state.status === 'ready' && <Report r={state.data} headingId={headingId} />}

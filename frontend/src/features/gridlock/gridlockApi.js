@@ -1,7 +1,7 @@
 import { api as rawApi, assetUrl } from '../../api'
 
 // A dropped connection reads "Failed to fetch" in the browser: say it in a plain sentence instead.
-const api = async (...args) => {
+export const api = async (...args) => {
   try {
     return await rawApi(...args)
   } catch (e) {
@@ -50,6 +50,8 @@ const live = {
   calendar: (params) => api(`/api/gridlock/calendar?${q(params)}`),
   // what changed since DESC's last filing: its 2026-2030 list against the 2024-2028 one, row by row with both pages
   changes: () => api('/api/gridlock/changes'),
+  // the committed fault test: bad records injected into real ones and pushed through the pipeline's checks (summary.caught / injected)
+  faultTest: () => api('/api/gridlock/fault-test'),
 }
 
 // A download the browser saves itself (a plain link): /api/gridlock/<path> at the settings on screen, e.g.

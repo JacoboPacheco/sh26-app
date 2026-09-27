@@ -184,15 +184,21 @@ def _settle_text(case: dict, lang: str) -> str:
                   f"Los objetivos encajan: repartir los costos compartidos {_rule_word(sp['label_es'])} ({A} {sa:g} %, {B} {sb:g} %) no pide a "
                   "ninguna de las dos pagar más de su parte justa más baja.")
     who = [(A, oa, sa, ca), (B, ob, sb, cb)]
-    over_en = " and ".join(f"{w} pays {s:g} % instead of {c:g} %" for w, o, s, c in who if o)
-    over_es = " y ".join(f"{w} paga el {s:g} % en lugar del {c:g} %" for w, o, s, c in who if o)
+    over_en = " and ".join(f"{w} pays {s:g} %, {o:g} points above its {c:g} % goal" for w, o, s, c in who if o)
+    over_es = " y ".join(f"{w} paga el {s:g} %, {o:g} puntos por encima de su objetivo del {c:g} %" for w, o, s, c in who if o)
+    # said plainly: what each goal is and where it comes from, why the two can't both be met, what the plans do about it
+    tot = ca + cb
+    short_en = (f"Those limits add up to {tot:g} %, less than the 100 % the shared costs need, so one side has to pay above its goal."
+                if tot < 100 else f"Those limits add up to {tot:g} %, but none of the allowed splits fits both, so one side has to pay above its goal.")
+    short_es = (f"Esos límites suman el {tot:g} %, menos del 100 % que necesitan los costos compartidos, así que una de las dos paga más que su objetivo."
+                if tot < 100 else f"Esos límites suman el {tot:g} %, pero ningún reparto permitido cumple los dos, así que una de las dos paga más que su objetivo.")
     return _L(lang,
-              f"The goals conflict: by our fair-share rules (computed from the filed figures, not stated in either filing) {A}'s smallest share of the shared costs is {ca:g} % ({_rule_word(sp['goal_labels'][0])}) and "
-              f"{B}'s {cb:g} % ({_rule_word(sp['goal_labels'][1])}), which don't add up to 100 %. Every plan uses the allowed split closest "
-              f"to both goals, {_rule_word(sp['label'])}: {over_en}.",
-              f"Los objetivos chocan: con nuestras reglas de reparto justo (calculadas con las cifras publicadas, no dichas en ningún documento) la parte más baja de {A} en los costos compartidos es el {ca:g} % ({_rule_word(ga_es)}) y la de "
-              f"{B} el {cb:g} % ({_rule_word(gb_es)}), que no suman 100 %. Cada plan usa el reparto permitido más cercano a los dos "
-              f"objetivos, {_rule_word(sp['label_es'])}: {over_es}.")
+              f"Neither filing states a cost split, so each agent's goal is a fair-share rule worked out from the filed figures: {A} pays at most "
+              f"{ca:g} % ({_rule_word(sp['goal_labels'][0])}) and {B} at most {cb:g} % ({_rule_word(sp['goal_labels'][1])}). {short_en} "
+              f"Every plan uses the allowed split closest to both goals, {_rule_word(sp['label'])}: {over_en}.",
+              f"Ningún documento fija un reparto de costos, así que el objetivo de cada agente es una regla de reparto justo calculada con las cifras publicadas: {A} paga como máximo "
+              f"el {ca:g} % ({_rule_word(ga_es)}) y {B} el {cb:g} % ({_rule_word(gb_es)}). {short_es} "
+              f"Cada plan usa el reparto permitido más cercano a los dos objetivos, {_rule_word(sp['label_es'])}: {over_es}.")
 
 
 def _items(est: dict, ids: tuple) -> list[dict]:
@@ -505,6 +511,9 @@ def _text_ok(text: str, facts: list, allowed, max_chars: int = MAX_TEXT) -> tupl
         return False, f"writes as {m.group(0)!r}, which reads as the company speaking"
     if re.search(r"(?i)\bwill\b", text):
         return False, "says 'will' about what a company does; plans are proposals"
+    # a Spanish line that carries "gives up" half-translated ("pero daup paga", "pero da up que su inicio espera")
+    if re.search(r"(?i)\bda\s?up\b|\bdaup\b|\bgives?\s+up\b", text) and re.search(r"(?i)\b(pero|paga|su|el|la|los|las|de)\b", text):
+        return False, "an English phrase ('gives up') left half-translated in a Spanish line"
     return True, None
 
 

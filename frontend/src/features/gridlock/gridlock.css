@@ -68,7 +68,7 @@
 .gl-head {
   display: grid;
   gap: 8px;
-  padding: 18px 20px 14px;
+  padding: 14px 20px 10px;
 }
 
 .gl-head__row {
@@ -203,7 +203,7 @@
   display: flex;
   align-items: baseline;
   gap: 10px;
-  padding: 10px 0;
+  padding: 8px 0;
   min-width: 0;
 }
 
@@ -613,6 +613,151 @@
   font-size: 0.6875rem;
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);
+}
+
+/* the pipeline page's 60-second tour: five items, each a live number and a jump to its section */
+.gl-look {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px 8px;
+  border: 1px solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+
+.gl-look__h {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.gl-look ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  counter-reset: look;
+}
+
+.gl-look li {
+  counter-increment: look;
+  border-top: 1px solid var(--gl-hair);
+}
+
+.gl-look button {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  display: grid;
+  gap: 1px;
+  padding: 7px 0 7px 22px;
+  position: relative;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.gl-look button::before {
+  content: counter(look);
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 16px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.gl-look button:hover .gl-look__t {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.gl-look__t {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.gl-look__d {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+/* pairs at the same meeting place, folded under the first (the engine marks them) */
+.gl-similar {
+  border-bottom: 1px solid var(--gl-hair);
+}
+
+.gl-similar__btn {
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  text-align: left;
+  padding: 7px 20px 8px 44px;
+  cursor: pointer;
+}
+
+.gl-similar__btn:hover {
+  color: var(--ink);
+  background: var(--glass-hi);
+}
+
+.gl-similar__btn:focus-visible {
+  outline-offset: -2px;
+}
+
+.gl-similar__chev {
+  align-self: center;
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+  margin-right: -2px;
+}
+
+.gl-similar__btn[aria-expanded='true'] .gl-similar__chev {
+  transform: rotate(45deg);
+}
+
+.gl-similar__ranks {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  opacity: 0.85;
+}
+
+.gl-row--nested {
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+  box-shadow: inset 3px 0 0 var(--glass-edge);
+}
+
+.gl-row--nested .gl-row__proj {
+  font-size: 0.8125rem;
+}
+
+/* a link's pair that isn't in these filings: said above the list, in the rail's own margins */
+.bt-notfound {
+  margin: 0 20px 10px;
+  padding: 8px 10px;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--ink);
+  border-left: 2px solid var(--strain);
+  background: color-mix(in srgb, var(--strain) 8%, transparent);
+  border-radius: 0 var(--radius) var(--radius) 0;
 }
 
 /* Best match: the line above the pairs whose shared months have already passed */
@@ -3089,8 +3234,8 @@ button.gl-sperrymode__row:hover {
 
 /* the first action, said plainly above the list */
 .gl-cta {
-  margin: 2px 20px 8px;
-  padding: 8px 10px;
+  margin: 0 20px 6px;
+  padding: 6px 10px;
   font-size: 0.8125rem;
   line-height: 1.4;
   color: var(--ink);

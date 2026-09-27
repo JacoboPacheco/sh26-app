@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useState } from 'react'
-import { api, assetUrl } from '../../api'
+import { assetUrl } from '../../api'
+import { api } from './gridlockApi'
 import { ErrorBanner, Field, Loading } from '../../ui'
 import './pipelineProof.css'
 
@@ -72,7 +73,7 @@ export default function PipelineProof({ params }) {
 
   return (
     // the heading exists only once the report has loaded: until then the section names itself
-    <section className="pp" aria-labelledby={ready ? headingId : undefined} aria-label={ready ? undefined : 'Fault test and downloads'}>
+    <section id="gl-faults" className="pp" aria-labelledby={ready ? headingId : undefined} aria-label={ready ? undefined : 'Fault test and downloads'}>
       {state.status === 'loading' && <Loading label="Loading the fault test…" />}
       {state.status === 'error' && <ErrorBanner error={new Error(`Fault test: ${state.error.message}`)} onRetry={retry} />}
       {ready && <FaultTest report={state.data} headingId={headingId} />}
@@ -99,7 +100,7 @@ function FaultTest({ report, headingId }) {
       <p className="pp-lede">
         We took the pipeline&apos;s validated records and put in {word(kinds.length)} kinds of bad data: {word(met)} it has met in
         the two filings and Sperry&apos;s sheet, {word(common)} common data-entry errors. Every copy ran back through the same
-        parser and the same {nChecks || 16} checks. Nothing was re-implemented for the test.
+        parser and the same {nChecks || 20} checks. Nothing was re-implemented for the test.
       </p>
       <Meter summary={s} />
       <p className="pp-control">

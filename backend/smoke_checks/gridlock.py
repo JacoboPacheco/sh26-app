@@ -9,6 +9,7 @@ Everything here is read-only: the GridLock endpoints are public GETs over commit
 import csv
 import io
 import json
+import math
 import os
 import re
 import urllib.request
@@ -200,6 +201,24 @@ def register(ctx):
         assert rows, "no overlaps at the default parameters"
         assert o["flagged"] >= len(rows) and o["total_pairs"] >= o["flagged"], (o["total_pairs"], o["flagged"], len(rows))
         assert [r["rank"] for r in rows] == list(range(1, len(rows) + 1)), "ranks are not 1..n"
+        # near-duplicate pairs (other projects meeting at the same place) fold under an earlier pair of their group: both of
+        # their closest points within similar_km of the lead's, the lead ranked first, and no rank changed by it
+        assert o["similar_km"] > 0 and o["similar_rule"], (o.get("similar_km"), o.get("similar_rule"))
+        by_id = {r["id"]: r for r in rows}
+        for r in rows:
+            assert "similar_to" in r and isinstance(r["similar"], list), r["id"]
+            if r["similar_to"]:
+                lead = by_id[r["similar_to"]]
+                assert lead["rank"] < r["rank"] and lead["group"] == r["group"] and lead["similar_to"] is None, (r["id"], lead["id"])
+                assert r["id"] in lead["similar"], (r["id"], lead["similar"])
+                for k in (0, 1):
+                    la, lo = r["closest_points"][k], lead["closest_points"][k]
+                    a1, b1, a2, b2 = map(math.radians, (la[0], la[1], lo[0], lo[1]))
+                    h = math.sin((a2 - a1) / 2) ** 2 + math.cos(a1) * math.cos(a2) * math.sin((b2 - b1) / 2) ** 2
+                    assert 2 * 6371.0088 * math.asin(math.sqrt(h)) <= o["similar_km"] + 0.05, (r["id"], lead["id"], k)
+            else:
+                assert all(by_id[i]["similar_to"] == r["id"] for i in r["similar"]), r["id"]
+        assert sum(len(r["similar"]) for r in rows) == sum(1 for r in rows if r["similar_to"]), "folded pairs don't add up"
         # the group first (building in the same months, at different times, unknown, passed), then same station, then score
         order = [(GROUP_ORDER[r["group"]], 0 if r.get("shared_station") else 1, -r["score"]) for r in rows]
         assert order == sorted(order), "not ranked by group, then same station, then score"
@@ -426,6 +445,9 @@ def register(ctx):
         assert c["kept"] == c["records"] > 0, f"control: {c['kept']} of {c['records']} clean records kept"
         disk = json.loads(FAULT_FILE.read_text(encoding="utf-8"))
         assert disk["summary"] == s and disk["generated_at"] == r["generated_at"], "the served report isn't the committed file"
+        # the test runs every check the pipeline page lists (it once said "the same 16" beside a page that listed 20)
+        n_checks = ctx.request("GET", "/api/gridlock/summary")["funnel"]["checks"]
+        assert len(r["checks"]) == n_checks and f"the same {n_checks} checks" in " ".join(r["method"]), (len(r["checks"]), n_checks, r["method"][-1])
 
     def export_xlsx():
         body, hdr = _raw("/api/gridlock/export.xlsx")

@@ -84,8 +84,8 @@ agreement), `selftest.py`.
      the filings give that name stands in for the place. Every project naming that place gets the same answer.
    - Last resort: a project's description, e.g. "Construct Okatie – Riverport 230 kV".
    - Every endpoint records the OSM feature (with a link), a confidence (high / medium / low) and the reason in plain words.
-4. **checks** (`checks.py`): 16 named rules (`RULES`), plus 3 added for the 2026–2030 edition (`FILING_RULES`; `ALL_RULES` is all
-   19). A record failing a blocking rule moves to `quarantine` **with its reasons and every parsed field**; nothing is silently
+4. **checks** (`checks.py`): 16 named rules (`RULES`), plus 4 added for the 2026–2030 edition (`FILING_RULES`; `ALL_RULES` is all
+   20). A record failing a blocking rule moves to `quarantine` **with its reasons and every parsed field**; nothing is silently
    dropped. Warnings keep the record, and the location warnings lower its confidence.
 5. **write** (`build.py`): `projects.json`, `basemap.json`, the report. Before writing, the build also checks that Sperry's
    worked example is reproduced (a hard gate).
@@ -127,7 +127,8 @@ the two filings or Sperry's sheet, four common data-entry errors) plus one forma
 filings that must be read correctly and is never counted as a catch). Each copy goes back through the same code the build runs: a DESC fault goes into the PDF page text, which
 `extract_desc.parse_page` re-reads; a Georgia fault goes into the parsed Table 2 row, which `build._common` re-normalizes; a
 location fault moves the located point the way a wrong match would; a title whose place names change goes back through the
-locate stage (cached OSM, no network). Then `checks.run`, the same record checks (16 per project). Nothing is re-implemented.
+locate stage (cached OSM, no network). Then `checks.run` with `checks.ALL_RULES`, the same 20 record checks the pipeline page lists
+(the report says so, and a smoke check holds the two counts equal). Nothing is re-implemented.
 
 A **control** runs first: the same records with nothing changed. 191 of the 194 are re-run exactly from their filed text (3 take
 their place names from a detail page or description and are left out), every one is kept, and every check result equals the
@@ -276,7 +277,8 @@ list alone. Pair 1 is DESC's Stevens Creek – Graniteville 115 kV rebuild with 
 - The fault test still catches 1,421 of 1,452, with a clean control. `date_real` and `id_one_project` are then listed as
   second catchers of the impossible-date and duplicate-id faults. `kv_title_matches_description` catches nothing new.
 
-Until then `build.py` and `faults.py` reproduce their committed outputs exactly.
+`faults.py` has since been moved onto `ALL_RULES` and re-run (Sun 2026-09-27): 1,421 of 1,452, a clean control, and `date_real` /
+`id_one_project` listed as second catchers, as measured above.
 
 ## Reader C: Gemini reads the pages
 

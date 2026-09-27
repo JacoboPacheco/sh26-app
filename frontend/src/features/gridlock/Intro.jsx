@@ -48,7 +48,10 @@ export default function Intro() {
         </strong>
         , one trip for the crews and shared prep work, and both save.
       </p>
-      <Example top={top} base={base} onOpen={() => top && g.openDraft(top)} loading={!ready || (top && base.status === 'loading')} />
+      {/* the pairs failed to load: the error and its Retry sit under the filters, so no card sits here reading "Reading the two filings…" forever */}
+      {g.ov.status !== 'error' && (
+        <Example top={top} base={base} onOpen={() => top && g.openDraft(top)} loading={!ready || (top && base.status === 'loading')} />
+      )}
     </div>
   )
 }
@@ -88,17 +91,18 @@ function Example({ top, base, onOpen, loading }) {
       {jw && <MiniWindows jw={jw} parties={doc.draft.parties} />}
       <p className="bt-ex__line">
         {whereText(top)}, {whenText(top)}.
+        {/* a line built on only part of its length: said in a tip here and in full inside the pair (as a paragraph it pushed the first pairs off a short screen) */}
+        {(top.partial || []).filter(Boolean).map((x) => (
+          <span key={x.part || x.text}>
+            {' '}
+            <Gloss tip={x.text} icon label="About this distance" />
+          </span>
+        ))}
       </p>
-      {(top.partial || []).filter(Boolean).map((x) => (
-        <p key={x.part || x.text} className="bt-ex__part">
-          {x.text}
-        </p>
-      ))}
       <p className="bt-ex__save">
         {sv && (sv.items || []).length ? (
           <>
             Built together, it could save <strong>{fmtRange(sv.low, sv.high, sv.unit)}</strong>
-            <span className="bt-ex__rough"> (rough estimate)</span>
           </>
         ) : base.status === 'loading' ? (
           <span className="bt-skel bt-skel--short" aria-hidden="true" />
@@ -106,12 +110,15 @@ function Example({ top, base, onOpen, loading }) {
           'Open it to see what building together could share.'
         )}
       </p>
-      <button type="button" className="bt-ex__go" onClick={onOpen}>
-        See what it saves
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M6 3.5L10.5 8 6 12.5" />
-        </svg>
-      </button>
+      <div className="bt-ex__act">
+        <button type="button" className="bt-ex__go" onClick={onOpen}>
+          See what it saves
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M6 3.5L10.5 8 6 12.5" />
+          </svg>
+        </button>
+        {sv && (sv.items || []).length > 0 && <span className="bt-ex__rough">rough estimate, from public unit costs</span>}
+      </div>
     </article>
   )
 }

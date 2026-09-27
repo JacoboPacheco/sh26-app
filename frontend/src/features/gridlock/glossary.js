@@ -11,7 +11,7 @@ export const GLOSS = {
     unknown: 'At least one filing gives no in-service date.',
     passed: "The months they shared have passed, or one project's build window is already over, as filed. Listed for the record.",
   },
-  rank: 'Order: pairs whose filed build windows share months first, then pairs still to be built at different times, then pairs whose time has passed. Within each, a shared substation first, then the score (distance, timing, location confidence, same voltage).',
+  rank: 'Order: pairs whose filed build windows share months first, then pairs still to be built at different times, then pairs whose time has passed. Within each, a shared substation first, then the score (distance, timing, location confidence, same voltage). Pairs of other projects meeting at the same place fold under the first, each keeping its own rank.',
   kv: 'kV (kilovolts): the voltage a line or substation runs at. Higher-voltage lines carry more power over longer distances.',
   outage: 'An outage here is a planned one: the line is switched off so crews can work on it safely, and the power it carries is routed over other lines meanwhile. Two projects on the same line or station can often share one.',
   confidence:

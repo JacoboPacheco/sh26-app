@@ -3,6 +3,7 @@ import { Button, EmptyState, ErrorBanner, Loading } from '../../ui'
 import { CheckIcon } from './DetailCard'
 import { useGridlock } from './context'
 import PipelineProof from './PipelineProof'
+import { useFaultTotals } from './useFaultTotals'
 import ReaderProof from './ReaderProof'
 import { fmtBuiltAt, fmtInt, limitText, sourceLink, toneOf, utilityName } from './format'
 import './gridlock.css'
@@ -35,6 +36,7 @@ export default function PipelinePanel() {
         list for the projects the newer one no longer carries. Every record keeps its page and raw text, every location its OpenStreetMap
         feature and a confidence, and records that fail a check are set aside with the reason instead of dropped.
       </p>
+      <LookHere />
       <SperryCheck />
       <LocationAccuracy acc={g.summary?.location_accuracy} />
       <Stages report={report} />
@@ -49,6 +51,57 @@ export default function PipelinePanel() {
       <Sources context={report.context_sources} />
       <Rebuild report={report} />
     </div>
+  )
+}
+
+// The 60-second tour of this long page: five plain items, each a live number and a button that scrolls to its section
+// (buttons, not #links: the address bar's hash is the router).
+function LookHere() {
+  const g = useGridlock()
+  const f = g.summary?.funnel || {}
+  const fault = useFaultTotals(g.client)
+  const rows = g.sperry?.data?.rows || []
+  const nChecks = (g.summary?.report?.checks || []).length
+  const placed = f.placed ?? f.passed
+  const go = (id) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    const heading = el.querySelector('h2, h3') || el
+    heading.setAttribute('tabindex', '-1')
+    el.scrollIntoView({ block: 'start', behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    heading.focus({ preventScroll: true })
+  }
+  const items = [
+    rows.length
+      ? { id: 'gl-sperry-h', head: "It reproduces Sperry's worked example", detail: `${rows.filter((r) => r.ok).length} of ${rows.length} pairs match their sheet` }
+      : null,
+    f.extracted
+      ? {
+          id: 'gl-stages-h',
+          head: 'Where every row went',
+          detail: `${fmtInt(f.extracted)} read from the filings, ${fmtInt(placed)} placed on the map, ${fmtInt(f.set_aside)} set aside with the reason`,
+        }
+      : null,
+    nChecks
+      ? { id: 'gl-checks-h', head: 'The checks that keep bad records out', detail: `${fmtInt(nChecks)} checks${f.blocking_checks ? `, ${fmtInt(f.blocking_checks)} of them blocking` : ''}` }
+      : null,
+    fault ? { id: 'gl-faults', head: 'We tried to break it', detail: `${fmtInt(fault.caught)} of ${fmtInt(fault.injected)} injected errors caught` } : null,
+    { id: 'gl-reader', head: 'A second reader', detail: "Gemini reads the same pages; the pipeline's checks decide what is kept" },
+  ].filter(Boolean)
+  return (
+    <nav className="gl-look" aria-label="What to look at in 60 seconds">
+      <h3 className="gl-look__h">What to look at in 60 seconds</h3>
+      <ol>
+        {items.map((it) => (
+          <li key={it.id}>
+            <button type="button" onClick={() => go(it.id)}>
+              <span className="gl-look__t">{it.head}</span>
+              <span className="gl-look__d">{it.detail}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </nav>
   )
 }
 
@@ -111,7 +164,7 @@ function SperryCheck() {
       <div className="gl-sperry__head">
         <CheckIcon status={s.data?.all_ok ? 'pass' : 'fail'} />
         <h3 id="gl-sperry-h">
-          Reproduces Sperry&apos;s worked example: {ok} of {rows.length}
+          Reproduces Sperry&apos;s worked example: {ok}&nbsp;of&nbsp;{rows.length}
         </h3>
       </div>
       <p className="gl-fine">

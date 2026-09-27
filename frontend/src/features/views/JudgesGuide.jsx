@@ -82,7 +82,7 @@ export default function JudgesGuide() {
       id: 'gemini',
       name: 'MLH',
       sub: 'Best Use of Gemini API',
-      what: 'Gemini acts as a grid operator, proposes the fixes and negotiates for each company; the engine or the filings check every number, and a labeled plain version runs without the key.',
+      what: 'Gemini acts as a grid operator, proposes the fixes and drafts plans for each company; the engine or the filings check every number, and a labeled plain version runs without the key.',
       tries: [
         { href: HERO_1000, label: 'Open the 1,000 MW case', hint: 'Run the cascade, then press Let an AI operator try, or Present the damage for the options Gemini’s agents proposed.' },
         { onClick: openHowAiIsUsed, label: 'Open How AI is used', hint: 'Every AI feature, how it is checked and what runs without it.' },
@@ -92,10 +92,10 @@ export default function JudgesGuide() {
       id: 'elevenlabs',
       name: 'MLH',
       sub: 'Best Use of ElevenLabs',
-      what: 'Two voices narrate the presentation and the stories, and each company’s agent speaks in its own voice in the Build together negotiation. Sound is off until you turn it on; if the server has no voice key, the presentation uses the browser’s voice and the negotiation says the voice isn’t set up.',
+      what: 'Two voices narrate the presentation and the stories, and each company’s agent speaks in its own voice when it reads the plans on Build together. Sound is off until you turn it on; if the server has no voice key, the presentation uses the browser’s voice and Build together says the voice isn’t set up.',
       tries: [
         { href: HERO, label: 'Open the Fort Myers case', hint: 'Run the cascade, press Present the damage, then turn Sound on.' },
-        { href: pairHref, label: 'Hear the negotiation', hint: 'Opens the top pair at step 3: press Turn sound on and hear it.' },
+        { href: pairHref, label: 'Hear the agents’ plans', hint: 'Opens the top pair at step 3: press Turn sound on and hear it.' },
       ],
     },
     {

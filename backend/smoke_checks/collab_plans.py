@@ -64,6 +64,8 @@ def register(ctx):
         # the split every plan uses is settled between the two goals, said once, and never called a trade by the agents
         cf = d["conflict"]
         assert cf["text"] and "have to trade" not in cf["text"] and len(cf["shares"]) == 2 and len(cf["caps"]) == 2, cf
+        if any(cf["over"]):  # said plainly: whose rule, what the limits add up to, who pays how many points over
+            assert "Neither filing states a cost split" in cf["text"] and "points above its" in cf["text"] and "add up to" in cf["text"], cf["text"]
         for p in ps:
             if p["split"]:
                 assert p["split"]["shares"] == cf["shares"] and p["split"]["rule"] == cf["rule"], (p["split"], cf)
@@ -186,6 +188,20 @@ def register(ctx):
         again = asyncio.run(cp.run(TOP, 24, "en", True, as_of=date(2026, 1, 15)))
         assert again["cached"] is False, "a transient Gemini miss must not be cached"
 
+    def half_translated(cp):
+        """A Spanish line with "gives up" left half-translated ("pero daup paga", "pero da up que su inicio espera") is
+        dropped like any line the checks refuse, and the same words in an English line stay allowed."""
+        case = cp._case(TOP, 24)
+        facts, allowed = cp._plan_facts(case, cp._menu(case))
+        for bad in ("DESC gana cuadrillas compartidas, pero daup paga la parte mayor de los costos",
+                    "Georgia Power gana cuadrillas compartidas, pero da up que su inicio espera a DESC"):
+            ok, why = cp._text_ok(bad, facts, allowed)
+            assert not ok and "half-translated" in why, (bad, ok, why)
+        ok, why = cp._text_ok("DESC gana cuadrillas compartidas, pero cede su inicio hasta que termine la otra empresa", facts, allowed)
+        assert ok, why
+        ok, why = cp._text_ok("DESC gains shared crews and gives up starting first on its filed schedule", facts, allowed)
+        assert ok, why
+
     def agents_checked(cp):
         """A stand-in for Gemini: both company agents propose; the coordinator's first answer invents a dollar figure,
         repeats a kind and names a kind that isn't on the menu. Each is dropped and listed; the findings reach the
@@ -282,5 +298,7 @@ def register(ctx):
     ctx.check("collab plans: with GEMINI_API_KEY blank the labeled template runs (and is not cached)", in_process(fallback_without_a_key))
     ctx.check("collab plans: an invented figure, a repeated kind and an off-menu kind are dropped and listed, the coordinator "
               "revises once with the findings, and the figures stay the pipeline's", in_process(agents_checked, key="smoke-fake-key-never-sent"))
+    ctx.check("collab plans: a Spanish line with 'gives up' left half-translated is refused; the same words in English stay",
+              in_process(half_translated))
     ctx.check("collab plans: Hear the negotiation: kept agent lines carry voice keys (A presenter, B analyst, coordinator presenter), spoken word "
               "for word, the pipeline's lines and dropped ones are not read, keys registered with voice.py (200 or 503, never 409)", hear_the_agents)

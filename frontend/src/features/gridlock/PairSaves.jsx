@@ -101,6 +101,10 @@ const T = {
     notGiven: 'No indicado',
     publicOnly: 'Solo compara planes públicos; no dice si las empresas ya trabajan juntas.',
     slip: 'Los planes cambian',
+    slipText: (r) =>
+      `De los ${r.carried_over} proyectos que están en las dos listas de DESC, ${r.later} movieron su fecha de entrada en servicio a una fecha posterior entre las listas 2024-2028 y 2026-2030. Es una tasa de referencia para la lista, no una predicción para un proyecto.`,
+    partial: (who, part, at) =>
+      `El documento de ${who} trabaja solo en una parte de esta línea (${String(part).replace(' to ', ' a ')}); ${at?.length ? `las distancias se miden hasta esa parte (${at.join(' y ')}), y el mapa dibuja la línea entera` : 'el mapa y la distancia usan la línea entera entre sus extremos publicados'}`,
   },
 }
 
@@ -210,7 +214,11 @@ export default function PairSaves({ o, base, lang, listed, onNext, onOpenProject
                 <span className={`gl-swatch gl-swatch--${toneOf(p.utility)}`} aria-hidden="true" />
                 <span>
                   <strong>{utilityShort(p.utility)}</strong> {displayName(p.name) || p.display_name}
-                  {partialOf(p)?.text && <span className="bt-builds__part">{partialOf(p).text}</span>}
+                  {partialOf(p)?.text && (
+                    <span className="bt-builds__part">
+                      {lang === 'es' && partialOf(p).part ? t.partial(utilityShort(p.utility), partialOf(p).part, partialOf(p).measured_to) : partialOf(p).text}
+                    </span>
+                  )}
                   <span className="bt-builds__what">
                     {p.kv?.length > 0 && (
                       <>
@@ -256,7 +264,7 @@ export default function PairSaves({ o, base, lang, listed, onNext, onOpenProject
               ))}
               {g.ov.slip?.text && (
                 <li className="bt-sure__base">
-                  <strong>{t.slip}:</strong> {g.ov.slip.text}
+                  <strong>{t.slip}:</strong> {lang === 'es' && t.slipText && g.ov.slip.carried_over != null ? t.slipText(g.ov.slip) : g.ov.slip.text}
                 </li>
               )}
             </ul>

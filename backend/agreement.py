@@ -1303,8 +1303,8 @@ def draft_texts(doc: dict) -> list[tuple[str, str]]:
 NEGOTIATION_SOURCE = {
     "id": "negotiation",
     "kind": "proposal",
-    "label": "Negotiated terms",
-    "title": "Terms negotiated on this page, each side's agent reading only its utility's public filing; every turn verified against both filings (backend/negotiate.py). Not a fact from either filing.",
+    "label": "Plan terms",
+    "title": "Terms from the plan on this page, each side's agent reading only its utility's public filing; every figure verified against both filings (backend/collab_plans.py). Not a fact from either filing.",
     "url": None,
 }
 

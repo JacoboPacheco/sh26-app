@@ -76,8 +76,8 @@ function PairsView({ extra }) {
       {g.conn.status === 'ready' && (
         <>
           {g.pairMissing && (
-            <p className="gl-sample" role="status">
-              Pair {g.pairMissing} isn&apos;t in these filings, or the link is old. Pick a pair from the list below.{' '}
+            <p className="bt-notfound" role="status">
+              Pair not found: {g.pairMissing} isn&apos;t in these filings, or the link is old. Pick a pair from the list below.{' '}
               <button type="button" className="gl-link" onClick={g.clearPairMissing}>
                 Dismiss
               </button>
@@ -366,6 +366,17 @@ function RankedList() {
   const { ov, overlaps, params } = g
   const [all, setAll] = useState(false)
   const [order, setOrder] = useState('score')
+  // the pairs whose "similar pairs" fold is open (a lead pair's id)
+  const [openFold, setOpenFold] = useState(() => new Set())
+  const toggleFold = useCallback(
+    (id) =>
+      setOpenFold((cur) => {
+        const next = new Set(cur)
+        if (!next.delete(id)) next.add(id)
+        return next
+      }),
+    [],
+  )
   // a Sperry pair's chip (after expanding from their example): show its row in the list, wherever it ranks
   const showRow = useCallback(
     (o) => {
@@ -391,7 +402,14 @@ function RankedList() {
     const d = (o) => pairDistance(o, params.method).km ?? Infinity
     return [...rows].sort((a, b) => d(a) - d(b) || (a.rank ?? 0) - (b.rank ?? 0))
   }, [overlaps, tier, order, params.method])
-  const shown = all ? listed : listed.slice(0, 12)
+  // Near-duplicates fold under the first (the engine marks them: a pair whose closest points are both within a few miles
+  // of an earlier pair's, in the same group). "Best match" with no tier filter shows leads only; "Show all" and "Closest"
+  // list every pair, each keeping its rank.
+  const fold = order !== 'distance' && !all && !tier
+  const byId = useMemo(() => new Map(overlaps.map((o) => [o.id, o])), [overlaps])
+  const listedIds = useMemo(() => new Set(listed.map((o) => o.id)), [listed])
+  const visible = useMemo(() => (fold ? listed.filter((o) => !(o.similar_to && listedIds.has(o.similar_to))) : listed), [fold, listed, listedIds])
+  const shown = all ? listed : visible.slice(0, 12)
   const groupCount = useMemo(() => {
     const c = {}
     for (const o of listed) c[o.group] = (c[o.group] || 0) + 1
@@ -409,6 +427,8 @@ function RankedList() {
           <h2 id="gl-ranked-h" className="gl-listhead__h" tabIndex={-1}>
             {ov.status === 'loading' ? (
               'Comparing the plans…'
+            ) : ov.status === 'error' ? (
+              "The pairs couldn't be loaded"
             ) : cal ? (
               <>
                 <strong>
@@ -425,7 +445,7 @@ function RankedList() {
               </>
             )}
           </h2>
-          {total > 0 && ov.status !== 'loading' && (
+          {total > 0 && ov.status !== 'loading' && ov.status !== 'error' && (
             <p className="gl-listhead__of">
               {cal ? (
                 'the months both filed build windows cover: as filed, or from a derived start where a filing gives none'
@@ -454,7 +474,7 @@ function RankedList() {
               </button>
             ))}
           </div>
-          {!cal && flagged > 1 && (
+          {!cal && flagged > 1 && ov.status !== 'error' && (
             <div className="gl-sort" role="group" aria-label="Sort the pairs">
               {ORDERS.map(([id, label]) => (
                 <button key={id} type="button" className={order === id ? 'is-on' : ''} aria-pressed={order === id} onClick={() => setOrder(id)}>
@@ -493,19 +513,39 @@ function RankedList() {
             </p>
           )}
           <ol className={`gl-rows${ov.status === 'refreshing' ? ' gl-rows--stale' : ''}`} aria-busy={ov.status === 'refreshing' || undefined}>
-            {shown.map((o, i) => (
-              <Fragment key={o.id}>
-                {order !== 'distance' && o.group && o.group !== shown[i - 1]?.group && (
-                  <li className={`gl-rows__sep gl-rows__sep--${o.group}`}>
-                    <Gloss tip={GLOSS.groups[o.group] || ''}>{o.group_label || o.group}</Gloss>
-                    <span className="gl-rows__sepn">{fmtInt(groupCount[o.group] || 0)}</span>
-                  </li>
-                )}
-                <PairRow o={o} />
-              </Fragment>
-            ))}
+            {shown.map((o, i) => {
+              const kids = fold ? (o.similar || []).map((id) => byId.get(id)).filter((x) => x && listedIds.has(x.id)) : []
+              const isOpen = kids.length > 0 && openFold.has(o.id)
+              return (
+                <Fragment key={o.id}>
+                  {order !== 'distance' && o.group && o.group !== shown[i - 1]?.group && (
+                    <li className={`gl-rows__sep gl-rows__sep--${o.group}`}>
+                      <Gloss tip={GLOSS.groups[o.group] || ''}>{o.group_label || o.group}</Gloss>
+                      <span className="gl-rows__sepn">{fmtInt(groupCount[o.group] || 0)}</span>
+                    </li>
+                  )}
+                  <PairRow o={o} />
+                  {kids.length > 0 && (
+                    <li className="gl-similar">
+                      <button
+                        type="button"
+                        className="gl-similar__btn"
+                        aria-expanded={isOpen}
+                        onClick={() => toggleFold(o.id)}
+                        title={ov.similar_rule || undefined}
+                      >
+                        <span className="gl-similar__chev" aria-hidden="true" />
+                        {isOpen ? 'Hide' : `+${kids.length}`} similar pair{kids.length === 1 ? '' : 's'} at the same place
+                        <span className="gl-similar__ranks">{rankList(kids)}</span>
+                      </button>
+                    </li>
+                  )}
+                  {isOpen && kids.map((k) => <PairRow key={k.id} o={k} nested />)}
+                </Fragment>
+              )
+            })}
           </ol>
-          {listed.length > 12 && (
+          {(all || visible.length > 12) && listed.length > 12 && (
             <button type="button" className="gl-more-rows" onClick={() => setAll((v) => !v)} aria-expanded={all}>
               {all ? 'Show the top 12' : `Show all ${listed.length} pairs`}
             </button>
@@ -516,7 +556,15 @@ function RankedList() {
   )
 }
 
-function PairRow({ o }) {
+// "#4–#8" when the ranks run on, else "#4, #9, #12"
+function rankList(rows) {
+  const r = rows.map((o) => o.displayRank ?? o.rank).filter((n) => n != null)
+  if (!r.length) return ''
+  const run = r.every((n, i) => i === 0 || n === r[i - 1] + 1)
+  return run && r.length > 1 ? `#${r[0]}–#${r[r.length - 1]}` : r.slice(0, 4).map((n) => `#${n}`).join(', ') + (r.length > 4 ? ', …' : '')
+}
+
+function PairRow({ o, nested = false }) {
   const g = useGridlock()
   const a = g.byId[o.a]
   const b = g.byId[o.b]
@@ -531,7 +579,7 @@ function PairRow({ o }) {
     <li>
       <button
         type="button"
-        className={`gl-row gl-row--${when.tone}${on ? ' is-on' : ''}${marked ? ' gl-row--sperry' : ''}`}
+        className={`gl-row gl-row--${when.tone}${on ? ' is-on' : ''}${marked ? ' gl-row--sperry' : ''}${nested ? ' gl-row--nested' : ''}`}
         aria-current={on || undefined}
         data-pair={o.id}
         onClick={() => g.openDraft(o)}

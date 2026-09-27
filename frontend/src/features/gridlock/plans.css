@@ -501,7 +501,8 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(222px, 1fr));
   gap: 10px;
-  align-items: stretch;
+  /* each card is as tall as its own text: a short plan beside a long one no longer floats a blank gap in the middle */
+  align-items: start;
 }
 
 .bt-card {
@@ -979,13 +980,13 @@
 /* ------------------------------------------------------------------ the rail's first screen */
 .bt-intro {
   display: grid;
-  gap: 14px;
-  padding: 0 20px 16px;
+  gap: 12px;
+  padding: 0 20px 14px;
 }
 
 .bt-intro__lede {
-  font-size: 0.9875rem;
-  line-height: 1.5;
+  font-size: 0.9375rem;
+  line-height: 1.48;
   color: var(--ink);
   text-wrap: pretty;
 }
@@ -998,8 +999,8 @@
 /* the worked example: one real pair, both build windows on one axis, the shared months green */
 .bt-ex {
   display: grid;
-  gap: 10px;
-  padding: 14px 14px 12px;
+  gap: 8px;
+  padding: 12px 14px 12px;
   background: #111d31;
   border: 1px solid var(--glass-edge);
   border-radius: var(--radius-lg);
@@ -1021,7 +1022,7 @@
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 5px;
+  gap: 3px;
 }
 
 .bt-ex__who li {
@@ -1056,7 +1057,15 @@
 
 .bt-ex__rough {
   color: var(--ink-2);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
+  line-height: 1.3;
+}
+
+.bt-ex__act {
+  display: flex;
+  align-items: center;
+  gap: 4px 12px;
+  flex-wrap: wrap;
 }
 
 .bt-ex__go {
@@ -1167,8 +1176,8 @@
 /* step 1 of the guided path, heading the ranked list */
 .bt-step1 {
   display: grid;
-  gap: 12px;
-  padding: 14px 20px 12px;
+  gap: 8px;
+  padding: 12px 20px 10px;
   border-top: 1px solid var(--glass-edge);
 }
 
@@ -1360,12 +1369,27 @@
   flex-basis: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px 14px;
   flex-wrap: wrap;
 }
 
-.bt-proof__acc {
+/* the way into the whole pipeline sits at the right of the counts, the checks under both */
+.bt-proof__go--top {
+  margin-left: auto;
+}
+
+.bt-proof__checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 16px;
+  min-width: 0;
+}
+
+.bt-proof__checks li {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1373,7 +1397,8 @@
   color: var(--ink-2);
 }
 
-.bt-proof__acc svg {
+.bt-proof__checks svg {
+  flex: none;
   width: 13px;
   height: 13px;
   fill: none;

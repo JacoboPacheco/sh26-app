@@ -180,6 +180,8 @@ export function GridlockProvider({ children }) {
           window_kinds: r?.window_kinds || null,
           // how often DESC's carried-over projects moved between its two filings (a base rate, never a prediction)
           slip: r?.slip_base_rate || null,
+          // what "similar pairs" means, in the engine's words (the list folds near-duplicates under the first)
+          similar_rule: r?.similar_rule || null,
         })
       },
       (error) => id === reqId.current && setOv({ status: 'error', error }),
