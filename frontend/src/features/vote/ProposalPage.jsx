@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { Button, ErrorBanner, Loading } from '../../ui'
+import usePageTitle from '../../usePageTitle'
 import Analyst from './Analyst'
 import { Questions, Speak } from './Ask'
 import CommentWriter from './CommentWriter'
@@ -166,6 +167,7 @@ function Section({ id, title, children }) {
 
 export default function ProposalPage({ id }) {
   const { data: d, error, loading, stalled, retry, recheck } = useProposal(id)
+  usePageTitle(d ? `${d.entry.name} | Overload` : 'Proposed data centers | Overload')
 
   // an id that is another listing of the same campus opens the listing that was kept
   useEffect(() => {

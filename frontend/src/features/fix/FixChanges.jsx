@@ -99,12 +99,17 @@ export default function FixChanges({ fix, base, now, steps = 0, costNow = 0, fre
   // like one line's before/after, so the "after" side is now this same weak point's own value.
   const m = base?.measure
   const weakEl = els.reduce((a, e) => (e.before != null && (!a || e.before > a.before) ? e : a), null)
-  const weakAfter = weakEl ? weakEl.after : null
   const peakAfter = fresh ? busiest(fresh) : gridOnly ? null : (fix.strain?.peak_pct ?? null)
+  // move / flexible / on-site / shrink fixes raise no element, so `els` is empty and there is no weakEl to read
+  // an after-value from: fall back to the busiest line anywhere after the fix (peakAfter), labelled honestly —
+  // it may not be the same physical element as the weak point named on the left (REGRESSION: the row used to
+  // require weakEl and simply vanished for these fixes)
+  const weakAfter = weakEl ? weakEl.after : peakAfter
+  const weakLabel = weakEl ? 'This weak point' : 'The busiest line after the fix'
   // a different, busier line elsewhere on the grid after the fix (not this weak point, which the fix already relieved)
-  const elsewhereAfter = peakAfter != null && weakAfter != null && peakAfter > weakAfter + 0.5 ? peakAfter : null
+  const elsewhereAfter = weakEl && peakAfter != null && weakAfter != null && peakAfter > weakAfter + 0.5 ? peakAfter : null
   const rows = [
-    m?.peak != null && weakAfter != null && { k: 'This weak point', unit: '% of its rating', a: pct(m.peak), b: pct(weakAfter), bad: m.peak > 100, ok: weakAfter <= 100 },
+    m?.peak != null && weakAfter != null && { k: weakLabel, unit: '% of its rating', a: pct(m.peak), b: pct(weakAfter), bad: m.peak > 100, ok: weakAfter <= 100 },
     m?.over != null && overAfter != null && { k: 'Lines over their limit', a: fmt(m.over), b: fmt(overAfter), bad: m.over > 0, ok: overAfter === 0 },
     ran && base?.hit != null && { k: 'People hit', unit: 'estimate', a: fmt(base.hit), b: fmt(now.hit), bad: base.hit > 0, ok: now.hit === 0 },
     ran && base?.cost && costNow != null && { k: 'Cost of the outage', unit: 'estimate, high end', a: money(base.cost.high), b: money(costNow), bad: true, ok: !(costNow > 0) },

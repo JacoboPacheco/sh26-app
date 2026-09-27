@@ -6,6 +6,7 @@ import { useGridlock } from './context'
 import PairSheet from './PairSheet'
 import PlansMap from './PlansMap'
 import ProofStrip from './ProofStrip'
+import usePageTitle from '../../usePageTitle'
 import './gridlock.css'
 import './agreement.css'
 import './plans.css'
@@ -26,6 +27,7 @@ function PageBody({ extra }) {
   const g = useGridlock()
   const { draft, flyToOverlap, cover } = g
   const covered = cover > 0
+  usePageTitle('Build together | Overload')
   // once the sheet has measured how much of the map it covers, frame the pair in the rest; when it closes, bring
   // the pair back to the middle of the whole map
   const last = useRef(null)

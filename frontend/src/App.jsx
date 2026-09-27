@@ -26,6 +26,7 @@ import { OverloadProvider, useOverload } from './store'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { ErrorBanner, Loading } from './ui'
 import useAuth from './useAuth'
+import usePageTitle from './usePageTitle'
 
 // Feature previews: each feature folder may have a Preview.jsx; #/preview/<folder> shows it over the
 // live map inside the real app state. How a feature is built and checked before it is mounted.
@@ -133,6 +134,7 @@ function MissionControl() {
   const Panel = MODES.find((m) => m.id === mode)?.Panel || CampusPanel
   // Strengthen the grid is a full page around the same map: the grid alone (no demo campus, no cascade layers)
   const strengthen = mode === 'unlock'
+  usePageTitle(strengthen ? 'Strengthen the grid | Overload' : 'Watch it fail | Overload')
   const strengthenLines = useStrengthenLines(grid)
   // the living flow draws the demo's case (its overloads stream red): on Strengthen it runs only while that case
   // is empty, when what it draws is the grid alone

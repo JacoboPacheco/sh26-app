@@ -257,12 +257,17 @@ h1.hook {
 }
 
 /* phones: two rows — the name (and the state on the map), then every page as a full-width strip that scrolls
-   sideways, fading at the edge so it reads as more to swipe to; the page you are on scrolls into view */
+   sideways, fading at the edge so it reads as more to swipe to; the page you are on scrolls into view.
+   The bar actually wraps to THREE rows at this width (name+state, then "Watch the story"/"How AI is used",
+   then the tab strip): --appbar-h is only a fallback for the first paint. TopBar.jsx measures the bar's
+   real height with a ResizeObserver and writes it into this variable, so everything below (`.mc`,
+   `.below-bar`, …) always starts right under the bar, however many rows it actually took. */
 @media (max-width: 860px) {
   :root {
-    --appbar-h: 92px;
+    --appbar-h: 150px;
   }
   .appbar {
+    height: auto;
     flex-wrap: wrap;
     align-content: flex-start;
     row-gap: 0;

@@ -48,7 +48,7 @@ export default function PresentDamage() {
       <div className="present">
         <Button onClick={() => setOpen(true)}>Present the damage</Button>
       </div>
-      {open && <ReviewStage body={body} short autoPlay loadReplay={!cascade} onClose={() => setOpen(false)} />}
+      {open && <ReviewStage body={body} autoPlay loadReplay={!cascade} onClose={() => setOpen(false)} />}
     </>
   )
 }

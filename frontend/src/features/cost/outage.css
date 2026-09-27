@@ -43,6 +43,8 @@
   font-weight: 650;
   font-stretch: 85%;
   letter-spacing: 0;
+  /* COPY: "(rule of thumb)" was splitting across two lines at 1024/1440 ("(rule of" / "thumb)") */
+  white-space: nowrap;
 }
 .loss__note {
   margin: 0;

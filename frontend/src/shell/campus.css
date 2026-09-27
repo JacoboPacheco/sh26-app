@@ -114,3 +114,22 @@
     max-height: calc(100vh - 178px - 128px);
   }
 }
+
+/* BUG, 1280x720: at that height the panel's own CTAs ("Fix it in Strengthen", "Present the damage") sit
+   below its bottom edge with nothing to show it scrolls — the OS's overlay scrollbar stays invisible until
+   hovered. A persistent, visibly colored thin scrollbar replaces it so the panel always shows there is more. */
+.mc-right.glass {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink-2) transparent;
+}
+.mc-right.glass::-webkit-scrollbar {
+  width: 8px;
+}
+.mc-right.glass::-webkit-scrollbar-track {
+  background: transparent;
+}
+.mc-right.glass::-webkit-scrollbar-thumb {
+  background: var(--ink-2);
+  border-radius: 4px;
+}

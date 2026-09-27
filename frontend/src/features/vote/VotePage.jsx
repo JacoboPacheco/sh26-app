@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import BriefPage from './BriefPage'
 import ProposalPage from './ProposalPage'
 import SearchHome from './SearchHome'
+import usePageTitle from '../../usePageTitle'
 import { useRoute } from './voteApi'
 import './vote.css'
 
@@ -11,6 +12,8 @@ import './vote.css'
 export default function VotePage() {
   const route = useRoute()
   const first = useRef(true)
+  // the proposal page names itself once its data loads; home and the brief keep the page's own title
+  usePageTitle(route.page === 'proposal' ? null : 'Proposed data centers | Overload')
 
   // the page owns the document while it is open (light print rules are scoped to this class)
   useEffect(() => {

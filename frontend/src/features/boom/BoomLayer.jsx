@@ -24,8 +24,12 @@ export default function BoomLayer() {
   const version = useShownVersion()
   // no campuses on the map: never show a run's rings/upgrade labels, however that emptied out (Start over bumps
   // resetCount and clears the planner itself, but removing sites one at a time to zero doesn't — this is the
-  // backstop so a cleared scenario is always actually clear; user, Sun 04:37)
-  const agent = extraSites.length ? agentMarks(p, region, grid, version) : null
+  // backstop so a cleared scenario is always actually clear; user, Sun 04:37). REGRESSION: that backstop also
+  // hid the candidate-ranking rings while the siting agent is still working and hasn't placed a campus yet
+  // (extraSites is legitimately empty then) — a run in progress always gets its marks; only a finished or
+  // idle run needs an actual campus on the map to show anything.
+  const running = p.origin === 'boom' && p.status !== 'idle' && !(revealed(p) && p.result?.plan)
+  const agent = extraSites.length || running ? agentMarks(p, region, grid, version) : null
   if (!extraSites.length && !agent) return null
   const u = 1 / k // one screen-ish unit at this zoom
 

@@ -2,7 +2,7 @@
 // add a nice high quality bar"; top tabs picked Sat 08:14): the name, the state (on the map), the pages,
 // and how AI is used. Tabs are plain links; on the map page `onPick` switches between the destruction demo
 // and Strengthen without leaving the page.
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import HowAiIsUsed from '../features/ai/HowAiIsUsed'
 import { WatchStory } from '../features/show'
 import { useOverload } from '../store'
@@ -25,8 +25,26 @@ export default function TopBar({ active, onPick, withState = false }) {
     if (!nav || !on || nav.scrollWidth <= nav.clientWidth) return
     nav.scrollLeft = Math.max(0, on.offsetLeft - (nav.clientWidth - on.offsetWidth) / 2)
   }, [active])
+  // At <=860px the bar wraps to two or three rows depending on how much fits (state name length, the tab
+  // strip, "Watch the story"); --appbar-h is a fixed fallback that undercounts it, so the wrapped rows paint
+  // over the page below (BLOCKER, phone width). Keep --appbar-h equal to the bar's own measured height,
+  // always, so every page that reads it (`.mc`, `.below-bar`, …) starts right under it.
+  const barRef = useRef(null)
+  useLayoutEffect(() => {
+    const el = barRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const set = () => document.documentElement.style.setProperty('--appbar-h', `${Math.ceil(el.getBoundingClientRect().height)}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    window.addEventListener('orientationchange', set)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('orientationchange', set)
+    }
+  }, [])
   return (
-    <header className="appbar">
+    <header className="appbar" ref={barRef}>
       <a className="appbar__brand" href="#/" onClick={(e) => onPick?.('demo', e)}>
         Overload
       </a>
