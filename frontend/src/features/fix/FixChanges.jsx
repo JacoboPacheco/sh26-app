@@ -92,11 +92,19 @@ export default function FixChanges({ fix, base, now, steps = 0, costNow = 0, fre
         : `checked by the engine in one solve of this case: with ${them}, ${fmt(overAfter)} ${overAfter === 1 ? 'line is' : 'lines are'} still over the limit.`
   const verified = by === 'gemini' && (ran ? nobody : fix.verdict === 'holds' && overAfter === 0)
 
-  // the before -> after: a what-if solve of each case (busiest line, lines over) and each case's cascade
+  // the before -> after: a what-if solve of each case (the weak point's own loading, lines over) and each case's
+  // cascade. HOW-IT-WORKS.md gap #5: the row used to compare the overall busiest line before the fix (the weak
+  // point, e.g. 141 %) against the overall busiest line after it, which can be a different, unrelated element
+  // elsewhere on the grid (e.g. a Miami transformer already near its rating on its own) — read together they looked
+  // like one line's before/after, so the "after" side is now this same weak point's own value.
   const m = base?.measure
+  const weakEl = els.reduce((a, e) => (e.before != null && (!a || e.before > a.before) ? e : a), null)
+  const weakAfter = weakEl ? weakEl.after : null
   const peakAfter = fresh ? busiest(fresh) : gridOnly ? null : (fix.strain?.peak_pct ?? null)
+  // a different, busier line elsewhere on the grid after the fix (not this weak point, which the fix already relieved)
+  const elsewhereAfter = peakAfter != null && weakAfter != null && peakAfter > weakAfter + 0.5 ? peakAfter : null
   const rows = [
-    m?.peak != null && peakAfter != null && { k: 'Busiest line', unit: '% of its rating', a: pct(m.peak), b: pct(peakAfter), bad: m.peak > 100, ok: peakAfter <= 100 },
+    m?.peak != null && weakAfter != null && { k: 'This weak point', unit: '% of its rating', a: pct(m.peak), b: pct(weakAfter), bad: m.peak > 100, ok: weakAfter <= 100 },
     m?.over != null && overAfter != null && { k: 'Lines over their limit', a: fmt(m.over), b: fmt(overAfter), bad: m.over > 0, ok: overAfter === 0 },
     ran && base?.hit != null && { k: 'People hit', unit: 'estimate', a: fmt(base.hit), b: fmt(now.hit), bad: base.hit > 0, ok: now.hit === 0 },
     ran && base?.cost && costNow != null && { k: 'Cost of the outage', unit: 'estimate, high end', a: money(base.cost.high), b: money(costNow), bad: true, ok: !(costNow > 0) },
@@ -152,6 +160,12 @@ export default function FixChanges({ fix, base, now, steps = 0, costNow = 0, fre
           </tbody>
         </table>
       )}
+      {elsewhereAfter != null && (
+        <p className="fxc__note">
+          With the fix, the busiest line anywhere on the grid is {pct(elsewhereAfter)} of its rating — a different part of the network, not this
+          weak point (which the fix brings to {pct(weakAfter)}) and not one this fix touches.
+        </p>
+      )}
 
       {camp.length > 0 && (
         <ul className="fxc__camp">
@@ -191,6 +205,13 @@ export default function FixChanges({ fix, base, now, steps = 0, costNow = 0, fre
                     {fmt(Math.round(el.to))} MVA
                   </b>{' '}
                   {el.from != null && <span className="fxc__add">(+{fmt(Math.round(el.to - el.from))})</span>} · {workWords(el)}
+                  {/* the dataset gives this element no rating; the build step made one up (HOW-IT-WORKS.md gap #9) */}
+                  {el.rateEst && (
+                    <span className="fxc__est" title="The dataset leaves this element's rating blank; our build step set it 30 % above its flow in the dataset, or its voltage class's standard rating, whichever is larger.">
+                      {' '}
+                      (rating estimated)
+                    </span>
+                  )}
                 </p>
                 {el.before != null && el.after != null && (
                   <p className="fxc__load">

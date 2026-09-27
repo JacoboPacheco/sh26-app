@@ -11,6 +11,13 @@
   color: var(--ink);
 }
 
+/* a rating the dataset left blank and the build step estimated (features/fix/fixChanges.css .fxc__est, same words) */
+.cause__est {
+  font-weight: 500;
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--strain) 55%, var(--ink-2));
+}
+
 .cause__row {
   display: grid;
   grid-template-columns: 8.2rem minmax(0, 1fr) 3rem;

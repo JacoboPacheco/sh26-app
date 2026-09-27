@@ -265,6 +265,9 @@ def _upgrade_items(g, rate0_orig: np.ndarray, rate_final: np.ndarray, idx: list[
             "kv": kv,
             "old_mva": round(old, 1),
             "new_mva": round(new, 1),
+            # the dataset gave this element no rating, so the build step made one up (capacity.py marks its own
+            # upgrade cards the same way; HOW-IT-WORKS.md gap #9): the frontend adds "(rating estimated)"
+            "rate_est": bool(g._data["branches"][i].get("rate_est")),
             "added_mva": round(new - old, 1),
             "applied": i in applied,  # already in the case (Fix it applied)
         }

@@ -31,7 +31,8 @@ function Parts({ projects }) {
         <li key={p.id}>
           <span className="st-card__part">{plain(p)}</span>
           <span className="st-card__meta">
-            {fmt(p.kv)} kV {p.kind} · {fmt(p.rating_before_mva)} → <strong>{fmt(p.rating_after_mva)}</strong> MVA ·{' '}
+            {fmt(p.kv)} kV {p.kind} · {fmt(p.rating_before_mva)} → <strong>{fmt(p.rating_after_mva)}</strong> MVA
+            {p.rate_est && <span className="cp-est"> (rating estimated)</span>} ·{' '}
             {p.cost.high > 0
               ? moneyRange(p.cost.low, p.cost.high)
               : p.rating_before_mva > p.rating_original_mva + 0.5
@@ -183,6 +184,7 @@ export default function UpgradeCard({ r, selected, bundle, target, budget, onBud
           <h3 className="st-card__h">{plain(p)}</h3>
           <p className="st-card__where">
             {p.where} · {fmt(p.kv)} kV {p.kind} · rated {fmt(p.rating_mva)} MVA
+            {p.rate_est && <span className="cp-est"> (rating estimated)</span>}
           </p>
           <p className="st-card__why">{p.reason}</p>
           {fix ? (

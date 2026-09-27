@@ -266,6 +266,8 @@ export function elementsOf(fix, branchById = null, subName = null) {
       work,
       low: it ? Number(it.low) : null,
       high: it ? Number(it.high) : null,
+      // the dataset gave this element no rating, so the build step made one up (HOW-IT-WORKS.md gap #9)
+      rateEst: !!(x.rate_est ?? it?.rate_est),
     }
     e.lead = leadKindOf(e)
     return e

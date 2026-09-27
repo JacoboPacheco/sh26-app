@@ -1438,6 +1438,7 @@ def _s_weak_point(w: Writer, lv: Level, rc: dict) -> dict:
     first. The campus is the trigger that uses up the last margin."""
     line = rc.get("line") or {}
     bid = line.get("id")
+    rate_est = bool(line.get("rate_est"))
     pw, po = rc.get("pct_with"), rc.get("pct_without")
     share = rc.get("path_share_pct")
     room, heat = w.room, _heat_room(w)
@@ -1452,8 +1453,9 @@ def _s_weak_point(w: Writer, lv: Level, rc: dict) -> dict:
         parts: list[tuple[str, bool | int]] = [(("Why it happened." if en else "Por qué pasó."), False)]
         parts.append(((f"The weak point is {label}." if en else f"El punto débil es {label}."), False))
         if po is not None:
-            parts.append(((f"On today's grid, before any new load, it already carries {pct_say(po, 'en')} of its rating." if en
-                           else f"En la red de hoy, antes de cualquier carga nueva, ya lleva el {pct_say(po, 'es')} de su capacidad."), False))
+            est = (" (an estimated rating)" if en else " (capacidad estimada)") if rate_est else ""
+            parts.append(((f"On today's grid, before any new load, it already carries {pct_say(po, 'en')} of its rating{est}." if en
+                           else f"En la red de hoy, antes de cualquier carga nueva, ya lleva el {pct_say(po, 'es')} de su capacidad{est}."), False))
         if share is not None and share >= 5:
             parts.append(((f"About {pct_say(share, 'en')} of any new load here flows through it." if en
                            else f"Cerca del {pct_say(share, 'es')} de cualquier carga nueva aquí pasa por ahí."), True))
@@ -1466,7 +1468,8 @@ def _s_weak_point(w: Writer, lv: Level, rc: dict) -> dict:
         out["headline"][lang] = cap((f"The weak point: {label}" if en else f"El punto débil: {label}"))
         lines = []
         if po is not None:
-            lines.append((f"Before any new load: {round(po)}% of its rating" if en else f"Antes de cualquier carga nueva: {round(po)}% de su capacidad"))
+            est = " (rating estimated)" if en and rate_est else " (capacidad estimada)" if rate_est else ""
+            lines.append((f"Before any new load: {round(po)}% of its rating{est}" if en else f"Antes de cualquier carga nueva: {round(po)}% de su capacidad{est}"))
         if share is not None and share >= 5:
             lines.append((f"{round(share)}% of any new load here flows through it" if en else f"El {round(share)}% de cualquier carga nueva aquí pasa por ahí"))
         if room is not None:

@@ -25,7 +25,10 @@ export default function SiteVerdict() {
         <span className="sv__kv"> · {fmt(result.kv)} kV</span>
         {solving && <span className="muted"> · updating…</span>}
       </p>
-      <p className={over ? 'verdict verdict--bad sv__verdict' : 'verdict verdict--ok sv__verdict'}>
+      <p
+        className={over ? 'verdict verdict--bad sv__verdict' : 'verdict verdict--ok sv__verdict'}
+        title="Rating (MVA): how much a line or transformer is built to carry. 'Over limit' means its flow is past that, past 100 % of its rating."
+      >
         {over ? overLimitText(result.overloaded) : 'No line over limit.'}
       </p>
       {over && <CauseBars o={result.overloaded[0]} subName={subName} />}
@@ -33,7 +36,7 @@ export default function SiteVerdict() {
         <span className="sv__room" style={{ width: `${(Math.min(room, span) / span) * 100}%` }} />
         {!fits && <span className="sv__past" style={{ left: `${(room / span) * 100}%`, width: `${((mw - room) / span) * 100}%` }} />}
       </div>
-      <p className="sv__room-text">
+      <p className="sv__room-text" title="Headroom: how many MW a site can add before the first line anywhere reaches 100 % of its rating.">
         This site can take <strong>{fmt(room)} MW</strong> before the first line overloads
         {fits ? '.' : <>; this campus asks for {fmt(mw)} MW.</>}
       </p>
@@ -49,8 +52,19 @@ function CauseBars({ o, subName }) {
   const top = Math.max(o.pct, 100) * 1.08
   const w = (v) => `${(Math.min(v, top) / top) * 100}%`
   return (
-    <figure className="cause" aria-label={`${name}: ${Math.round(o.base_pct)} percent of its rating without this campus, ${Math.round(o.pct)} percent with it`}>
-      <figcaption className="cause__name">{name}</figcaption>
+    <figure className="cause" aria-label={`${name}: ${Math.round(o.base_pct)} percent of its rating without this campus, ${Math.round(o.pct)} percent with it${o.rate_est ? '; rating estimated' : ''}`}>
+      <figcaption className="cause__name">
+        {name}
+        {o.rate_est && (
+          <span
+            className="cause__est"
+            title="The dataset leaves this element's rating blank; our build step set it 30 % above its flow in the dataset, or its voltage class's standard rating, whichever is larger."
+          >
+            {' '}
+            (rating estimated)
+          </span>
+        )}
+      </figcaption>
       <div className="cause__row">
         <span className="cause__k">Without this campus</span>
         <span className="cause__track">

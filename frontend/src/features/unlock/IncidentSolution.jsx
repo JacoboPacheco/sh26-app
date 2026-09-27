@@ -959,6 +959,15 @@ function Element({ e, top, lead }) {
             {fmt(e.oldMva)} → {fmt(e.newMva)} MVA
           </b>{' '}
           <span className="inc-el__add">+{fmt(e.added)}</span>
+          {e.rateEst && (
+            <span
+              className="inc-el__est"
+              title="The dataset leaves this element's rating blank; our build step set it 30 % above its flow in the dataset, or its voltage class's standard rating, whichever is larger."
+            >
+              {' '}
+              (rating estimated)
+            </span>
+          )}
         </p>
         <span className="inc-el__bar" role="img" aria-label={`Rating from ${fmt(e.oldMva)} to ${fmt(e.newMva)} MVA`}>
           <span className="inc-el__old" style={{ width: w(e.oldMva) }} />
@@ -1030,6 +1039,7 @@ function SmallestFix({ r, o, lead, options, onTry }) {
             </span>
             <span className="inc-min__mva">
               {fmt(e.oldMva)} → <b>{fmt(e.newMva)} MVA</b>
+              {e.rateEst && <span className="inc-el__est"> (rating estimated)</span>}
             </span>
             {e.high != null && <span className="inc-min__cost">{moneyRange(e.low, e.high)}</span>}
           </li>

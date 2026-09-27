@@ -77,6 +77,8 @@ export function fixElements(fix, ctx) {
       high: it ? num(it.high) : null,
       before: num(loadsBefore[id] ?? fx?.pct_before),
       after: num(loadsAfter(id) ?? fx?.pct_after),
+      // the dataset gave this element no rating, so the build step made one up (HOW-IT-WORKS.md gap #9)
+      rateEst: !!(r.rate_est ?? it?.rate_est ?? fx?.rate_est),
     })
   }
   return out.sort((p, q) => (q.to - (q.from || 0)) - (p.to - (p.from || 0)))

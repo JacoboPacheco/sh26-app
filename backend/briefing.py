@@ -559,6 +559,8 @@ def _line(g: Grid, i: int) -> dict:
         "to_area": area_of(g.sub_name[ts]),
         "kv": float(g.br_kv[i]),
         "transformer": bool(transformer),
+        # the dataset gave this element no rating, so the build step made one up (HOW-IT-WORKS.md gap #9)
+        "rate_est": bool(g._data["branches"][i].get("rate_est")),
     }
 
 
@@ -817,7 +819,7 @@ def _root_cause(c: _Case, first, inc: dict, floor: dict) -> dict:
                 sentence += f" Without {dc}, {_big(people_wo)} people (estimate) would lose power instead of {_big(people_inc)}."
     return {
         **base,
-        "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer")},
+        "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer", "rate_est")},
         "pct_with": round(pct_with, 1),
         "pct_without": round(pct_wo, 1),
         "pct_before_storm": round(pct_no_storm, 1) if pct_no_storm is not None else None,
@@ -942,7 +944,7 @@ def _root_cause_plants(c: _Case, first, inc: dict, floor: dict, base: dict, over
     pw, pon = f"{pct_with:.0f}%", (f"{pct_on:.0f}%" if pct_on is not None else None)
     rest = {
         **base,
-        "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer")},
+        "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer", "rate_est")},
         "pct_with": round(pct_with, 1),
         "pct_without": round(pct_wo, 1),
         "pct_before_storm": None,
@@ -1044,7 +1046,7 @@ def _root_cause_not_the_plants(c: _Case, first, wo, over, i: int, rest: dict, pl
         plant["pct_with_plant"] = round(pon_j, 1) if pon_j is not None else None
         out = {
             **rest,
-            "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer")},
+            "line": {k: info[k] for k in ("id", "label", "from_sub", "to_sub", "from_area", "to_area", "kv", "transformer", "rate_est")},
             "pct_with": round(pw_j, 1),
             "pct_without": round(po_j, 1),
             "campus_mw_on_line": round(on_line, 1),
@@ -1610,7 +1612,18 @@ def _upgrade_list(g: Grid, rate0: np.ndarray, rate: np.ndarray, chosen: list[int
         mva += add
         km += k
         info = _line(g, i)
-        lines.append({"id": info["id"], "label": info["label"], "transformer": info["transformer"], "old_mva": round(float(rate0[i]), 1), "new_mva": round(float(rate[i]), 1), "added_mva": round(add, 1), "km": round(k, 1)})
+        lines.append(
+            {
+                "id": info["id"],
+                "label": info["label"],
+                "transformer": info["transformer"],
+                "rate_est": info["rate_est"],
+                "old_mva": round(float(rate0[i]), 1),
+                "new_mva": round(float(rate[i]), 1),
+                "added_mva": round(add, 1),
+                "km": round(k, 1),
+            }
+        )
     return lines, round(mva, 1), round(km, 1)
 
 

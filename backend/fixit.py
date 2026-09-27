@@ -123,6 +123,8 @@ def _branch_names(g: Grid, i: int) -> dict:
         "to_name": g.sub_name[ts],
         "kv": float(g.br_kv[i]),
         "transformer": fs == ts,  # both ends in one substation (the map can't draw it as a line)
+        # the dataset gave this element no rating, so the build step made one up (HOW-IT-WORKS.md gap #9)
+        "rate_est": bool(g._data["branches"][i].get("rate_est")),
     }
 
 

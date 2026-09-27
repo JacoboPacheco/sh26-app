@@ -318,6 +318,9 @@ class Grid:
             "to": int(self.sub_ids[self.bus_sub_idx[self.t[i]]]),
             "kv": float(self.br_kv[i]),
             "rate": float((state.rate if state.rate is not None else self.rate)[i]),
+            # the dataset gave this element no rating, so the build step made one up (HOW-IT-WORKS.md gap #9):
+            # SiteVerdict/FixChanges mark it "(rating estimated)", the same words capacity.py's cards already use
+            "rate_est": bool(self._data["branches"][i].get("rate_est")),
         }
 
     # ------------------------------------------------------------------ headroom
