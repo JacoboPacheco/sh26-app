@@ -3,7 +3,8 @@
 // from, found by the hospital beds agent (Gemini with Google Search) and checked in code:
 //   reported   the figure a web page states (the link); "read on the page" when the checker found the number on that
 //              page as this hospital's bed count (its words in the tooltip), else "Google tied it to this page; the
-//              checker couldn't read it" (a script-filled page, a PDF too large)
+//              checker couldn't read it" (a script-only page, a PDF, a site that refuses it): a page the checker CAN
+//              read must show the figure. Google's Search Suggestions are shown with the figures, fresh or remembered
 //   osm        OpenStreetMap's beds tag (map data, not checked by the agent), when nothing the agent found passed
 //   not found  said plainly, never guessed
 // Beds are not a head count: the panel says so. The total says "as reported" only for the reported part. The job
@@ -39,7 +40,7 @@ const T = {
     kinds: { licensed: 'licensed', staffed: 'staffed', beds: 'beds' },
     read: 'read on the page',
     readTip: (q) => `The page says: ${q}`,
-    grounded: 'Google tied it to this page; not confirmed on the page',
+    grounded: 'Google tied it to this page; the checker couldn’t read the page, so not confirmed on it',
     osm: 'OpenStreetMap',
     osmNote: 'map data, not checked',
     notFoundRow: 'not found',
@@ -48,7 +49,8 @@ const T = {
     all: (n) => `Show all ${n}`,
     fewer: 'Show fewer',
     badge: 'Google Search · checked in code',
-    badgeTip: 'Found by a Gemini agent with Google Search; code keeps a figure only when a page Google tied to it gives it as this hospital’s bed count, or, when the page can’t be read, Google tied it to this hospital’s own answer',
+    badgeTip:
+      'Found by a Gemini agent with Google Search. Code keeps a figure only when a page Google tied to it gives it as this hospital’s bed count (“read on the page”), or, when that page can’t be read by the checker at all (a PDF, a page filled in by a script, a site that refuses it), Google tied the number to this hospital’s own line of the answer (“not confirmed on the page”). A page the checker can read must show the figure, or it is not kept.',
     cached: 'checked earlier',
     fallbackWhy: 'OpenStreetMap only',
     watch: 'Watch the agent work',
@@ -76,7 +78,7 @@ const T = {
     kinds: { licensed: 'con licencia', staffed: 'en servicio', beds: 'camas' },
     read: 'leído en la página',
     readTip: (q) => `La página dice: ${q}`,
-    grounded: 'Google la vinculó a esta página; sin confirmar en la página',
+    grounded: 'Google la vinculó a esta página; el verificador no pudo leer la página, así que sin confirmar en ella',
     osm: 'OpenStreetMap',
     osmNote: 'datos del mapa, sin verificar',
     notFoundRow: 'sin encontrar',
@@ -85,7 +87,8 @@ const T = {
     all: (n) => `Ver los ${n}`,
     fewer: 'Ver menos',
     badge: 'Búsqueda de Google · verificado en código',
-    badgeTip: 'Hallado por un agente de Gemini con la Búsqueda de Google; el código conserva una cifra solo si una página vinculada por Google la da como las camas de este hospital o, si la página no se puede leer, Google la vinculó a la respuesta de este hospital',
+    badgeTip:
+      'Hallado por un agente de Gemini con la Búsqueda de Google. El código conserva una cifra solo si una página vinculada por Google la da como las camas de este hospital («leído en la página») o, si el verificador no puede leer esa página en absoluto (un PDF, una página que llena un script, un sitio que lo rechaza), Google vinculó el número a la línea de este hospital en la respuesta («sin confirmar en la página»). Una página que el verificador sí puede leer debe mostrar la cifra, o no se conserva.',
     cached: 'verificado antes',
     fallbackWhy: 'solo OpenStreetMap',
     watch: 'Mira trabajar al agente',

@@ -1,7 +1,8 @@
 """Hospital beds agent: how many beds the hospitals in the dark areas have, AS REPORTED, each with its source.
 
-    POST /api/hospitals/agent       {region, load_factor, affected: {sub id: MW of existing load lost}} (the cascade's
-                                    own `affected` and the case's load level, sent the moment the cascade lands)
+    POST /api/hospitals/agent       {region, load_factor, affected: {sub id: MW of existing load lost}, tab} (the
+                                    cascade's own `affected` and the case's load level, sent the moment the cascade
+                                    lands; tab: the page's random id, optional)
                                     -> a finished answer at once when this set of hospitals was researched before
                                     ({job: null, status: done, cached: true, ...}), else a job ({job, status: running, ...})
     GET  /api/hospitals/agent/{id}  the job so far: {status, hospitals, trace, counts, by, suggestions, ...}
@@ -24,15 +25,17 @@ Batches of BATCH hospitals run at once; each batch loops, up to ATTEMPTS times w
   check     code, never the model. A figure is kept only when
               1. it is a whole number from 1 to MAX_BEDS, and a search ran, and
               2. a grounding support (a stretch of the answer Google tied to web pages) holds that number, and
-              3. a page Google tied to it, read by the checker (HTML, or a PDF when pypdfium2 is installed), names the
-                 hospital in the right state and gives the number as THIS hospital's bed count: next to the word
-                 "bed", with this hospital's name the closest hospital name to it (no sibling from OpenStreetMap's list
-                 of the state closer, no other bed count in between, not one unit's beds) — page_confirmed: true, with
-                 the page's words. Or, when the page can't be read (a script-filled page, a PDF too large), the support
-                 lies on this hospital's own line of this answer: kept, page_confirmed: null.
+              3. a page Google tied to it, read by the checker (HTML, or a PDF where pypdfium2 is installed; elsewhere a
+                 PDF is never downloaded), names the hospital in the right state and gives the number as THIS
+                 hospital's bed count: next to the word "bed", with this hospital's name the closest hospital name to it
+                 (no sibling from OpenStreetMap's list of the state closer, no other bed count in between, not one
+                 unit's beds) — page_confirmed: true, checked: true, with the page's words. Or, only when the page
+                 CAN'T be read (a script-only shell, a PDF, a site that refuses the checker), the support lies on this
+                 hospital's own line of this answer: kept, page_confirmed: null, checked: false ("not confirmed on the
+                 page").
             Rejected: a readable page that names the hospital but gives no such figure (or gives the number for
-            another hospital or a unit), names a same-named hospital outside the state, or states the number without
-            naming the hospital; a number only a support spanning several hospitals' lines backs.
+            another hospital or a unit), names a same-named hospital outside the state, states the number without
+            naming the hospital, or names neither; a number only a support spanning several hospitals' lines backs.
   feedback  what failed goes back with the reason ("you answered from memory: no search ran", "the page you cited
             (x) does not state 391 beds; near the hospital's name it says: '...420 licensed beds...'") and the next
             attempt is checked the same way.
@@ -44,13 +47,20 @@ Each check decision goes to the verification ledger (llm.note_check, surface "ho
 is remembered (memory + a file next to the answer cache, FACT_TTL_S; *.db, so git ignores it), so a later incident
 that reaches it doesn't search again; one a finished search found nothing for is remembered for MISS_TTL_S; a whole set
 that finished cleanly is remembered too (the hero's second run is instant, with the trace of the run that found it).
-Entries from older checker rules (CHECK_V) are dropped. Google's grounding terms: a fresh run returns its Search
-Suggestions (`suggestions`, shown with the results, never stored); what is stored is our own checked facts and their
-source links. Cost: every cascade starts this, so it has its own daily call budget (HOSPITAL_AGENT_DAILY_CALLS).
+Entries from older checker rules (CHECK_V) are dropped; the stores are pruned by TTL and size, and the file is written
+in a worker thread. Google's grounding terms: grounded results are shown with their Search Suggestions (`suggestions`,
+the searchEntryPoint chip), fresh or remembered: a remembered fact or set keeps the chip of the answer it came from.
+Cost: every cascade starts this, so it has its own daily call budget (HOSPITAL_AGENT_DAILY_CALLS), at most
+GROUNDED_AT_ONCE grounded calls at once across all jobs (the rest of the app's Gemini surfaces keep their share), and a
+guard: under AI_RESERVE calls left in the app's daily AI budget, or past NEW_JOBS_MAX new searches per
+NEW_JOBS_WINDOW_S, a new incident gets OpenStreetMap's figures only (labeled); a visitor (address + the page's tab id)
+who opens another case stops its previous search.
 
-Page reads are the checker's own: http(s) to public addresses only (every hop), a size cap and short timeouts, at most
-PAGE_READS at once across all jobs, the text dropped when the job ends. Public (no login), per-visitor rate limits;
-nothing about a visitor is stored. The grid model is synthetic (Breakthrough
+Page reads are the checker's own: http(s) to public addresses only (every hop, and the address actually connected to,
+against DNS rebinding), a size cap and short timeouts, at most PAGE_READS at once across all jobs (a slot taken inside
+the worker thread, so a read that outlives its job still counts), the text dropped when the job ends; a page that fails
+in any way is just not readable. Public (no login), per-visitor rate limits; nothing about a visitor is stored beyond
+which search it waits on. The grid model is synthetic (Breakthrough
 Energy / Texas A&M); the hospitals (OpenStreetMap) and their beds (as reported) are real, public figures.
 """
 
@@ -60,6 +70,8 @@ import asyncio
 import copy
 import hashlib
 import html as htmllib
+import http.client
+import importlib.util
 import io
 import ipaddress
 import json
@@ -75,7 +87,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import weakref
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Request
@@ -86,7 +98,7 @@ from starlette.concurrency import run_in_threadpool
 import hospitals
 import llm
 from grid import REGIONS, grid_at, region_code
-from limiter import limiter
+from limiter import client_ip, limiter
 
 router = APIRouter(tags=["hospitals"])
 log = logging.getLogger("uvicorn.error")
@@ -111,15 +123,30 @@ PDF_MAX_PAGES = 80
 READABLE_CHARS = 1200  # less visible text than this (a script-only shell, a block page): not readable
 SOURCES_PER_HOSPITAL = 3  # candidate pages read per figure
 PAGE_READS = max(1, int(os.getenv("HOSPITAL_AGENT_PAGE_READS", "4") or 4))  # page downloads at once, across all jobs
-HEDGE_S = 6.0  # the first model still silent after this: the second one is asked too
+# grounded calls at once across every job (one pool per process), so a big incident never crowds out the app's other
+# Gemini surfaces
+GROUNDED_AT_ONCE = max(1, int(os.getenv("HOSPITAL_AGENT_GROUNDED_AT_ONCE", "3") or 3))
+HEDGE_S = 6.0  # the first model's call out this long without an answer: the second one is asked too
 MAX_AFFECTED = 20000
-CHECK_V = 2  # the checker's rules; a remembered figure or set from older rules is dropped on load
+CHECK_V = 3  # the checker's rules; a remembered figure or set from older rules is dropped on load (3: a readable page must confirm)
 FACT_TTL_S = 14 * 24 * 3600
 SET_TTL_S = 3 * 24 * 3600
 MISS_TTL_S = 6 * 3600  # a hospital searched without a figure that passed is not searched again for this long
+FACTS_MAX, SETS_MAX, MISSES_MAX = 4000, 300, 4000  # the remembered entries (the oldest go first)
 JOBS_MAX = 64
 JOB_TTL_S = 2 * 3600
 RUNNING_MAX = 6
+# the budget guard (the route is public and every cascade starts it): below AI_RESERVE calls left in the app's whole
+# daily AI budget (llm.usage), or past NEW_JOBS_MAX new searches in NEW_JOBS_WINDOW_S across all visitors, a new
+# incident gets OpenStreetMap's figures only (labeled); a visitor who opens another case stops its previous search
+AI_RESERVE = int(os.getenv("HOSPITAL_AGENT_AI_RESERVE", "500") or 0)
+NEW_JOBS_MAX = int(os.getenv("HOSPITAL_AGENT_NEW_JOBS", "30") or 0)
+NEW_JOBS_WINDOW_S = 600.0
+CLIENTS_MAX = 2000
+# PDFs are read only where pypdfium2 is installed (checked once; not on Render, where memory comes first): elsewhere a
+# PDF is never downloaded, and a figure only a PDF backs is kept as "not confirmed on the page"
+PDF_OK = importlib.util.find_spec("pypdfium2") is not None
+NO_PDF = "a PDF (this server's checker doesn't read PDFs)"
 # grounded calls per quota day (Pacific, as llm's cap): Google bills each search a Gemini 3 model runs, and the route is
 # public (every cascade starts it), so the agent has its own budget well under the app-wide AI_DAILY_LIMIT (1500 on
 # Render): past it, OpenStreetMap's figures (labeled), and the rest of the app's AI keeps its quota
@@ -146,8 +173,11 @@ def _calls_left() -> int:
 REDIRECT_HOST = "vertexaisearch.cloud.google.com"
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 OverloadBedsCheck/1.0"
 NO_ANSWER = "Gemini did not answer."
+FAILED = "the agent stopped on an error."
+BUSY = "the checker was busy reading other pages"  # a page not read for lack of a slot: never counts as unreadable
+LATE = "the page check did not finish in time."
 # reasons that say nothing about the hospital (the model or the clock failed): never remembered as a miss
-TRANSIENT = {NO_ANSWER, "the page check did not finish in time.", "the run's time ran out before the search.", "the run ran out of time."}
+TRANSIENT = {NO_ANSWER, FAILED, LATE, "the run's time ran out before the search.", "the run ran out of time."}
 
 SYSTEM = (
     "You are a fact checker with Google Search. You do not know any hospital's bed count from memory: for every "
@@ -164,10 +194,14 @@ OSM_NOTE = "OpenStreetMap's beds tag (map data, not checked by the agent)"
 # the facts cache, next to the answer cache (runtime state: *.db is gitignored); HOSPITAL_BEDS_CACHE_FILE= (empty) = off
 _default_file = os.path.join(os.path.dirname(llm.CACHE_FILE), ".hospital_beds_cache.db") if llm.CACHE_FILE else ""
 CACHE_FILE = os.getenv("HOSPITAL_BEDS_CACHE_FILE", _default_file)
-_facts: dict[str, dict] = {}  # region:id:name -> a checked 'reported' row (+ "at", "v")
-_sets: dict[str, dict] = {}  # the set's key -> a finished run (+ "at", "v")
+_facts: dict[str, dict] = {}  # region:id:name -> a checked 'reported' row (FACT_FIELDS + "at", "v", "chip")
+_sets: dict[str, dict] = {}  # the set's key -> a finished run: {"rows": {id: FACT_FIELDS} (the researched rows only), "trace", "chips", ...}
 _misses: dict[str, dict] = {}  # region:id:name -> {"at", "v", "why"}: searched, nothing passed
+# Google's Search Suggestions (the searchEntryPoint chip's HTML) by its hash: kept with the facts and sets they came
+# with, so a remembered grounded result is shown with its suggestions like a fresh one
+_chips: dict[str, str] = {}
 _store_lock = threading.Lock()
+_save_lock = threading.Lock()
 FACT_FIELDS = ("beds", "beds_basis", "beds_kind", "source", "checked", "page_confirmed", "quote", "note")
 
 
@@ -189,27 +223,50 @@ def _load_disk() -> None:
             if isinstance(v, dict) and v.get("v") == CHECK_V and now - float(v.get("at") or 0) <= FACT_TTL_S and v.get("beds_basis") == "reported":
                 _facts[k] = v
         for k, v in (raw.get("sets") or {}).items():
-            if isinstance(v, dict) and v.get("v") == CHECK_V and now - float(v.get("at") or 0) <= SET_TTL_S and isinstance(v.get("hospitals"), list):
+            if isinstance(v, dict) and v.get("v") == CHECK_V and now - float(v.get("at") or 0) <= SET_TTL_S and isinstance(v.get("rows"), dict):
                 _sets[k] = v
         for k, v in (raw.get("misses") or {}).items():
             if isinstance(v, dict) and v.get("v") == CHECK_V and now - float(v.get("at") or 0) <= MISS_TTL_S and isinstance(v.get("why"), str):
                 _misses[k] = v
+        for k, v in (raw.get("chips") or {}).items():
+            if isinstance(v, str):
+                _chips[k] = v
+        _prune(now)
+
+
+def _prune(now: float) -> None:
+    """Drop what is past its TTL, keep at most the newest FACTS_MAX / SETS_MAX / MISSES_MAX, and the chips something
+    still refers to. Called with _store_lock held (or before the app serves)."""
+    for store, ttl, cap in ((_facts, FACT_TTL_S, FACTS_MAX), (_sets, SET_TTL_S, SETS_MAX), (_misses, MISS_TTL_S, MISSES_MAX)):
+        for k in [k for k, v in store.items() if now - float(v.get("at") or 0) > ttl]:
+            del store[k]
+        if len(store) > cap:
+            for k in sorted(store, key=lambda k: float(store[k].get("at") or 0))[: len(store) - cap]:
+                del store[k]
+    used = {v.get("chip") for v in _facts.values()} | {c for v in _sets.values() for c in (v.get("chips") or [])}
+    for k in [k for k in _chips if k not in used]:
+        del _chips[k]
 
 
 def _save_disk() -> None:
-    """Atomically (a temp file, then a rename); called with _store_lock held."""
+    """Atomically (a temp file, then a rename). Runs in a worker thread (asyncio.to_thread), never on the event loop:
+    the stores are copied out under _store_lock, the file written outside it."""
     if not CACHE_FILE:
         return
-    try:
-        now = time.time()
-        for k in [k for k, v in _misses.items() if now - float(v.get("at") or 0) > MISS_TTL_S]:
-            del _misses[k]
-        tmp = f"{CACHE_FILE}.{os.getpid()}.tmp.db"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"facts": _facts, "sets": _sets, "misses": _misses}, f)
-        os.replace(tmp, CACHE_FILE)
-    except OSError as e:  # a read-only disk just means no persistence
-        log.warning("hospital agent: cache not saved: %s", e)
+    with _save_lock:
+        with _store_lock:
+            data = json.dumps({"facts": _facts, "sets": _sets, "misses": _misses, "chips": _chips})
+        try:
+            tmp = f"{CACHE_FILE}.{os.getpid()}.tmp.db"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(data)
+            os.replace(tmp, CACHE_FILE)
+        except OSError as e:  # a read-only disk just means no persistence
+            log.warning("hospital agent: cache not saved: %s", e)
+
+
+def _chip_key(html: str) -> str:
+    return hashlib.sha256(html.encode()).hexdigest()[:24]
 
 
 _load_disk()
@@ -276,6 +333,49 @@ def _public_url(url: str) -> bool:
         return False
 
 
+def _peer_ok(ip: str) -> bool:
+    try:
+        return ipaddress.ip_address(str(ip).split("%")[0]).is_global
+    except ValueError:
+        return False
+
+
+def _public_connection(address, *args, **kwargs):
+    """socket.create_connection, then the address actually connected to must be public (DNS rebinding: a name that
+    resolved to a public address for _public_url and to a private one a moment later). Refused before a request is sent."""
+    sock = socket.create_connection(address, *args, **kwargs)
+    try:
+        ok = _peer_ok(sock.getpeername()[0])
+    except OSError:
+        ok = False
+    if not ok:
+        sock.close()
+        raise OSError("the name resolved to a non-public address when connecting")
+    return sock
+
+
+class _PublicHTTP(http.client.HTTPConnection):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._create_connection = _public_connection
+
+
+class _PublicHTTPS(http.client.HTTPSConnection):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._create_connection = _public_connection
+
+
+class _PublicHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_PublicHTTP, req)
+
+
+class _PublicHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_PublicHTTPS, req, context=self._context)
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ARG002
         return None
@@ -290,8 +390,8 @@ class _SafeRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-_resolver = urllib.request.build_opener(_NoRedirect)
-_fetcher = urllib.request.build_opener(_SafeRedirect)
+_resolver = urllib.request.build_opener(_NoRedirect, _PublicHTTPHandler, _PublicHTTPSHandler)
+_fetcher = urllib.request.build_opener(_SafeRedirect, _PublicHTTPHandler, _PublicHTTPSHandler)
 
 
 def _resolve(uri: str) -> str | None:
@@ -308,7 +408,7 @@ def _resolve(uri: str) -> str | None:
     except urllib.error.HTTPError as e:
         loc = e.headers.get("Location") if e.headers else None
         return urllib.parse.urljoin(uri, loc) if loc and e.code in (301, 302, 303, 307, 308) else None
-    except (urllib.error.URLError, OSError, ValueError):
+    except Exception:  # noqa: BLE001 - URLError, OSError, http.client.HTTPException, ...: the link can't be followed
         return None
 
 
@@ -347,11 +447,15 @@ def _page_text(url: str) -> tuple[str | None, str]:
     """(the page's visible text, or None; why not). At most READ_BUDGET_S for the whole download."""
     if not _public_url(url):
         return None, "not a public web address"
+    if not PDF_OK and urllib.parse.urlsplit(url).path.lower().endswith(".pdf"):
+        return None, NO_PDF  # not downloaded
     deadline = time.monotonic() + READ_BUDGET_S
     try:
         with _fetcher.open(urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html,application/pdf;q=0.9,text/plain;q=0.8,*/*;q=0.5"}), timeout=PAGE_TIMEOUT_S) as r:
             ctype = (r.headers.get("Content-Type") or "").lower()
             is_pdf = "pdf" in ctype or (not ctype and urllib.parse.urlsplit(r.geturl()).path.lower().endswith(".pdf"))
+            if is_pdf and not PDF_OK:
+                return None, NO_PDF  # the headers only: the body is never read
             if not is_pdf and ctype and not any(t in ctype for t in ("html", "text", "xml")):
                 return None, f"not a web page ({ctype.split(';')[0]})"
             size = r.headers.get("Content-Length")
@@ -366,8 +470,10 @@ def _page_text(url: str) -> tuple[str | None, str]:
         return None, f"the site answered {e.code}"
     except TimeoutError as e:
         return None, str(e)
-    except (urllib.error.URLError, OSError, ValueError) as e:
+    except (urllib.error.URLError, OSError) as e:
         return None, f"could not be reached ({type(e).__name__})"
+    except Exception:  # noqa: BLE001 - http.client.HTTPException (IncompleteRead, BadStatusLine, LineTooLong), ValueError, ...
+        return None, "could not be read"
     if is_pdf:
         text = _pdf_text(raw)
         if text is None:
@@ -376,7 +482,7 @@ def _page_text(url: str) -> tuple[str | None, str]:
     else:
         try:
             doc = raw.decode(enc, "replace")
-        except LookupError:
+        except (LookupError, UnicodeError, ValueError):  # charset=undefined, charset=idna (no "replace" handler), ...
             doc = raw.decode("utf-8", "replace")
         doc = re.sub(r"(?is)<(script|style|noscript|template)\b.*?</\1\s*>", " ", doc)
         doc = re.sub(r"(?s)<!--.*?-->", " ", doc)
@@ -548,32 +654,58 @@ def _domain(url: str) -> str:
 
 
 _page_sems: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
+_grounded_sems: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
+# the hard cap on page downloads, taken inside the worker thread: a read whose job ended (or was cancelled) keeps its
+# slot until its download is done, so the threads never outnumber PAGE_READS
+_read_slots = threading.BoundedSemaphore(PAGE_READS)
 
 
-def _page_sem() -> asyncio.Semaphore:
-    """PAGE_READS page downloads at once across every job (one semaphore per event loop)."""
+def _loop_sem(store: weakref.WeakKeyDictionary, n: int) -> asyncio.Semaphore:
     loop = asyncio.get_running_loop()
-    sem = _page_sems.get(loop)
+    sem = store.get(loop)
     if sem is None:
-        sem = _page_sems[loop] = asyncio.Semaphore(PAGE_READS)
+        sem = store[loop] = asyncio.Semaphore(n)
     return sem
 
 
+def _page_sem() -> asyncio.Semaphore:
+    """PAGE_READS page reads handed to worker threads at once across every job (one semaphore per event loop)."""
+    return _loop_sem(_page_sems, PAGE_READS)
+
+
+def _grounded_sem() -> asyncio.Semaphore:
+    """GROUNDED_AT_ONCE grounded Gemini calls at once across every job."""
+    return _loop_sem(_grounded_sems, GROUNDED_AT_ONCE)
+
+
+def _unread(uri: str, title: str, why: str) -> dict:
+    return {"url": uri, "title": title or _domain(uri), "text": None, "why": why}
+
+
 def _read(uri: str, title: str, pages: dict, lock: threading.Lock) -> dict:
-    """A candidate page, read once per job (by its link and by the page it leads to): {url, title, text | None, why}."""
+    """A candidate page, read once per job (by its link and by the page it leads to): {url, title, text | None, why}.
+    Never raises: a page that fails in any way is just not readable."""
     with lock:
         hit = pages.get("link:" + uri)
     if hit is not None:
         return hit
-    url = _resolve(uri)
-    if not url:
-        out = {"url": uri, "title": title or _domain(uri), "text": None, "why": "the link could not be followed"}
-    else:
-        with lock:
-            out = pages.get("page:" + url)
-        if out is None:
-            text, why = _page_text(url)
-            out = {"url": url, "title": _domain(url) or title, "text": text, "why": why}
+    if not _read_slots.acquire(timeout=READ_BUDGET_S + RESOLVE_TIMEOUT_S):
+        return _unread(uri, title, BUSY)  # not remembered: a later attempt may read it
+    try:
+        url = _resolve(uri)
+        if not url:
+            out = _unread(uri, title, "the link could not be followed")
+        else:
+            with lock:
+                out = pages.get("page:" + url)
+            if out is None:
+                text, why = _page_text(url)
+                out = {"url": url, "title": _domain(url) or title, "text": text, "why": why}
+    except Exception:  # noqa: BLE001 - one bad page never ends the job
+        log.warning("hospital agent: a page read failed", exc_info=True)
+        out = _unread(uri, title, "could not be read")
+    finally:
+        _read_slots.release()
     with lock:
         pages["link:" + uri] = out
         pages["page:" + out["url"]] = out
@@ -769,14 +901,21 @@ class _Job:
         self.t0 = time.monotonic()
         self.elapsed: float | None = None
         self.timed = False  # something was cut short by the wall clock (the set's answer is then not remembered)
+        self.failed = False  # a batch or a page check stopped on an error (the set's answer is then not remembered)
         self.calls = 0
         self.searches = 0
-        self.pages: dict = {}  # the pages read in this job (cleared when it ends)
+        self.pages: dict = {}  # the pages read in this job (replaced by a new dict when it ends: a late read lands in the old one)
         self.pages_lock = threading.Lock()
         self.grounded: dict[int, list[tuple[str, str]]] = {}  # hospital id -> (uri, title) of pages Google tied to its own line
         self.names: list | None = None  # every hospital that could own a figure on a page
         self.misses: dict[int, str] = {}  # hospital id -> why a finished search found nothing that passed
+        self.chip_of: dict[int, str] = {}  # hospital id -> the Search Suggestions HTML of the answer its kept figure came from
+        self.beyond: set[int] = set()  # hospitals past MAX_RESEARCH (OpenStreetMap only; not stored with the set)
         self.task: asyncio.Task | None = None
+        self.batches: list[asyncio.Future] = []
+        self.owners: set[str] = set()  # the visitors waiting on it (a visitor who opens another case lets go)
+        self.stopping = False  # cancelled: its visitors moved on
+        self.forced: str | None = None  # the budget guard's reason: OpenStreetMap only
 
     def add(self, actor: str, kind: str, tone: str, title: dict, detail: dict | None = None, call: str | None = None, ms: int | None = None) -> None:
         row = {"n": len(self.trace) + 1, "actor": actor, "kind": kind, "tone": tone, "title": title, "at_s": round(time.monotonic() - self.t0, 1)}
@@ -794,6 +933,8 @@ class _Job:
 
 _jobs: "OrderedDict[str, _Job]" = OrderedDict()
 _by_set: dict[str, str] = {}
+_by_client: "OrderedDict[str, str]" = OrderedDict()  # visitor -> the job it started or joined last
+_starts: deque = deque()  # when the new searches of the last NEW_JOBS_WINDOW_S started (monotonic)
 _jobs_lock = threading.Lock()
 
 
@@ -806,6 +947,37 @@ def _gc() -> None:
         if old is None:
             break
         del _jobs[old]
+    for c in [c for c, jid in _by_client.items() if jid not in _jobs]:
+        del _by_client[c]
+
+
+def _new_job_slot() -> bool:
+    """One of the NEW_JOBS_MAX new searches allowed per NEW_JOBS_WINDOW_S across all visitors (with _jobs_lock held)."""
+    now = time.monotonic()
+    while _starts and now - _starts[0] > NEW_JOBS_WINDOW_S:
+        _starts.popleft()
+    if len(_starts) >= NEW_JOBS_MAX:
+        return False
+    _starts.append(now)
+    return True
+
+
+def _switch(client: str, job: "_Job | None") -> None:
+    """This visitor now waits on `job` (None: on no search). Its previous search, when nobody else waits on it and it
+    is still running, is cancelled: one running search per visitor. With _jobs_lock held, on the event loop."""
+    prev_id = _by_client.pop(client, None)
+    if job is not None:
+        _by_client[client] = job.id
+        job.owners.add(client)
+    if prev_id and (job is None or prev_id != job.id):
+        prev = _jobs.get(prev_id)
+        if prev is not None:
+            prev.owners.discard(client)
+            if prev.status == "running" and not prev.owners and prev.task is not None and not prev.stopping:
+                prev.stopping = True
+                prev.task.cancel()
+    while len(_by_client) > CLIENTS_MAX:
+        _by_client.popitem(last=False)
 
 
 def _row(h: dict) -> dict:
@@ -883,6 +1055,9 @@ def _es_reason(why: str) -> str:
         (r"^the page you cited \((.+?)\) gives ([\d,]+) beds for something else: not next to this hospital's name(.*)$",
          r"la página citada (\1) da \2 camas para otra cosa: no junto al nombre de este hospital\3"),
         (r"^the page you cited \((.+?)\) does not state ([\d,]+) beds(.*)$", r"la página citada (\1) no dice \2 camas\3"),
+        (r"^the page you cited \((.+?)\) could be read, but shows neither this hospital's name nor ([\d,]+) beds\.$",
+         r"la página citada (\1) se pudo leer, pero no muestra ni el nombre de este hospital ni \2 camas."),
+        (r"^the agent stopped on an error\.$", "el agente se detuvo por un error."),
         (r"^the page check did not finish in time\.$", "la verificación de la página no terminó a tiempo."),
         (r"^the run's time ran out before the search\.$", "se acabó el tiempo antes de la búsqueda."),
     ]
@@ -936,18 +1111,25 @@ async def _judge(job: _Job, items: list[dict], parsed: dict[int, dict], res: dic
     state_name = REGIONS[job.code]["name"]
     names = job.names or _state_names(job.code)
 
+    pages_now, lock_now = job.pages, job.pages_lock  # a read that outlives the job lands in this dict, not the next one
+
     async def read(u: str, t: str) -> dict:
         async with _page_sem():  # a few page downloads at once, whatever the number of jobs (memory on a small server)
-            return await asyncio.to_thread(_read, u, t, job.pages, job.pages_lock)
+            return await asyncio.to_thread(_read, u, t, pages_now, lock_now)
+
+    chip = res.get("suggestions_html")
 
     async def one(r: dict, p: dict, cands: list) -> None:
-        pages = await asyncio.gather(*[read(u, t) for u, t, _g, _tight in cands])
+        got = await asyncio.gather(*[read(u, t) for u, t, _g, _tight in cands], return_exceptions=True)
+        pages = [x if isinstance(x, dict) else _unread(u, t, "could not be read") for x, (u, t, _g, _tight) in zip(got, cands)]
         checks = [(pg, _verdict(pg, p["n"], r, names, state_name, job.code), g, tight) for pg, (_u, _t, g, tight) in zip(pages, cands)]
         good = next(((pg, v) for pg, v, _g, _t in checks if v["quote"]), None)
         if good:
             pg, v = good
             r.update(beds=p["n"], beds_basis="reported", beds_kind=p["kind"], source={"title": pg["title"], "url": pg["url"]}, checked=True,
                      page_confirmed=True, quote=v["quote"], note=None, state="done")
+            if chip:
+                job.chip_of[r["id"]] = chip
             llm.note_check(SURFACE, True, "a bed count on its source page, next to the hospital's own name")
             return
 
@@ -973,38 +1155,55 @@ async def _judge(job: _Job, items: list[dict], parsed: dict[int, dict], res: dic
         foreign = [pg for pg, v, _g, _t in checks if v["readable"] and not v["has_name"] and v["states_n"]]
         if foreign:
             return reject(f"the page you cited ({foreign[0]['title']}) does not name this hospital.", "the grounded page states that bed count but not the hospital")
-        # nothing to confirm it on: a page the checker can't read, or one whose text as read shows neither the name nor
-        # the number (often filled in by a script). Kept, labeled not page-confirmed, only when Google tied the page to
-        # THIS hospital's own line of THIS answer
-        backing = [(pg, v) for pg, v, g, tight in checks if g and tight]
-        if not backing:
+        # nothing to confirm it on: kept, labeled not page-confirmed, only when Google tied a page the checker CAN'T read
+        # (a PDF, a script-only shell, a site that refuses it) to THIS hospital's own line of THIS answer. A page it can
+        # read must show the figure: one whose text names neither the hospital nor the number rejects it
+        tied = [(pg, v) for pg, v, g, tight in checks if g and tight]
+        if not tied:
             return reject(f"no web page Google tied to this hospital's own line backs the number {p['n']:,}.",
                           "a bed count backed only by a support spanning other hospitals' lines")
-        pg, v = backing[0]
-        why = pg["why"] if not v["readable"] else "its text as the checker reads it shows neither the hospital's name nor the number, often a page filled in by a script"
-        r.update(beds=p["n"], beds_basis="reported", beds_kind=p["kind"], source={"title": pg["title"], "url": pg["url"]}, checked=True,
-                 page_confirmed=None, quote=None, note=f"Grounded in {pg['title']}; not confirmed on the page ({why}).", state="done")
-        llm.note_check(SURFACE, True, "a bed count in a grounded web source (not confirmed on the page)")
+        backing = [(pg, v) for pg, v in tied if not v["readable"] and pg["why"] != BUSY]
+        if not backing and any(pg["why"] == BUSY for pg, _v in tied):
+            return reject(LATE, "the grounded page was not read in time")
+        if not backing:
+            return reject(f"the page you cited ({tied[0][0]['title']}) could be read, but shows neither this hospital's name nor {p['n']:,} beds.",
+                          "the grounded page could be read but shows neither the hospital nor the bed count")
+        pg, _v = backing[0]
+        r.update(beds=p["n"], beds_basis="reported", beds_kind=p["kind"], source={"title": pg["title"], "url": pg["url"]}, checked=False,
+                 page_confirmed=None, quote=None, note=f"Grounded in {pg['title']}; not confirmed on the page ({pg['why']}).", state="done")
+        if chip:
+            job.chip_of[r["id"]] = chip
+        llm.note_check(SURFACE, True, "a bed count in a grounded web source the checker can't read (not confirmed on the page)")
 
     if work:
         try:
-            await asyncio.wait_for(asyncio.gather(*[one(r, p, c) for r, p, c in work]), timeout=max(0.5, job.left()))
+            done = await asyncio.wait_for(asyncio.gather(*[one(r, p, c) for r, p, c in work], return_exceptions=True), timeout=max(0.5, job.left()))
         except asyncio.TimeoutError:
             job.timed = True
-            for r, _p, _c in work:
-                if r["beds_basis"] is None and r["id"] not in rejected:
-                    rejected[r["id"]] = "the page check did not finish in time."
+            done = []
+        for (r, _p, _c), x in zip(work, done):
+            if isinstance(x, BaseException) and r["beds_basis"] is None:
+                log.error("hospital agent: a page check failed", exc_info=x)
+                job.failed = True
+                rejected[r["id"]] = FAILED
+        for r, _p, _c in work:
+            if r["beds_basis"] is None and r["id"] not in rejected:
+                rejected[r["id"]] = "the page check did not finish in time."
     return rejected
 
 
-async def _ask(job: _Job, pending: list[dict], state: str, feedback: dict[int, str], model: str, sem: asyncio.Semaphore) -> tuple[str, dict, bool, int]:
-    """One grounded proposal: (model, result, used_fallback, ms)."""
-    if not _take_call():
-        job.why = job.why or "today's hospital-search budget is used"
-        return model, llm.GROUNDED_EMPTY, True, 0
-    async with sem:
+async def _ask(job: _Job, pending: list[dict], state: str, feedback: dict[int, str], model: str, started: dict) -> tuple[str, dict, bool, int]:
+    """One grounded proposal: (model, result, used_fallback, ms). Waits for a slot in the grounded pool first; the
+    day's call is taken only once the call is about to go out (a hedge cancelled while waiting costs nothing)."""
+    async with _grounded_sem():
         left = job.left()
-        t = time.monotonic()
+        if left < MIN_CALL_S:
+            job.timed = True
+            return model, llm.GROUNDED_EMPTY, True, 0
+        if not _take_call():
+            job.why = job.why or "today's hospital-search budget is used"
+            return model, llm.GROUNDED_EMPTY, True, 0
+        t = started[model] = time.monotonic()
         try:
             res, off = await asyncio.wait_for(
                 llm.complete_grounded(_prompt(state, pending, feedback), system=SYSTEM, surface=SURFACE, timeout=min(CALL_TIMEOUT_S, left),
@@ -1022,21 +1221,29 @@ def _searched(a: tuple) -> bool:
     return not a[2] and bool(a[1].get("queries") or a[1].get("sources"))
 
 
-async def _answers(job: _Job, pending: list[dict], state: str, feedback: dict[int, str], pair: list[str], sem: asyncio.Semaphore):
+async def _answers(job: _Job, pending: list[dict], state: str, feedback: dict[int, str], pair: list[str]):
     """The answers to check, in order. The first model is asked alone; the second only when the first answered without
-    searching (or not at all), or as a hedge when the first is still silent after HEDGE_S (each grounded call is billed,
-    and every cascade starts this agent). An answer that searched is yielded as soon as it arrives; one from memory is
-    held and yielded last (the checker rejects its figures, and the trace shows it). Closing the generator cancels
-    whatever is still running."""
+    searching (or not at all), or as a hedge when the first's call has been out HEDGE_S without an answer (each grounded
+    call is billed, and every cascade starts this agent; time spent waiting for the grounded pool doesn't count). An
+    answer that searched is yielded as soon as it arrives; one from memory is held and yielded last (the checker rejects
+    its figures, and the trace shows it). Closing the generator cancels whatever is still running."""
     items = list(pending)
-    ask = lambda m: asyncio.ensure_future(_ask(job, items, state, feedback, m, sem))  # noqa: E731
+    started: dict[str, float] = {}  # model -> when its call went out
+    ask = lambda m: asyncio.ensure_future(_ask(job, items, state, feedback, m, started))  # noqa: E731
     running = {ask(pair[0])}
     spare = list(pair[1:2])
     held = []
     try:
         while running:
-            done, running = await asyncio.wait(running, timeout=HEDGE_S if spare else None, return_when=asyncio.FIRST_COMPLETED)
+            wait = None
+            if spare:
+                s = started.get(pair[0])
+                wait = HEDGE_S if s is None else max(0.05, HEDGE_S - (time.monotonic() - s))
+            done, running = await asyncio.wait(running, timeout=wait, return_when=asyncio.FIRST_COMPLETED)
             if not done:  # the first model is slow: ask the second one too, check whichever searched first
+                s = started.get(pair[0])
+                if s is None or time.monotonic() - s < HEDGE_S - 0.05:
+                    continue  # still waiting for a slot in the grounded pool, or its call went out less than HEDGE_S ago
                 if job.left() >= MIN_CALL_S:
                     running.add(ask(spare.pop()))
                 else:
@@ -1057,7 +1264,7 @@ async def _answers(job: _Job, pending: list[dict], state: str, feedback: dict[in
             t.cancel()
 
 
-async def _batch(job: _Job, items: list[dict], state: str, sem: asyncio.Semaphore) -> dict[int, str]:
+async def _batch(job: _Job, items: list[dict], state: str) -> dict[int, str]:
     """Propose -> check -> feedback -> revise for these hospitals. Each attempt asks the first model; the second only when
     the first answered from memory without searching (measured Sat evening: flash-lite ~2/3 of the time, the flash model
     ~1/3) or not at all, or as a hedge when the first is slow. Returns {id: why it was not kept} for the hospitals still
@@ -1076,66 +1283,68 @@ async def _batch(job: _Job, items: list[dict], state: str, sem: asyncio.Semaphor
             break
         for r in pending:
             r["state"] = "searching"
-        arrivals = _answers(job, pending, state, feedback, MODELS[:2], sem)  # the model that searches more often leads
+        arrivals = _answers(job, pending, state, feedback, MODELS[:2])  # the model that searches more often leads
         kind = "revise" if attempt else "propose"
         rejected: dict[int, str] = {}
         answers: list = []
         j = -1
-        async for model, res, off, ms in arrivals:
-            open_ids = {r["id"] for r in pending if r["beds_basis"] is None}
-            if not open_ids:
-                break
-            answers.append((model, res, off, ms))
-            j += 1
-            k = len(open_ids)
-            if off:
-                job.add("gemini", kind, "muted", L(f"No answer for {k} hospital{'s' if k != 1 else ''}", f"Sin respuesta para {k} hospital{'es' if k != 1 else ''}"),
-                        L(f"{model} did not answer in time or is unavailable.", f"{model} no respondió a tiempo o no está disponible."), ms=ms)
-                for i in open_ids:
-                    rejected.setdefault(i, NO_ANSWER)
-                continue
-            queries = res.get("queries") or []
-            searched = bool(queries or res.get("sources"))
-            job.searches += len(queries)
-            if res.get("suggestions_html") and len(job.suggestions) < 5:
-                job.suggestions.append(res["suggestions_html"])
-            parsed = _parse(res["text"], pending)
-            if searched:
-                verb = ("Searched Google again for", "Buscó de nuevo en Google") if attempt else ("Searched Google for", "Buscó en Google")
-            else:
-                verb = ("Answered without searching for", "Respondió sin buscar para")
-            shown = [r for r in pending if r["id"] in open_ids]
-            sp = {shown.index(r): parsed[i] for i, r in enumerate(pending) if r["id"] in open_ids and i in parsed}
-            if j and not searched and not any(x["n"] is not None for x in sp.values()):
-                continue  # the second model neither searched nor proposed a figure: nothing to check, nothing to show
-            also = (" (the second model's answer, for what was still open)", " (la respuesta del segundo modelo, para lo que seguía abierto)") if j else ("", "")
-            proposal = ("gemini", kind, "info",
-                        L(f"{verb[0]} {k} hospital{'s' if k != 1 else ''}", f"{verb[1]} {k} hospital{'es' if k != 1 else ''}"),
-                        L(f"{model} proposed{also[0]}: {_brief(shown, sp)}", f"{model} propuso{also[1]}: {_brief(shown, sp, True)}"), _calls(queries), ms)
-            t = time.monotonic()
-            got = await _judge(job, pending, parsed, res, searched, only=open_ids)
-            ms2 = int((time.monotonic() - t) * 1000)
-            en, es = [], []
-            for r in shown:
-                if r["id"] in got:
-                    en.append(f"{r['name']}: not kept — {got[r['id']]}")
-                    es.append(f"{r['name']}: descartado — {_es_reason(got[r['id']])}")
-                elif r["page_confirmed"]:
-                    en.append(f"{r['name']}: {r['beds']:,} kept — Google tied it to {r['source']['title']}, and that page gives it as this hospital's bed count.")
-                    es.append(f"{r['name']}: {r['beds']:,} aceptado — Google lo vinculó a {r['source']['title']} y esa página lo da como las camas de este hospital.")
+        try:
+            async for model, res, off, ms in arrivals:
+                open_ids = {r["id"] for r in pending if r["beds_basis"] is None}
+                if not open_ids:
+                    break
+                answers.append((model, res, off, ms))
+                j += 1
+                k = len(open_ids)
+                if off:
+                    job.add("gemini", kind, "muted", L(f"No answer for {k} hospital{'s' if k != 1 else ''}", f"Sin respuesta para {k} hospital{'es' if k != 1 else ''}"),
+                            L(f"{model} did not answer in time or is unavailable.", f"{model} no respondió a tiempo o no está disponible."), ms=ms)
+                    for i in open_ids:
+                        rejected.setdefault(i, NO_ANSWER)
+                    continue
+                queries = res.get("queries") or []
+                searched = bool(queries or res.get("sources"))
+                job.searches += len(queries)
+                if res.get("suggestions_html") and res["suggestions_html"] not in job.suggestions and len(job.suggestions) < 5:
+                    job.suggestions.append(res["suggestions_html"])
+                parsed = _parse(res["text"], pending)
+                if searched:
+                    verb = ("Searched Google again for", "Buscó de nuevo en Google") if attempt else ("Searched Google for", "Buscó en Google")
                 else:
-                    en.append(f"{r['name']}: {r['beds']:,} kept — Google tied it to {r['source']['title']}; not confirmed on the page.")
-                    es.append(f"{r['name']}: {r['beds']:,} aceptado — Google lo vinculó a {r['source']['title']}; sin confirmar en la página.")
-            kept = k - len(got)
-            job.add(*proposal)  # the proposal and its verdict land together: parallel batches never split a pair
-            job.add("engine", "verify", "holds" if not got else ("over" if not kept else "info"),
-                    L(f"Checked in code: {kept} of {k} kept", f"Verificado en código: {kept} de {k} aceptados"), L(" · ".join(en), " · ".join(es)), ms=ms2)
-            for i, why in got.items():  # the better answer's reason stands
-                if i not in rejected or rejected[i] == NO_ANSWER or rejected[i].startswith("you answered from memory"):
-                    rejected[i] = why
-            if all(r["beds_basis"] is not None for r in pending):
-                break  # everything is kept: don't wait for a hedged model still answering
-        await arrivals.aclose()  # cancels a hedged model's call that is no longer needed
+                    verb = ("Answered without searching for", "Respondió sin buscar para")
+                shown = [r for r in pending if r["id"] in open_ids]
+                sp = {shown.index(r): parsed[i] for i, r in enumerate(pending) if r["id"] in open_ids and i in parsed}
+                if j and not searched and not any(x["n"] is not None for x in sp.values()):
+                    continue  # the second model neither searched nor proposed a figure: nothing to check, nothing to show
+                also = (" (the second model's answer, for what was still open)", " (la respuesta del segundo modelo, para lo que seguía abierto)") if j else ("", "")
+                proposal = ("gemini", kind, "info",
+                            L(f"{verb[0]} {k} hospital{'s' if k != 1 else ''}", f"{verb[1]} {k} hospital{'es' if k != 1 else ''}"),
+                            L(f"{model} proposed{also[0]}: {_brief(shown, sp)}", f"{model} propuso{also[1]}: {_brief(shown, sp, True)}"), _calls(queries), ms)
+                t = time.monotonic()
+                got = await _judge(job, pending, parsed, res, searched, only=open_ids)
+                ms2 = int((time.monotonic() - t) * 1000)
+                en, es = [], []
+                for r in shown:
+                    if r["id"] in got:
+                        en.append(f"{r['name']}: not kept — {got[r['id']]}")
+                        es.append(f"{r['name']}: descartado — {_es_reason(got[r['id']])}")
+                    elif r["page_confirmed"]:
+                        en.append(f"{r['name']}: {r['beds']:,} kept — Google tied it to {r['source']['title']}, and that page gives it as this hospital's bed count.")
+                        es.append(f"{r['name']}: {r['beds']:,} aceptado — Google lo vinculó a {r['source']['title']} y esa página lo da como las camas de este hospital.")
+                    else:
+                        en.append(f"{r['name']}: {r['beds']:,} kept — Google tied it to {r['source']['title']}; not confirmed on the page.")
+                        es.append(f"{r['name']}: {r['beds']:,} aceptado — Google lo vinculó a {r['source']['title']}; sin confirmar en la página.")
+                kept = k - len(got)
+                job.add(*proposal)  # the proposal and its verdict land together: parallel batches never split a pair
+                job.add("engine", "verify", "holds" if not got else ("over" if not kept else "info"),
+                        L(f"Checked in code: {kept} of {k} kept", f"Verificado en código: {kept} de {k} aceptados"), L(" · ".join(en), " · ".join(es)), ms=ms2)
+                for i, why in got.items():  # the better answer's reason stands
+                    if i not in rejected or rejected[i] == NO_ANSWER or rejected[i].startswith("you answered from memory"):
+                        rejected[i] = why
+                if all(r["beds_basis"] is not None for r in pending):
+                    break  # everything is kept: don't wait for a hedged model still answering
+        finally:
+            await arrivals.aclose()  # cancels a hedged model's call that is no longer needed (also when the batch is cancelled)
         still = [r for r in pending if r["beds_basis"] is None]
         for r in pending:
             if r["beds_basis"] is not None:
@@ -1174,6 +1383,26 @@ def _hint(why: str) -> str:
     return why + " Search again and give the figure a page states for this hospital, or NOT FOUND."
 
 
+_WHY_NOTE = {
+    "no Gemini key": "Not searched: Gemini is unavailable.",
+    "today's AI budget is low": "Not searched: the app's AI budget for today is nearly used, so this lookup is off until tomorrow.",
+    "today's hospital-search budget is used": "Not searched: today's hospital-search budget is used.",
+    "the agent is at its limit for new incidents": f"Not searched: the agent is at its limit of {NEW_JOBS_MAX} new incidents per {int(NEW_JOBS_WINDOW_S // 60)} minutes; try again in a few minutes.",
+}
+
+
+def _fallback_reason(job: _Job) -> str | None:
+    if job.forced:
+        return job.forced
+    if not llm.configured():
+        return "no Gemini key"
+    if llm.usage()["remaining"] < AI_RESERVE:
+        return "today's AI budget is low"
+    if _calls_left() <= 0:
+        return "today's hospital-search budget is used"
+    return None
+
+
 async def _run(job: _Job) -> None:
     code = job.code
     state = REGIONS[code]["name"]
@@ -1192,6 +1421,11 @@ async def _run(job: _Job) -> None:
                 if f:
                     r.update({k: copy.deepcopy(f[k]) for k in FACT_FIELDS}, state="done")
                     reused.append(r)
+                    html = _chips.get(f.get("chip") or "")
+                    if html:  # the Search Suggestions of the answer this figure came from, shown with it again
+                        job.chip_of[r["id"]] = html
+                        if html not in job.suggestions and len(job.suggestions) < 5:
+                            job.suggestions.append(html)
         if reused:
             job.add("engine", "info", "holds", L(f"{len(reused)} found in an earlier run, reused", f"{len(reused)} encontrados en una ejecución anterior, reutilizados"),
                     L(" · ".join(f"{r['name']}: {r['beds']:,} ({r['source']['title']})" for r in reused), " · ".join(f"{r['name']}: {r['beds']:,} ({r['source']['title']})" for r in reused)))
@@ -1208,27 +1442,37 @@ async def _run(job: _Job) -> None:
             job.add("engine", "info", "muted",
                     L(f"{len(missed)} searched in an earlier run without a figure that passed: not searched again", f"{len(missed)} buscados en una ejecución anterior sin una cifra aceptada: no se buscan de nuevo"),
                     L(" · ".join(f"{r['name']}: {why}" for r, why in missed), " · ".join(f"{r['name']}: {_es_reason(why)}" for r, why in missed)))
-        job.names = _dedupe_names(_state_names(code) + [_name_entry(r["id"], r["name"]) for r in rows])
         todo = [r for r in rows if r["beds_basis"] is None]
-        if todo and (not llm.configured() or llm.usage()["remaining"] <= 0 or _calls_left() <= 0):
-            job.by = "fallback"
-            job.why = "no Gemini key" if not llm.configured() else "today's AI budget is used" if llm.usage()["remaining"] <= 0 else "today's hospital-search budget is used"
+        reason = _fallback_reason(job) if todo else None
+        if reason:
+            job.by, job.why = "fallback", reason
+            note = _WHY_NOTE.get(reason, "Not searched: Gemini is unavailable.")
             for r in todo:
-                _settle(r, "Not searched: Gemini is unavailable.")
+                _settle(r, note)
             k = sum(1 for r in rows if r["beds_basis"] == "osm")
-            job.add("engine", "result", "muted", L("Gemini is unavailable: OpenStreetMap's figures only", "Gemini no está disponible: solo las cifras de OpenStreetMap"),
-                    L(f"{k} of {n} hospitals have a beds tag on OpenStreetMap (map data, not checked).", f"{k} de {n} hospitales tienen camas en OpenStreetMap (datos del mapa, sin verificar)."))
+            job.add("engine", "result", "muted", L("The agent didn't search: OpenStreetMap's figures only", "El agente no buscó: solo las cifras de OpenStreetMap"),
+                    L(f"{note} {k} of {n} hospitals have a beds tag on OpenStreetMap (map data, not checked).",
+                      f"{k} de {n} hospitales tienen camas en OpenStreetMap (datos del mapa, sin verificar)."))
             return
+        job.names = _dedupe_names(_state_names(code) + [_name_entry(r["id"], r["name"]) for r in rows])
         # a statewide incident: the emergency hospitals first, then the ones OpenStreetMap has no figure for
         todo.sort(key=lambda r: (not r["emergency"], r["osm_beds"] is not None))
         search, beyond = todo[:MAX_RESEARCH], todo[MAX_RESEARCH:]
         for r in beyond:
-            _settle(r, f"Not searched: this incident has more than {MAX_RESEARCH} hospitals.")
-        sem = asyncio.Semaphore(8)
+            job.beyond.add(r["id"])
+            _settle(r, _beyond_note())
         why: dict[int, str] = {}
         if search:
-            for got in await asyncio.gather(*[_batch(job, search[i : i + BATCH], state, sem) for i in range(0, len(search), BATCH)]):
-                why.update(got)
+            chunks = [search[i : i + BATCH] for i in range(0, len(search), BATCH)]
+            job.batches = [asyncio.ensure_future(_batch(job, c, state)) for c in chunks]
+            # one batch that fails (a bug, a page nobody foresaw) ends only its own hospitals, never the others
+            for chunk, got in zip(chunks, await asyncio.gather(*job.batches, return_exceptions=True)):
+                if isinstance(got, BaseException):
+                    log.error("hospital agent: a batch failed", exc_info=got)
+                    job.failed = True
+                    why.update({r["id"]: FAILED for r in chunk if r["beds_basis"] is None})
+                else:
+                    why.update(got)
         if search and all(v == NO_ANSWER for v in why.values()) and len(why) == len(search):
             job.by, job.why = "fallback", "Gemini did not answer"
         for r in rows:
@@ -1239,6 +1483,14 @@ async def _run(job: _Job) -> None:
                 if reason not in TRANSIENT:
                     job.misses[r["id"]] = reason
                 _settle(r, f"Not found: {reason}")
+    except asyncio.CancelledError:  # its visitor opened another case (or the server is stopping)
+        job.why = job.why or "stopped before it finished"
+        for r in rows:
+            if r["beds_basis"] is None:
+                _settle(r, "Not searched: the lookup stopped when a newer case replaced this one." if job.stopping else "Not searched: the lookup stopped before it finished.")
+        job.add("engine", "info", "muted", L("Stopped: a newer case replaced this one", "Detenido: un caso más nuevo reemplazó a este") if job.stopping
+                else L("Stopped before it finished", "Detenido antes de terminar"))
+        raise
     except Exception:  # noqa: BLE001 - a background job always ends in a state the page can show
         log.exception("hospital agent failed")
         for r in rows:
@@ -1246,6 +1498,9 @@ async def _run(job: _Job) -> None:
                 _settle(r, "Not found: the agent stopped on an error.")
         job.why = "the agent stopped on an error"
     finally:
+        for t in job.batches:  # nothing of this job keeps running once it ends
+            if not t.done():
+                t.cancel()
         job.elapsed = round(time.monotonic() - job.t0, 1)
         c = _counts(rows)
         if job.by == "gemini":
@@ -1253,35 +1508,61 @@ async def _run(job: _Job) -> None:
                     L(f"Done in {job.elapsed:.1f} s: {c['reported']} of {c['hospitals']} found as reported", f"Listo en {job.elapsed:.1f} s: {c['reported']} de {c['hospitals']} encontrados según lo publicado"),
                     L(f"About {c['beds_total']:,} beds in all ({c['beds_reported']:,} as reported, {c['beds_osm']:,} from OpenStreetMap); {c['not_found']} not found. {c['page_confirmed']} of the reported figures were also read on the source page itself. {job.calls} Gemini calls, {job.searches} Google searches.",
                       f"Unas {c['beds_total']:,} camas en total ({c['beds_reported']:,} según lo publicado, {c['beds_osm']:,} de OpenStreetMap); {c['not_found']} sin encontrar. {c['page_confirmed']} de las cifras publicadas se leyeron además en la propia página. {job.calls} llamadas a Gemini, {job.searches} búsquedas en Google."))
+        changed = _remember(job)  # in memory first, so the set's answer is there the moment the job reads done
         job.status = "done"
-        _remember(job)
-        with job.pages_lock:
-            job.pages.clear()  # the pages' text (up to a few MB each) isn't kept with the finished job
-        job.grounded.clear()
+        job.pages = {}  # the pages' text (up to a few MB each) isn't kept; a read still running lands in the old dict
+        job.grounded = {}
+        job.batches = []
         with _jobs_lock:
             if _by_set.get(job.key) == job.id:
                 del _by_set[job.key]
+        if changed and CACHE_FILE:
+            try:
+                await asyncio.to_thread(_save_disk)  # the disk write off the event loop
+            except Exception:  # noqa: BLE001 - persistence is best effort
+                log.warning("hospital agent: cache not saved", exc_info=True)
 
 
-def _remember(job: _Job) -> None:
-    """Keep what passed (the facts), the hospitals a finished search found nothing for (the misses, MISS_TTL_S, so the
-    next incident that reaches them doesn't pay for the same searches) and, when the whole run finished cleanly with
-    Gemini, the set's answer."""
+def _beyond_note() -> str:
+    return f"Not searched: this incident has more than {MAX_RESEARCH} hospitals."
+
+
+def _remember(job: _Job) -> bool:
+    """Keep what passed (the facts, with the Search Suggestions they came with), the hospitals a finished search found
+    nothing for (the misses, MISS_TTL_S, so the next incident that reaches them doesn't pay for the same searches) and,
+    when the whole run finished cleanly with Gemini, the set's answer: its researched rows only (the hospitals past
+    MAX_RESEARCH are OpenStreetMap's, filled in again when it's served), its trace and its Search Suggestions. In
+    memory, pruned; True when something changed (the caller writes the file in a thread)."""
     now = time.time()
-    clean = job.by == "gemini" and job.why is None and not job.timed
+    clean = job.by == "gemini" and job.why is None and not job.timed and not job.failed
+    changed = False
     with _store_lock:
         for r in job.rows:
             if r["beds_basis"] == "reported":
-                _facts[_fact_key(job.code, r)] = {**{k: copy.deepcopy(r[k]) for k in FACT_FIELDS}, "at": now, "v": CHECK_V}
+                html = job.chip_of.get(r["id"])
+                chip = _chip_key(html) if html else None
+                if chip:
+                    _chips[chip] = html
+                _facts[_fact_key(job.code, r)] = {**{k: copy.deepcopy(r[k]) for k in FACT_FIELDS}, "at": now, "v": CHECK_V, "chip": chip}
+                changed = True
         if job.by == "gemini":
             for r in job.rows:
                 why = job.misses.get(r["id"])
                 if why and r["beds_basis"] != "reported":
                     _misses[_fact_key(job.code, r)] = {"at": now, "v": CHECK_V, "why": why}
+                    changed = True
         if clean and job.rows:
-            _sets[job.key] = {"at": now, "v": CHECK_V, "region": job.code, "hospitals": copy.deepcopy(job.rows), "trace": copy.deepcopy(job.trace),
-                              "elapsed_s": job.elapsed}
-        _save_disk()
+            chips = []
+            for html in job.suggestions:
+                k = _chip_key(html)
+                _chips[k] = html
+                chips.append(k)
+            _sets[job.key] = {"at": now, "v": CHECK_V, "region": job.code, "trace": copy.deepcopy(job.trace), "elapsed_s": job.elapsed, "chips": chips,
+                              "rows": {str(r["id"]): {k: copy.deepcopy(r[k]) for k in FACT_FIELDS} for r in job.rows if r["id"] not in job.beyond}}
+            changed = True
+        if changed:
+            _prune(now)
+    return changed
 
 
 def _meta(code: str) -> dict:
@@ -1297,11 +1578,21 @@ def _view(job: _Job) -> dict:
             "calls": job.calls, "searches": job.searches, "suggestions": list(job.suggestions)}
 
 
-def _set_view(code: str, hit: dict) -> dict:
-    rows = copy.deepcopy(hit["hospitals"])
+def _set_view(code: str, hit: dict, rows: list[dict]) -> dict:
+    """A remembered set, served on this incident's own rows (the same hospitals: the set's key): the researched rows
+    from the set, the rest OpenStreetMap's; with the Search Suggestions the run was shown with."""
+    stored = hit.get("rows") or {}
+    for r in rows:
+        s = stored.get(str(r["id"]))
+        if s:
+            r.update(copy.deepcopy(s), state="done")
+        else:
+            _settle(r, _beyond_note())
+    with _store_lock:
+        suggestions = [_chips[k] for k in hit.get("chips") or [] if k in _chips]
     return {**_meta(code), "job": None, "status": "done", "hospitals": rows, "trace": copy.deepcopy(hit["trace"]), "counts": _counts(rows),
             "by": "gemini", "fallback": False, "why": None, "cached": True, "cached_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(hit["at"])),
-            "elapsed_s": hit.get("elapsed_s"), "timed_out": False, "calls": 0, "searches": 0, "suggestions": []}
+            "elapsed_s": hit.get("elapsed_s"), "timed_out": False, "calls": 0, "searches": 0, "suggestions": suggestions}
 
 
 # ------------------------------------------------------------------------------------ routes
@@ -1309,6 +1600,8 @@ class AgentIn(BaseModel):
     region: str = Field("FL", max_length=4)
     load_factor: float = 1.0
     affected: dict[int, float] = Field(default_factory=dict)  # the cascade's `affected`: sub id -> MW of existing load lost
+    # the page's own random id (one per browser tab): visitors behind one address (the venue's) never stop each other's search
+    tab: str | None = Field(None, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 def _dark_hospitals(body: AgentIn) -> tuple[str, list[dict]]:
@@ -1324,14 +1617,14 @@ def _dark_hospitals(body: AgentIn) -> tuple[str, list[dict]]:
     return code, res["backup"]
 
 
-@router.post("/api/hospitals/agent")
-@limiter.limit("30/minute")
-async def hospital_agent_start(request: Request, body: AgentIn):
-    """Start the beds agent for the hospitals the cascade put on backup power (or return the finished answer)."""
-    code, dark = await run_in_threadpool(_dark_hospitals, body)
-    rows = [_row(h) for h in dark]
+async def _begin(code: str, rows: list[dict], client: str) -> dict:
+    """The answer for this incident's dark hospitals, for this visitor: nothing dark, a remembered set, the running job
+    for the same hospitals (joined), a new job, or, past the budget guard, OpenStreetMap's figures at once (labeled).
+    Opening a new case lets go of the visitor's previous search (cancelled when nobody else waits on it)."""
     key = _set_key(code, rows)
     if not rows:
+        with _jobs_lock:
+            _switch(client, None)
         job = _Job(code, key, [])
         job.add("engine", "result", "muted", L("No hospital is in an area that lost power", "Ningún hospital está en una zona sin luz"))
         job.status, job.by, job.elapsed = "done", "engine", 0.0
@@ -1339,19 +1632,41 @@ async def hospital_agent_start(request: Request, body: AgentIn):
     with _store_lock:
         hit = _sets.get(key)
     if hit is not None and time.time() - float(hit.get("at") or 0) <= SET_TTL_S:
-        return _set_view(code, hit)
+        with _jobs_lock:
+            _switch(client, None)
+        return _set_view(code, hit, rows)
+    forced = None
     with _jobs_lock:
         _gc()
         jid = _by_set.get(key)
         job = _jobs.get(jid) if jid else None
-        if job is None or job.status != "running":
-            if sum(1 for j in _jobs.values() if j.status == "running") >= RUNNING_MAX:
-                raise HTTPException(status_code=429, detail="The hospital agent is busy with other incidents: try again in a moment")
+        if job is not None and job.status == "running" and not job.stopping:
+            _switch(client, job)
+            return _view(job)
+        _switch(client, None)  # the visitor's previous search stops before this one counts against the limits
+        if sum(1 for j in _jobs.values() if j.status == "running" and not j.stopping) >= RUNNING_MAX:
+            raise HTTPException(status_code=429, detail="The hospital agent is busy with other incidents: try again in a moment")
+        if not _new_job_slot():
+            forced = "the agent is at its limit for new incidents"
+        else:
             job = _Job(code, key, rows)
             _jobs[job.id] = job
             _by_set[key] = job.id
+            _switch(client, job)
             job.task = asyncio.get_running_loop().create_task(_run(job))
-    return _view(job)
+            return _view(job)
+    job = _Job(code, key, rows)  # OpenStreetMap only: no Gemini call, done at once
+    job.forced = forced
+    await _run(job)
+    return {**_view(job), "job": None}
+
+
+@router.post("/api/hospitals/agent")
+@limiter.limit("30/minute")
+async def hospital_agent_start(request: Request, body: AgentIn):
+    """Start the beds agent for the hospitals the cascade put on backup power (or return the finished answer)."""
+    code, dark = await run_in_threadpool(_dark_hospitals, body)
+    return await _begin(code, [_row(h) for h in dark], f"{client_ip(request)}|{body.tab or ''}")
 
 
 @router.get("/api/hospitals/agent/{job_id}")

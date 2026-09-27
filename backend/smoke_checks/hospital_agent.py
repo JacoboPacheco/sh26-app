@@ -78,7 +78,8 @@ def register(ctx):
             assert h["state"] == "done", f"{h['name']}: state {h['state']}"
             if basis == "reported":
                 assert isinstance(h["beds"], int) and 1 <= h["beds"] <= 4000, f"{h['name']}: {h['beds']}"
-                assert h["checked"] is True and h["source"] and h["source"]["url"].startswith(("https://", "http://")), f"{h['name']}: {h['source']}"
+                assert h["source"] and h["source"]["url"].startswith(("https://", "http://")), f"{h['name']}: {h['source']}"
+                assert h["checked"] is bool(h["page_confirmed"]), f"{h['name']}: checked {h['checked']} but page_confirmed {h['page_confirmed']}"
                 if h["page_confirmed"]:
                     forms = (str(h["beds"]), f"{h['beds']:,}")
                     assert h["quote"] and any(f in h["quote"] for f in forms), f"{h['name']}: the page's words {h['quote']!r} don't hold {h['beds']}"
@@ -126,19 +127,22 @@ def register(ctx):
                 import llm
             except ImportError as e:  # a deployed run without the backend folder on the path
                 raise AssertionError(f"hospital_agent.py not importable here: {e}") from e
-            saved = {"key": os.environ.get("GEMINI_API_KEY"), "post": llm._post_json, "read": ha._read, "file": ha.CACHE_FILE,
-                     "facts": ha._facts, "sets": ha._sets, "misses": ha._misses, "models": ha.MODELS, "batch": ha.BATCH,
-                     "attempts": ha.ATTEMPTS, "names": ha._region_names, "hedge": ha.HEDGE_S}
+            names = ("_read", "CACHE_FILE", "_facts", "_sets", "_misses", "_chips", "MODELS", "BATCH", "ATTEMPTS", "_region_names", "HEDGE_S",
+                     "AI_RESERVE", "NEW_JOBS_MAX", "_starts", "_jobs", "_by_set", "_by_client", "_judge", "_public_url", "_peer_ok", "_resolve",
+                     "PDF_OK")
+            saved = {"key": os.environ.get("GEMINI_API_KEY"), "post": llm._post_json, **{n: getattr(ha, n) for n in names}}
             ha.CACHE_FILE = ""  # nothing stubbed reaches the disk
-            ha._facts, ha._sets, ha._misses = {}, {}, {}
+            ha._facts, ha._sets, ha._misses, ha._chips = {}, {}, {}, {}
+            ha._jobs, ha._by_set, ha._by_client, ha._starts = type(ha._jobs)(), {}, type(ha._by_client)(), type(ha._starts)()
             ha._region_names = {"FL": []}  # the stub hospitals compete among themselves (no state grid loaded here)
             ha.MODELS, ha.BATCH = ["stub-model"], 10
+            ha.AI_RESERVE = 0  # this process's own llm budget (no .env here) is not the server's
             try:
                 fn(ha, llm)
             finally:
-                llm._post_json, ha._read, ha.CACHE_FILE = saved["post"], saved["read"], saved["file"]
-                ha._facts, ha._sets, ha._misses, ha.MODELS, ha.BATCH = saved["facts"], saved["sets"], saved["misses"], saved["models"], saved["batch"]
-                ha.ATTEMPTS, ha._region_names, ha.HEDGE_S = saved["attempts"], saved["names"], saved["hedge"]
+                llm._post_json = saved["post"]
+                for n in names:
+                    setattr(ha, n, saved[n])
                 if saved["key"] is None:
                     os.environ.pop("GEMINI_API_KEY", None)
                 else:
@@ -154,6 +158,7 @@ def register(ctx):
     ]
     PAD = " ".join(["The hospital serves the region with emergency care, surgery and maternity services."] * 20)
     R = "https://vertexaisearch.cloud.google.com/grounding-api-redirect/"
+    CHIP = "<div>stub suggestions</div>"
     PAGES = {
         R + "A": ("https://a.example/about", "Alpha General Hospital in Stubton, FL is a 123-bed acute care hospital. " + PAD),
         R + "C1": ("https://c.example/facts", "Charlie Regional Hospital in Stubton, FL is licensed for 650 beds. " + PAD),
@@ -167,6 +172,7 @@ def register(ctx):
         R + "L2": ("https://l2.example/", "Lima Ridge Hospital, Stubton, FL. Lima Ridge Hospital Skilled Nursing Unit: 18 beds. " + PAD),
         R + "M": ("https://m.example/", "Mike Harbor Hospital in Stubton, FL is a 250-bed hospital. " + PAD),
         R + "N": ("https://n.example/", "November Bay Hospital in Stubton, FL is a 144-bed hospital. " + PAD),
+        R + "O": ("https://o.example/", "Welcome. " + PAD),  # readable, but names neither the hospital nor the number
     }
 
     def fake_read(uri, title, pages, lock):
@@ -185,7 +191,7 @@ def register(ctx):
             a = text.index(sub)
             gs.append({"segment": {"startIndex": a, "endIndex": a + len(sub), "text": sub}, "groundingChunkIndices": [uris.index(u)]})
         gm = {"webSearchQueries": list(queries), "groundingChunks": [{"web": {"uri": u, "title": "stub"}} for u in uris], "groundingSupports": gs,
-              "searchEntryPoint": {"renderedContent": "<div>stub suggestions</div>"}} if queries else {}
+              "searchEntryPoint": {"renderedContent": CHIP}} if queries else {}
         return {"candidates": [{"content": {"parts": [{"text": text}]}, "groundingMetadata": gm}]}
 
     REPLIES = [
@@ -226,19 +232,23 @@ def register(ctx):
         assert "from memory" in b["note"], b["note"]
         assert c["beds_basis"] == "reported" and c["beds"] == 650 and c["page_confirmed"] is True, c  # 789 rejected by the page, 650 kept
         assert d["beds_basis"] == "reported" and d["beds"] == 60 and d["page_confirmed"] is None and d["note"].startswith("Grounded in"), d
+        assert a["checked"] is True and d["checked"] is False, "checked must match page_confirmed"
         kinds = [t["kind"] for t in job.trace]
         assert kinds[:3] == ["info", "propose", "verify"] and "feedback" in kinds and "revise" in kinds and kinds[-1] == "result", kinds
-        assert job.suggestions and job.by == "gemini" and not job.timed, (job.by, job.timed)
-        # a clean run is remembered: the set answers at once, the facts are reused by another incident
+        assert job.suggestions == [CHIP] and job.by == "gemini" and not job.timed, (job.suggestions, job.by, job.timed)  # one chip, not three copies
+        # a clean run is remembered: the set answers at once (with its Search Suggestions), the facts are reused by another incident
         hit = ha._sets.get(job.key)
         assert hit is not None, "a clean run was not remembered"
-        view = ha._set_view("FL", hit)
-        assert view["cached"] and [h["beds"] for h in view["hospitals"]] == [123, 222, 650, 60] and view["suggestions"] == [], view["hospitals"]
+        view = ha._set_view("FL", hit, [ha._row(h) for h in HOSP])
+        assert view["cached"] and [h["beds"] for h in view["hospitals"]] == [123, 222, 650, 60], view["hospitals"]
+        assert view["suggestions"] == [CHIP], "a remembered grounded result served without its Search Suggestions"
+        assert [h["page_confirmed"] for h in view["hospitals"]] == [True, None, True, None] and view["hospitals"][0]["quote"], view["hospitals"]
         assert {k.split(":")[1] for k in ha._facts} == {"9001", "9003", "9004"}, sorted(ha._facts)
         rows2 = [ha._row(h) for h in HOSP[:1]]
         job2 = ha._Job("FL", ha._set_key("FL", rows2), rows2)
         asyncio.run(ha._run(job2))
         assert len(bodies) == 3 and job2.rows[0]["beds"] == 123 and job2.rows[0]["beds_basis"] == "reported", "a found hospital was searched again"
+        assert job2.suggestions == [CHIP], "a reused grounded figure shown without its Search Suggestions"
 
     def no_key(ha, llm):
         os.environ["GEMINI_API_KEY"] = ""
@@ -285,11 +295,12 @@ def register(ctx):
         {"id": 9105, "name": "Juliet Point Hospital", "lat": 26.5, "lon": -81.7, "area": "Stubton", "beds": None},
         {"id": 9106, "name": "Kilo Springs Hospital", "lat": 26.5, "lon": -81.7, "area": "Stubton", "beds": None},
         {"id": 9107, "name": "Lima Ridge Hospital", "lat": 26.5, "lon": -81.7, "area": "Stubton", "beds": None},
+        {"id": 9110, "name": "Oscar Creek Hospital", "lat": 26.5, "lon": -81.7, "area": "Stubton", "beds": None},
     ]
     HONEST_LINES = ["1. Echo Valley Hospital | 415 | licensed | f.example", "2. Golf Medical Center | 291 | beds | l.example",
                     "3. Hotel Hospital | 291 | beds | l.example", "4. India Lakes Hospital | 77 | beds | u.example",
                     "5. Juliet Point Hospital | NOT FOUND | beds | -", "6. Kilo Springs Hospital | 500 | beds | k.example",
-                    "7. Lima Ridge Hospital | 18 | beds | l2.example"]
+                    "7. Lima Ridge Hospital | 18 | beds | l2.example", "8. Oscar Creek Hospital | 333 | beds | o.example"]
     HONEST_REPLY = answer(HONEST_LINES, [
         ("Echo Valley Hospital | 415 | licensed", R + "F"),
         ("Golf Medical Center | 291 | beds", R + "L"),
@@ -297,6 +308,7 @@ def register(ctx):
         ("India Lakes Hospital | 77 | beds | u.example\n5. Juliet Point Hospital", R + "U"),  # spans two hospitals' lines
         ("Kilo Springs Hospital | 500 | beds", R + "K"),
         ("Lima Ridge Hospital | 18 | beds", R + "L2"),
+        ("Oscar Creek Hospital | 333 | beds", R + "O"),
     ])
     MEMORY_REPLY = answer([f"{k}. {h['name']} | NOT FOUND | beds | -" for k, h in enumerate(HONEST, 1)], [], queries=())
 
@@ -320,9 +332,9 @@ def register(ctx):
         asyncio.run(ha._run(job))
         assert calls == ["first-model", "second-model"], calls
         by = {r["name"]: r for r in job.rows}
-        e, g, h, i, j, k, lima = (by[x["name"]] for x in HONEST)
+        e, g, h, i, j, k, lima, oscar = (by[x["name"]] for x in HONEST)
         assert h["beds_basis"] == "reported" and h["beds"] == 291 and h["page_confirmed"] is True and "Hotel Hospital: 291 beds" in h["quote"], h
-        for r in (e, g, i, j, k, lima):
+        for r in (e, g, i, j, k, lima, oscar):
             assert r["beds_basis"] == "not_found" and r["beds"] is None and r["source"] is None, r
         assert "does not name this hospital" in e["note"], e["note"]  # the page states 415 for another hospital
         assert "gives 291 beds for something else" in g["note"], g["note"]  # a sibling's figure on a listing page
@@ -330,11 +342,14 @@ def register(ctx):
         assert "you answered NOT FOUND" in j["note"], j["note"]
         assert "but not in Florida" in k["note"], k["note"]  # a same-named hospital in Ohio
         assert "gives 18 beds for something else" in lima["note"], lima["note"]  # one unit's beds
+        # a page the checker CAN read, tied to the hospital's own line, that shows neither its name nor 333: not kept
+        assert "could be read, but shows neither" in oscar["note"], oscar["note"]
         verify = next(t for t in job.trace if t["kind"] == "verify")
         assert "not kept" in verify["detail"]["en"] and "descartado" in verify["detail"]["es"], verify
         assert "no nombra este hospital" in verify["detail"]["es"] and "pero no en Florida" in verify["detail"]["es"], verify["detail"]["es"]
+        assert "no muestra ni el nombre" in verify["detail"]["es"], verify["detail"]["es"]
         # the misses are remembered: another incident that reaches Echo Valley doesn't search it again
-        assert {int(x.split(":")[1]) for x in ha._misses} == {9101, 9102, 9104, 9105, 9106, 9107}, sorted(ha._misses)
+        assert {int(x.split(":")[1]) for x in ha._misses} == {9101, 9102, 9104, 9105, 9106, 9107, 9110}, sorted(ha._misses)
         rows2 = [ha._row(x) for x in HONEST[:1]]
         job2 = ha._Job("FL", ha._set_key("FL", rows2), rows2)
         asyncio.run(ha._run(job2))
@@ -366,7 +381,180 @@ def register(ctx):
         assert calls[3:] == ["first-model", "second-model"], calls
         assert job4.rows[0]["beds"] == 144 and job4.elapsed < 1.4, (job4.rows[0]["beds"], job4.elapsed)
 
+    def local_server(replies):
+        """A throwaway HTTP server on 127.0.0.1 that answers each connection with the next raw reply; `got` records
+        what each connection sent (b"" when the client closed without sending a request)."""
+        import socket
+        import threading
+
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        srv.settimeout(5)
+        got = []
+
+        def loop():
+            try:
+                for raw in replies:
+                    c, _a = srv.accept()
+                    c.settimeout(3)
+                    try:
+                        data = b""
+                        while b"\r\n\r\n" not in data:
+                            chunk = c.recv(65536)
+                            if not chunk:
+                                break
+                            data += chunk
+                        got.append(data)
+                        if data:
+                            c.sendall(raw)
+                    except OSError:
+                        got.append(b"")
+                    finally:
+                        c.close()
+            except OSError:
+                pass
+            finally:
+                srv.close()
+
+        threading.Thread(target=loop, daemon=True).start()
+        return srv.getsockname()[1], got
+
+    def bad_pages(ha, llm):
+        """One bad page is just 'not readable': a truncated body (IncompleteRead), a broken status line, a charset
+        Python can't decode with 'replace' (idna) or doesn't know; a page read that raises; and the DNS-rebinding guard
+        (a name that passed the public-address check but connects to a private address) refuses before any request."""
+        html = ("<html><body><p>" + "Alpha General Hospital in Stubton, FL has 123 beds. " * 40 + "café</p></body></html>").encode("latin-1")
+        head = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset={cs}\r\nContent-Length: {n}\r\nConnection: close\r\n\r\n"
+        replies = [
+            # a chunk cut short: IncompleteRead (a Content-Length body cut short just reads short)
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nffff\r\n" + html[:2000],
+            b"NOT HTTP AT ALL\r\n\r\n",  # BadStatusLine
+            head.format(cs="idna", n=len(html)).encode() + html,
+            head.format(cs="undefined", n=len(html)).encode() + html,
+        ]
+        port, got = local_server(replies)
+        real_peer_ok = ha._peer_ok
+        ha._public_url = lambda url: True  # the name checks pass (as they would for a rebinding name) ...
+        ha._peer_ok = lambda ip: True  # ... and, for these four, the connected address too
+        base = f"http://127.0.0.1:{port}/"
+        text, why = ha._page_text(base + "cut")
+        assert text is None and why == "could not be read", (text and text[:60], why)
+        text, why = ha._page_text(base + "garbage")
+        assert text is None and why == "could not be read", (text, why)
+        for cs in ("idna", "undefined"):
+            text, why = ha._page_text(base + cs)
+            assert text and "123 beds" in text and why == "", (cs, why, (text or "")[:80])
+        # without the PDF reader (Render), a PDF link is never fetched (port 9 would refuse if it were)
+        ha.PDF_OK = False
+        assert ha._page_text("http://127.0.0.1:9/beds-report.pdf") == (None, ha.NO_PDF)
+        # _read never raises, whatever fails inside it
+        real_resolve = ha._resolve
+
+        def boom(uri):
+            raise RuntimeError("boom")
+
+        ha._resolve = boom
+        out = ha._read("https://x.example/p", "x.example", {}, __import__("threading").Lock())
+        assert out["text"] is None and out["why"] == "could not be read", out
+        ha._resolve = real_resolve
+        # DNS rebinding: the real peer check, a name that "resolved" public but connects to 127.0.0.1
+        ha._peer_ok = real_peer_ok
+        port2, got2 = local_server([b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"])
+        text, why = ha._page_text(f"http://127.0.0.1:{port2}/")
+        assert text is None and why.startswith("could not be reached"), (text, why)
+        __import__("time").sleep(0.3)
+        assert got2 in ([], [b""]), f"a request reached a private address: {got2!r}"
+
+    def batch_fails(ha, llm):
+        """A batch that fails (here: its check raises) ends only its own hospitals; the others finish, the job ends
+        done, and the failure is not remembered as a miss."""
+        os.environ["GEMINI_API_KEY"] = "stub-not-a-key"
+        ha.BATCH = 1
+        ok = answer(["1. Alpha General Hospital | 123 | licensed | a.example"], [("Alpha General Hospital | 123 | licensed", R + "A")])
+        nf = answer(["1. Charlie Regional Hospital | NOT FOUND | beds | -"], [], queries=("charlie beds",))
+
+        def post(url, body, key, timeout):
+            return ok if "Alpha General" in body["contents"][0]["parts"][0]["text"] else nf
+
+        llm._post_json = post
+        ha._read = fake_read
+        real_judge = ha._judge
+
+        async def judge(job, items, *a, **k):
+            if any(r["id"] == 9003 for r in items):
+                raise RuntimeError("a checker bug")
+            return await real_judge(job, items, *a, **k)
+
+        ha._judge = judge
+        rows = [ha._row(h) for h in (HOSP[0], HOSP[2])]
+        job = ha._Job("FL", ha._set_key("FL", rows), rows)
+        asyncio.run(ha._run(job))
+        by = {r["id"]: r for r in job.rows}
+        assert job.status == "done" and job.by == "gemini", (job.status, job.by, job.why)
+        assert by[9001]["beds_basis"] == "reported" and by[9001]["beds"] == 123, by[9001]
+        assert by[9003]["beds_basis"] == "not_found" and "stopped on an error" in by[9003]["note"], by[9003]
+        assert not any(k.split(":")[1] == "9003" for k in ha._misses), "a failure was remembered as a miss"
+        assert job.key not in ha._sets, "a run with a failed batch was remembered as a clean set"
+        assert not job.batches and not job.pages, "the job's tasks or pages outlived it"
+
+    def budget_guard(ha, llm):
+        """The budget guard: under AI_RESERVE calls left in the app's day, OpenStreetMap only (no Gemini call); past
+        NEW_JOBS_MAX new searches per window, the same at once from the route's logic; a visitor who opens another case
+        stops its previous search (another visitor behind the same address keeps theirs)."""
+        os.environ["GEMINI_API_KEY"] = "stub-not-a-key"
+
+        def no_post(*a, **k):
+            raise AssertionError("Gemini called past the budget guard")
+
+        llm._post_json = no_post
+        ha.AI_RESERVE = 10**9
+        rows = [ha._row(h) for h in HOSP]
+        job = ha._Job("FL", ha._set_key("FL", rows), rows)
+        asyncio.run(ha._run(job))
+        assert job.by == "fallback" and job.why == "today's AI budget is low", (job.by, job.why)
+        assert [r["beds_basis"] for r in job.rows] == ["not_found", "osm", "not_found", "not_found"], [r["beds_basis"] for r in job.rows]
+        assert all("AI budget" in r["note"] for r in job.rows), [r["note"] for r in job.rows]
+        ha.AI_RESERVE = 0
+        ha.NEW_JOBS_MAX = 0
+        v = asyncio.run(ha._begin("FL", [ha._row(h) for h in HOSP], "smoke|tab0"))
+        assert v["job"] is None and v["status"] == "done" and v["by"] == "fallback" and "limit" in v["why"], (v["job"], v["status"], v["by"], v["why"])
+        assert v["counts"]["osm"] == 1 and "new incidents" in v["hospitals"][0]["note"], v["hospitals"][0]
+        ha.NEW_JOBS_MAX = 30
+        import time as _time
+
+        def slow(url, body, key, timeout):
+            _time.sleep(0.8)
+            return answer(["1. Stub | NOT FOUND | beds | -"], [], queries=("stub",))
+
+        llm._post_json = slow
+
+        async def scenario():
+            v1 = await ha._begin("FL", [ha._row(HOSP[0])], "smoke|tab1")
+            assert v1["status"] == "running" and v1["job"], v1["status"]
+            j1 = ha._jobs[v1["job"]]
+            await asyncio.sleep(0.05)
+            v3 = await ha._begin("FL", [ha._row(HOSP[3])], "smoke|tab2")  # another visitor behind the same address
+            j3 = ha._jobs[v3["job"]]
+            v2 = await ha._begin("FL", [ha._row(HOSP[2])], "smoke|tab1")  # the first visitor opens another case
+            j2 = ha._jobs[v2["job"]]
+            await asyncio.sleep(0.2)
+            assert j1.status == "done" and j1.stopping and "newer case" in j1.rows[0]["note"], (j1.status, j1.rows[0]["note"])
+            assert j2.status == "running" and j3.status == "running" and not j3.stopping, (j2.status, j3.status)
+            # the same visitor asking again for its running case joins it (nothing stopped)
+            again = await ha._begin("FL", [ha._row(HOSP[2])], "smoke|tab1")
+            assert again["job"] == j2.id and j2.status == "running", again["job"]
+            for j in (j2, j3):
+                j.task.cancel()
+            await asyncio.gather(j2.task, j3.task, return_exceptions=True)
+            assert j2.status == j3.status == "done", (j2.status, j3.status)
+
+        asyncio.run(scenario())
+
     ctx.check("hospital agent (stubbed): grounded check, page check, feedback and revision, then the caches", in_process(stubbed_loop))
     ctx.check("hospital agent (stubbed): the honesty rules, the second model only when needed, the miss cache", in_process(stubbed_honesty))
     ctx.check("hospital agent (stubbed): without a key, OpenStreetMap's figures only, labeled, not remembered", in_process(no_key))
     ctx.check("hospital agent: the answer parser, the page words check and the public-address guard", in_process(parse_and_check))
+    ctx.check("hospital agent: a bad page is just not readable (truncated, garbage, odd charsets, a read that raises); DNS rebinding refused", in_process(bad_pages))
+    ctx.check("hospital agent (stubbed): one failing batch ends only its own hospitals", in_process(batch_fails))
+    ctx.check("hospital agent (stubbed): the budget guard (AI reserve, new-search window) and one running search per visitor", in_process(budget_guard))

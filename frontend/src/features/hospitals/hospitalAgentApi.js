@@ -5,7 +5,7 @@
 // App.jsx), so it is done long before the presentation reaches its hospitals beat. The job's state lives in this
 // module (not in a component), so the starter and every HospitalsFound panel share it. Nothing here plays audio.
 //
-//   POST /api/hospitals/agent {region, load_factor, affected}   -> {job, status: running} or a finished answer
+//   POST /api/hospitals/agent {region, load_factor, affected, tab} -> {job, status: running} or a finished answer
 //   GET  /api/hospitals/agent/{job}                             -> {status, hospitals, trace, counts, by, ...}
 import { useEffect, useSyncExternalStore } from 'react'
 import { api } from '../../api'
@@ -30,6 +30,9 @@ const subscribe = (f) => {
 }
 let run = 0
 let timer = null
+// This tab's own random id: the server stops a visitor's previous search when it opens another case, and visitors
+// behind one address (the venue shares one IP) must never stop each other's. Not stored anywhere.
+const TAB = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40)
 
 // The case a job belongs to: the state, the load level and which substations lost how much (the hospitals it lands on
 // follow from those alone). null when there is nothing to look up.
@@ -47,7 +50,7 @@ export function startHospitalAgent({ region, loadFactor = 1, affected }) {
   const id = ++run
   clearTimeout(timer)
   emit({ key, status: 'starting', data: null, error: null })
-  const body = { region, load_factor: loadFactor, affected }
+  const body = { region, load_factor: loadFactor, affected, tab: TAB }
   const land = (data) => emit({ key, status: data.status, data, error: null })
   const fail = (error) => emit({ key, status: 'error', data: current.key === key ? current.data : null, error })
   // tries: failed polls in a row (a success starts over); only after BACKOFF_MS runs out does the panel show an error
