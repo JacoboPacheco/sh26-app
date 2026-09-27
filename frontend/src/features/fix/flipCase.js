@@ -117,6 +117,14 @@ export function fixLine(fix) {
   return [fix.words, fix.cost ? money(fix.cost.high) : null, fix.by === 'gemini' ? 'Gemini · engine-verified' : 'engine-verified'].filter(Boolean).join(' · ')
 }
 
+// the lead line, above the button: what the money buys (user, Sun 04:38: "with this amount of money you can
+// eliminate the risk") — "$152 million eliminates this risk" when the engine's re-check holds with nothing left
+// over; "reduces this risk" when it only gets partway there (verdict: 'partly'), never claimed as eliminated.
+export function fixLede(fix) {
+  const who = fix.cost ? money(fix.cost.high) : 'This fix'
+  return `${who} ${fix.verdict === 'holds' ? 'eliminates this risk' : 'reduces this risk'}.`
+}
+
 // The report's best fix when the deck would offer "Apply the best fix" (backend/bulletin.py s_bottom: a verified
 // fix of a preventable or partly preventable case), else null (a storm's "no fix": no button).
 export function bestFixOf(report) {

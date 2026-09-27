@@ -15,6 +15,17 @@
   font-weight: 700;
 }
 
+.flip__lede {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.flip__lede--holds {
+  color: var(--hr-ok);
+}
+
 .flip__what,
 .flip-res__what {
   margin: 0;

@@ -9,7 +9,7 @@ import { money } from '../cost/money'
 import { useLossRate } from '../impact/caseCost'
 import FixChanges from './FixChanges'
 import './flip.css'
-import { fixLine, flipSide, plantsOut, runWithFix, showWith, showWithout, useBestFix, useFlip, whatifOf } from './flipCase'
+import { fixLede, fixLine, flipSide, plantsOut, runWithFix, showWith, showWithout, useBestFix, useFlip, whatifOf } from './flipCase'
 
 const L = LABEL.en
 
@@ -31,6 +31,7 @@ export function FlipOffer({ rate }) {
   const busy = flip.status === 'running' && O.cascading
   return (
     <section className="flip" aria-label="Show the best-case scenario">
+      <p className={`flip__lede${f.verdict === 'holds' ? ' flip__lede--holds' : ''}`}>{fixLede(f)}</p>
       <Button onClick={() => (known ? showWith(O) : runWithFix(O, f, { base: body, report, rate }))} busy={busy}>
         Show the best-case scenario
       </Button>
