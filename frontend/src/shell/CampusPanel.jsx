@@ -188,9 +188,10 @@ function useDropLink() {
       }
       const mw = Number(q.get('mw'))
       const size = mw >= 1 && mw <= CUSTOM_MAX ? Math.round(mw) : undefined
+      const want = st || 'FL' // no state= is Florida (the hero link), also when it opens from another state or the U.S. map
       // the address already describes the campus on screen (written below): nothing to do
-      if (site && Math.abs(site.lat - at[0]) < 1e-4 && Math.abs(site.lon - at[1]) < 1e-4 && (!st || st === region)) return
-      if (/^[A-Z]{2}$/.test(st) && st !== region) return setRegion(st, { place: at, mw: size })
+      if (site && Math.abs(site.lat - at[0]) < 1e-4 && Math.abs(site.lon - at[1]) < 1e-4 && want === region) return
+      if (/^[A-Z]{2}$/.test(want) && want !== region) return setRegion(want, { place: at, mw: size })
       if (grid) {
         if (size) setMw(size)
         place(at[0], at[1])

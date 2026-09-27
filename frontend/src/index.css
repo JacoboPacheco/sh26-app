@@ -192,9 +192,6 @@ select optgroup {
   background-color: var(--surface);
   color: var(--ink);
 }
-.appbar .appbar__state select {
-  background-color: var(--surface);
-}
 
 .field input[type='range'] {
   padding: 0;

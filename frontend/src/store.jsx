@@ -59,6 +59,12 @@ export const MAX_POINTS = 12 // the backend takes 12 data centers per case: the 
 // The national map: no grid model of its own, just the state outlines (GridMap draws them).
 const US_GRID = { meta: { region: 'US', region_name: 'the U.S.', bbox: US_BBOX, synthetic: true }, subs: [], branches: [] }
 const regionQuery = (r) => `region=${encodeURIComponent(r)}`
+// The map page's own address (#/?at=…&mw=…&state=…) describes the campus on screen (shell/CampusPanel writes it
+// while Data center mode is up). When the case is cleared it goes back to #/, or Data center mode's panel would
+// read the old campus from it the next time it mounts and drop it again by itself (user, Sat 22:29).
+const dropCaseHash = () => {
+  if (/^#\/\?/.test(window.location.hash)) window.history.replaceState(null, '', '#/')
+}
 
 export function OverloadProvider({ user, children }) {
   const [grid, setGrid] = useState(null)
@@ -341,6 +347,7 @@ export function OverloadProvider({ user, children }) {
     setMapTool(null)
     setMode('campus')
     setResetCount((n) => n + 1)
+    dropCaseHash()
   }, [clearCascade])
   // "Start over": the whole case, any map tool, the camera back to the whole region
   const resetAll = useCallback(() => {
@@ -365,6 +372,18 @@ export function OverloadProvider({ user, children }) {
     },
     [region, regions, clearCase],
   )
+  // The State picker (shell/TopBar): open that state (or the whole U.S.) with nothing on it — never a campus
+  // dropped for you — and the camera on all of it. The state already open only zooms back out to all of it
+  // (after a zoom or a pan), keeping its case (user, Sat 22:29).
+  const pickRegion = useCallback(
+    (code) => {
+      const next = String(code || 'FL').toUpperCase()
+      if (next !== region) return setRegion(next) // clears the case; the map flies to the whole new state
+      mapRef.current?.reset()
+      return true
+    },
+    [region, setRegion],
+  )
   // place a drop that was waiting for its state's grid
   useEffect(() => {
     const p = pendingPlace.current
@@ -375,7 +394,8 @@ export function OverloadProvider({ user, children }) {
     placeHere(p.lat, p.lon)
   }, [gridRegion, region, placeHere, resetCount])
 
-  // A click on the map. On the national map it opens the state under the click and drops the campus there.
+  // A click on the map. On the national map it opens the state under the click, all of it and nothing dropped:
+  // the next click there places the campus (user, Sat 22:29: entering a state never clicks a location for you).
   // Ctrl/Cmd+click: one more data center of the current size, on the substation the click connects to.
   // The first point of a case is the main one; a second point on the same substation is ignored.
   const addPoint = useCallback(
@@ -392,7 +412,7 @@ export function OverloadProvider({ user, children }) {
     (lat, lon, opts = {}) => {
       if (region !== 'US') return opts.multi ? addPoint(lat, lon) : placeHere(lat, lon)
       const code = regionAt(lat, lon)
-      if (code && code !== 'DC') setRegion(code, { place: [lat, lon] })
+      if (code && code !== 'DC') setRegion(code)
     },
     [region, placeHere, addPoint, setRegion],
   )
@@ -600,6 +620,7 @@ export function OverloadProvider({ user, children }) {
     loadRegions,
     regionLoading, // true while a new state's grid loads (the old map stays up)
     setRegion, // (code, {place: [lat, lon], mw}?) → clears the case, loads the grid, the map flies there
+    pickRegion, // (code) → the State picker: a new state opens empty; the open one zooms back out to all of it
     peoplePerMw, // this region's people per MW of lost load (estimate, from /api/grid meta)
     population, // this region's population (Census Vintage 2024, from /api/grid meta)
     // the case
@@ -610,7 +631,7 @@ export function OverloadProvider({ user, children }) {
     trip,
     upgrades,
     firm, // bool: every campus on firm service (kept on; the operator cuts other customers)
-    place, // (lat, lon): drop the campus; on the national map, opens that state and drops it there
+    place, // (lat, lon): drop the campus; on the national map, opens the state under it (nothing dropped)
     clearSite,
     setMw,
     setExtraSites,
