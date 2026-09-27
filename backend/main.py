@@ -44,6 +44,7 @@ import evidence
 import fixit
 import forecast
 import grid
+import grid_operator
 import gridlock
 import gridreader
 import harden
@@ -152,6 +153,7 @@ app.include_router(uploads.router)
 app.include_router(llm.router)
 app.include_router(grid.router)
 app.include_router(evidence.router)
+app.include_router(grid_operator.router)
 app.include_router(scenarios.router)
 app.include_router(hurricane.router)
 app.include_router(harden.router)

@@ -12,6 +12,7 @@ import ActiveFix from '../features/fix/ActiveFix'
 import { FlipOffer, FlipResult } from '../features/fix/Flip'
 import { flipSide, plantsOut, useFixFollowsCase, useFlip } from '../features/fix/flipCase'
 import TownsFeed from '../features/impact/TownsFeed'
+import OperatorCard from '../features/operator/OperatorCard'
 import FullSolutionButton from '../features/unlock/FullSolutionButton'
 import { useSteadyLossRate } from '../features/cost/steady'
 import { byIntensity, leapIntensity } from '../features/impact/intensity'
@@ -93,6 +94,7 @@ export default function ImpactPanel() {
       {/* the same campus under three service rules: who is cut first (features/darkfirst); below the flip, the
           presentation and the hand-off, so the fix stays in view when the cascade ends */}
       {done && !calm && !fixed && <DarkFirst />}
+      {done && !calm && !fixed && <OperatorCard />}
       {result && !live && <HowWeKnow body={caseBody} applied={fixed} figures={done && !fixed ? ['people_hit', 'cost', 'outage_hours'] : []} cascade={cascade} />}
       <details className="more" onToggle={(e) => setMore(e.currentTarget.open)}>
         <summary>More: {every ? 'every step, ' : ''}incident briefing, cost breakdown, towns, map key</summary>

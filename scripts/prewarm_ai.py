@@ -226,6 +226,19 @@ def main():
             note(f"pair {k} draft on the recommended plan", ((d or {}).get("by") or "?") if code == 200 else f"HTTP {code}", dt)
             time.sleep(2.1)
 
+    # Let a Gemini operator fight it (grid_operator.py): the Fort Myers hero, fought with no operator, the engine's operator
+    # and Gemini's. Cached in memory (six hours) and in the answer cache call by call: rerun after a backend restart.
+    # Two sizes: the hero's 1,500 MW and 1,200 MW (a job: POST, then poll to the end).
+    for mw in (1500, 1200):
+        t0 = time.time()
+        j, dt, code = call("POST", "/api/operator/run", {"lat": 26.6406, "lon": -81.8723, "mw": mw})
+        while code == 200 and j and j.get("status") == "running" and time.time() - t0 < 180:
+            time.sleep(2)
+            j, _, code = call("GET", f"/api/operator/jobs/{j['job']}")
+        r = (j or {}).get("result") or {}
+        toll = lambda k: ((r.get("runs") or {}).get(k) or {}).get("toll", {}).get("people_hit")  # noqa: E731
+        note(f"operator: hero at {mw} MW", (f"{r.get('by')}: none {toll('none')}, engine {toll('engine')}, gemini {toll('gemini')}" if r else f"HTTP {code}"), time.time() - t0)
+
     st, _, _ = call("GET", "/api/ai/status")
     print(f"\nDone: {len(rows)} steps. AI used today {st and st.get('used_today')}/{st and st.get('cap')}; cached answers {st and st.get('cached_answers')}; models out today {st and st.get('models_out_today')}")
 
