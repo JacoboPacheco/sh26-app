@@ -212,7 +212,7 @@
 }
 
 .hz-cyclone--spin {
-  animation: hz-spin 7s linear infinite;
+  animation: hz-spin 5s linear infinite;
 }
 
 @keyframes hz-spin {

@@ -38,7 +38,7 @@ export const LANDFALL_HALF_KM = 160 // mirrors backend's LANDFALL_HALF_KM (visua
 // needed. Position moves at a steady rate (so a knocked-out line's flash delay, timed off the same
 // clock, never drifts out of sync); the *look* of easing in and weakening lives in the storm's own
 // intensity (fading in on arrival, visibly shrinking after landfall), not in its speed over ground.
-export const STORM_MS = 17000
+export const STORM_MS = 24000
 
 let state = {
   points: [],
