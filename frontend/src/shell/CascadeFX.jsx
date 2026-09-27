@@ -383,7 +383,9 @@ function BlastCanvas({ fx, items, fires, anchor, host, still, rateRef, clean = f
     let raf = 0
     const frame = () => {
       const ms = performance.now() - fx.startedAt
-      // the review only (clean): while a beat shows a place (html.rs-clear, CLEAR AREAS) its town labels step aside
+      // the review only (clean): while a beat shows a place (html.rs-clear, CLEAR AREAS) its per-town hit labels
+      // step aside (they sit on the hatched area; the numbers are in the slide panel). Line-failure labels stay:
+      // they sit at the failing line, not on the hatch, and point at where the problem actually is.
       o.hideLabels = clean && document.documentElement.classList.contains('rs-clear')
       const dpr = Math.min(window.devicePixelRatio || 1, 2)
       const w = Math.round(host.clientWidth * dpr)
@@ -575,7 +577,7 @@ function draw(ctx, ms, px, { rings, flares, labels, lineFlares }, sparks, fires,
   }
   // fire, sparks, smoke and hot spots (features/impact/fireFx.js), under the labels
   drawFires(ctx, ms, px, fires, o)
-  if (!o.hideLabels) drawLabels(ctx, ms, px, labels, o)
+  drawLabels(ctx, ms, px, labels, o)
 }
 
 // The labels: quiet text on a soft scrim, in screen px. Each appears as the front reaches its town, stays
@@ -587,6 +589,9 @@ function drawLabels(ctx, ms, px, labels, o) {
   const toScreen = (x, y) => [m.a * x + m.c * y + m.e, m.b * x + m.d * y + m.f]
   for (const l of labels) {
     const e = ms - l.t
+    // CLEAR AREAS: a per-town hit label sits on the hatched area itself (its spot is the town's substation); a
+    // line-failure label sits at the failing line's midpoint, which points at the problem, so it stays.
+    if (o.hideLabels && l.kind === 'hit') continue
     // the last step's labels hand over to the map's own town labels (ImpactLayer) the moment the replay ends
     const last = l.until >= o.total - 1
     if (e < 0 || ms > l.until + (last ? 0 : FADE_OUT)) continue

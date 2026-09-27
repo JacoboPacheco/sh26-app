@@ -2795,9 +2795,13 @@ def finish(report: dict, composed: dict, length: str, ai_meta: dict) -> dict:
 
 
 def _ai_slots(slides: list[dict]) -> list[str]:
-    """written_by of the presenter slots Gemini may write (every slide's first presenter segment)."""
+    """written_by of the presenter slots Gemini may write (every slide's first presenter segment). 'chain'
+    counts only when Gemini wrote it: its own four-part play-by-play (PLAY-BY-PLAY IN FOUR) can honestly be
+    the engine's own words without that being a fallback (ENGINE_WORDS, Slide.jsx), so a template chain must
+    not turn an otherwise all-Gemini deck's label ("by") to "mixed"."""
     return [s["written_by"][lang] for s in slides for lang in LANGS
-            if s["id"] not in AI_KEEP_TEMPLATE and s["narration"][lang] and (s["narration"][lang][0]["role"] == "presenter" or s["id"] == "chain")]
+            if s["id"] not in AI_KEEP_TEMPLATE and s["narration"][lang]
+            and (s["narration"][lang][0]["role"] == "presenter" or (s["id"] == "chain" and s["written_by"][lang] == "gemini"))]
 
 
 def _find_cues(w: Writer, text: str, s: dict) -> list[dict]:

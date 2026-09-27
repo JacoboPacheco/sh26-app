@@ -19,8 +19,9 @@ import { useElapsed } from './useShowClock'
 // number counts up, the lines rise in one after another, bars draw in, gauges fill. `animate` is true while
 // the show runs; a paused or scrubbed slide (animate false) is the finished picture.
 // the slides whose words stay the engine's template even in Gemini's deck (bulletin.AI_KEEP_TEMPLATE: the numbers and the
-// plans are the engine's): not a fallback, so they don't wear the fallback's warning
-const ENGINE_WORDS = new Set(['event', 'toll', 'fix'])
+// plans are the engine's) plus 'chain' (its four-part play-by-play, PLAY-BY-PLAY IN FOUR: template or Gemini lines,
+// but the numbers are always the engine's): not a fallback, so they don't wear the fallback's warning
+const ENGINE_WORDS = new Set(['event', 'toll', 'fix', 'chain'])
 
 export default function Slide({ slide, report, deck, lang, wave, onApply, fixture, stage, live, animate = false, options = [] }) {
   const t = T[lang]

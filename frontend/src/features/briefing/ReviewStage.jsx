@@ -46,8 +46,12 @@ import { getDownload } from './voiceApi'
 // OPTIONS PANEL (user, Sat 19:12): "How the AI found them" opens in that same right-hand slot as a second tab, beside
 // the options and never over them: the options' review beat opens it by itself (wide screens; a phone keeps it one tap
 // away as a bottom sheet), and leaving the solutions puts the sidebar back the way it was.
-// the beats that show a place on the map: the per-town number labels step aside while they are up (CLEAR AREAS)
-const CLEAR_BEATS = new Set(['toll', 'areas', 'hospitals', 'cause', 'fix', 'problem', 'bottom_line', 'no_fix', 'cost', 'event'])
+// the beats that show a place on the map: the per-town number labels step aside while they are up (CLEAR AREAS).
+// 'chain' is here too: its replay draws its own per-town hit labels (shell/CascadeFX canvas, not this CSS rule —
+// ImpactLayer's own labels already hide themselves while a replay is playing) directly over the hatched area; the
+// same html.rs-clear class also tells CascadeFX to drop those (its line-failure labels stay: they point at the
+// line, not the hatch).
+const CLEAR_BEATS = new Set(['toll', 'areas', 'hospitals', 'cause', 'fix', 'problem', 'bottom_line', 'no_fix', 'cost', 'event', 'chain'])
 // A request that never reached the server reads "Failed to fetch": say it plainly (REVIEW-1 (g)); a server's own
 // sentence stays as it is.
 function plainError(err, lang) {

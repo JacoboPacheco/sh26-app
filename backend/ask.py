@@ -1398,7 +1398,10 @@ def suggestions(ctx: _Ctx) -> list[str]:
         if ctx.has_main and town:
             qs.append(f"¿Y si estuviera en {town}?" if es else f"What if it were in {town}?")
         if ctx.has_sites:
-            qs.append("¿Y si fuera de la mitad del tamaño?" if es else "What if it were half the size?")
+            # not "half the size": at some sites a smaller campus trips a different line first and hits MORE
+            # people, so the chip asked a question whose honest answer could look backwards. The site's room
+            # is always a safe, grounded question (intent "room", pattern_answer below).
+            qs.append("¿Cuánta capacidad le queda a este sitio?" if es else "How much room does this site have?")
         qs.append("¿Qué zonas se quedan sin luz primero?" if es else "Which areas lose power first?")
         if r.get("cost"):
             qs.append("¿Cuánto costaría la solución?" if es else "How much would the fix cost?")
