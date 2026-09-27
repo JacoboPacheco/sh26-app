@@ -350,6 +350,14 @@ def _situation(entry: dict, civ: dict) -> dict:
     return {"kind": kind, "status": status, "moratorium": kind not in ("pending", "built") and "moratori" in blob}
 
 
+def _size_words(e: dict, es: bool) -> str:
+    """The size as the sources give it: "1,200 MW", or, for a project whose MW is not a reported campus load
+    (catalog.SHOWN_AS), its own wording ("200 MW (the company's microgrid figure)")."""
+    if es:
+        return e.get("size_text_es") or f"{_n_es(e['mw'])} MW"
+    return e.get("size_text") or f"{vote._n(e['mw'])} MW"
+
+
 def _facts(entry, civ, st, sim, cost, qs) -> list[Fact]:
     F: list[Fact] = []
     company = entry.get("company") or ""
@@ -358,7 +366,7 @@ def _facts(entry, civ, st, sim, cost, qs) -> list[Fact]:
     F.append(Fact("project", "reported", f"Project, as reported: {entry['name']}; {dev}; place: {entry['place_text']} (location approximate); status, as reported: {entry['status_text']}.",
                   source=_src_for(entry, r"developer|status"), section="top"))
     if entry.get("mw"):
-        F.append(Fact("size", "reported", f"Reported size: {vote._n(entry['mw'])} MW.", values=[entry["mw"]], source=_src_for(entry, r"\bmw\b|\bgw\b|size"), section="top"))
+        F.append(Fact("size", "reported", f"Reported size: {_size_words(entry, False)}.", values=[entry["mw"]], source=_src_for(entry, r"\bmw\b|\bgw\b|size"), section="top"))
     if entry.get("year"):
         F.append(Fact("timing", "reported", f"Timing, as reported: {entry['year']}.", source=_src_for(entry, r"timeline|timing|operation|year"), section="top"))
     if entry.get("mw_basis"):
@@ -1400,7 +1408,7 @@ def template(sh: Sheet, body: CommentIn) -> str:
     grp = kind if kind in ("not_filed", "built") else "back"
     if es:
         greet = f"Estimados miembros de la {sh.addressee}:" if sh.researched else f"Al organismo que decide esta propuesta en {sh.addressee}:"
-        about = f"Vengo a hablar de {thing} {e['name']}" + (f", con un tamaño reportado de {_n_es(e['mw'])} MW." if e.get("mw") and mins > 1 else ".")
+        about = f"Vengo a hablar de {thing} {e['name']}" + (f", con un tamaño reportado de {_size_words(e, True)}." if e.get("mw") and mins > 1 else ".")
         stance = {
             "pending": {"questions": "Tengo preguntas que deben responderse en público antes de decidir.",
                         "support_conditions": "Puedo apoyar este proyecto si mis condiciones quedan por escrito en la aprobación.",
@@ -1419,7 +1427,7 @@ def template(sh: Sheet, body: CommentIn) -> str:
         P.append([(0, f"{greet} me llamo {NAME_SLOT['es']} y vivo en {PLACE_SLOT['es']}."), (0, about), (0, stance)])
     else:
         greet = f"Members of the {sh.addressee}:" if sh.researched else f"To the board hearing this proposal in {sh.addressee}:"
-        about = f"I am here about the {e['name']} {thing}" + (f", reported at {vote._n(e['mw'])} MW." if e.get("mw") and mins > 1 else ".")
+        about = f"I am here about the {e['name']} {thing}" + (f", reported at {_size_words(e, False)}." if e.get("mw") and mins > 1 else ".")
         stance = {
             "pending": {"questions": "I have questions that should be answered in public before you decide.",
                         "support_conditions": "I can support this project if my conditions are written into the approval.",
@@ -1445,7 +1453,7 @@ def template(sh: Sheet, body: CommentIn) -> str:
         f = sim["flexible"]
         up, b = cost.get("upgrades") or {}, cost.get("blackout") or {}
         if es:
-            g.append((0, f"La consulté en Overload, que prueba un campus del tamaño reportado en un {FRAME_ES}, no una predicción sobre este proyecto ni sobre nuestra empresa eléctrica."
+            g.append((0, f"La consulté en Overload, que prueba un campus {'hipotético de ese tamaño' if e.get('hypothetical') else 'del tamaño reportado'} en un {FRAME_ES}, no una predicción sobre este proyecto ni sobre nuestra empresa eléctrica."
                       if mins > 1 else f"La consulté en el {FRAME_ES} de Overload, que no es una predicción sobre este proyecto."))
             g.append((2, f"En ese modelo, el sitio tiene capacidad para {_n_es(sim['room_mw'])} MW antes de que una línea supere su límite."))
             if sim["overloaded"]:
@@ -1462,7 +1470,7 @@ def template(sh: Sheet, body: CommentIn) -> str:
             if b.get("high", 0) > 0:
                 g.append((7, f"Un apagón así se estima {_range_es(b['low'], b['high'])} en el modelo."))
         else:
-            g.append((0, f"I checked it on Overload, which tests a campus of the reported size on an {FRAME_EN}, not a prediction about this project or our utility."
+            g.append((0, f"I checked it on Overload, which tests {'a hypothetical campus of that size' if e.get('hypothetical') else 'a campus of the reported size'} on an {FRAME_EN}, not a prediction about this project or our utility."
                       if mins > 1 else f"I checked it on Overload's {FRAME_EN}, which is not a prediction about this project."))
             g.append((2, f"On that model, the site has room for {vote._n(sim['room_mw'])} MW before a line goes over its limit."))
             if sim["overloaded"]:

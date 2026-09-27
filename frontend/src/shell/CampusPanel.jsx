@@ -5,7 +5,7 @@ import { fmt } from '../geo'
 import { MAX_POINTS, useOverload } from '../store'
 import { Button, ErrorBanner, Field, Loading } from '../ui'
 import DangerPanel from '../features/danger/DangerPanel'
-import { isDroppedAt, setPickedProposal, sizeOf, statusOf, useDropProposal, usePickedProposal } from '../features/proposals/proposalStore'
+import { isDroppedAt, reportedSize, setPickedProposal, statusOf, useDropProposal, usePickedProposal } from '../features/proposals/proposalStore'
 import SiteReport from '../features/site/SitePanel'
 import './campus.css'
 
@@ -322,7 +322,7 @@ function PlannedProposals() {
         <option value="">{loaded ? 'Pick a planned data center…' : 'Loading…'}</option>
         {entries.map((e) => (
           <option key={e.id} value={e.id}>
-            {e.name} — {e.place}, {sizeOf(e)} reported ({statusOf(e)})
+            {e.name} — {e.place}, {reportedSize(e)} · {statusOf(e)}
           </option>
         ))}
       </Field>
@@ -330,7 +330,7 @@ function PlannedProposals() {
       {picked && (
         <p className="real__status">
           <span className="real__meta">
-            {picked.place} · {sizeOf(picked)} reported · {statusOf(picked)}
+            {picked.place} · {reportedSize(picked)} · {statusOf(picked)}
           </span>
           {src?.url && (
             <a className="real__src" href={src.url} target="_blank" rel="noreferrer" title={src.title}>
@@ -338,6 +338,10 @@ function PlannedProposals() {
             </a>
           )}
         </p>
+      )}
+      {picked?.status_note && <p className="real__note">{picked.status_note}</p>}
+      {picked?.hypothetical && (
+        <p className="real__note">Tested here as a hypothetical {fmt(picked.mw)} MW campus at this site on the synthetic model, not a prediction.</p>
       )}
       <p className="real__note">Reported sizes from news and company sources. Each test runs on a synthetic grid model: not a prediction about the real project or utility.</p>
     </div>

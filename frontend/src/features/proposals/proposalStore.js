@@ -46,6 +46,9 @@ export function useDropProposal() {
 // reported ("up to 1,000 MW") where it differs from the plain number the test uses.
 export const statusOf = (e) => e?.status_reported || e?.status || 'status not reported'
 export const sizeOf = (e) => e?.mw_reported || `${fmt(e?.mw)} MW`
+// "1,200 MW reported"; a size that already says what the figure is ("200 MW (the company's microgrid figure)",
+// mw_reported_whole) is not called "reported" a second time.
+export const reportedSize = (e) => (e?.mw_reported_whole ? sizeOf(e) : `${sizeOf(e)} reported`)
 
 // "https://www.fox13news.com/news/…" -> "fox13news.com" (who reported it, as a reader would name the site)
 export function sourceHost(url) {

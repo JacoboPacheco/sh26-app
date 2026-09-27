@@ -121,8 +121,8 @@ EPISODES = [
                "es": "El medidor de capacidad: cuántos campus de 1 GW aguanta hoy la red a la vez, las mejoras que suman más, su costo y qué tan seguro es."},
      "region": "FL", "est_minutes": 3.4},
     {"id": "together", "title": {"en": "Build together", "es": "Construir juntos"},
-     "blurb": {"en": "Two utilities' public construction plans across the Georgia–South Carolina border: the overlaps, the same station, two AI agents negotiating, the drafted agreement.",
-               "es": "Los planes públicos de obra de dos empresas en la frontera entre Georgia y Carolina del Sur: los solapes, la misma subestación, dos agentes de IA negociando y el acuerdo."},
+     "blurb": {"en": "Two utilities' public construction plans across the Georgia–South Carolina border: the overlaps, the same station, two AI agents each reading one company's published plan, the drafted agreement.",
+               "es": "Los planes públicos de obra de dos empresas en la frontera entre Georgia y Carolina del Sur: los solapes, la misma subestación, dos agentes de IA que leen, cada uno, el plan publicado de una empresa, y el borrador de acuerdo."},
      "region": "GA-SC", "est_minutes": 3.0},
 ]
 EPISODE_IDS = tuple(e["id"] for e in EPISODES)
@@ -1778,7 +1778,7 @@ async def build_together(lang: str, progress) -> Board:
     if not ops:
         raise HTTPException(status_code=503, detail="The Build together data isn't built yet")
     top = next((o for o in ops if o.get("shared_station")), ops[0])
-    progress(T(lang, "Two AI agents are negotiating the terms", "Dos agentes de IA negocian los términos"))
+    progress(T(lang, "Two AI agents are drafting a coordination plan from the filings", "Dos agentes de IA redactan un plan de coordinación a partir de los documentos"))
     neg = await negotiate.run_case(top["id"], gl.WINDOW_DEFAULT, lang, ai=llm.configured())
     async with _gate():
         est = await run_in_threadpool(gl.estimate, top["id"], gl.WINDOW_DEFAULT)
@@ -2028,16 +2028,16 @@ def _together_board(lang: str, opp: dict, summ: dict, top: dict, neg: dict, est:
         B.f("share_a", shares[0], "%", pct_text(shares[0], lang))
         B.f("share_b", shares[1], "%", pct_text(shares[1], lang))
     by_ai = neg.get("by") == "gemini"
-    B.scene("negotiate", T(lang, "Two agents negotiate", "Dos agentes negocian"), area, [
+    B.scene("negotiate", T(lang, "Two agents compare the plans", "Dos agentes comparan los planes"), area, [
         grid_layer("hidden"),
         {"type": "agent", "title": T(lang, "Two AI agents, each reading one filing" if by_ai else "Two rule-based agents (plain version)", "Dos agentes de IA, cada uno lee un documento" if by_ai else "Dos agentes con reglas (versión simple)"), "steps": agent},
     ], [
-        ("presenter", T(lang, "Now two agents sit down at the table. Each one reads only one utility's filing. They trade proposals: a joint window, the shared work, the cost split.",
-                        "Ahora dos agentes se sientan a la mesa. Cada uno lee solo el documento de una empresa. Intercambian propuestas: una ventana conjunta, el trabajo compartido, el reparto de costos."), []),
-        ("analyst", T(lang, f"They're not the utilities, and they can't speak for them. Every turn is checked against both filings before the other side sees it. They settle in round {count_text(int(oc.get('round') or 0), lang)}.",
-                      f"No son las empresas, y no pueden hablar por ellas. Cada turno se comprueba contra ambos documentos antes de que el otro lo vea. Acuerdan en la ronda {count_text(int(oc.get('round') or 0), lang)}."),
+        ("presenter", T(lang, "Now two agents each read one utility's published plan. They exchange proposals: a joint window, the shared work, the cost split.",
+                        "Ahora dos agentes leen, cada uno, el plan publicado de una empresa. Intercambian propuestas: una ventana conjunta, el trabajo compartido, el reparto de costos."), []),
+        ("analyst", T(lang, f"They're not the utilities, and they can't speak for them. Every turn is checked against both filings before the other side sees it. They land on the same proposal in round {count_text(int(oc.get('round') or 0), lang)}.",
+                      f"No son las empresas, y no pueden hablar por ellas. Cada turno se comprueba contra ambos documentos antes de que el otro lo vea. Llegan a la misma propuesta en la ronda {count_text(int(oc.get('round') or 0), lang)}."),
          ["rounds"]),
-    ], 11000, brief="The negotiation as a live trace: proposals, counters, the pipeline's check after every turn, the acceptance.",
+    ], 11000, brief="The agents' exchange as a live trace: proposals, counter-proposals, the pipeline's check after every turn, the acceptance.",
         points=["agents read filings, not the utilities: never say a utility agrees, accepts, pays or commits; say 'the agent reading DESC's filing'", "every turn verified", "the round they settle in"])
 
     scope = terms.get("scope") or []

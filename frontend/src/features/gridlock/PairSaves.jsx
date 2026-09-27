@@ -76,7 +76,7 @@ const T = {
     centers: (mi) => `${mi} entre sus centros (método de Sperry)`,
     nearEnds: (lim) => `Cerca solo en los extremos más próximos: sus centros están a más de ${lim}.`,
     both: (r, plan) => (plan ? `Las ventanas publicadas coinciden ${r}` : `Ambos en obra ${r}`),
-    past: (r, plan) => (plan ? `Las ventanas publicadas coincidieron ${r}, según lo publicado` : `Ambos construidos ${r}, según lo publicado`),
+    past: (r, plan) => (plan ? `Las ventanas publicadas coincidieron ${r}, según lo publicado` : `Ambos estuvieron en obra ${r}, según lo publicado`),
     planNote: (u) => `Las fechas de ${u} son una ventana de planificación publicada (del inicio a la fecha de necesidad): indica cuándo podrían estar en obra ambos, no que las dos cuadrillas trabajen entonces.`,
     apartT: 'Sus ventanas de obra no comparten meses: construir juntos exigiría mover un calendario.',
     open: 'abierta ahora',

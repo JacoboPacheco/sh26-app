@@ -78,7 +78,7 @@ export default function SiteCard({ id, onClose }) {
     <section className="vw-card" aria-label={`Data center: ${site.name}`}>
       <div className="vw-card__head">
         <p className="vw-kicker">
-          {STATUS_LABEL[site.status] || site.status}
+          {site.status_short || STATUS_LABEL[site.status] || site.status}
           {' · '}
           {site.kind === 'crypto_mining' ? 'crypto-mining site' : 'data center'}
         </p>
@@ -96,6 +96,12 @@ export default function SiteCard({ id, onClose }) {
           <dt>Place</dt>
           <dd>{place || 'Not reported'}</dd>
         </div>
+        {site.status_text && (
+          <div>
+            <dt>Status, as reported</dt>
+            <dd>{site.status_text}</dd>
+          </div>
+        )}
         {(site.year || site.announced) && (
           <div>
             <dt>Timeline, as reported</dt>
@@ -108,6 +114,7 @@ export default function SiteCard({ id, onClose }) {
             {site.mw ? (
               <>
                 <strong className="vw-fig">{fmt(site.mw)} MW</strong>
+                {site.size_note ? <span className="muted"> ({site.size_note})</span> : null}
                 {site.mw_from ? <span className="muted"> · taken from {site.mw_from === 'epoch-ai' ? 'Epoch AI' : 'another listing'}</span> : null}
                 {site.mw_planned && site.mw_operational && site.mw_planned > site.mw_operational ? (
                   <span className="muted">
@@ -184,7 +191,7 @@ export default function SiteCard({ id, onClose }) {
       <div className="vw-card__actions">
         {href ? (
           <MapLink className="btn" site={site}>
-            Test it on the grid
+            {site.hypothetical ? 'Test a hypothetical campus here' : 'Test it on the grid'}
           </MapLink>
         ) : (
           <p className="vw-fine">
@@ -203,7 +210,9 @@ export default function SiteCard({ id, onClose }) {
         )}
       </div>
       <p className="vw-fine">
-        A test is a campus of this reported size at this location on a synthetic grid model (Breakthrough Energy / Texas A&amp;M): not a prediction about the real project or the real utility.
+        {site.hypothetical
+          ? `A test is a hypothetical ${fmt(site.mw)} MW campus at this location on a synthetic grid model (Breakthrough Energy / Texas A&M): not a prediction about the real project or the real utility.`
+          : 'A test is a campus of this reported size at this location on a synthetic grid model (Breakthrough Energy / Texas A&M): not a prediction about the real project or the real utility.'}
       </p>
     </section>
   )

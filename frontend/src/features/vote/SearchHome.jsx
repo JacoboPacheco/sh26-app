@@ -18,7 +18,7 @@ function Row({ p }) {
           </span>
         </span>
         <span className="vote-row__facts">
-          <span className="vote-row__mw">{p.mw ? `${fmt(p.mw)} MW` : 'Size not found'}</span>
+          <span className="vote-row__mw">{p.size_text || (p.mw ? `${fmt(p.mw)} MW` : 'Size not found')}</span>
           <span className={`vote-row__status${p.status === 'paused/canceled' ? ' vote-row__status--quiet' : ''}`}>{p.status_text}</span>
         </span>
       </a>

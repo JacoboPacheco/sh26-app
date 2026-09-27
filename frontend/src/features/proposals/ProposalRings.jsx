@@ -25,7 +25,7 @@ import { citiesFor, fmt } from '../../geo'
 import { useOverload } from '../../store'
 import { useDangerUi } from '../danger/dangerStore'
 import { useIntroPhase } from '../flow/introPhase'
-import { isDroppedAt, sizeOf, sourceHost, statusOf, useDropProposal, usePickedProposal } from './proposalStore'
+import { isDroppedAt, reportedSize, sourceHost, statusOf, useDropProposal, usePickedProposal } from './proposalStore'
 import './proposals.css'
 
 // the name on the map: the project as the reports name it, shortened (the tooltip gives the full name)
@@ -53,7 +53,7 @@ const MIN_SCALE = 0.95 // screen px per map unit below which the labels are too 
 // drawn bigger there (never under the desktop size on screen) so they stay visible and a finger can hit them
 
 const ENTRIES = floridaFive.entries.filter((e) => Number.isFinite(e.lat) && Number.isFinite(e.lon) && e.mw > 0)
-const line2Of = (e) => `${sizeOf(e)} reported · ${statusOf(e)}`
+const line2Of = (e) => `${reportedSize(e)} · ${statusOf(e)}`
 const hostsOf = (e) => [...new Map((e.sources || []).filter((s) => s.url).map((s) => [sourceHost(s.url), s])).values()]
 const quiet = (e) => /paus|cancel|reject|withdraw/i.test(`${e.status} ${e.status_reported || ''}`)
 
@@ -296,8 +296,9 @@ function Tip({ e, rect, onEnter, onLeave }) {
     >
       <p className="pr-tip__name">{e.name}</p>
       <p className="pr-tip__meta">
-        {e.place} · {sizeOf(e)} reported{e.size_note ? ` (${e.size_note})` : ''} · {statusOf(e)}
+        {e.place} · {reportedSize(e)}{e.size_note ? ` (${e.size_note})` : ''} · {statusOf(e)}
       </p>
+      {e.status_note && <p className="pr-tip__meta">{e.status_note}</p>}
       {hosts.length > 0 && (
         <p className="pr-tip__src">
           As reported by{' '}
@@ -311,8 +312,14 @@ function Tip({ e, rect, onEnter, onLeave }) {
           ))}
         </p>
       )}
-      <p className="pr-tip__act">Click to test a campus of {e.mw_reported ? `the full ${fmt(e.mw)} MW` : 'this reported size'} here.</p>
-      <p className="pr-tip__fine">On a synthetic grid model: not a prediction about the real project or utility.</p>
+      <p className="pr-tip__act">
+        Click to test {e.hypothetical ? `a hypothetical ${fmt(e.mw)} MW campus at this site` : `a campus of ${e.mw_reported ? `the full ${fmt(e.mw)} MW` : 'this reported size'} here`}.
+      </p>
+      <p className="pr-tip__fine">
+        {e.hypothetical
+          ? 'Tested here as a hypothetical campus at this site on a synthetic grid model, not a prediction about the real project or utility.'
+          : 'On a synthetic grid model: not a prediction about the real project or utility.'}
+      </p>
     </div>
   )
 }

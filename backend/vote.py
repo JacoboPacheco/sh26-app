@@ -75,6 +75,28 @@ STATUS_TEXT = {
     "paused/canceled": "Paused or canceled",
 }
 STATUS_RANK = {"announced": 0, "paused/canceled": 0, "under construction": 1, "operating": 2}
+
+
+def _frame_for(entry: dict) -> str:
+    """The synthetic-model note. A project whose MW is not a reported campus load (catalog.SHOWN_AS "hypothetical") is
+    tested as a hypothetical campus of that size, and the note says so."""
+    if entry.get("hypothetical") and entry.get("mw"):
+        return (
+            f"Tested here as a hypothetical {_n(entry['mw'])} MW campus at this site on the synthetic grid model, not a "
+            "prediction about the real project or the real utility."
+        )
+    return FRAME
+
+
+def _disclaimer_for(entry: dict) -> str:
+    if entry.get("hypothetical") and entry.get("mw"):
+        return (
+            f"Overload tests a hypothetical {_n(entry['mw'])} MW campus at the reported location on a synthetic grid model "
+            "(Breakthrough Energy / Texas A&M, CC-BY 4.0): the MW is not a reported data-center load. It is not a prediction "
+            "about the real project, its owners or its utility. Facts are as reported by the linked sources; anything not "
+            "found is left blank. Costs and people counts are estimates, and the assumption behind each is shown."
+        )
+    return DISCLAIMER
 STOP_WORDS = {"county", "counties", "parish", "data", "center", "centers", "campus", "the", "of", "and", "in", "near"}
 SPREAD_HOUSEHOLDS = (100_000, 1_000_000, 10_000_000)
 
@@ -291,6 +313,7 @@ def _canonical(cat: dict, eid: str) -> dict | None:
 
 
 def _row(e: dict) -> dict:
+    sh = catalog_mod.shown_as(e["id"])
     return {
         "id": e["id"],
         "name": e["name"],
@@ -303,7 +326,9 @@ def _row(e: dict) -> dict:
         "state_name": e["state_name"],
         "mw": e["mw"],
         "status": e["status"],
-        "status_text": STATUS_TEXT.get(e["status"], (e["status"] or "unknown").capitalize()),
+        "status_text": sh.get("status_short") or STATUS_TEXT.get(e["status"], (e["status"] or "unknown").capitalize()),
+        "size_text": sh.get("size"),  # the size in the sources' own words when "N MW" alone would say too much
+        "hypothetical": bool(sh.get("hypothetical")),
         "year": e["year"],
         "featured": e["id"] in FEATURED,
     }
@@ -398,6 +423,11 @@ def _round_people_text(text: str | None) -> str | None:
     return re.sub(r"about ([\d,]{4,}) people", lambda m: f"{_approx(int(m.group(1).replace(',', '')))} people", text)
 
 
+def _shown_entry(e: dict) -> dict:
+    """The two fields _frame_for reads, from a raw catalog entry."""
+    return {"mw": e.get("mw"), "hypothetical": bool(catalog_mod.shown_as(e["id"]).get("hypothetical"))}
+
+
 def _simulation(e: dict) -> dict:
     """The catalog's test of this campus, reshaped for the page. Always carries the synthetic-model note."""
     try:
@@ -406,7 +436,7 @@ def _simulation(e: dict) -> dict:
         log.exception("vote: simulation failed for %s", e["id"])
         t = {"tested": False, "reason": "The engine could not settle this case."}
     if not t.get("tested"):
-        return {"tested": False, "reason": t.get("reason") or "Not tested.", "verdict": "untested", "note": FRAME}
+        return {"tested": False, "reason": t.get("reason") or "Not tested.", "verdict": "untested", "note": _frame_for(_shown_entry(e))}
     room = _n(t["headroom_mw"])
     f, m = t["flexible"], t["firm"]
     if t["verdict"] == "fits":
@@ -457,7 +487,7 @@ def _simulation(e: dict) -> dict:
         "why": _round_people_text(t.get("why")),
         "people_per_mw": t["people_per_mw"],
         "population": t["population"],
-        "note": FRAME,
+        "note": _frame_for(_shown_entry(e)),
     }
 
 
@@ -704,7 +734,13 @@ def _report(e: dict, sim: dict):
 def _entry(e: dict) -> dict:
     keep = ("id", "name", "company", "city", "county", "state", "state_name", "lat", "lon", "mw", "mw_basis", "status", "year", "confidence", "location_basis", "ai")
     out = {k: e.get(k) for k in keep}
-    out["status_text"] = STATUS_TEXT.get(e["status"], (e["status"] or "unknown").capitalize())
+    sh = catalog_mod.shown_as(e["id"])
+    out["status_text"] = sh.get("status") or STATUS_TEXT.get(e["status"], (e["status"] or "unknown").capitalize())
+    out["status_worded"] = bool(sh.get("status"))  # a full sentence from the sources, not a bucket label: never lower-cased
+    out["size_text"] = sh.get("size")  # e.g. "200 MW (the company's microgrid figure)"; None = plain "N MW"
+    out["size_note"] = sh.get("size_note")  # the bracketed part alone, for a page that sets the number large
+    out["size_text_es"] = sh.get("size_es")
+    out["hypothetical"] = bool(sh.get("hypothetical"))
     out["county_text"] = _county(e["county"])
     out["place_text"] = _place(e["city"], out["county_text"], e["state_name"])
     srcs, seen = [], {}
@@ -802,7 +838,10 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
     where = _where_line(entry)
     sections: list[dict] = []
 
-    facts = [{"text": f"Reported size: {_n(entry['mw'])} MW" if entry["mw"] else "Reported size: not found"}]
+    if entry.get("size_text"):
+        facts = [{"text": f"Reported size: {entry['size_text']}"}]
+    else:
+        facts = [{"text": f"Reported size: {_n(entry['mw'])} MW" if entry["mw"] else "Reported size: not found"}]
     facts.append({"text": f"Status, as reported: {entry['status_text']}"})
     if entry["year"]:
         facts.append({"text": f"Timing, as reported: {entry['year']}"})
@@ -820,7 +859,7 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
             "paragraphs": [
                 civ["status_note"]
                 or (
-                    f"Status as reported by the sources listed below: {entry['status_text'].lower()}"
+                    f"Status as reported by the sources listed below: {entry['status_text'] if entry.get('status_worded') else entry['status_text'].lower()}"
                     + (f"; timing as reported: {entry['year']}" if entry["year"] else "")
                     + ". The local decision has not been researched for this proposal yet."
                 )
@@ -832,7 +871,7 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
         paras = [sim["headline"], "Flexible service: " + sim["flexible"]["text"], "Firm service: " + sim["firm"]["text"]]
     else:
         paras = [f"Not tested on the model: {sim.get('reason')}"]
-    sections.append({"heading": "What a campus this size could do to a grid (simulated)", "paragraphs": paras, "note": FRAME})
+    sections.append({"heading": "What a campus this size could do to a grid (simulated)", "paragraphs": paras, "note": _frame_for(entry)})
 
     if cost:
         items = []
@@ -902,7 +941,7 @@ def _brief(parts: dict, safe: dict, qs: list[dict]) -> dict:
         "sections": [{k: v for k, v in sec.items() if v} for sec in sections if sec.get("items") or sec.get("paragraphs")],
         "sources": sources[:30],
         "credit": GRID_CREDIT,
-        "disclaimer": DISCLAIMER,
+        "disclaimer": _disclaimer_for(entry),
     }
 
 
@@ -919,7 +958,7 @@ def _assemble(parts: dict, rep: dict | None, reason: str | None) -> dict:
         "safe": safe,
         "questions": qs,
         "brief": _brief(parts, safe, qs),
-        "frame": FRAME,
+        "frame": _frame_for(parts["entry"]),
         "credit": GRID_CREDIT,
         "ms": parts["ms"],
     }

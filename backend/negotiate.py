@@ -66,8 +66,8 @@ MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct
 DISCLAIMER = ag.DISCLAIMER
 DISCLAIMER_ES = ag.DISCLAIMER_ES
 NEG_TEXT = {
-    "gemini": "Terms negotiated by two AI agents reading each utility's public filing, verified against the filings",
-    "plain": "Terms from the plain rule-based negotiation between the two filings, verified against the filings",
+    "gemini": "Terms proposed by two AI agents reading each utility's public filing, verified against the filings",
+    "plain": "Terms from the plain rule-based comparison of the two filings, verified against the filings",
 }
 
 _cache: "OrderedDict[tuple, dict]" = OrderedDict()
@@ -157,13 +157,13 @@ def _rules(pa: dict, pb: dict) -> list[dict]:
             "basis": f"each project's highest filed voltage: {A} {ka} kV, {B} {kb} kV",
             "basis_es": f"la tensión publicada más alta de cada proyecto: {A} {ka} kV, {B} {kb} kV",
             "rule": f"Shared costs split by each project's highest filed voltage: {A} {ka} kV ({pct_a} %), {B} {kb} kV ({100 - pct_a} %).",
-            "rationale": "Negotiated: higher-voltage work needs larger crews and heavier equipment, so each project's share follows its highest filed voltage. Each utility keeps paying for its own project's scope.",
+            "rationale": "Proposed: higher-voltage work needs larger crews and heavier equipment, so each project's share follows its highest filed voltage. Each utility keeps paying for its own project's scope.",
         })
     out.append({
         "id": "equal", "label": "50/50", "label_es": "50/50", "shares": [50, 50],
         "basis": "equal shares", "basis_es": "partes iguales",
         "rule": "Shared costs split equally (50 % each).",
-        "rationale": "Negotiated: an equal split of the shared items, whatever each project's size. Each utility keeps paying for its own project's scope.",
+        "rationale": "Proposed: an equal split of the shared items, whatever each project's size. Each utility keeps paying for its own project's scope.",
     })
     return out
 
@@ -222,7 +222,7 @@ def goals(case: dict) -> tuple[dict, dict]:
             "rule_label": best["label"],
             "window": {"start": _iso(w[0]), "end": _iso(w[1]), "kind": kind} if w else None,
             "text_en": f"Keep {who}'s filed schedule ({when_en}{win_en}) and aim to pay no more than {cap:g} % of the shared costs by our fair-share rule ({best['label'][:1].lower() + best['label'][1:]}: {best['basis']}).",
-            "text_es": f"Mantener el calendario publicado de {who} ({when_es}{win_es}) y aspirar a pagar como máximo el {cap:g} % de los costes compartidos con nuestra regla de reparto justo ({best['label_es'][:1].lower() + best['label_es'][1:]}: {best['basis_es']}).",
+            "text_es": f"Mantener el calendario publicado de {who} ({when_es}{win_es}) y aspirar a pagar como máximo el {cap:g} % de los costos compartidos con nuestra regla de reparto justo ({best['label_es'][:1].lower() + best['label_es'][1:]}: {best['basis_es']}).",
         }
     conflict = out["a"]["cap_pct"] + out["b"]["cap_pct"] < 99.5
     same = len({tuple(r["shares"]) for r in case["rules"]}) == 1
@@ -238,9 +238,9 @@ def goals(case: dict) -> tuple[dict, dict]:
         ),
         "text_es": (
             f"Los objetivos chocan: con nuestras reglas de reparto justo (calculadas con las cifras publicadas, no dichas en ningún documento) la parte más baja de {_short(case, 'a')} es el {out['a']['cap_pct']:g} % y la de "
-            f"{_short(case, 'b')} el {out['b']['cap_pct']:g} %, que no suman 100 %, así que los agentes tienen que negociar."
+            f"{_short(case, 'b')} el {out['b']['cap_pct']:g} %, que no suman 100 %, así que los agentes tienen que intercambiar propuestas."
             if conflict else
-            ("Nada que discutir sobre el coste: todas las reglas de reparto permitidas dan las mismas partes."
+            ("Nada que discutir sobre el costo: todas las reglas de reparto permitidas dan las mismas partes."
              if same else "Los objetivos encajan: una regla de reparto permitida da a cada parte no más de su parte justa más baja.")
         ),
     }
@@ -954,8 +954,8 @@ def _nothing_outcome(case: dict, lang: str) -> dict:
         "nothing": True,
         "terms": None,
         "last_verified": None,
-        "reason": _L(lang, f"Nothing to negotiate: at this distance, {what} would need the two build windows to share months, and they don't.",
-                     f"Nada que negociar: a esta distancia, {what} necesitaría que las dos ventanas de obra compartieran meses, y no los comparten."),
+        "reason": _L(lang, f"Nothing to propose: at this distance, {what} would need the two build windows to share months, and they don't.",
+                     f"Nada que proponer: a esta distancia, {what} necesitaría que las dos ventanas de obra compartieran meses, y no los comparten."),
         "next": _L(lang, "Compare detailed schedules first: a shared window would make one mobilization possible.",
                    "Primero, comparar los calendarios detallados: una ventana compartida permitiría una sola movilización."),
     }

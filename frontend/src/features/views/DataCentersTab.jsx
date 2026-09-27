@@ -294,8 +294,11 @@ export default function DataCentersTab({ initialSite }) {
                         </td>
                         <td>{s.company}</td>
                         <td>{s.state || '—'}</td>
-                        <td>{STATUS_LABEL[s.status] || s.status}</td>
-                        <td className="num">{s.mw ? fmt(s.mw) : 'not reported'}</td>
+                        <td>{s.status_short || STATUS_LABEL[s.status] || s.status}</td>
+                        <td className="num">
+                          {s.mw ? fmt(s.mw) : 'not reported'}
+                          {s.size_note ? <span className="muted"> ({s.size_note})</span> : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

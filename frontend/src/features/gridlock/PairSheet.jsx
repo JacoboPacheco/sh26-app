@@ -61,7 +61,7 @@ const S = {
     ics: 'Añadir al calendario',
     icsTitle: 'La ventana de obra compartida como archivo de calendario (.ics, en inglés)',
     draftH: 'Su borrador de acuerdo',
-    draftFrom: (x) => `Redactado a partir de «${x}». Un borrador para conversar, no un acuerdo entre ninguna de las empresas ni respaldado por ellas.`,
+    draftFrom: (x) => `Redactado a partir de «${x}». Un borrador para conversar, no un acuerdo entre las empresas ni respaldado por ninguna de ellas.`,
     drafting: 'Redactando a partir del plan elegido…',
     pick: 'Elija un plan arriba para redactar el acuerdo.',
     back2: 'Volver a cuánto ahorra',

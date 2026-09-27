@@ -209,6 +209,7 @@
   gap: 0.15rem;
   text-align: right;
   align-content: center;
+  max-width: min(22rem, 46vw); /* a size or status in the sources' own words wraps instead of squeezing the name */
 }
 
 .vote-row__mw {
@@ -289,6 +290,13 @@
   font-size: 1.6rem;
   font-weight: 700;
   line-height: 1.1;
+}
+
+/* what the figure is, when "N MW" alone would say too much: normal weight beside the big number */
+.vote-facts__aside {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--ink-2);
 }
 
 .vote-reported {

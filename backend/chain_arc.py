@@ -201,7 +201,7 @@ def _result(w, lang: str) -> tuple[str, list[str]]:
         items.append(people_say(w.people, lang) + tail + ((f" for {h}" if en else f" durante {h}") if h else ""))
         marks += [people_round(w.people, lang)] + ([h] if h else [])
     else:
-        items.append("no one left without power" if en else "nadie que se quede sin luz")
+        items.append("no one left without power" if en else "cero personas sin luz")
     lost = float(w.ev.get("lost_mw") or 0)
     if lost >= 0.5:
         s = mw_say(lost, lang)

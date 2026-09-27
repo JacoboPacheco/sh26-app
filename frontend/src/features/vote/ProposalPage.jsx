@@ -98,7 +98,10 @@ function Head({ d }) {
       <dl className="vote-facts">
         <div>
           <dt>Reported size</dt>
-          <dd className="vote-facts__big">{e.mw ? `${fmt(e.mw)} MW` : 'Not found'}</dd>
+          <dd className="vote-facts__big">
+            {e.mw ? `${fmt(e.mw)} MW` : 'Not found'}
+            {e.size_note && <span className="vote-facts__aside"> ({e.size_note})</span>}
+          </dd>
         </div>
         <div>
           <dt>Status, as reported</dt>
@@ -129,7 +132,15 @@ function Head({ d }) {
         {e.sources.length === 0 && 'no source link was kept for this entry'}. Location is approximate{basis ? `: ${basis}` : '.'}
       </p>
       <p className="vote-frame">
-        Overload tests a campus of this reported size at this reported location on a <strong>synthetic</strong> grid model. It is not a prediction about the real project, its owners or its utility.
+        {e.hypothetical ? (
+          <>
+            Overload tests a hypothetical {fmt(e.mw)} MW campus at this reported location on a <strong>synthetic</strong> grid model: the MW is not a reported data-center load. It is not a prediction about the real project, its owners or its utility.
+          </>
+        ) : (
+          <>
+            Overload tests a campus of this reported size at this reported location on a <strong>synthetic</strong> grid model. It is not a prediction about the real project, its owners or its utility.
+          </>
+        )}
       </p>
       <nav className="vote-jumps" aria-label="On this page">
         {SECTIONS.map(([id, label]) => (
@@ -186,7 +197,7 @@ export default function ProposalPage({ id }) {
         <p className="vote-body">
           {civic.status_note || (
             <>
-              Status as reported by the sources above: {e.status_text.toLowerCase()}
+              Status as reported by the sources above: {e.status_worded ? e.status_text : e.status_text.toLowerCase()}
               {e.year ? `; timing as reported: ${e.year}` : ''}.
             </>
           )}

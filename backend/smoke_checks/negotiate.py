@@ -140,7 +140,7 @@ def register(ctx):
             assert any("verified against the filings" in c["text"] for c in d["conditions"]), d["conditions"]
             if t["joint_window"]:
                 assert d["joint_window"]["negotiated"]["start"].startswith(t["joint_window"]["start"]), d["joint_window"]
-                assert d["joint_window"]["text"].startswith("Negotiated joint window"), d["joint_window"]["text"]
+                assert d["joint_window"]["text"].startswith("Proposed joint window"), d["joint_window"]["text"]
             else:
                 assert d["joint_window"]["negotiated"] is None, d["joint_window"]
             plain_doc = ctx.request("GET", f"/api/agreement/{oid}?ai=false")
@@ -291,7 +291,7 @@ def register(ctx):
         r = ctx.request("POST", f"/api/negotiate/{oid}?ai=true")
         o = r["outcome"]
         assert r["by"] == "none" and r["calls"] == 0 and r["turns"] == [], (r["by"], r["calls"], len(r["turns"]))
-        assert o["nothing"] is True and o["agreed"] is False and "Nothing to negotiate" in o["reason"] and "share months" in o["reason"], o
+        assert o["nothing"] is True and o["agreed"] is False and "Nothing to propose" in o["reason"] and "share months" in o["reason"], o
         d = ctx.request("GET", f"/api/agreement/{oid}?ai=false")
         assert d["draft"]["savings"]["items"] == [] and d["draft"]["savings"]["left_out"], d["draft"]["savings"]
         assert "Nothing is estimated" in d["draft"]["summary"]["text"], d["draft"]["summary"]["text"]

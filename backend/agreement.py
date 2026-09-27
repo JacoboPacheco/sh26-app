@@ -1319,8 +1319,8 @@ def _with_terms(pa: dict, pb: dict, est: dict, terms: dict) -> tuple[dict, dict,
     sp = terms["split"]
     split = {"basis": sp["basis"], "pct": list(sp["pct"]), "miles": [pa.get("miles"), pb.get("miles")], "rule": sp["rule"], "rationale": sp["rationale"]}
     neg = {"by": terms["by"], "round": terms.get("round"), "window": terms.get("window"), "rule": sp["id"], "text": terms["text"], "scope": [it["id"] for it in keep],
-           # a collaboration plan's terms (collab_plans.plan_terms) say so instead of "negotiated"
-           "window_word": terms.get("window_word") or "Negotiated joint window", "plan": terms.get("plan")}
+           # a collaboration plan's terms (collab_plans.plan_terms) say so instead of "proposed"
+           "window_word": terms.get("window_word") or "Proposed joint window", "plan": terms.get("plan")}
     return est, split, neg
 
 
@@ -1330,7 +1330,7 @@ def _neg_facts(neg: dict) -> list[dict]:
         s, e = neg["window"]
         out.append({
             "key": "neg.window",
-            "text": f"{neg.get('window_word') or 'Negotiated joint window'}: {MONTHS[s[1] - 1]} {s[0]} to {MONTHS[e[1] - 1]} {e[0]}",
+            "text": f"{neg.get('window_word') or 'Proposed joint window'}: {MONTHS[s[1] - 1]} {s[0]} to {MONTHS[e[1] - 1]} {e[0]}",
             "value": [f"{s[0]:04d}-{s[1]:02d}", f"{e[0]:04d}-{e[1]:02d}"],
             "unit": "dates",
             "source": NEGOTIATION_SOURCE,
@@ -1351,11 +1351,11 @@ def _template_terms(tpl: dict, extra: dict, neg: dict) -> None:
             else f"inside the months both filed build windows share ({_month(js)} to {_month(je)})"
         )
         tpl["joint_window_text"] = _it(
-            f"{neg.get('window_word') or 'Negotiated joint window'}: {ws} to {we}, {inside}. Crews, equipment and any outages on both projects would be scheduled together inside it.",
+            f"{neg.get('window_word') or 'Proposed joint window'}: {ws} to {we}, {inside}. Crews, equipment and any outages on both projects would be scheduled together inside it.",
             "neg.window", "pair.joint_window", "neg.terms",
         )
         if len(tpl["next_steps"]) > 2:
-            tpl["next_steps"][2] = _it(f"Compare detailed construction schedules for the {'plan' if neg.get('plan') else 'negotiated'} window, {ws} to {we}.", "neg.window")
+            tpl["next_steps"][2] = _it(f"Compare detailed construction schedules for the {'plan' if neg.get('plan') else 'proposed'} window, {ws} to {we}.", "neg.window")
 
 
 def _base(overlap_id: str, months: int, as_of: date | None = None, terms: dict | None = None) -> dict:

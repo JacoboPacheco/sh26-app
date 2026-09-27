@@ -1,5 +1,5 @@
 {
- "note": "Real, large Florida data-center proposals at their publicly reported sizes (see sources). Each test places a campus of that size at that location on a SYNTHETIC grid model; it is not a prediction about the real project or the real utility. 'status' is the catalog's bucket (for styling and sorting); 'status_reported' is the status in the sources' own words, and is what the page shows. 'mw_reported' is the size as the source words it, when that differs from the plain number tested.",
+ "note": "Real, large Florida data-center proposals at their publicly reported sizes (see sources). Each test places a campus of that size at that location on a SYNTHETIC grid model; it is not a prediction about the real project or the real utility. 'status' is the catalog's bucket (for styling and sorting); 'status_reported' is the status in the sources' own words, and is what the page shows. 'mw_reported' is the size as the source words it, when that differs from the plain number tested (mw_reported_whole: it already says what the figure is, so the page does not add 'reported'). 'status_note' is the full sourced status line and 'hypothetical' means the MW is not a reported data-center load, so the test is worded as a hypothetical campus.",
  "entries": [
   {
    "id": "stonebridge-fort-meade",
@@ -92,17 +92,28 @@
    "mw": 200,
    "status": "paused/canceled",
    "status_reported": "CEO says solar, not a data center",
+   "status_note": "The company's CEO has said the project is solar, not a data center (First Coast News, Apr 20); the county reports no active or pending applications (Apr 14).",
+   "hypothetical": true,
    "sources": [
     {
      "title": "Concerns grow over proposed AI data center in Nassau County | Jacksonville Today",
      "url": "https://jaxtoday.org/2026/06/01/data-center-nassau-county/"
     },
     {
+     "title": "First Coast News (via Yahoo): CEO says he wants to build solar farm, not data center in Nassau County",
+     "url": "https://www.yahoo.com/news/articles/energy-companys-ceo-says-wants-215155950.html"
+    },
+    {
+     "title": "Jax Daily Record: Nassau County pursuing 12-month moratorium on data center development (April 14, 2026)",
+     "url": "https://www.jaxdailyrecord.com/news/2026/apr/14/nassau-county-pursuing-12-month-moratorium-on-data-center-development/"
+    },
+    {
      "title": "NextNRG Nassau County Data Center & Energy Campus \u2014 Florida (Compute Atlas)",
      "url": "https://www.compute-atlas.com/facilities/nextnrg-nassau-county-data-center-energy-campus-fl"
     }
    ],
-   "mw_reported": "200 MW (microgrid)"
+   "mw_reported": "200 MW (the company's microgrid figure)",
+   "mw_reported_whole": true
   }
  ]
 }

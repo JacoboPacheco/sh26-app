@@ -162,6 +162,9 @@ def _site_from_curated(e: dict, companies: dict) -> dict:
     norm = companies.get(e["id"]) or {}
     parties = list(norm.get("parties") or [e.get("company") or "Undisclosed"])
     st = (e.get("state") or "").upper() or None
+    from catalog import shown_as  # lazy, like _load: neither module imports the other at import time
+
+    sh = shown_as(e["id"])  # display wording only (catalog.SHOWN_AS); status and mw still feed the filters and totals
     return {
         "id": e["id"],
         "name": e["name"],
@@ -189,6 +192,11 @@ def _site_from_curated(e: dict, companies: dict) -> dict:
         "sources": [{"title": s.get("title") or s["url"], "publisher": "", "url": s["url"], "supports": s.get("supports") or ""} for s in (e.get("sources") or [])][:4],
         "origin": "curated",
         "year": e.get("year") or "",
+        "status_text": sh.get("status"),  # the status in the sources' own words when the bucket label would say too much
+        "status_short": sh.get("status_short"),
+        "size_text": sh.get("size"),
+        "size_note": sh.get("size_note"),
+        "hypothetical": bool(sh.get("hypothetical")),
         "also": [],
     }
 
@@ -372,6 +380,7 @@ def _public_row(s: dict) -> dict:
     return {
         "id": s["id"], "name": s["name"], "company": s["company"], "status": s["status"], "kind": s["kind"],
         "state": s["state"], "city": s["city"], "lat": s["lat"], "lon": s["lon"], "mw": s["mw"], "origin": s["origin"],
+        "status_short": s.get("status_short"), "size_note": s.get("size_note"),
     }
 
 

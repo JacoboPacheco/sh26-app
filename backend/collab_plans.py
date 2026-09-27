@@ -176,7 +176,7 @@ def _settle_text(case: dict, lang: str) -> str:
     ga_es, gb_es = (rules_es.get(x, x) for x in sp["goal_rules"])
     if case["conflict"]["all_rules_equal"]:
         return _L(lang, f"Every allowed split gives the same shares ({A} {sa:g} %, {B} {sb:g} %), so there is nothing to settle on cost.",
-                  f"Todas las reglas de reparto dan las mismas partes ({A} {sa:g} %, {B} {sb:g} %): no hay nada que negociar sobre el costo.")
+                  f"Todas las reglas de reparto dan las mismas partes ({A} {sa:g} %, {B} {sb:g} %): no hay nada que decidir sobre el costo.")
     if not (oa or ob):
         return _L(lang,
                   f"The goals fit together: splitting the shared costs {_rule_word(sp['label'])} ({A} {sa:g} %, {B} {sb:g} %) asks neither side "
@@ -361,6 +361,9 @@ def _menu(case: dict, lang: str = "en") -> list[dict]:
             what_es = {"line": "cuadrillas de línea y la maquinaria pesada", "station": "cuadrillas y equipos de subestación",
                        "line_other_class": "maquinaria pesada", "mixed": "maquinaria pesada y las entregas"}.get(fit["fit"], "maquinaria pesada")
             art_es = "las" if crews else "la"
+            # "la maquinaria pesada que termina… pasa… se instala y se retira" (a lone piece of equipment is singular)
+            one_es = not crews and fit["fit"] != "mixed"
+            v_end, v_move, v_set = ("termina", "pasa", "se instala y se retira") if one_es else ("terminan", "pasan", "se instalan y se retiran")
             gives = {first: [], ("b" if first == "a" else "a"): [
                 {"what": _L(lang, f"Its start waits on {f_who}'s {'crew' if crews else 'equipment'} finishing (its filed dates stay)",
                             f"Su inicio espera a que {'la cuadrilla' if crews else 'la maquinaria'} de {f_who} termine (sus fechas publicadas se mantienen)"),
@@ -371,8 +374,8 @@ def _menu(case: dict, lang: str = "en") -> list[dict]:
                     "Mismas fechas, cuadrillas compartidas" if crews else "Mismas fechas, maquinaria compartida"),
                  _L(lang, f"Both keep their filed dates; the {what_en} that finish {f_who}'s job move straight to {s_who}'s, so they are set "
                           "up and taken down once instead of twice." + (" One laydown yard serves both jobs." if yard else ""),
-                    f"Las dos mantienen sus fechas publicadas; {art_es} {what_es} que terminan la obra de {f_who} pasan directamente a "
-                    f"la de {s_who}, así que se instalan y se retiran una vez en lugar de dos." + (" Un solo patio de acopio sirve a las dos obras." if yard else "")),
+                    f"Las dos mantienen sus fechas publicadas; {art_es} {what_es} que {v_end} la obra de {f_who} {v_move} directamente a "
+                    f"la de {s_who}, así que {v_set} una vez en lugar de dos." + (" Un solo patio de acopio sirve a las dos obras." if yard else "")),
                  [_L(lang, f"Line up {f_who}'s finish with {s_who}'s start.", f"Hacer coincidir el final de {f_who} con el inicio de {s_who}."),
                   _L(lang, f"Hand the {what_en} from one job to the other.", f"Pasar {art_es} {what_es} de una obra a la otra."),
                   (_L(lang, "Stage both jobs from one laydown yard.", "Preparar las dos obras desde un solo patio de acopio.") if yard else
@@ -447,7 +450,7 @@ def _why_not(case: dict, menu: list[dict], lang: str) -> list[dict]:
                      "Mover un calendario requiere que los dos proyectos sigan por delante, según lo publicado.")
         else:
             why = _L(lang, "The filed windows are more than 3 years apart: moving one that far isn't offered.",
-                     "Las ventanas publicadas están a más de 3 años: no se propone mover una tanto.")
+                     "Las ventanas publicadas están a más de 3 años: no se propone mover un calendario tanto.")
         out.append({"kind": "shift", "why": why})
     if "stagger" not in have:
         out.append({"kind": "stagger", "why": _L(lang, "Handing crews from one job to the other needs both still ahead and at most a year apart.",
@@ -1007,7 +1010,7 @@ async def _plans(case: dict, lang: str, ai: bool) -> tuple[dict, bool]:
                   "claim the data can't support.",
                   "Dos agentes representan cada uno el plan publicado de una empresa y proponen los tipos de plan que le convienen; un "
                   "coordinador neutral los une en planes distintos y recomienda uno. El sistema (código, no Gemini) fija cada cifra a partir "
-                  "de los dos documentos y la estimación de costos con fuentes, acuerda el reparto entre los dos objetivos y descarta lo que "
+                  "de los dos documentos y la estimación de costos con fuentes, resuelve el reparto entre los dos objetivos y descarta lo que "
                   "los datos no respaldan."),
         "ms": round((time.perf_counter() - t0) * 1000),
     }

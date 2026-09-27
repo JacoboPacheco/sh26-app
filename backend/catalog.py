@@ -72,6 +72,28 @@ METHOD = (
     "may trip). Firm: the grid operator keeps the campus on and cuts other customers instead. People "
     "without power = lost load x the state's residents per MW of model load (an estimate)."
 )
+# What the app SHOWS for a project whose reported facts do not fit "N MW + a status bucket" (Decisions -> NO DEFAMATION:
+# say what the sources say, no more). Words only: `mw` and `status` still feed the tests, the counts and the buckets.
+# `size`/`status` are the full lines (a proposal page, a brief, a card); `status_short` is the one-line form for a list row.
+SHOWN_AS = {
+    # NextNRG (fact check, Sat 27 Sep 2026): the 200 MW is the company's microgrid figure, not a reported data-center load;
+    # its CEO has said the project is solar, not a data center (First Coast News, Apr 20); the county's Apr 14 release
+    # reports no active or pending applications; "paused" has no source.
+    "nextnrg-near-jacksonville-international-airport": {
+        "size": "200 MW (the company's microgrid figure)",
+        "size_es": "200 MW (la cifra de microrred de la empresa)",
+        "size_note": "the company's microgrid figure",
+        "status": "The company's CEO has said the project is solar, not a data center (First Coast News, Apr 20); the county reports no active or pending applications (Apr 14)",
+        "status_es": "El director de la empresa ha dicho que el proyecto es solar, no un centro de datos (First Coast News, 20 de abril); el condado informa que no hay solicitudes activas ni pendientes (14 de abril)",
+        "status_short": "CEO says solar, not a data center",
+        "hypothetical": True,  # tested as a hypothetical campus of that size, never as "the reported campus"
+    },
+}
+
+
+def shown_as(entry_id: str) -> dict:
+    """The display wording for one project ({} when the plain "N MW, bucket" wording is true)."""
+    return SHOWN_AS.get(entry_id) or {}
 
 
 # ------------------------------------------------------------------------------------ the entries
