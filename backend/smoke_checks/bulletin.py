@@ -107,6 +107,10 @@ def register(ctx):
                     assert "with" in how and " more " in how, how
         assert "raising the same elements" not in str(fix["narration"]) and "the same elements;" not in str(fix["narration"]), "say what the variants add"
         assert not any(o["family"] == "remove" for o in opts), "'don't build it' is never offered as a solution"
+        # HERO PATH POLISH (Sat 23:40): no two options the page lists (walked or under "More options") share a title
+        for lang in ("en", "es"):
+            titles = [o["name"][lang] for o in opts if o["role"] != "variant"]
+            assert len(titles) == len(set(titles)), (lang, "two options share a title", titles)
         pres = fix.get("present") or {}
         assert (pres.get("blackout") or {}).get("high", 0) > 0 and (pres.get("often") or {}).get("levels"), pres
         if first.get("cost"):  # an upgrade: each element pinned on the map with its own price, adding up to the total
@@ -185,6 +189,12 @@ def register(ctx):
         if hosp:  # REVIEW-1 (e): an assumption, never stated as a fact
             text = " ".join(g["text"] for lang in ("en", "es") for g in hosp["narration"][lang])
             assert "assumed" in text.lower() and "se supone" in text.lower(), text[:300]
+            # HERO PATH POLISH (Sat 23:40): the list beside the map names every area the map labels (up to three), then the source line
+            per = [x for x in (ctx.request("POST", "/api/briefing", case).get("hospitals") or {}).get("areas") or [] if x.get("count")][:3]
+            for lang in ("en", "es"):
+                ls = hosp["lines"][lang]
+                assert all(any(ln.startswith(f"{x['area']} · {x['count']} ") for ln in ls) for x in per), (lang, [x["area"] for x in per], ls)
+                assert ls[-1].startswith("Counts only" if lang == "en" else "Solo conteos"), (lang, ls)
 
     def test_prefetch_waits_to_propose():
         """A prefetch outside Florida (propose: false) builds the deck without starting the AI proposer; the stage's own
@@ -350,6 +360,48 @@ def register(ctx):
         assert sum(1 for t in checked if t["holds"] and not t.get("duplicate")) == ag["verified"], ag
         assert d["agentic"]["trace"] == tr or len(d["agentic"]["trace"]) >= len(tr), "the deck's agentic and the fix slide's disagree"
 
+    def test_distinct_option_titles():
+        """Two options that would read the same (two different AI upgrade sets, or the same elements at other ratings) are
+        told apart by what differs, in both languages, and the first keeps its title; a title already free is left alone."""
+        import os
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        os.environ.setdefault("JWT_SECRET", "smoke-check-only-not-a-secret")
+        try:
+            import bulletin as B
+        except ImportError as e:  # a deployed run without the backend folder on the path
+            raise AssertionError(f"bulletin.py not importable here: {e}") from e
+
+        def el(i, label, new, tr=False):
+            return {"id": i, "label": label, "old_mva": 100.0, "new_mva": new, "transformer": tr, "km": 5.0}
+
+        def row(name_en, name_es, lines, high):
+            return {"name": {"en": name_en, "es": name_es}, "lines": lines, "cost": {"high": high}}
+
+        core = [el(1, "the North Fort Myers 6 transformer", 2400.0, True), el(2, "the North Fort Myers 6 to Fort Myers 3 line", 2578.0)]
+        t_en, t_es = "Upgrade two lines and one transformer", "Reforzar dos líneas y un transformador"
+        rows = [
+            row(t_en, t_es, core + [el(3, "the Bonita Springs 4 to Bonita Springs 2 line", 415.0)], 57.5e6),
+            row(t_en, t_es, core + [el(4, "the Fort Myers 5 to North Fort Myers 6 line", 491.0)], 80.8e6),  # a different third element
+            row(t_en, t_es, core + [el(3, "the Bonita Springs 4 to Bonita Springs 2 line", 830.0)], 90e6),  # the first's elements, larger ratings
+            row("Add 950 MW of on-site generation", "Añadir 950 MW de generación propia", [], None),
+        ]
+        B._distinct_names(rows)
+        for lang in ("en", "es"):
+            titles = [r["name"][lang] for r in rows]
+            assert len(set(titles)) == len(titles), (lang, titles)
+        assert rows[0]["name"]["en"] == t_en and rows[3]["name"]["en"] == "Add 950 MW of on-site generation", "the first and the free titles are kept"
+        assert "Fort Myers 5 to North Fort Myers 6" in rows[1]["name"]["en"] and "instead" in rows[1]["name"]["en"], rows[1]["name"]
+        assert "larger ratings" in rows[2]["name"]["en"] or "Fort Myers 5" in rows[2]["name"]["en"], rows[2]["name"]
+        assert rows[1]["name"]["es"].startswith(t_es) and "línea de Fort Myers 5 a North Fort Myers 6" in rows[1]["name"]["es"], rows[1]["name"]["es"]
+        # the same elements, cheaper and smaller: told apart by their ratings
+        a = row(t_en, t_es, core, 60e6)
+        b = row(t_en, t_es, [el(1, core[0]["label"], 2000.0, True), el(2, core[1]["label"], 2000.0)], 40e6)
+        B._distinct_names([a, b])
+        assert "smaller ratings" in b["name"]["en"] and "menores" in b["name"]["es"] and a["name"]["en"] == t_en, (a["name"], b["name"])
+
     def test_validation():
         ctx.request("POST", "/api/briefing/deck", {}, expect=422)  # nothing happened
         ctx.request("POST", "/api/briefing/deck", {**case, "lat": 40}, expect=422)  # north of Florida
@@ -372,4 +424,5 @@ def register(ctx):
     ctx.check("briefing deck: a storm reads 'no fix' (no upgrade 'prevents' it); a heat-only case never mentions a data center", test_honest_storm_and_heat)
     ctx.check("briefing deck: 'only at the peak' is the 4 PM peak whatever the case's hour (9 AM, heat wave), step-downs per level", test_peak_means_the_peak)
     ctx.check("briefing deck: the fix slide carries the AI proposer's trace (every plan, the engine's verdict on each, the revisions)", test_agent_trace_in_deck)
+    ctx.check("briefing deck: no two options share a title (told apart by which elements or ratings differ), in English and Spanish", test_distinct_option_titles)
     ctx.check("briefing deck rejects an empty case, a point outside Florida, a size of 0, an unknown line, a bad length", test_validation)

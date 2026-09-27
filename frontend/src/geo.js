@@ -124,6 +124,22 @@ export const CITIES = [
   { name: 'Miami', lat: 25.76, lon: -80.19 },
 ]
 
+// px from a town's point to the start of its name on the map: 6, or just past a campus marker sitting on the town
+// (the hero's Fort Myers: the dot would cover the name's first letters). `sites`: [{lat, lon}] or [[lon, lat]]; `k`: the zoom.
+const SITE_DOT_PX = 16 // the marker's pulse ring (the dot inside it is 6)
+export function cityLabelDx(city, sites, k) {
+  const [cx, cy] = project(city.lon, city.lat)
+  let dx0 = 6
+  for (const s of sites || []) {
+    const [sx, sy] = Array.isArray(s) ? project(s[0], s[1]) : project(s.lon, s.lat)
+    const dx = (sx - cx) * k
+    const dy = (sy - cy) * k
+    // the name's first letters span x 6..24 and y -13..-1 from the town's point; the marker is a disc of SITE_DOT_PX
+    if (dx + SITE_DOT_PX > dx0 && dx - SITE_DOT_PX < 24 && dy + SITE_DOT_PX > -13 && dy - SITE_DOT_PX < -1) dx0 = Math.max(dx0, dx + SITE_DOT_PX + 2)
+  }
+  return dx0
+}
+
 // The map labels for a grid: Florida's ten, or for any other state the areas (towns the
 // substations are named after) with the most load, spread apart, placed at their load-weighted center.
 const cityCache = new WeakMap()

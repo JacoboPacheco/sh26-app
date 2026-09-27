@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { project } from '../../geo'
+import { citiesFor, project } from '../../geo'
+import { textWidth } from '../impact/towns'
 import { useOverload } from '../../store'
 
 // What the briefing draws on the live map while the stage is open, inside the map's camera group (portaled into
@@ -22,14 +23,16 @@ import { useOverload } from '../../store'
 //     tags    [{at: [lon, lat], text, sub?, sub2?, tone: 'fix' | 'lost' | 'info', delay?, side?: 'ne' | 'se' | 'nw' | 'sw' | 'w' | 'e'}]
 //     marks   [{at: [lon, lat], tone: 'strain' | 'over' | 'fix' | 'site' | 'lost', r?}]  a ring on one place
 export default function MapOverlay({ lines = [], ghost = null, rings = [], layerKey = '', layer = null }) {
-  const { branchById, subPos } = useOverload()
+  const { branchById, subPos, grid } = useOverload()
   const { cam, k } = useCamera()
+  const cities = useMemo(() => (grid ? citiesFor(grid) : []), [grid])
   if (!cam) return null
   const w = 1 / Math.max(k, 0.5)
   const L = layer || {}
   const lk = L.key || layerKey
   const all = [...lines.map((l) => ({ ...l, lk: layerKey })), ...(L.lines || []).map((l) => ({ ...l, lk }))]
   const ghostAt = L.ghost || ghost
+  const tagSides = layoutTags(L.tags || [], 1 / w, cities)
   return createPortal(
     <g className={`rs-map${L.still ? ' rs-map--still' : ''}`} aria-hidden="true">
       <defs>
@@ -111,7 +114,7 @@ export default function MapOverlay({ lines = [], ghost = null, rings = [], layer
         return <circle key={r.key} className="rs-map__ring" cx={x} cy={y} r={22 * w} strokeWidth={2 * w} />
       })}
       {(L.tags || []).map((t, i) => (
-        <Tag key={`${lk}-tag-${i}`} t={t} w={w} />
+        <Tag key={`${lk}-tag-${i}`} t={t} w={w} side={tagSides[i]} />
       ))}
       {L.gauge && <Gauge key={`${lk}-gauge`} g={L.gauge} w={w} />}
     </g>,
@@ -191,9 +194,54 @@ function Hull({ h, w }) {
 // 'w' / 'e': out beside an area, level with its edge, on a longer leader (CLEAR AREAS: a figure that names an area sits
 // outside it, never on it)
 const SIDE = { ne: [16, -16, 'start'], se: [16, 20, 'start'], nw: [-16, -16, 'end'], sw: [-16, 20, 'end'], w: [-46, 4, 'end'], e: [46, 4, 'start'] }
-function Tag({ t, w }) {
+// the sides tried, in order, when the one asked for would sit on a town's name
+const SIDE_ORDER = ['ne', 'se', 'nw', 'sw', 'e', 'w']
+
+// A tag's box in px around its point (what its text lines cover) on one side.
+function tagBox(t, side) {
+  const [dx, dy0, anchor] = SIDE[side]
+  const dy = t.sub2 && dy0 < 0 ? dy0 - 14 : dy0
+  const wMain = textWidth(String(t.text ?? ''), 12.5, 700)
+  const wSub = Math.max(t.sub ? textWidth(String(t.sub), 10, 600) : 0, t.sub2 ? textWidth(String(t.sub2), 10, 600) : 0)
+  const width = Math.max(wMain, wSub)
+  const base = dy - (t.sub ? 3 : -3) // the main line's baseline
+  const y0 = base - 10
+  const y1 = t.sub2 ? dy + 25 : t.sub ? dy + 12 : base + 3
+  return anchor === 'start' ? { x0: dx, x1: dx + width, y0, y1 } : { x0: dx - width, x1: dx, y0, y1 }
+}
+
+// The sides for a layer's tags: each the one asked for, unless its text would cover a town's name on the map or an
+// earlier tag (the fix slide's "$6.4M-$13.2M" over "Fort Myers"); then the first side that clears them, else the
+// side asked for. Boxes are in screen px around the camera group's origin.
+function layoutTags(tags, k, cities) {
+  const names = cities.map((c) => {
+    const [cx, cy] = project(c.lon, c.lat)
+    const x0 = cx * k + 6
+    const yb = cy * k - 4
+    return { x0, x1: x0 + textWidth(c.name, 11, 500), y0: yb - 9, y1: yb + 3 }
+  })
+  const hit = (a, b) => a.x0 - 2 < b.x1 && b.x0 - 2 < a.x1 && a.y0 - 2 < b.y1 && b.y0 - 2 < a.y1
+  const placed = []
+  return tags.map((t) => {
+    const [x, y] = project(t.at[0], t.at[1])
+    const want = SIDE[t.side] ? t.side : 'ne'
+    const at = (side) => {
+      const b = tagBox(t, side)
+      return { x0: x * k + b.x0, x1: x * k + b.x1, y0: y * k + b.y0, y1: y * k + b.y1 }
+    }
+    const clear = (side) => {
+      const b = at(side)
+      return !names.some((n) => hit(b, n)) && !placed.some((p) => hit(b, p))
+    }
+    const side = clear(want) ? want : SIDE_ORDER.find((s) => s !== want && clear(s)) || want
+    placed.push(at(side))
+    return side
+  })
+}
+
+function Tag({ t, w, side }) {
   const [x, y] = project(t.at[0], t.at[1])
-  const [dx, dy0, anchor] = SIDE[t.side || 'ne']
+  const [dx, dy0, anchor] = SIDE[side]
   // a third line (sub2) lifts a tag above its point (below it on a south side stays as is)
   const dy = t.sub2 && dy0 < 0 ? dy0 - 14 : dy0
   return (

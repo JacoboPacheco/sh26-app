@@ -609,7 +609,7 @@ export function tickerItems(report, deck, lang) {
   const { hit, stillOut } = reportPeople(report)
   if (hit) items.push(`${L.hit.replace(/ \((estimate|estimación)\)$/, '')}: ${fmt(hit)} (${es ? 'estimación' : 'estimate'})`)
   if (stillOut && stillOut < hit) items.push(`${L.stillOutK.replace(/ \((estimate|estimación)\)$/, '')}: ${fmt(stillOut)} (${es ? 'estimación' : 'estimate'})`)
-  if (ev.lost_mw) items.push(es ? `${fmt(ev.lost_mw)} MW de carga perdidos (estimación)` : `${fmt(ev.lost_mw)} MW of load lost (estimate)`)
+  if (ev.lost_mw) items.push(es ? `${fmt(ev.lost_mw)} MW de hogares y negocios sin luz (estimación)` : `${fmt(ev.lost_mw)} MW of homes and businesses lost (estimate)`)
   if (ev.steps) items.push(es ? `${ev.steps} pasos de cascada` : `${ev.steps} cascade steps`)
   const rc = report?.root_cause
   // the grid's weak point first: how loaded it already was, then with the new load; the share of any new load there

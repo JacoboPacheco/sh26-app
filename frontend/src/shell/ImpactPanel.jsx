@@ -71,11 +71,11 @@ export default function ImpactPanel() {
       {done && !fixed && (
         <p className={cascade.outcome === 'islanded' ? 'verdict verdict--bad' : 'verdict'}>
           {cascade.outcome === 'islanded'
-            ? `The grid split after ${n} ${n === 1 ? 'step' : 'steps'}: ${fmt(cascade.lost_mw)} MW of load lost.`
+            ? `The grid split after ${n} ${n === 1 ? 'step' : 'steps'}: ${fmt(cascade.lost_mw)} MW of homes and businesses lost.`
             : `Settled after ${n} ${n === 1 ? 'step' : 'steps'}.`}
           {cascade.capped && ' It was still spreading when the model stopped at 30 steps.'}
           {cascade.site_dark_mw > 0.5 &&
-            ` ${(cascade.sites?.length || 1) === 1 ? "The data center's" : "The data centers'"} own ${fmt(cascade.site_dark_mw)} MW lost power too.`}
+            ` ${(cascade.sites?.length || 1) === 1 ? "The data center's" : "The data centers'"} own ${fmt(cascade.site_dark_mw)} MW lost power too (not counted as people).`}
         </p>
       )}
       {/* a fix on the case outside the flip (a flipped fix kept after the hour or the size changed, a Strengthen option

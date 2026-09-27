@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { useMapView } from '../../GridMap'
-import { CITIES } from '../../geo'
+import { CITIES, cityLabelDx } from '../../geo'
 import { useOverload } from '../../store'
 import { money } from '../cost/money'
 import { useLossRate } from './caseCost'
@@ -37,7 +37,7 @@ function placeLabels(towns, k, project, sites, unit, rate) {
   const taken = []
   CITIES.forEach((c) => {
     const [x, y] = project(c.lon, c.lat)
-    taken.push(lineBox(x / u + 6, y / u - 4, textWidth(c.name, CITY_PX, 500), CITY_PX))
+    taken.push(lineBox(x / u + cityLabelDx(c, sites, k), y / u - 4, textWidth(c.name, CITY_PX, 500), CITY_PX))
   })
   sites.forEach(([lon, lat]) => {
     const [x, y] = project(lon, lat)
@@ -58,9 +58,10 @@ function placeLabels(towns, k, project, sites, unit, rate) {
       // the map already names this city: its people follow the name on the same line, or sit under it
       const [cx, cy] = project(city.lon, city.lat).map((v) => v / u)
       const wCity = textWidth(city.name, CITY_PX, 500)
+      const dxCity = cityLabelDx(city, sites, k) // a campus on the town pushes its name (and what follows it) out
       for (const [x, base] of [
-        [cx + 6 + wCity + 5, cy - 4],
-        [cx + 6, cy - 4 + CITY_PX * 0.25 + LINE_GAP + HOMES_PX * 0.8],
+        [cx + dxCity + wCity + 5, cy - 4],
+        [cx + dxCity, cy - 4 + CITY_PX * 0.25 + LINE_GAP + HOMES_PX * 0.8],
       ]) {
         const b = lineBox(x, base, wHomes, HOMES_PX)
         if (free(b)) {

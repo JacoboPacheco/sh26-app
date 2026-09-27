@@ -1,6 +1,6 @@
 import { createContext, memo, useCallback, useContext, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import outline from './data/florida_outline.json'
-import { HEIGHT, REGION, STATES, WIDTH, citiesFor, project, setProjectionFor, snapshot, toPath, unproject } from './geo'
+import { HEIGHT, REGION, STATES, WIDTH, cityLabelDx, citiesFor, project, setProjectionFor, snapshot, toPath, unproject } from './geo'
 
 // The land for the current projection: the region's state filled, every other state faint around
 // it (all of them, equally, on the national map). Florida keeps its hand-built outline and lake.
@@ -129,6 +129,25 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
 
   const land = useMemo(() => landFor(region), [region])
   const cities = useMemo(() => (national ? [] : citiesFor(grid)), [grid, national])
+
+  // A city name cut by the screen's edge is a stray fragment ("Be" of West Palm Beach peeking out past a panel): hide
+  // it. Measured on the settled camera (after an ease ends) and again when the window resizes.
+  useEffect(() => {
+    if (easing) return undefined
+    const svg = svgRef.current
+    if (!svg) return undefined
+    const hideCut = () => {
+      const box = svg.getBoundingClientRect()
+      for (const el of svg.querySelectorAll('.map-city')) {
+        const r = el.getBoundingClientRect()
+        const cut = r.right > box.right + 1 || r.left < box.left - 1 || r.bottom > box.bottom + 1 || r.top < box.top - 1
+        el.style.visibility = cut ? 'hidden' : ''
+      }
+    }
+    hideCut()
+    window.addEventListener('resize', hideCut)
+    return () => window.removeEventListener('resize', hideCut)
+  }, [view, easing, cities])
 
   const geom = useMemo(() => {
     const xy = new Map(grid.subs.map((s) => [s.id, project(s.lon, s.lat)]))
@@ -284,14 +303,6 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
           ))}
           {!national && <GridLayers geom={geom} lineClasses={lineClasses} subClasses={subClasses} zoomBucket={zoomBucket} />}
           <MapViewCtx.Provider value={mapView}>{children}</MapViewCtx.Provider>
-          {cities.map((c) => {
-            const [x, y] = project(c.lon, c.lat)
-            return (
-              <text key={c.name} className="map-city" x={x + 6 / k} y={y - 4 / k} fontSize={11 / k}>
-                {c.name}
-              </text>
-            )
-          })}
           {sites.map((s, i) => {
             const [x, y] = project(s.lon, s.lat)
             return (
@@ -299,6 +310,15 @@ export default function GridMap({ ref, grid, lineClasses, subClasses, sites = []
                 <circle className="site-ring" r={16 / k} />
                 <circle className="site-dot" r={6 / k} />
               </g>
+            )
+          })}
+          {/* the names after the markers: a campus dropped on a town (the hero's Fort Myers) never covers its label */}
+          {cities.map((c) => {
+            const [x, y] = project(c.lon, c.lat)
+            return (
+              <text key={c.name} className="map-city" x={x + cityLabelDx(c, sites, k) / k} y={y - 4 / k} fontSize={11 / k}>
+                {c.name}
+              </text>
             )
           })}
           {tap && <ConnectPulse key={tap.key} from={tap.from} to={tap.to} k={k} />}

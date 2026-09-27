@@ -1446,12 +1446,12 @@ def s_hospitals(w: Writer, lv: Level) -> dict:
         out["narr"][lang] = [_seg("presenter", sentences([(s1 + ".", False), (s2, False)], lv, PRESENTER_MAX[lang]))]
         out["headline"][lang] = (f"{count} {'hospital' if count == 1 else 'hospitals'} in the dark areas" if en
                                  else f"{count} {'hospital' if count == 1 else 'hospitales'} en las zonas sin luz")
-        lines = [(f"{a['area']} · {a['count']} " + (("hospital" if a["count"] == 1 else "hospitals") if en else ("hospital" if a["count"] == 1 else "hospitales"))) for a in per[:2]]
+        lines = [(f"{a['area']} · {a['count']} " + (("hospital" if a["count"] == 1 else "hospitals") if en else ("hospital" if a["count"] == 1 else "hospitales"))) for a in per]  # every area the map labels (up to three)
         src = h.get("source")
         # REVIEW-1 (e): on backup is an assumption, said as one
         lines.append(((f"Counts only, assumed on backup · {src}" if en else f"Solo conteos, se supone que con respaldo · {src}") if src
                       else ("Counts only, assumed on backup" if en else "Solo conteos, se supone que con respaldo"))[:LINE_MAX])
-        out["lines"][lang] = lines[:3]
+        out["lines"][lang] = lines[:4]  # up to three areas, then the source line (which must stay)
     out["big"] = {"value": count, "display": {"en": f"{count}", "es": f"{count}"},
                   "label": {"en": "hospitals in dark areas (assumed on backup)", "es": "hospitales en zonas sin luz (se supone que con respaldo)"},
                   "fact_key": "deck.hospitals.count", "tone": "alert"}
@@ -2171,6 +2171,11 @@ def s_fix(w: Writer, lv: Level) -> dict:
                 ph = _deep_name(w, lang)
             if k > 0 and flex_lead and fx.get("family") in ("upgrade", "agentic"):
                 ph = (f"if you want no step-downs, {ph}" if en else f"si no quieres recortes, {ph[:1].lower() + ph[1:]}")
+            if kind_of.get(id(fx)) == "upgrade_other":  # another set of upgrades: said so, never the same words twice
+                k_up = next((j for j, y in enumerate(opts) if kind_of.get(id(y)) == "upgrade"), None)
+                if k_up is not None and k_up != k:
+                    ph = (f"{ph}, a different set from option {words(k_up + 1, 'en')}" if en
+                          else f"{ph}, otro conjunto distinto al de la opción {words(k_up + 1, 'es')}")
             kept, pct, cost = fx.get("kept_mw"), fx.get("kept_pct"), fx.get("cost")
             fl = plan.get("flex") or {}
             kind = kind_of.get(id(fx))
@@ -2329,6 +2334,7 @@ def s_fix(w: Writer, lv: Level) -> dict:
     var_rows = [opt_row(0, v, "variant", head=h) for h in opts for v in variants_of.get(id(h)) or []]
     # an option the narration had no room for goes under "More options", and so do the variants folded into it
     more_rows = [opt_row(0, x, "more") for x in unwalked + [v for h in unwalked for v in variants_of.get(id(h)) or []] + more]
+    _distinct_names(walked_rows + more_rows)  # never two options with the same title (the variants show what they add)
     out["options"] = walked_rows + var_rows + more_rows
     # what the options are weighed against (solutions.present_plan): how often the full campus overloads the grid, the
     # blackout's estimated cost, and the operating rule's per-level sizes with its labeled, sourced assumption
@@ -2514,6 +2520,62 @@ def _cheaper_say(fx: dict, k_home: int | None, lang: str) -> str:
     if en:
         return f"It raises the same elements as {ref} for less" + ("; it leaves a line closer to its limit." if thin else ".")
     return f"Refuerza lo mismo que {ref} por menos" + ("; deja una línea más cerca de su límite." if thin else ".")
+
+
+def _differs_say(first: dict, row: dict, lang: str) -> str:
+    """What makes an option differ from an earlier one with the same title, as a tail for the title: the elements it
+    raises that the other does not ('plus the X to Y line'), the ones it leaves out, or, for the same elements, the
+    ratings ('to larger ratings'). Built from the two options' element lists, so both languages say the same thing."""
+    from narrate import label_of  # noqa: PLC0415 — late, like the module's other helpers
+
+    en = lang == "en"
+    a = {int(x["id"]): x for x in first.get("lines") or [] if x.get("id") is not None}
+    b = {int(x["id"]): x for x in row.get("lines") or [] if x.get("id") is not None}
+    extra = [x for i, x in b.items() if i not in a]
+    gone = [x for i, x in a.items() if i not in b]
+
+    def names(xs: list[dict]) -> str:
+        out = join([label_of(x, lang) for x in xs[:2]], lang)
+        return out + (f" +{len(xs) - 2}" if len(xs) > 2 else "")
+
+    if extra and gone:
+        return f", with {names(extra)} instead" if en else f", con {names(extra)} en su lugar"
+    if extra:
+        return f", plus {names(extra)}" if en else f", más {names(extra)}"
+    if gone:
+        return f", without {names(gone)}" if en else f", sin {names(gone)}"
+    # the same elements: told apart by their ratings (or, failing that, by price)
+    tot = lambda r: sum(float(x.get("new_mva") or 0) for x in r.get("lines") or [])  # noqa: E731
+    hi = lambda r: float((r.get("cost") or {}).get("high") or 0)  # noqa: E731
+    up = (tot(row) - tot(first)) or (hi(row) - hi(first))
+    if up > 0:
+        return ", to larger ratings" if en else ", con capacidades mayores"
+    if up < 0:
+        return ", to smaller ratings" if en else ", con capacidades menores"
+    return ", another sizing" if en else ", otro dimensionamiento"
+
+
+def _distinct_names(rows: list[dict]) -> None:
+    """DISTINCT OPTIONS (user, Sat 19:12; hero polish, Sat 23:40): no two options listed on the page (the walked ones
+    and "More options"; the variants are folded into an option and shown by what they add) share a title, in either
+    language. The first keeps its title; a later one with the same title is told apart by what differs from it (which
+    elements, which ratings), and numbered only if even that is not enough."""
+    for lang in LANGS:
+        seen: dict[str, dict] = {}
+        for r in rows:
+            key = (r.get("name") or {}).get(lang)
+            if not key:
+                continue
+            first = seen.get(key)
+            if first is None:
+                seen[key] = r
+                continue
+            tail = _differs_say(first, r, lang)
+            title, n = key + tail, 2
+            while title in seen:
+                title, n = f"{key}{tail} ({n})", n + 1
+            r["name"][lang] = title
+            seen[title] = r
 
 
 FAMILY_SAY = {
